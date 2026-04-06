@@ -14,7 +14,7 @@ const DELIVERABLE_BASE = "/deliverable";
 const CAMPAIGN_INVITATION_BASE = "/campaign-invitation";
 const Apply_Base = "/apply";
 const CONTRACT_BASE = "/contract";
-
+const DISPUTE_BASE = "/dispute";
 /** -------------------------
  *  ✅ Response Unwrap Helpers
  *  ------------------------*/
@@ -2038,4 +2038,13 @@ export async function apiUploadImages(files: File[]) {
   files.forEach((file) => formData.append("images", file));
 
   return apiPost<any>(`${CAMPAIGN_BASE}/upload-image`, formData);
+}
+
+export async function apiDisputeCreate(payload: {
+  brandId: string;
+  campaignId: string;
+  influencerId: string;
+  reason: string;
+}) {
+  return apiPost<any>(`${DISPUTE_BASE}/brand/create`, payload);
 }
