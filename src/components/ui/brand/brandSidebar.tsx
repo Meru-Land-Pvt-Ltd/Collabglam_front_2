@@ -36,6 +36,10 @@ import {
   Users,
   Wallet,
   X,
+  GavelIcon,
+  LinkIcon,
+  QuestionIcon,
+  FilesIcon,
 } from "@phosphor-icons/react";
 
 /* -------------------------------- routing -------------------------------- */
@@ -54,7 +58,7 @@ const ROUTES: Record<string, string> = {
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
   notification: "/brand/notifications",
-  help: "/brand/help-and-support",
+  help: "",
 };
 
 /* -------------------------------- types -------------------------------- */
@@ -78,6 +82,12 @@ type Workspace = {
   name: string;
   logoSrc?: string;
 };
+
+type SupportMenuKey =
+  | "dispute"
+  | "report_issue"
+  | "help_center"
+  | "privacy_policy";
 
 type BrandLiteFeature = {
   key?: string | null;
@@ -262,6 +272,36 @@ function PanelCaretGlyph({
   );
 }
 
+function SupportMenuIcon({
+  kind,
+  className,
+}: {
+  kind: SupportMenuKey;
+  className?: string;
+}) {
+  if (kind === "dispute") {
+    return (
+      <GavelIcon />
+    );
+  }
+
+  if (kind === "report_issue") {
+    return (
+      <LinkIcon />
+    );
+  }
+
+  if (kind === "help_center") {
+    return (
+      <QuestionIcon />
+    );
+  }
+
+  return (
+    <FilesIcon />
+  );
+}
+
 function getWalletAmount(res: unknown) {
   const data = res as Record<string, any> | null | undefined;
 
@@ -392,7 +432,11 @@ export default function BrandSidebar({
 
   const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
+  const [helpDialogPosition, setHelpDialogPosition] = useState({ top: 0, left: 0 });
 
+  const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  const helpDialogRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
   const liteSubscription = brandLite?.subscriptionDetails ?? brandLite?.subscription ?? null;
@@ -469,8 +513,8 @@ export default function BrandSidebar({
   );
 
   const isFullyManagedPlan = useMemo(() => {
-  return normalizedPlanName === "fully_managed";
-}, [normalizedPlanName]);
+    return normalizedPlanName === "fully_managed";
+  }, [normalizedPlanName]);
 
   const isPaidPlan = useMemo(() => {
     if (!normalizedPlanName) return false;
@@ -539,19 +583,19 @@ export default function BrandSidebar({
           </span>
         ),
       },
-      
+
       { key: "help", label: "Help", icon: Question, section: "manage" },
     ],
     []
   );
 
-const dashboardItems = useMemo(() => {
-  return items.filter((i) => {
-    if (i.section !== "overview") return false;
+  const dashboardItems = useMemo(() => {
+    return items.filter((i) => {
+      if (i.section !== "overview") return false;
 
-    return true;
-  });
-}, [items, isFullyManagedPlan]);
+      return true;
+    });
+  }, [items, isFullyManagedPlan]);
 
   const manageItems = useMemo(
     () => items.filter((i) => i.section === "manage"),
@@ -642,6 +686,17 @@ const dashboardItems = useMemo(() => {
     planName
   );
 
+  const helpMenuItems = useMemo<
+    Array<{ key: SupportMenuKey; label: string }>
+  >(
+    () => [
+      { key: "dispute", label: "Dispute" },
+      { key: "report_issue", label: "Report an Issue" },
+      { key: "help_center", label: "Help Center" },
+      { key: "privacy_policy", label: "Privacy Policy" },
+    ],
+    []
+  );
 
   /* -------------------------------- effects -------------------------------- */
 
@@ -851,6 +906,18 @@ const dashboardItems = useMemo(() => {
     };
   }, [profileMenuOpen]);
 
+  useEffect(() => {
+    if (!helpDialogOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpDialogOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [helpDialogOpen]);
+
   /* ------------------------------- callbacks ------------------------------- */
 
   const setDrawerOpen = useCallback(
@@ -874,6 +941,54 @@ const dashboardItems = useMemo(() => {
     router.push("/brand/subscriptions");
     if (!isDesktop) setDrawerOpen(false);
   }, [router, isDesktop, setDrawerOpen]);
+
+  const openHelpDialog = useCallback(() => {
+    const rect = helpAnchorRef.current?.getBoundingClientRect();
+
+    if (rect) {
+      const DIALOG_HEIGHT = 340; // realistic estimated height
+      const GAP = 12;
+      const VIEWPORT_PADDING = 16;
+
+      // Anchor to the top of the button, then clamp so it never overflows
+      let top = rect.top;
+
+      // If it would overflow the bottom, push it up
+      if (top + DIALOG_HEIGHT > window.innerHeight - VIEWPORT_PADDING) {
+        top = window.innerHeight - VIEWPORT_PADDING - DIALOG_HEIGHT;
+      }
+
+      // Never go above the top edge
+      top = Math.max(VIEWPORT_PADDING, top);
+
+      setHelpDialogPosition({
+        top,
+        left: rect.right + GAP,
+      });
+    }
+
+    setHelpDialogOpen((prev) => !prev);
+  }, []);
+  const handleHelpMenuSelect = useCallback((key: SupportMenuKey) => {
+    setHelpDialogOpen(false);
+
+    switch (key) {
+      case "dispute":
+        router.push("/brand/disputes");
+        break;
+      case "report_issue":
+        router.push("/brand/report-issue");
+        break;
+      case "help_center":
+        router.push("/brand/help-center");
+        break;
+      case "privacy_policy":
+        router.push("/privacy-policy");
+        break;
+      default:
+        break;
+    }
+  }, []);
 
   const handleSetActive = useCallback(
     (key: string) => {
@@ -1056,6 +1171,21 @@ const dashboardItems = useMemo(() => {
         );
       }
 
+      if (item.key === "help") {
+        return (
+          <div key={item.key} ref={helpAnchorRef}>
+            <RowButton
+              icon={item.icon}
+              label={item.label}
+              active={helpDialogOpen}
+              tight={tight}
+              collapsed={isCollapsed}
+              onClick={openHelpDialog}
+            />
+          </div>
+        );
+      }
+
       return (
         <RowButton
           key={item.key}
@@ -1080,7 +1210,9 @@ const dashboardItems = useMemo(() => {
       isCampaignChildActive,
       isClosing,
       isDesktop,
+      helpDialogOpen,
       motionTransitions.content,
+      openHelpDialog,
       tight,
       walletBalanceLabel,
     ]
@@ -1738,10 +1870,76 @@ const dashboardItems = useMemo(() => {
     </AnimatePresence>
   );
 
+  const HelpDialog = (
+    <AnimatePresence>
+      {helpDialogOpen ? (
+        <m.div
+          ref={helpDialogRef}
+          key="help-support-dialog"
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="help-support-dialog-title"
+          variants={fadeScale}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={motionTransitions.content}
+          className="fixed z-[140] w-full max-w-[320px]"
+          style={{
+            top: helpDialogPosition.top,
+            left: helpDialogPosition.left,
+
+          }}
+        >
+          <div className="rounded-[18px] -top-40 border border-neutral-200 bg-white px-3 py-4 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
+            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <div>
+                <h2
+                  id="help-support-dialog-title"
+                  className="text-[16px] font-semibold text-[#1a1a1a]"
+                >
+                  Help & Support
+                </h2>
+                <p className="mt-1 text-[12px] text-neutral-500">
+                  Choose where you want to go next.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-1">
+              {helpMenuItems.map((item) => (
+                <button
+
+                  key={item.key}
+                  type="button"
+                  onClick={() => handleHelpMenuSelect(item.key)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[#1a1a1a] transition hover:bg-[#F8F8F8]",
+                    FOCUS_RING
+                  )}
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center text-[#1a1a1a]">
+                    <SupportMenuIcon kind={item.key} className="h-5 w-5" />
+                  </span>
+                  <span className="text-[16px] font-medium leading-6">
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </m.div>
+      ) : null}
+    </AnimatePresence>
+  );
+
   return (
     <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
-        {isDesktop ? DesktopAside : MobileDrawer}
+        <>
+          {isDesktop ? DesktopAside : MobileDrawer}
+          {HelpDialog}
+        </>
       </MotionConfig>
     </LazyMotion>
   );

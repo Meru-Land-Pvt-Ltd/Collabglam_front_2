@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import { post } from "@/lib/api";
 import { DisputeTable } from "./disputesTable";
 import DisputeFilters from "./disputeFilter";
@@ -152,6 +152,7 @@ const BrandDisputesPage: React.FC = () => {
 
   return (
     <div className="w-full mx-auto">
+      <Suspense fallback={<div>Loading filters...</div>}>
       <DisputeFilters
         search={search}
         onSearchChange={setSearch}
@@ -161,7 +162,7 @@ const BrandDisputesPage: React.FC = () => {
         onDirectionChange={setDirection}
         onDisputeCreated={fetchDisputes}
       />
-
+      </Suspense>
       <DisputeTable
         rows={rows}
         loading={loading}

@@ -341,7 +341,7 @@ export default function BrandDisputeDetailPage() {
       <div className="min-h-screen" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');`}</style>
 
-        <div className="max-w-7xl mx-auto px-[1.875rem] py-[1.875rem] space-y-4">
+        <div className="px-[1.875rem] py-[1.875rem] space-y-4">
 
           {/* ── Back ───────────────────────────────────────────────────────── */}
 

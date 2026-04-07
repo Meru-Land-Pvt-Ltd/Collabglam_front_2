@@ -1,6 +1,7 @@
 "use client";
-
+import ReactDOM from "react-dom";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ChevronDownIcon,
   XIcon,
@@ -14,8 +15,16 @@ import { GavelIcon } from "@phosphor-icons/react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/buttonComp";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { FloatingSelect, SelectItem } from "@/components/ui/selectComp";
 import { get, post, postFormData } from "@/lib/api";
+import { FloatingTextarea } from "@/app/influencer/(protected)/my-campaigns/page";
+import { FloatingInput } from "@/components/ui/floatingInput";
+import { FloatingSelect, FloatingMultiSelect, SelectItem, Select } from "@/components/ui/selectComp";
+import { ProductImagesUpload } from "@/components/ui/upload-card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { LabeledTextarea } from "@/components/ui/textAreaComp";
+import { ProductCardUpload } from "@/components/ui/productCard-Image";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -54,6 +63,17 @@ const DIRECTION_OPTIONS = [
   { value: "all", label: "All disputes" },
   { value: "raised_by_you", label: "Raised by you" },
   { value: "against_you", label: "Raised against you" },
+];
+
+const DISPUTE_CATEGORIES = [
+  { value: "content_not_as_expected", label: "Content Not as Expected" },
+  { value: "delay_or_missed_deadline", label: "Delay or Missed Deadline" },
+  { value: "payment_issue", label: "Payment Issue" },
+  { value: "revision_issue", label: "Revision Issue" },
+  { value: "agreement_issue", label: "Agreement Issue" },
+  { value: "scope_change", label: "Scope Change" },
+  { value: "no_response", label: "No Response" },
+  { value: "other", label: "Other" },
 ];
 
 // ─── ComboboxFilter ────────────────────────────────────────────────────────────
@@ -129,111 +149,177 @@ function ComboboxFilter({
   );
 }
 
-// ─── FloatingInput ─────────────────────────────────────────────────────────────
-
-function FloatingInput({
-  label,
-  required,
+function IssueTypeSelect({
   value,
   onChange,
-  className,
 }: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChange: (v: string) => void;
-  className?: string;
+  value: string[];
+  onChange: (v: string[]) => void;
 }) {
-  const [focused, setFocused] = useState(false);
-  const isFloating = focused || value.length > 0;
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  return (
-    <div className={`my-2 w-full ${className ?? ""}`}>
-      <div
-        className={`relative rounded-[12px] border bg-white flex items-stretch min-h-[4rem] md:min-h-[4.25rem] xl:min-h-[4.5rem] 2xl:min-h-[5rem] transition-[box-shadow,border-color] duration-300 ${
-          focused ? "border-black ring-1 ring-black" : "border-bd-primary"
-        }`}
-      >
-        <label
-          className={`pointer-events-none absolute z-10 select-none left-[18px] pr-[48px] max-w-full truncate transition-all duration-300 ease-out text-[color:var(--Light-Text-Secondary,#969696)] ${
-            isFloating
-              ? "top-[8px] translate-y-0 text-[14px] leading-[16px] font-normal"
-              : "top-1/2 -translate-y-1/2 text-[16px] leading-[24px] font-medium"
-          }`}
-        >
-          {label}
-          {required && <span className="text-[#E53935]"> *</span>}
-        </label>
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          className={`w-full bg-transparent outline-none text-[14px] leading-[20px] font-semibold text-tx-primary pl-[18px] pr-[12px] transition-[padding] duration-300 ${
-            isFloating ? "pt-[26px] pb-[8px]" : "pt-[22px] pb-[22px]"
-          }`}
-        />
-      </div>
-    </div>
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        triggerRef.current?.contains(e.target as Node) ||
+        dropdownRef.current?.contains(e.target as Node)
+      ) {
+        return;
+      }
+      setOpen(false);
+      setSearch("");
+    };
+
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const toggle = (val: string) => {
+    if (value.includes(val)) {
+      onChange(value.filter((v) => v !== val));
+    } else {
+      onChange([...value, val]);
+    }
+  };
+
+  const filtered = DISPUTE_CATEGORIES.filter((c) =>
+    c.label.toLowerCase().includes(search.toLowerCase())
   );
-}
 
-// ─── FloatingTextarea ──────────────────────────────────────────────────────────
-
-function FloatingTextarea({
-  label,
-  required,
-  value,
-  onChange,
-  placeholder,
-  maxLength,
-  rows = 4,
-}: {
-  label: string;
-  required?: boolean;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  maxLength?: number;
-  rows?: number;
-}) {
-  const [focused, setFocused] = useState(false);
-  const isFloating = focused || value.length > 0;
+  const selectedLabels = DISPUTE_CATEGORIES.filter((c) =>
+    value.includes(c.value)
+  ).map((c) => c.label);
 
   return (
-    <div className="my-2 w-full">
-      <div
-        className={`relative rounded-[12px] border bg-white transition-all duration-300 ${
-          focused ? "border-black ring-1 ring-black" : "border-bd-primary"
-        } px-[18px] pb-[28px] ${isFloating ? "pt-[26px]" : "pt-[22px]"}`}
-      >
-        <label
-          className={`pointer-events-none absolute z-10 select-none left-[18px] transition-all duration-300 ease-out text-[color:var(--Light-Text-Secondary,#969696)] ${
-            isFloating
-              ? "top-[8px] text-[14px] leading-[16px] font-normal"
-              : "top-[22px] text-[16px] leading-[24px] font-medium"
-          }`}
-        >
-          {label}
-          {required && <span className="text-[#E53935]"> *</span>}
-        </label>
-        <textarea
-          value={value}
-          onChange={(e) =>
-            onChange(maxLength ? e.target.value.slice(0, maxLength) : e.target.value)
-          }
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={isFloating ? placeholder : ""}
-          rows={rows}
-          className="w-full bg-transparent outline-none resize-none text-[14px] leading-[20px] font-semibold text-tx-primary placeholder:text-[#bbb] placeholder:font-normal"
-        />
-        {maxLength != null && (
-          <span className="absolute bottom-2.5 right-3 text-[11px] text-[#bbb]">
-            {value.length}/{maxLength}
-          </span>
+    <div className="relative w-full mt-2">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "relative flex h-14 w-full items-center rounded-lg border bg-white px-4 pr-12 text-left transition-all",
+          open
+            ? "border-[#bfc6d4] ring-2 ring-[#e9edf5]"
+            : "border-[#d9d9d9] hover:border-[#c7c7c7]"
         )}
-      </div>
+      >
+        <span
+          className={cn(
+            "truncate text-[15px] leading-none",
+            value.length > 0 ? "text-[#1a1a1a]" : "text-[#707070]"
+          )}
+        >
+          {value.length > 0 ? (
+            selectedLabels.join(", ")
+          ) : (
+            <>
+              Issue Type <span className="text-red-500">*</span>
+            </>
+          )}
+        </span>
+
+        <ChevronDownIcon
+          className={cn(
+            "absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#9ca3af] transition-transform duration-200",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+
+      {open && (
+        <div
+          ref={dropdownRef}
+          className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg"
+        >
+          <div className="flex items-center gap-2 border-b border-[#f1f1f1] px-4 py-3">
+            <SearchIcon className="size-4 shrink-0 text-[#9ca3af]" />
+            <input
+              type="text"
+              placeholder="Search issue types..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 bg-transparent text-sm text-[#1a1a1a] outline-none placeholder:text-[#9ca3af]"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="text-[#9ca3af] transition-colors hover:text-[#6b7280]"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="max-h-56 overflow-y-auto py-2">
+            {filtered.length > 0 ? (
+              filtered.map((cat) => {
+                const checked = value.includes(cat.value);
+
+                return (
+                  <button
+                    key={cat.value}
+                    type="button"
+                    onClick={() => toggle(cat.value)}
+                    className={cn(
+                      "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f8f8f8]",
+                      checked && "bg-[#fafafa]"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex h-4 w-4 items-center justify-center rounded border transition-all",
+                        checked
+                          ? "border-[#1a1a1a] bg-[#1a1a1a]"
+                          : "border-[#d1d5db] bg-white"
+                      )}
+                    >
+                      {checked && (
+                        <svg
+                          className="h-3 w-3 text-white"
+                          fill="currentColor"
+                          viewBox="0 0 20 20"
+                        >
+                          <path
+                            fillRule="evenodd"
+                            clipRule="evenodd"
+                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                          />
+                        </svg>
+                      )}
+                    </div>
+
+                    <span className="text-sm text-[#1f2937]">{cat.label}</span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-4 py-8 text-center text-sm text-[#9ca3af]">
+                No matching issue types found
+              </div>
+            )}
+          </div>
+
+          {value.length > 0 && (
+            <div className="flex items-center justify-between border-t border-[#f1f1f1] bg-[#fafafa] px-4 py-2">
+              <span className="text-xs text-[#6b7280]">
+                {value.length} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => onChange([])}
+                className="text-xs text-[#6b7280] transition-colors hover:text-[#374151]"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -244,10 +330,12 @@ function RaiseDisputeDialog({
   open,
   onOpenChange,
   onSuccess,
+  lockedCampaignId,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onSuccess?: () => void;
+  lockedCampaignId?: string;
 }) {
   const [brandId, setBrandId] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -255,22 +343,30 @@ function RaiseDisputeDialog({
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [loadingApplicants, setLoadingApplicants] = useState(false);
 
-  const [campaignId, setCampaignId] = useState("");
+  const [campaignId, setCampaignId] = useState(lockedCampaignId || "");
   const [influencerId, setInfluencerId] = useState("");
   const [subject, setSubject] = useState("");
   const [description, setDescription] = useState("");
-  const [relatedType, setRelatedType] = useState("");
+  const [relatedType, setRelatedType] = useState<string[]>([]);
   const [attachments, setAttachments] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isCampaignLocked = !!lockedCampaignId;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     setBrandId(localStorage.getItem("brandId"));
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setCampaignId(lockedCampaignId || "");
+    setInfluencerId("");
+    setError(null);
+  }, [open, lockedCampaignId]);
 
   useEffect(() => {
     if (!brandId || !open) return;
@@ -285,6 +381,7 @@ function RaiseDisputeDialog({
     setApplicants([]);
     setInfluencerId("");
     if (!campaignId) return;
+
     setLoadingApplicants(true);
     post<{ influencers: Applicant[] }>("/apply/list", { campaignId, page: 1, limit: 1000 })
       .then((d) => setApplicants(d?.influencers || []))
@@ -292,12 +389,17 @@ function RaiseDisputeDialog({
       .finally(() => setLoadingApplicants(false));
   }, [campaignId]);
 
+  const campaignOptions = campaigns.filter((c) => getCampaignId(c));
+  const selectedCampaignExists = campaignOptions.some(
+    (c) => getCampaignId(c) === campaignId
+  );
+
   const reset = () => {
-    setCampaignId("");
+    setCampaignId(lockedCampaignId || "");
     setInfluencerId("");
     setSubject("");
     setDescription("");
-    setRelatedType("");
+    setRelatedType([]);
     setAttachments([]);
     setError(null);
   };
@@ -318,24 +420,40 @@ function RaiseDisputeDialog({
 
   const submit = async () => {
     setError(null);
-    if (!brandId) { setError("Missing brand ID — please log in again."); return; }
-    if (!influencerId) { setError("Please select an influencer."); return; }
-    if (!subject.trim()) { setError("Dispute title is required."); return; }
+    if (!brandId) {
+      setError("Missing brand ID — please log in again.");
+      return;
+    }
+    if (!campaignId) {
+      setError("Please select a campaign.");
+      return;
+    }
+    if (!influencerId) {
+      setError("Please select an influencer.");
+      return;
+    }
+    if (!subject.trim()) {
+      setError("Dispute title is required.");
+      return;
+    }
 
     setSubmitting(true);
     try {
       const form = new FormData();
       form.append("brandId", brandId);
       form.append("influencerId", influencerId);
-      if (campaignId) form.append("campaignId", campaignId);
+      form.append("campaignId", campaignId);
       form.append("subject", subject.trim());
       form.append("description", description.trim());
-      form.append("related", JSON.stringify({ type: relatedType || "other" }));
+      form.append(
+        "issueType",
+        JSON.stringify(relatedType.length ? relatedType : ["other"])
+      );
       attachments.forEach((f) => form.append("attachments", f));
 
       await postFormData("/dispute/brand/create", form);
       handleClose();
-      onSuccess?.(); // ← triggers refetch in BrandDisputesPage
+      onSuccess?.();
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || "Failed to create dispute.");
     } finally {
@@ -347,14 +465,20 @@ function RaiseDisputeDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent
         showCloseButton={false}
-        className="p-0 gap-0 !max-w-[43.0625rem] rounded-2xl overflow-hidden border-0"
+        className=" !flex !flex-col
+      w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] md:w-full
+      !max-w-[43.0625rem]
+      max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] md:max-h-[min(54.25rem,calc(100dvh-3rem))]
+      rounded-xl sm:rounded-2xl
+      overflow-hidden
+      p-0 gap-0"
         style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-2">
+        <div className="flex shrink-0 items-center justify-between ">
           <DialogTitle className="text-[1.15rem] font-semibold text-[#1a1a1a] tracking-tight">
             Raise a Dispute
           </DialogTitle>
+
           <button
             onClick={handleClose}
             className="size-7 flex items-center justify-center rounded-lg text-[#888] hover:bg-[#f5f5f5] hover:text-[#1a1a1a] transition-colors"
@@ -363,53 +487,60 @@ function RaiseDisputeDialog({
           </button>
         </div>
 
-        {/* Body */}
-        <div className="px-6 max-h-[75vh] overflow-y-auto">
+        <hr />
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {error && (
-            <div className="my-2 flex items-start gap-2 text-red-600 text-xs bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <div className="mb-2 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 text-xs text-red-600">
               <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* Title + Campaign */}
           <div className="grid grid-cols-2 gap-4">
             <FloatingInput
               label="Dispute Title"
               required
               value={subject}
-              onChange={setSubject}
+              onChange={(e) => setSubject(e.target.value)}
             />
+
             <FloatingSelect
               label={loadingCampaigns ? "Loading campaigns…" : "Campaign name"}
               value={campaignId}
               onValueChange={setCampaignId}
-              searchable
+              disabled={isCampaignLocked || loadingCampaigns}
+              searchable={!isCampaignLocked}
               searchPlaceholder="Search campaigns…"
               safeBottom={80}
               icon={!!campaignId}
             >
-              {campaigns.length > 0
-                ? campaigns
-                    .filter((c) => getCampaignId(c)) // skip any with no usable id
-                    .map((c) => (
-                      <SelectItem key={getCampaignId(c)} value={getCampaignId(c)}>
-                        {getCampaignLabel(c)}
-                      </SelectItem>
-                    ))
-                : <SelectItem value="__empty__" disabled>No active campaigns</SelectItem>}
+              {selectedCampaignExists ? null : campaignId ? (
+                <SelectItem value={campaignId}>{campaignId}</SelectItem>
+              ) : null}
+
+              {campaignOptions.length > 0 ? (
+                campaignOptions.map((c) => (
+                  <SelectItem key={getCampaignId(c)} value={getCampaignId(c)}>
+                    {getCampaignLabel(c)}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="__empty__" disabled>
+                  No active campaigns
+                </SelectItem>
+              )}
             </FloatingSelect>
           </div>
 
-          <div className="flex flex-col gap-4">
-            {/* Influencer */}
+          <div className=" flex flex-col gap-2">
             <FloatingSelect
               label={
                 !campaignId
                   ? "Select a campaign first"
                   : loadingApplicants
-                  ? "Loading influencers…"
-                  : "Influencer name"
+                    ? "Loading influencers…"
+                    : "Influencer name"
               }
               required
               value={influencerId}
@@ -420,122 +551,59 @@ function RaiseDisputeDialog({
               safeBottom={80}
               icon={!!influencerId}
             >
-              {applicants.length > 0
-                ? applicants.map((a) => (
-                    <SelectItem key={a.influencerId} value={a.influencerId}>
-                      {a.name || a.influencerId}
-                      {a.handle ? ` (${a.handle})` : ""}
-                    </SelectItem>
-                  ))
-                : <SelectItem value="__empty__" disabled>No influencers in this campaign</SelectItem>}
+              {applicants.length > 0 ? (
+                applicants.map((a) => (
+                  <SelectItem key={a.influencerId} value={a.influencerId}>
+                    {a.name || a.influencerId}
+                    {a.handle ? ` (${a.handle})` : ""}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="__empty__" disabled>
+                  No influencers in this campaign
+                </SelectItem>
+              )}
             </FloatingSelect>
 
-            {/* Description */}
-            <FloatingTextarea
+            <LabeledTextarea
               label="Description"
               value={description}
-              onChange={setDescription}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the issue in detail…"
               maxLength={500}
               rows={4}
+              className="min-h-28!"
             />
 
-            {/* Issue Type */}
-            <FloatingSelect
-              label="Issue Type"
-              required
-              value={relatedType}
-              onValueChange={setRelatedType}
-              searchable={false}
-              safeBottom={80}
-              icon={!!relatedType}
-            >
-              <SelectItem value="other">Other</SelectItem>
-              <SelectItem value="payment">Payment</SelectItem>
-              <SelectItem value="timeline">Timeline</SelectItem>
-              <SelectItem value="content">Content</SelectItem>
-            </FloatingSelect>
+            <IssueTypeSelect value={relatedType} onChange={setRelatedType} />
 
-            {/* File Upload */}
-            <div className="pb-4">
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`flex flex-col items-center justify-center gap-4 rounded-xl border-2 border-dashed cursor-pointer transition-all py-7 ${
-                  dragging
-                    ? "border-[#1a1a1a] bg-[#f5f5f5]"
-                    : "border-[#e2e2e2] bg-[#fafafa] hover:border-[#bbb] hover:bg-[#f5f5f5]"
-                }`}
-              >
-                <div className="size-10 rounded-full bg-[#efefef] flex items-center justify-center">
-                  <UploadCloudIcon className="size-5 text-[#888]" />
-                </div>
-                <p className="text-sm text-[#1a1a1a]">
-                  <span className="underline font-medium">Click to upload</span>
-                  <span className="text-[#888]"> or drag and drop</span>
-                </p>
-                <p className="text-xs text-[#aaa]">SVG, PNG, JPG or PDF (max 5 MB each)</p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".svg,.png,.jpg,.jpeg,.pdf"
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files?.length) addFiles(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-              </div>
-
-              {attachments.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {attachments.map((file, idx) => (
-                    <li
-                      key={`${file.name}-${idx}`}
-                      className="flex items-center justify-between gap-4 rounded-lg border border-[#e8e8e8] bg-white px-3 py-1.5 text-xs text-[#555]"
-                    >
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <PaperclipIcon className="size-3.5 shrink-0 text-[#aaa]" />
-                        <span className="truncate">{file.name}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAttachments((p) => p.filter((_, i) => i !== idx));
-                        }}
-                        className="text-[#bbb] hover:text-red-500 transition-colors shrink-0"
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <ProductCardUpload
+              showLabel={false}
+              files={attachments}
+              onFilesChange={(files) => setAttachments(files)}
+              title="Upload Attachments"
+              helperTypes="SVG, PNG, JPG or PDF (max 5 MB each)"
+            />
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-4 px-6 py-4 border-t border-[#f0f0f0] bg-white">
-          <button
+        <div className="mt-auto flex shrink-0 items-center justify-end gap-3 bg-white">
+          <Button
             onClick={handleClose}
             disabled={submitting}
-            className="h-9 px-5 rounded-lg text-sm font-medium text-[#1a1a1a] hover:bg-[#f5f5f5] transition-colors disabled:opacity-50"
+            className="h-9 px-5 rounded-lg text-sm font-medium !text-[#1a1a1a] !bg-white transition-colors disabled:opacity-50 !shadow-none hover:!bg-[#f5f5f5] "
           >
             Discard
-          </button>
-          <button
+          </Button>
+
+          <Button
             onClick={submit}
             disabled={submitting}
-            className="h-9 px-5 rounded-lg text-sm font-semibold text-white bg-[#1a1a1a] hover:bg-[#333] transition-colors disabled:opacity-50 flex items-center gap-2"
+            className="flex h-9 items-center gap-2 rounded-lg bg-[#1a1a1a] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#333] disabled:opacity-50"
           >
             {submitting && <Loader2 className="size-3.5 animate-spin" />}
             {submitting ? "Creating…" : "Submit Dispute"}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -545,16 +613,12 @@ function RaiseDisputeDialog({
 // ─── DisputeFilters (main export) ──────────────────────────────────────────────
 
 export type DisputeFiltersProps = {
-  /** Controlled search text */
   search: string;
   onSearchChange: (v: string) => void;
-  /** Numeric string: "0"=All, "1"=Open, "2"=In Review, "3"=Awaiting, "4"=Resolved, "5"=Rejected */
   status: string;
   onStatusChange: (v: string) => void;
-  /** "all" | "raised_by_you" | "against_you" */
   direction: string;
   onDirectionChange: (v: string) => void;
-  /** Called after dispute is successfully created — triggers list refetch */
   onDisputeCreated?: () => void;
 };
 
@@ -567,7 +631,20 @@ export default function DisputeFilters({
   onDirectionChange,
   onDisputeCreated,
 }: DisputeFiltersProps) {
+  const searchParams = useSearchParams();
+  const campaignIdFromQuery = (searchParams.get("id") || "").trim();
+
   const [dialogOpen, setDialogOpen] = useState(false);
+  const lastAutoOpenedCampaignRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!campaignIdFromQuery) return;
+
+    if (lastAutoOpenedCampaignRef.current === campaignIdFromQuery) return;
+
+    setDialogOpen(true);
+    lastAutoOpenedCampaignRef.current = campaignIdFromQuery;
+  }, [campaignIdFromQuery]);
 
   const hasFilters = status !== "0" || direction !== "all";
 
@@ -579,7 +656,7 @@ export default function DisputeFilters({
   return (
     <>
       <div
-        className="flex items-center gap-4 px-8 py-2.5 bg-white w-full mt-8 flex-wrap"
+        className="flex items-center gap-4 px-8 py-2.5 bg-white w-full mt-[2rem] flex-wrap"
         style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}
       >
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');`}</style>
@@ -608,22 +685,23 @@ export default function DisputeFilters({
 
         <div className="flex-1" />
 
-        {/* Search input */}
-        <div className="flex items-center gap-2 h-9 px-3 rounded-[0.75rem] border border-[#e2e2e2] bg-white w-52 focus-within:border-[#1a1a1a] focus-within:ring-2 focus-within:ring-[#1a1a1a]/10 transition-all">
+        <div className="flex items-center gap-2 w-[14.5625rem] h-[2.5rem] rounded-lg border border-neutral-200 bg-white focus-within:border-[#1a1a1a] focus-within:ring-2 focus-within:ring-[#1a1a1a]/10 transition-all">
           <Input
             type="text"
-            placeholder="Search disputes…"
+            placeholder="Search"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="bg-transparent text-sm text-[#1a1a1a] placeholder:text-[#bbb] outline-none flex-1"
+            className="border-none shadow-none ring-0 focus-visible:ring-0 focus-visible:border-none bg-transparent text-sm text-[#1a1a1a] placeholder:text-[#bbb] outline-none flex-1 h-full p-0"
           />
-          <SearchIcon className="size-4 text-[#bbb] shrink-0" />
+          <SearchIcon className="size-4 text-[#bbb] shrink-0 mr-4" />
         </div>
 
-        {/* Raise Dispute button */}
-        <Button onClick={() => setDialogOpen(true)}>
-          <div className="flex items-center gap-2">
-            <GavelIcon />
+        <Button
+          onClick={() => setDialogOpen(true)}
+          className="!w-[9.5rem] !h-[2.5rem] !px-0 !rounded-[0.75rem] flex items-center justify-center"
+        >
+          <div className="flex items-center gap-2 whitespace-nowrap">
+            <GavelIcon size={16} />
             <span>Raise Dispute</span>
           </div>
         </Button>
@@ -633,6 +711,7 @@ export default function DisputeFilters({
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={onDisputeCreated}
+        lockedCampaignId={campaignIdFromQuery || undefined}
       />
     </>
   );
