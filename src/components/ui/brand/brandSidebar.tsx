@@ -17,6 +17,7 @@ import {
   apiGetBrandLite,
   apiGetBrandWallet,
 } from "@/app/brand/services/brandApi";
+import NotificationCard from "./notificationCard";
 
 import {
   Bell,
@@ -389,6 +390,7 @@ export default function BrandSidebar({
   );
 
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
 
   const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -432,6 +434,7 @@ export default function BrandSidebar({
         };
       });
   }, [liteSubscription, brandLite]);
+
   /* --------------------------------- state -------------------------------- */
 
   const [active, setActive] = useState<string>("dashboard");
@@ -469,8 +472,8 @@ export default function BrandSidebar({
   );
 
   const isFullyManagedPlan = useMemo(() => {
-  return normalizedPlanName === "fully_managed";
-}, [normalizedPlanName]);
+    return normalizedPlanName === "fully_managed";
+  }, [normalizedPlanName]);
 
   const isPaidPlan = useMemo(() => {
     if (!normalizedPlanName) return false;
@@ -539,19 +542,18 @@ export default function BrandSidebar({
           </span>
         ),
       },
-      
       { key: "help", label: "Help", icon: Question, section: "manage" },
     ],
     []
   );
 
-const dashboardItems = useMemo(() => {
-  return items.filter((i) => {
-    if (i.section !== "overview") return false;
+  const dashboardItems = useMemo(() => {
+    return items.filter((i) => {
+      if (i.section !== "overview") return false;
 
-    return true;
-  });
-}, [items, isFullyManagedPlan]);
+      return true;
+    });
+  }, [items, isFullyManagedPlan]);
 
   const manageItems = useMemo(
     () => items.filter((i) => i.section === "manage"),
@@ -638,10 +640,9 @@ const dashboardItems = useMemo(() => {
 
   const footerPlanLabel = titleCasePlan(
     brandLite?.subscriptionDetails?.brandPlanName ||
-    brandLite?.subscriptionDetails?.plan ||
-    planName
+      brandLite?.subscriptionDetails?.plan ||
+      planName
   );
-
 
   /* -------------------------------- effects -------------------------------- */
 
@@ -664,7 +665,7 @@ const dashboardItems = useMemo(() => {
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -717,7 +718,7 @@ const dashboardItems = useMemo(() => {
 
           if (latestName) window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch { }
+        } catch {}
       } catch {
         // keep cached values on failure
       }
@@ -739,7 +740,7 @@ const dashboardItems = useMemo(() => {
         try {
           const stored = window.localStorage.getItem("sidebar-collapsed");
           if (stored !== null) initialCollapsed = stored === "true";
-        } catch { }
+        } catch {}
         setCollapsed(initialCollapsed);
         setWidthCollapsed(initialCollapsed);
         hasInitializedCollapsed.current = true;
@@ -851,6 +852,33 @@ const dashboardItems = useMemo(() => {
     };
   }, [profileMenuOpen]);
 
+  useEffect(() => {
+    if (!isNotificationModalOpen || typeof window === "undefined") return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsNotificationModalOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isNotificationModalOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    if (isNotificationModalOpen) {
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isNotificationModalOpen]);
+
   /* ------------------------------- callbacks ------------------------------- */
 
   const setDrawerOpen = useCallback(
@@ -868,7 +896,6 @@ const dashboardItems = useMemo(() => {
     },
     [router]
   );
-
 
   const handlePlanClick = useCallback(() => {
     router.push("/brand/subscriptions");
@@ -891,13 +918,28 @@ const dashboardItems = useMemo(() => {
     [goTo, isDesktop, setDrawerOpen]
   );
 
+  const handleNotificationOpen = useCallback(() => {
+    setCreditsOpen(false);
+    setProfileMenuOpen(false);
+    setWorkspaceOpen(false);
+    setCampaignOpen(false);
+    campaignHoverRef.current = false;
+    setIsNotificationModalOpen(true);
+
+    if (!isDesktop) setDrawerOpen(false);
+  }, [isDesktop, setDrawerOpen]);
+
+  const handleNotificationClose = useCallback(() => {
+    setIsNotificationModalOpen(false);
+  }, []);
+
   const beginOpenDesktop = useCallback(() => {
     setCollapsed(false);
     setIsClosing(false);
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch { }
+    } catch {}
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -908,7 +950,7 @@ const dashboardItems = useMemo(() => {
     setWidthCollapsed(true);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch { }
+    } catch {}
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -931,7 +973,7 @@ const dashboardItems = useMemo(() => {
         "brandPlanId",
         "brandPlanName",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch { }
+    } catch {}
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
@@ -1056,6 +1098,21 @@ const dashboardItems = useMemo(() => {
         );
       }
 
+      if (item.key === "notification") {
+        return (
+          <RowButton
+            key={item.key}
+            icon={item.icon}
+            label={item.label}
+            right={item.right}
+            active={isNotificationModalOpen || isActiveItem}
+            tight={tight}
+            collapsed={isCollapsed}
+            onClick={handleNotificationOpen}
+          />
+        );
+      }
+
       return (
         <RowButton
           key={item.key}
@@ -1076,10 +1133,12 @@ const dashboardItems = useMemo(() => {
       collapsed,
       creditsOpen,
       creditUsageItems,
+      handleNotificationOpen,
       handleSetActive,
       isCampaignChildActive,
       isClosing,
       isDesktop,
+      isNotificationModalOpen,
       motionTransitions.content,
       tight,
       walletBalanceLabel,
@@ -1169,107 +1228,6 @@ const dashboardItems = useMemo(() => {
             </button>
           )}
         </div>
-
-        {/* <AnimatePresence initial={false}>
-          {!compactUI && (
-            <m.div
-              key="workspace-switcher"
-              ref={workspaceRef}
-              variants={fadeScale}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={motionTransitions.content}
-              className="relative z-50 w-full"
-              style={{ willChange: "transform, opacity" }}
-            >
-              <m.button
-                type="button"
-                onClick={() => setWorkspaceOpen((v) => !v)}
-                animate={{ scale: workspaceOpen ? 1.02 : 1 }}
-                transition={motionTransitions.content}
-                className={cn(
-                  "flex items-center gap-3 rounded-s border border-[#E6E6E6] bg-white p-2 text-left transition hover:bg-neutral-50",
-                  "w-full cursor-pointer",
-                  FOCUS_RING,
-                  workspaceOpen ? "shadow-sm" : "shadow-none"
-                )}
-              >
-                <WorkspaceLogo ws={selectedWorkspace} />
-
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-semibold leading-[20px] text-[#1a1a1a]">
-                    {selectedWorkspace.name}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-[#1a1a1a]">
-                      {planLabel}
-                    </span>
-                    {planId && (
-                      <span className="truncate text-[11px] text-neutral-500">Current plan</span>
-                    )}
-                  </div>
-                </div>
-
-                <span className="ml-auto grid h-8 w-8 place-items-center">
-                  <CaretUpDown size={20} className="text-[#1a1a1a]" />
-                </span>
-              </m.button>
-
-              <AnimatePresence initial={false}>
-                {workspaceOpen && (
-                  <m.div
-                    key="workspace-options"
-                    variants={dropdownY}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    transition={motionTransitions.content}
-                    className="absolute left-1/2 top-full z-[60] mt-2 w-[calc(100%+26px)] -translate-x-1/2"
-                  >
-                    <m.div
-                      initial={{ scale: 0.98, opacity: 0 }}
-                      animate={{ scale: 1.02, opacity: 1 }}
-                      exit={{ scale: 0.98, opacity: 0 }}
-                      transition={motionTransitions.content}
-                      className="w-full rounded-s border border-[#E6E6E6] bg-white p-3 shadow-lg"
-                    >
-                      <div className="flex flex-col gap-2.5">
-                        {workspaces.map((workspace) => {
-                          const isSelected = workspace.key === selectedWorkspace.key;
-
-                          return (
-                            <button
-                              key={workspace.key}
-                              type="button"
-                              onClick={() => {
-                                setWorkspaceKey(workspace.key);
-                                setWorkspaceOpen(false);
-                              }}
-                              className={cn(
-                                "flex h-14 w-full cursor-pointer items-center gap-3 rounded-s border border-[#E6E6E6] bg-white px-4 text-left transition hover:bg-neutral-50",
-                                FOCUS_RING,
-                                isSelected ? "ring-1 ring-[#1a1a1a]/30" : ""
-                              )}
-                            >
-                              <WorkspaceLogo ws={workspace} />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-[14px] font-semibold leading-[20px] text-[#1a1a1a]">
-                                  {workspace.name}
-                                </div>
-                              </div>
-                              <CaretUpDown size={18} className="text-[#1a1a1a] opacity-70" />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </m.div>
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </m.div>
-          )}
-        </AnimatePresence> */}
       </div>
 
       <div className={cn("mt-6 flex min-h-0 flex-1 flex-col", tight ? "mt-4" : "")}>
@@ -1738,10 +1696,67 @@ const dashboardItems = useMemo(() => {
     </AnimatePresence>
   );
 
+  const NotificationModal = (
+    <AnimatePresence>
+      {isNotificationModalOpen ? (
+        <>
+          <m.button
+            type="button"
+            aria-label="Close notifications modal"
+            className="fixed inset-0 z-[140] bg-black/45 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={motionTransitions.content}
+            onClick={handleNotificationClose}
+          />
+
+          <div className="fixed inset-0 z-[141] flex items-center justify-center p-4 sm:p-6">
+            <m.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="brand-notification-modal-title"
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={motionTransitions.content}
+              className="relative w-full max-w-[760px]"
+            >
+              <div className="relative max-h-[calc(100dvh-2rem)] overflow-hidden rounded-[24px] bg-white shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+                <div id="brand-notification-modal-title" className="sr-only">
+                  Notifications
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleNotificationClose}
+                  aria-label="Close notifications"
+                  className={cn(
+                    "absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-[#1a1a1a] shadow-sm transition hover:bg-white",
+                    FOCUS_RING
+                  )}
+                >
+                  <X size={20} />
+                </button>
+
+                <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                  <NotificationCard />
+                </div>
+              </div>
+            </m.div>
+          </div>
+        </>
+      ) : null}
+    </AnimatePresence>
+  );
+
   return (
     <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
-        {isDesktop ? DesktopAside : MobileDrawer}
+        <>
+          {isDesktop ? DesktopAside : MobileDrawer}
+          {NotificationModal}
+        </>
       </MotionConfig>
     </LazyMotion>
   );
