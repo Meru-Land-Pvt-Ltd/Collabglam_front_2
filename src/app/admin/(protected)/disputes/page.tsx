@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { post } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -11,8 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useRouter } from "next/navigation";
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  AlertCircle,
+  ImageOff,
+} from "lucide-react";
+import { GavelIcon } from "@phosphor-icons/react";
 
 type Comment = {
   commentId: string;
@@ -27,7 +36,8 @@ type DisputeStatus =
   | "in_review"
   | "awaiting_user"
   | "resolved"
-  | "rejected";
+  | "rejected"
+  | "revoked";
 
 type Attachment = {
   url: string;
@@ -42,11 +52,7 @@ type Dispute = {
   description?: string;
   status: DisputeStatus;
   campaignId: string;
-  brandId: string;
-  influencerId: string;
   campaignName?: string | null;
-  brandName?: string | null;
-  influencerName?: string | null;
   createdBy?: { id?: string; role?: "Brand" | "Influencer" };
   assignedTo?: { adminId?: string | null; name?: string | null } | null;
   comments?: Comment[];
@@ -70,9 +76,27 @@ const statusOptions = [
   { value: "awaiting_user", label: "Awaiting User" },
   { value: "resolved", label: "Resolved" },
   { value: "rejected", label: "Rejected" },
+  { value: "revoked", label: "Revoked" },
 ];
 
-// Simple debounce hook
+const STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  in_review: "In Review",
+  awaiting_user: "Awaiting User",
+  resolved: "Resolved",
+  rejected: "Rejected",
+  revoked: "Revoked",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  open: "bg-blue-50 text-blue-700 border border-blue-200",
+  in_review: "bg-purple-50 text-purple-700 border border-purple-200",
+  awaiting_user: "bg-amber-50 text-amber-700 border border-amber-200",
+  resolved: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  rejected: "bg-red-50 text-red-600 border border-red-200",
+  revoked: "bg-gray-100 text-gray-700 border border-gray-200",
+};
+
 function useDebouncedValue<T>(value: T, delay = 400) {
   const [debounced, setDebounced] = useState(value);
 
@@ -84,11 +108,63 @@ function useDebouncedValue<T>(value: T, delay = 400) {
   return debounced;
 }
 
+function HeaderCarets() {
+  const cls = "h-3 w-3 text-[#343330]";
+  return (
+    <span className="ml-1 flex flex-col items-center leading-none">
+      <ChevronUp className={cls} strokeWidth={3} />
+      <ChevronDown className={cls} strokeWidth={3} />
+    </span>
+  );
+}
+
+function DisputeImage({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-[#E6E6E6] bg-gray-100">
+        <ImageOff className="size-4 text-gray-300" />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt="Dispute"
+      onError={() => setFailed(true)}
+      className="h-10 w-10 flex-shrink-0 rounded-lg border border-[#E6E6E6] object-cover"
+    />
+  );
+}
+
+const getDisputeImageUrl = (row: Dispute) =>
+  row.attachments?.find((file) => file?.mimeType?.startsWith("image/"))?.url ??
+  null;
+
+const formatDateTime = (value?: string) => {
+  if (!value) return "—";
+
+  return new Date(value).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const pageSize = 10;
+
 export default function AdminDisputesPage() {
   const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<Dispute[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -104,18 +180,13 @@ export default function AdminDisputesPage() {
   const load = async () => {
     setLoading(true);
     setError(null);
+
     try {
-      const body: any = { page, limit: 10 };
+      const body: Record<string, unknown> = { page, limit: pageSize };
 
       if (status && status !== "all") body.status = status;
-
-      if (debouncedSearch.trim()) {
-        body.search = debouncedSearch.trim();
-      }
-
-      if (appliedBy && appliedBy !== "all") {
-        body.appliedBy = appliedBy; // backend lowercases it
-      }
+      if (debouncedSearch.trim()) body.search = debouncedSearch.trim();
+      if (appliedBy && appliedBy !== "all") body.appliedBy = appliedBy;
 
       const data = await post<ListResp>("/dispute/admin/list", body);
       setRows(data.disputes || []);
@@ -133,26 +204,9 @@ export default function AdminDisputesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, status, appliedBy, debouncedSearch]);
 
-  const StatusBadge = ({ s }: { s: DisputeStatus }) => {
-    const tone =
-      {
-        open: "bg-blue-100 text-blue-800",
-        in_review: "bg-purple-100 text-purple-800",
-        awaiting_user: "bg-amber-100 text-amber-800",
-        resolved: "bg-green-100 text-green-700",
-        rejected: "bg-red-100 text-red-700",
-      }[s] || "bg-gray-100 text-gray-700";
-
-    return (
-      <span className={`px-2 py-1 rounded text-xs font-medium ${tone}`}>
-        {s.replace("_", " ")}
-      </span>
-    );
-  };
-
-  // For display like "showing 1–10 of 32"
-  const from = total === 0 ? 0 : (page - 1) * 10 + 1;
-  const to = Math.min(page * 10, total);
+  useEffect(() => {
+    setSelected(new Set());
+  }, [rows]);
 
   const pageNumbers = useMemo(() => {
     const pages: number[] = [];
@@ -165,72 +219,101 @@ export default function AdminDisputesPage() {
     return pages;
   }, [page, totalPages]);
 
+  const allSelected =
+    rows.length > 0 && rows.every((row) => selected.has(row.disputeId));
+
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.disputeId)));
+
+  const toggleOne = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+
+  const col = {
+    checkbox: "w-[2.75rem]",
+    title: "min-w-[12rem]",
+    image: "w-[7rem] flex-[0_0_7rem]",
+    campaign: "min-w-[11rem] flex-[1.35_1_0%]",
+    appliedBy: "min-w-[7.5rem] flex-[0.8_1_0%]",
+    status: "min-w-[7.5rem] flex-[0.8_1_0%]",
+    updated: "min-w-[8.5rem] flex-[0.9_1_0%]",
+    action: "min-w-[7rem] flex-[0.75_1_0%]",
+  };
+
+  const headerCell =
+    "flex w-full items-center justify-between text-sm font-semibold text-[#1A1A1A]";
+
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">All Disputes</h1>
+    <div className="mx-auto max-w-[100rem] p-6">
+      <div className="mb-5 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-[#1A1A1A]">All Disputes</h1>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 mb-4 md:flex-row md:items-center">
-        {/* Status filter */}
-        <div className="w-full md:w-48">
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="w-full lg:w-48">
           <Select
             value={status}
-            onValueChange={(v) => {
-              setStatus(v);
+            onValueChange={(value) => {
+              setStatus(value);
               setPage(1);
             }}
           >
-            <SelectTrigger className="!bg-white">
+            <SelectTrigger className="!h-[2.75rem] !rounded-[0.75rem] !border-[#E5E5E5] !bg-white">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
-            <SelectContent className="!bg-white">
-              {statusOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
+            <SelectContent className="!rounded-[0.9rem] !border-[#E5E5E5] !bg-white">
+              {statusOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {/* Applied-by filter (Brand/Influencer) */}
-        <div className="flex items-center gap-3 px-3 py-2 border rounded !bg-white">
-          <span className="text-sm text-gray-700">Applied</span>
+        <div className="flex h-[2.75rem] items-center gap-4 rounded-[0.75rem] border border-[#E5E5E5] bg-white px-4">
+          <span className="text-sm font-medium text-[#4B4B4B]">Applied By</span>
+
           {(() => {
             const brandChecked = appliedBy === "Brand" || appliedBy === "all";
             const influencerChecked =
               appliedBy === "Influencer" || appliedBy === "all";
 
-            const nextFrom = (b: boolean, i: boolean): typeof appliedBy =>
-              (b && i) || (!b && !i)
+            const nextFrom = (brand: boolean, influencer: boolean): typeof appliedBy =>
+              (brand && influencer) || (!brand && !influencer)
                 ? "all"
-                : b
-                ? "Brand"
-                : "Influencer";
+                : brand
+                  ? "Brand"
+                  : "Influencer";
 
             return (
               <>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
                   <Checkbox
                     checked={brandChecked}
                     onCheckedChange={(val) => {
-                      const b = Boolean(val);
-                      const i = influencerChecked;
-                      setAppliedBy(nextFrom(b, i));
+                      const brand = Boolean(val);
+                      const influencer = influencerChecked;
+                      setAppliedBy(nextFrom(brand, influencer));
                       setPage(1);
                     }}
                   />
                   Brand
                 </label>
-                <label className="flex items-center gap-2 text-sm">
+
+                <label className="flex items-center gap-2 text-sm text-[#1A1A1A]">
                   <Checkbox
                     checked={influencerChecked}
                     onCheckedChange={(val) => {
-                      const b = brandChecked;
-                      const i = Boolean(val);
-                      setAppliedBy(nextFrom(b, i));
+                      const brand = brandChecked;
+                      const influencer = Boolean(val);
+                      setAppliedBy(nextFrom(brand, influencer));
                       setPage(1);
                     }}
                   />
@@ -241,7 +324,6 @@ export default function AdminDisputesPage() {
           })()}
         </div>
 
-        {/* Search */}
         <div className="flex flex-1 gap-2">
           <Input
             placeholder="Search subject/description"
@@ -250,173 +332,266 @@ export default function AdminDisputesPage() {
             onKeyDown={(e) => {
               if (e.key === "Enter") setPage(1);
             }}
-            className="bg-white"
+            className="!h-[2.75rem] !rounded-[0.75rem] !border-[#E5E5E5] !bg-white"
           />
+
           <Button
-            className="border"
-            onClick={() => {
-              setPage(1);
-            }}
+            className="!h-[2.75rem] !rounded-[0.75rem] !bg-[#1A1A1A] !px-5 text-white hover:!bg-[#2A2A2A]"
+            onClick={() => setPage(1)}
           >
             Search
           </Button>
         </div>
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <p>Loading…</p>
-      ) : error ? (
-        <p className="text-red-600">{error}</p>
-      ) : rows.length === 0 ? (
-        <p className="text-gray-600">No disputes found.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-[16px] border bg-white">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-3">Dispute ID</th>
-                <th className="text-left p-3">Subject</th>
-                <th className="text-left p-3">Campaign</th>
-                <th className="text-left p-3">Brand</th>
-                <th className="text-left p-3">Influencer</th>
-                <th className="text-left p-3">Applied By</th>
-                <th className="text-left p-3">Status</th>
-                <th className="text-left p-3">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((d) => (
-                <tr
-                  key={d.disputeId}
-                  className="border-t align-top cursor-pointer hover:bg-gray-50"
-                  onClick={() =>
-                    router.push(`/admin/disputes/${d.disputeId}`)
-                  }
-                >
-                  <td className="p-3 font-mono text-xs">{d.disputeId}</td>
-                  <td className="p-3 font-medium max-w-xs truncate">
-                    {d.subject}
-                  </td>
-                  <td className="p-3">
-                    {d.campaignName ? (
-                      <>
-                        <div className="text-sm">{d.campaignName}</div>
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          {d.campaignId}
-                        </div>
-                      </>
-                    ) : d.campaignId ? (
-                      <span className="font-mono text-xs">
-                        {d.campaignId}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-500">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {d.brandName ? (
-                      <>
-                        <div className="text-sm">{d.brandName}</div>
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          {d.brandId}
-                        </div>
-                      </>
-                    ) : d.brandId ? (
-                      <span className="font-mono text-xs">{d.brandId}</span>
-                    ) : (
-                      <span className="text-xs text-gray-500">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {d.influencerName ? (
-                      <>
-                        <div className="text-sm">{d.influencerName}</div>
-                        <div className="text-[11px] text-gray-500 font-mono">
-                          {d.influencerId}
-                        </div>
-                      </>
-                    ) : d.influencerId ? (
-                      <span className="font-mono text-xs">
-                        {d.influencerId}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-500">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    {d.createdBy?.role ? (
-                      <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-xs font-medium">
-                        {d.createdBy.role}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-gray-500">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <StatusBadge s={d.status} />
-                  </td>
-                  <td className="p-3 text-xs text-gray-600 whitespace-nowrap">
-                    {new Date(d.updatedAt).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="w-full overflow-x-auto">
+        <div className="mt-[1.5rem] min-w-full w-max pb-[2rem]">
+          <div className="flex h-12 items-center rounded-lg bg-[#E6E6E6] px-3">
+            <div className={col.checkbox}>
+              <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
+            </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3 mt-4">
-          <div className="text-xs text-gray-600">
-            {total > 0 ? (
-              <>
-                Showing{" "}
-                <span className="font-medium">
-                  {from}-{to}
-                </span>{" "}
-                of <span className="font-medium">{total}</span> disputes
-              </>
-            ) : (
-              "No results"
+            <div className={`${col.title} pl-2 pr-3`}>
+              <div className={headerCell}>
+                <span>Dispute Title &amp; ID</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.image} flex items-center justify-center pr-5`}>
+              <div className={headerCell}>
+                <span>Image</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.campaign} pl-6 pr-2`}>
+              <div className={headerCell}>
+                <span>Campaign Name</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.appliedBy} px-1.5`}>
+              <div className={headerCell}>
+                <span>Applied By</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.status} px-1.5`}>
+              <div className={headerCell}>
+                <span>Status</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.updated} px-1.5`}>
+              <div className={headerCell}>
+                <span>Updated</span>
+                <HeaderCarets />
+              </div>
+            </div>
+
+            <div className={`${col.action} pl-1.5 pr-0`}>
+              <span className="text-sm font-semibold text-[#1A1A1A]">Action</span>
+            </div>
+          </div>
+
+          <div className="mt-[2rem] flex flex-col gap-[0.75rem]">
+            {loading &&
+              Array.from({ length: 5 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="flex h-[5rem] items-center rounded-lg border border-[#D6D6D6] bg-white px-3 animate-pulse"
+                >
+                  <div className={col.checkbox}>
+                    <div className="h-4 w-4 rounded bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.title} space-y-2 pl-2 pr-1`}>
+                    <div className="h-3.5 w-3/4 rounded bg-gray-200" />
+                    <div className="h-3 w-1/2 rounded bg-gray-100" />
+                  </div>
+
+                  <div className={`${col.image} flex items-center justify-center pr-5`}>
+                    <div className="h-10 w-10 rounded-lg bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.campaign} pl-6 pr-2`}>
+                    <div className="h-3.5 w-2/3 rounded bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.appliedBy} px-1.5`}>
+                    <div className="h-6 w-20 rounded-full bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.status} px-1.5`}>
+                    <div className="h-6 w-20 rounded-full bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.updated} px-1.5`}>
+                    <div className="h-3.5 w-24 rounded bg-gray-200" />
+                  </div>
+
+                  <div className={`${col.action} pl-1.5 pr-0`}>
+                    <div className="h-8 w-16 rounded-xl bg-gray-200" />
+                  </div>
+                </div>
+              ))}
+
+            {!loading && error && (
+              <div className="flex flex-col items-center justify-center gap-3 py-20 text-red-500">
+                <AlertCircle className="size-8" />
+                <p className="text-sm font-medium">{error}</p>
+                <button
+                  onClick={load}
+                  className="text-xs text-[#1A1A1A] underline hover:opacity-70"
+                >
+                  Try again
+                </button>
+              </div>
             )}
+
+            {!loading && !error && rows.length === 0 && (
+              <div className="flex flex-col items-center justify-center gap-3 py-20 text-[#888]">
+                <GavelIcon size={36} />
+                <p className="text-sm font-medium">No disputes found</p>
+                <p className="text-xs text-[#BBB]">
+                  Try adjusting your filters or search term
+                </p>
+              </div>
+            )}
+
+            {!loading &&
+              !error &&
+              rows.map((row) => (
+                <div
+                  key={row.disputeId}
+                  className="flex h-[5rem] items-center rounded-lg border border-[#D6D6D6] bg-white px-3 transition-colors hover:bg-[#FAFAFA]"
+                >
+                  <div className={col.checkbox}>
+                    <Checkbox
+                      checked={selected.has(row.disputeId)}
+                      onCheckedChange={() => toggleOne(row.disputeId)}
+                    />
+                  </div>
+
+                  <div className={`${col.title} pl-2 pr-1`}>
+                    <div className="truncate font-medium text-[#1A1A1A]">
+                      {row.subject}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-gray-400">
+                      #{row.disputeId}
+                    </div>
+                  </div>
+
+                  <div className={`${col.image} flex items-center justify-center pl-1 pr-8`}>
+                    <DisputeImage src={getDisputeImageUrl(row)} />
+                  </div>
+
+                  <div className={`${col.campaign} pl-6 pr-1.5`}>
+                    {row.campaignName ? (
+                      <div className="truncate text-sm text-gray-700">
+                        {row.campaignName}
+                      </div>
+                    ) : row.campaignId ? (
+                      <div className="truncate font-mono text-xs text-gray-500">
+                        {row.campaignId}
+                      </div>
+                    ) : (
+                      <span className="text-xs italic text-gray-400">
+                        No campaign
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={`${col.appliedBy} px-1.5`}>
+                    {row.createdBy?.role ? (
+                      <span className="rounded-full bg-[#F3F3F3] px-2.5 py-1 text-xs font-medium text-[#1A1A1A]">
+                        {row.createdBy.role}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
+                  </div>
+
+                  <div className={`${col.status} px-1.5`}>
+                    <span
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[row.status] || "bg-gray-100 text-gray-600"
+                        }`}
+                    >
+                      {STATUS_LABEL[row.status] || row.status}
+                    </span>
+                  </div>
+
+                  <div className={`${col.updated} whitespace-nowrap px-1.5 text-sm text-gray-500`}>
+                    {formatDateTime(row.updatedAt)}
+                  </div>
+
+                  <div className={`${col.action} flex items-center pl-1.5 pr-0`}>
+                    <Button
+                      className="!h-[2.0625rem] !w-[5.75rem] !rounded-[0.5rem] !bg-[#1A1A1A] !px-[0.5rem] text-xs font-medium text-white hover:!bg-[#2A2A2A]"
+                      onClick={() =>
+                        router.push(`/admin/disputes/${row.disputeId}`)
+                      }
+                    >
+                      View
+                    </Button>
+                  </div>
+                </div>
+              ))}
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              ‹
-            </Button>
-            {pageNumbers.map((pNum) => (
-              <Button
-                key={pNum}
-                size="icon"
-                className="h-8 w-8"
-                variant={pNum === page ? "default" : "outline"}
-                onClick={() => setPage(pNum)}
-              >
-                {pNum}
-              </Button>
-            ))}
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              disabled={page >= totalPages}
-              onClick={() =>
-                setPage((p) => (p >= totalPages ? totalPages : p + 1))
-              }
-            >
-              ›
-            </Button>
-          </div>
+
+          {!loading && !error && totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-between">
+              <p className="text-sm text-gray-500">
+                Showing{" "}
+                <span className="font-medium text-[#1A1A1A]">
+                  {from}–{to}
+                </span>{" "}
+                of{" "}
+                <span className="font-medium text-[#1A1A1A]">{total}</span>
+              </p>
+
+              <div className="flex items-center gap-1">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2E2E2] text-[#1A1A1A] transition-colors hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
+
+                {pageNumbers.map((pageNumber) => (
+                  <button
+                    key={pageNumber}
+                    onClick={() => setPage(pageNumber)}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors ${pageNumber === page
+                      ? "bg-[#1A1A1A] font-semibold text-white"
+                      : "border border-[#E2E2E2] text-[#1A1A1A] hover:bg-[#F5F5F5]"
+                      }`}
+                  >
+                    {pageNumber}
+                  </button>
+                ))}
+
+                <button
+                  disabled={page >= totalPages}
+                  onClick={() =>
+                    setPage((prev) =>
+                      prev >= totalPages ? totalPages : prev + 1
+                    )
+                  }
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E2E2E2] text-[#1A1A1A] transition-colors hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

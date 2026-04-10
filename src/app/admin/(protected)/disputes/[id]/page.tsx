@@ -1,11 +1,10 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { get, post, postFormData } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -13,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   MessageSquare,
   User,
@@ -28,20 +28,42 @@ import {
   ChevronRight,
   X,
   Mail,
+  Shield,
+  Upload,
+  Flag,
+  DollarSign,
+  BarChart2,
+  Eye,
+  AlertTriangle,
+  Tag,
+  Hash,
+  ArrowUpRight,
+  Layers,
+  Activity,
 } from "lucide-react";
 
-type DisputeStatus =
-  | "open"
-  | "in_review"
-  | "awaiting_user"
-  | "resolved"
-  | "rejected";
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
+
+type DisputeStatus = "open" | "in_review" | "awaiting_user" | "resolved" | "rejected";
+type DisputePriority = "low" | "medium" | "high" | "critical";
 
 type Attachment = {
   url: string;
   originalName?: string | null;
   mimeType?: string | null;
   size?: number | null;
+  evidenceName?: string | null;
+  notes?: string | null;
+  createdAt?: string | null;
+  uploaderRole?: "Admin" | "Brand" | "Influencer" | string | null;
+  uploaderName?: string | null;
+  uploadedBy?: {
+    role?: "Admin" | "Brand" | "Influencer" | string | null;
+    name?: string | null;
+    id?: string | null;
+  } | null;
 };
 
 type Comment = {
@@ -51,22 +73,46 @@ type Comment = {
   text: string;
   createdAt: string;
   attachments?: Attachment[];
+  isSystemGenerated?: boolean;
+};
+
+type Party = {
+  role: string;
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  logoUrl?: string | null;
+  since?: string | null;
 };
 
 type Dispute = {
   disputeId: string;
   subject: string;
   description?: string;
+  issueType?: string[];
   status: DisputeStatus;
+  priority?: DisputePriority;
   campaignId?: string | null;
   campaignName?: string | null;
   brandId: string;
   influencerId: string;
   brandName?: string | null;
   influencerName?: string | null;
-  brandEmail?: string | null;       // 👈 new
-  influencerEmail?: string | null;  // 👈 new
+  brandLogoUrl?: string | null;
+  influencerProfileImage?: string | null;
+  brandSince?: string | null;
+  influencerSince?: string | null;
+  brandDisputesFiledCount?: number | null;
+  brandDisputesAgainstCount?: number | null;
+  influencerDisputesFiledCount?: number | null;
+  influencerDisputesAgainstCount?: number | null;
+  brandEmail?: string | null;
+  influencerEmail?: string | null;
   createdBy?: { id?: string; role?: "Brand" | "Influencer" };
+  raisedBy?: Party;
+  raisedAgainst?: Party;
+  raisedByRole?: string;
+  raisedById?: string;
   assignedTo?: { adminId?: string | null; name?: string | null } | null;
   comments?: Comment[];
   attachments?: Attachment[];
@@ -74,18 +120,16 @@ type Dispute = {
   updatedAt: string;
 };
 
-// ---------- Image helpers ----------
+// ─────────────────────────────────────────────
+// Image helpers
+// ─────────────────────────────────────────────
 
 const isImageAttachment = (a: Attachment): boolean => {
-  if (a.mimeType && a.mimeType.startsWith("image/")) return true;
-  const clean = (a.url || "").split("?")[0].toLowerCase();
-  return /\.(png|jpe?g|gif|webp|svg)$/i.test(clean);
+  if (a.mimeType?.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test((a.url || "").split("?")[0]);
 };
 
-type ImagePreviewState = {
-  images: Attachment[];
-  index: number;
-} | null;
+type ImagePreviewState = { images: Attachment[]; index: number } | null;
 
 const ImagePreviewModal: React.FC<{
   state: ImagePreviewState;
@@ -93,82 +137,46 @@ const ImagePreviewModal: React.FC<{
   onPrev: () => void;
   onNext: () => void;
 }> = ({ state, onClose, onPrev, onNext }) => {
-  if (!state || !state.images.length) return null;
-  const { images, index } = state;
-  const current = images[index];
-  if (!current) return null;
-
-  const label =
-    current.originalName ||
-    current.url.split("?")[0].split("/").pop() ||
-    "Image";
-
-  const handleBackdropClick = () => onClose();
-  const handleContentClick: React.MouseEventHandler = (e) => {
-    e.stopPropagation();
-  };
-
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") onPrev();
       if (e.key === "ArrowRight") onNext();
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [onClose, onPrev, onNext]);
+
+  if (!state?.images.length) return null;
+  const cur = state.images[state.index];
+  if (!cur) return null;
+  const label = cur.originalName || cur.url.split("?")[0].split("/").pop() || "Image";
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      onClick={onClose}
     >
-      <div
-        className="relative z-10 max-w-5xl w-full px-4"
-        onClick={handleContentClick}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between mb-2 text-xs text-gray-200">
-          <div className="truncate max-w-xs">{label}</div>
-          <div className="flex items-center gap-3">
-            <span>
-              {index + 1} / {images.length}
-            </span>
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-black/60 hover:bg-black/80"
-            >
+      <div className="relative z-10 max-w-5xl w-full px-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3 text-xs text-white/70">
+          <span className="truncate max-w-xs">{label}</span>
+          <div className="flex items-center gap-4">
+            <span>{state.index + 1} / {state.images.length}</span>
+            <button onClick={onClose} className="h-8 w-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20">
               <X className="h-4 w-4 text-white" />
             </button>
           </div>
         </div>
-
-        {/* Image area */}
-        <div className="relative flex items-center justify-center rounded-lg bg-black/40 min-h-[280px] max-h-[80vh] overflow-hidden">
-          {images.length > 1 && (
-            <button
-              type="button"
-              onClick={onPrev}
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 hover:bg-black/80 disabled:opacity-40"
-            >
+        <div className="relative flex items-center justify-center rounded-lg overflow-hidden bg-black/30 min-h-[300px] max-h-[80vh]">
+          {state.images.length > 1 && (
+            <button onClick={onPrev} className="absolute left-3 top-1/2 -translate-y-1/2 h-9 w-9 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70">
               <ChevronLeft className="h-5 w-5 text-white" />
             </button>
           )}
-
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={current.url}
-            alt={label}
-            className="max-h-[80vh] max-w-full object-contain"
-          />
-
-          {images.length > 1 && (
-            <button
-              type="button"
-              onClick={onNext}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 hover:bg-black/80 disabled:opacity-40"
-            >
+          <img src={cur.url} alt={label} className="max-h-[80vh] max-w-full object-contain" />
+          {state.images.length > 1 && (
+            <button onClick={onNext} className="absolute right-3 top-1/2 -translate-y-1/2 h-9 w-9 flex items-center justify-center rounded-full bg-black/50 hover:bg-black/70">
               <ChevronRight className="h-5 w-5 text-white" />
             </button>
           )}
@@ -178,61 +186,50 @@ const ImagePreviewModal: React.FC<{
   );
 };
 
+// ─────────────────────────────────────────────
+// Attachment pills
+// ─────────────────────────────────────────────
+
 const AttachmentPillList: React.FC<{
   attachments?: Attachment[];
   onImageClick?: (images: Attachment[], index: number) => void;
 }> = ({ attachments, onImageClick }) => {
-  if (!attachments || attachments.length === 0) return null;
-
-  const images = attachments.filter(isImageAttachment);
-
-  const handleImageClick = (att: Attachment) => {
-    if (!onImageClick || !images.length) return;
-    const idx = images.findIndex((img) => img.url === att.url);
-    if (idx === -1) return;
-    onImageClick(images, idx);
-  };
-
+  if (!attachments?.length) return null;
+  const imgs = attachments.filter(isImageAttachment);
   return (
     <div className="flex flex-wrap gap-2">
-      {attachments.map((attachment, idx) => {
-        const isImg = isImageAttachment(attachment);
-        const label =
-          attachment.originalName ||
-          attachment.url.split("?")[0].split("/").pop() ||
-          `Attachment ${idx + 1}`;
-
+      {attachments.map((a, idx) => {
+        const isImg = isImageAttachment(a);
+        const label = a.originalName || a.url.split("?")[0].split("/").pop() || `File ${idx + 1}`;
         if (isImg) {
           return (
             <button
-              key={attachment.url || `${label}-${idx}`}
+              key={a.url || idx}
               type="button"
-              onClick={() => handleImageClick(attachment)}
-              className="inline-flex items-center gap-2 rounded-full border px-2 py-1 text-[11px] text-gray-700 bg-white hover:bg-gray-50"
+              onClick={() => {
+                const i = imgs.findIndex((x) => x.url === a.url);
+                if (onImageClick && i !== -1) onImageClick(imgs, i);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-black/5 px-2.5 py-1.5 text-[11px] text-gray-700 bg-white hover:bg-black/5 transition"
             >
-              <span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-gray-100">
+              <span className="h-5 w-5 overflow-hidden rounded-lg bg-white flex-shrink-0">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={attachment.url}
-                  alt={label}
-                  className="h-full w-full object-cover"
-                />
+                <img src={a.url} alt={label} className="h-full w-full object-cover" />
               </span>
-              <span className="truncate max-w-[140px]">{label}</span>
+              <span className="truncate max-w-[130px]">{label}</span>
             </button>
           );
         }
-
         return (
           <a
-            key={attachment.url || `${label}-${idx}`}
-            href={attachment.url}
+            key={a.url || idx}
+            href={a.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border px-2 py-1 text-[11px] text-gray-700 bg-white hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-black/5 px-2.5 py-1.5 text-[11px] text-gray-700 bg-white hover:bg-black/5 transition"
           >
-            <Paperclip className="h-3 w-3" />
-            <span className="truncate max-w-[140px]">{label}</span>
+            <Paperclip className="h-3 w-3 flex-shrink-0 text-gray-400" />
+            <span className="truncate max-w-[130px]">{label}</span>
           </a>
         );
       })}
@@ -240,7 +237,32 @@ const AttachmentPillList: React.FC<{
   );
 };
 
-// ---------- Main component ----------
+// ─────────────────────────────────────────────
+// Config maps
+// ─────────────────────────────────────────────
+
+const STATUS_MAP: Record<DisputeStatus, { label: string; bg: string; text: string; ring: string; dot: string }> = {
+  open: { label: "Open", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-blue-500" },
+  in_review: { label: "In Review", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-amber-500" },
+  awaiting_user: { label: "Awaiting User", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-orange-500" },
+  resolved: { label: "Resolved", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-green-500" },
+  rejected: { label: "Rejected", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-red-500" },
+};
+
+const PRIORITY_MAP: Record<string, { label: string; bg: string; text: string }> = {
+  low: { label: "Low", bg: "bg-white", text: "text-gray-900" },
+  medium: { label: "Medium", bg: "bg-white", text: "text-gray-900" },
+  high: { label: "High", bg: "bg-white", text: "text-gray-900" },
+  critical: { label: "Critical", bg: "bg-white", text: "text-gray-900" },
+};
+
+const ISSUE_TYPE_MAP: Record<string, string> = {
+  content_not_as_expected: "Content Not as Expected",
+  delay_or_missed_deadline: "Delay / Missed Deadline",
+  payment_dispute: "Payment Dispute",
+  fraud: "Fraud",
+  other: "Other",
+};
 
 const statusOptions = [
   { value: "open", label: "Open" },
@@ -250,6 +272,280 @@ const statusOptions = [
   { value: "rejected", label: "Rejected" },
 ];
 
+const priorityOptions = [
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "critical", label: "Critical" },
+];
+
+// ─────────────────────────────────────────────
+// Tiny reusable pieces
+// ─────────────────────────────────────────────
+
+const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ children, className = "", ...props }) => (
+  <div
+    className={`bg-white rounded-lg border border-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] ${className}`}
+    {...props}
+  >
+    {children}
+  </div>
+);
+
+const CardHeader: React.FC<{ title: string; extra?: React.ReactNode }> = ({ title, extra }) => (
+  <div className="flex items-center justify-between px-5 py-3.5 border-b border-black/5">
+    <h2 className="text-[13px] font-semibold text-gray-900 tracking-tight">{title}</h2>
+    {extra}
+  </div>
+);
+
+const MetaChip: React.FC<{
+  icon: React.ReactNode; label: string; value: React.ReactNode; valueClass?: string;
+}> = ({ icon, label, value, valueClass = "text-gray-800" }) => (
+  <div className="flex items-start gap-2 min-w-0">
+    <span className="mt-0.5 text-gray-400 flex-shrink-0">{icon}</span>
+    <div className="min-w-0">
+      <p className="text-[10px] text-gray-400 uppercase tracking-wider font-medium">{label}</p>
+      <div className={`text-[13px] font-semibold leading-snug ${valueClass}`}>{value}</div>
+    </div>
+  </div>
+);
+
+const getIssueTypeLabel = (issueType: string) => ISSUE_TYPE_MAP[issueType] || issueType;
+
+const isSystemGeneratedBrandComment = (comment: Comment): boolean => {
+  if (comment.authorRole !== "Brand") return false;
+  if (comment.isSystemGenerated) return true;
+
+  const text = (comment.text || "").trim();
+  if (!text) return false;
+
+  return (
+    /^dispute updated by brand\b/i.test(text) ||
+    /^dispute\s+(updated|created|opened|closed|reopened|resolved|rejected)\b/i.test(text) ||
+    /^system\s*:/i.test(text)
+  );
+};
+
+const getAttachmentUploaderRole = (attachment: Attachment, dispute?: Dispute | null) => {
+  const directRole = attachment.uploaderRole || attachment.uploadedBy?.role;
+  if (directRole) return directRole;
+  return dispute?.raisedBy?.role || dispute?.raisedByRole || dispute?.createdBy?.role || "Unknown";
+};
+
+const AttachmentUploaderBadge: React.FC<{ role?: string | null }> = ({ role }) => {
+  const normalized = (role || "Unknown").toLowerCase();
+
+  const styles =
+    normalized === "brand"
+      ? "border-black/10 bg-black text-white"
+      : normalized === "influencer"
+        ? "border-black/10 bg-white text-gray-900"
+        : normalized === "admin"
+          ? "border-black/10 bg-black text-white"
+          : "border-black/10 bg-white text-gray-500";
+
+  return (
+    <span className={`inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${styles}`}>
+      {role || "Unknown"}
+    </span>
+  );
+};
+
+const IssueTypeSummary: React.FC<{ issueTypes?: string[]; compact?: boolean }> = ({
+  issueTypes,
+  compact = false,
+}) => {
+  if (!issueTypes?.length) return <span className="text-gray-400">—</span>;
+
+  const labels = issueTypes.map(getIssueTypeLabel);
+  const [first, ...rest] = labels;
+  const chipClass = compact
+    ? "inline-flex items-center rounded-full border border-black/5 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700"
+    : "inline-flex items-center rounded-full border border-black/5 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700";
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+      <span className={chipClass}>{first}</span>
+      {rest.length > 0 && (
+        <div className="relative group">
+          <span
+            className="inline-flex cursor-default items-center rounded-full border border-black/10 bg-black px-2 py-0.5 text-[11px] font-semibold text-white"
+            aria-label={`${rest.length} more issue types`}
+          >
+            +{rest.length}
+          </span>
+          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[220px] rounded-lg border border-black/10 bg-white p-2 shadow-[0_12px_32px_rgba(0,0,0,0.08)] group-hover:block">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+              Other issue types
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {rest.map((label, index) => (
+                <span key={`${label}-${index}`} className={chipClass}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const getInitials = (value?: string | null, fallback = "?") => {
+  const parts = (value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (!parts.length) return fallback;
+  return parts.map((part) => part[0]?.toUpperCase() || "").join("") || fallback;
+};
+
+const getBrandLogoUrl = (dispute?: Dispute | null) => {
+  return (
+    dispute?.brandLogoUrl ||
+    (dispute?.raisedBy?.role === "Brand" ? dispute.raisedBy.logoUrl : null) ||
+    (dispute?.raisedAgainst?.role === "Brand" ? dispute.raisedAgainst.logoUrl : null) ||
+    null
+  );
+};
+
+const ProfileAvatar: React.FC<{
+  name?: string | null;
+  imageUrl?: string | null;
+  fallbackClassName?: string;
+}> = ({ name, imageUrl, fallbackClassName = "bg-black text-white" }) => {
+  const initials = getInitials(name, "?");
+
+  return (
+    <div className={`h-10 w-10 overflow-hidden rounded-full border border-black/10 flex items-center justify-center flex-shrink-0 text-[11px] font-semibold ${fallbackClassName}`}>
+      {imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={imageUrl} alt={name || "Profile"} className="h-full w-full object-cover" />
+      ) : (
+        initials
+      )}
+    </div>
+  );
+};
+
+
+const TimelineAvatar: React.FC<{
+  role: string;
+  label: string;
+  avatarSrc?: string | null;
+}> = ({ role, label, avatarSrc }) => {
+  const initials =
+    role === "System"
+      ? "S"
+      : role === "Admin"
+        ? "A"
+        : getInitials(label, role[0]?.toUpperCase() || "?");
+
+  const baseClass =
+    role === "System"
+      ? "border-black/10 bg-white text-gray-500"
+      : role === "Brand"
+        ? "border-black bg-black text-white"
+        : role === "Influencer"
+          ? "border-black/10 bg-white text-gray-900"
+          : "border-black bg-black text-white";
+
+  return (
+    <span className={`flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border text-[10px] font-semibold ${baseClass}`}>
+      {role === "Brand" && avatarSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={avatarSrc} alt={label} className="h-full w-full object-cover" />
+      ) : (
+        initials
+      )}
+    </span>
+  );
+};
+
+const StatBox: React.FC<{ value: string; label: string }> = ({ value, label }) => (
+  <div className="bg-white rounded-lg border border-black/5 p-3 text-center">
+    <p className="text-xl font-bold text-gray-900">{value}</p>
+    <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">{label}</p>
+  </div>
+);
+
+// ─────────────────────────────────────────────
+// Timeline item
+// ─────────────────────────────────────────────
+
+function TimelineItem({
+  role,
+  label,
+  action,
+  time,
+  text,
+  attachments,
+  onImageClick,
+  showReply = false,
+  onReply,
+  avatarSrc,
+  children,
+}: {
+  role: string;
+  label: string;
+  action: string;
+  time: string;
+  text: string | null;
+  attachments?: Attachment[];
+  onImageClick?: (images: Attachment[], index: number) => void;
+  showReply?: boolean;
+  onReply?: () => void;
+  avatarSrc?: string | null;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="relative pb-5 pl-8">
+      <div className="absolute -left-[14px] top-0.5 z-10">
+        <TimelineAvatar role={role} label={label} avatarSrc={avatarSrc} />
+      </div>
+      <p className="text-[12px] text-gray-500 leading-snug">
+        <span className="font-semibold text-gray-900">{label}</span>
+        {" "}<span>{action}</span>
+        <span className="mx-1.5 text-gray-300">·</span>
+        <span className="text-gray-400">
+          {new Date(time).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
+        </span>
+      </p>
+      {text && (
+        <div className="mt-1.5 bg-white rounded-lg border border-black/5 px-3.5 py-2.5">
+          <p className="text-[13px] text-gray-700 whitespace-pre-wrap leading-relaxed">{text}</p>
+        </div>
+      )}
+      {attachments && attachments.length > 0 && (
+        <div className="mt-2">
+          <AttachmentPillList attachments={attachments} onImageClick={onImageClick} />
+        </div>
+      )}
+      {showReply && onReply && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={onReply}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-black/10 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 transition hover:bg-black/5"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Reply
+          </button>
+        </div>
+      )}
+      {children ? <div className="mt-3">{children}</div> : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Main page
+// ─────────────────────────────────────────────
+
 export default function AdminDisputeDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -258,627 +554,1061 @@ export default function AdminDisputeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [d, setD] = useState<Dispute | null>(null);
-
   const [comment, setComment] = useState("");
   const [commentFiles, setCommentFiles] = useState<File[]>([]);
   const [posting, setPosting] = useState(false);
-
   const [pendingStatus, setPendingStatus] = useState<DisputeStatus | "">("");
+  const [pendingPriority, setPendingPriority] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [updating, setUpdating] = useState(false);
-
+  const [quickAction, setQuickAction] = useState<"resolved" | "rejected" | null>(null);
+  const [riskTab, setRiskTab] = useState<"brand" | "influencer">("influencer");
   const [previewState, setPreviewState] = useState<ImagePreviewState>(null);
+  const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
+  const [isEvidenceDialogOpen, setIsEvidenceDialogOpen] = useState(false);
+  const [evidenceName, setEvidenceName] = useState("");
+  const [evidenceNotes, setEvidenceNotes] = useState("");
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [submittingEvidence, setSubmittingEvidence] = useState(false);
+  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const data = await get<{ dispute: Dispute }>(`/dispute/admin/${id}`);
       setD(data.dispute);
-    } catch (e: any) {
-      setError(e?.message || "Failed to load dispute");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e: any) { setError(e?.message || "Failed to load dispute"); }
+    finally { setLoading(false); }
   }, [id]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  const getValidFiles = (files: File[]) => {
+    const max = 10 * 1024 * 1024;
+    const big = files.find((f) => f.size > max);
+    if (big) setError(`"${big.name}" exceeds 10 MB.`);
+    return files.filter((f) => f.size <= max);
+  };
 
   const handleCommentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const tooBig = files.find((f) => f.size > maxSize);
-    if (tooBig) {
-      setError(`"${tooBig.name}" is larger than 10MB. Please upload a smaller file.`);
-    }
-
-    const safeFiles = files.filter((f) => f.size <= maxSize);
-    setCommentFiles((prev) => [...prev, ...safeFiles]);
+    const files = getValidFiles(Array.from(e.target.files || []));
+    setCommentFiles((p) => [...p, ...files]);
     e.target.value = "";
   };
 
-  const removeCommentFile = (idx: number) => {
-    setCommentFiles((prev) => prev.filter((_, i) => i !== idx));
+  const handleEvidenceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = getValidFiles(Array.from(e.target.files || []));
+    setEvidenceFiles((p) => [...p, ...files]);
+    e.target.value = "";
+  };
+
+  const resetEvidenceDialog = () => {
+    setEvidenceName("");
+    setEvidenceNotes("");
+    setEvidenceFiles([]);
+  };
+
+  const closeEvidenceDialog = () => {
+    if (submittingEvidence) return;
+    setIsEvidenceDialogOpen(false);
+    resetEvidenceDialog();
+  };
+
+  const submitEvidence = async () => {
+    if (!id) return;
+    if (!evidenceName.trim()) {
+      setError("Evidence name is required.");
+      return;
+    }
+    if (!evidenceFiles.length) {
+      setError("Please attach at least one evidence file.");
+      return;
+    }
+
+    setSubmittingEvidence(true);
+    setError(null);
+
+    try {
+      const form = new FormData();
+      form.append("evidenceName", evidenceName.trim());
+      if (evidenceNotes.trim()) {
+        form.append("notes", evidenceNotes.trim());
+      }
+      evidenceFiles.forEach((file) => form.append("attachments", file));
+
+      // Update this endpoint if your backend uses a different route for adding evidence.
+      await postFormData(`/dispute/admin/${id}/evidence`, form);
+
+      setIsEvidenceDialogOpen(false);
+      resetEvidenceDialog();
+      await load();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Failed to add evidence");
+    } finally {
+      setSubmittingEvidence(false);
+    }
   };
 
   const postComment = async () => {
     if (!id || (!comment.trim() && !commentFiles.length)) return;
-    setPosting(true);
-    setError(null);
+    setPosting(true); setError(null);
     try {
       const form = new FormData();
       form.append("text", comment.trim());
-      commentFiles.forEach((file) => {
-        form.append("attachments", file);
-      });
-
+      commentFiles.forEach((f) => form.append("attachments", f));
       await postFormData(`/dispute/admin/${id}/comment`, form);
       setComment("");
       setCommentFiles([]);
+      setActiveReplyCommentId(null);
       await load();
-    } catch (e: any) {
-      setError(
-        e?.response?.data?.message || e?.message || "Failed to post comment"
-      );
-    } finally {
-      setPosting(false);
-    }
+    } catch (e: any) { setError(e?.response?.data?.message || e?.message || "Failed to post"); }
+    finally { setPosting(false); }
   };
 
   const updateStatus = async () => {
     if (!id || !pendingStatus) return;
-    setUpdating(true);
+    setUpdating(true); setError(null);
+    try {
+      await post("/dispute/admin/update-status", {
+        disputeId: id, status: pendingStatus, resolution: resolutionNote || undefined,
+      });
+      setResolutionNote(""); setPendingStatus(""); await load();
+    } catch (e: any) { setError(e?.response?.data?.message || e?.message || "Failed to update"); }
+    finally { setUpdating(false); }
+  };
+
+  const handleQuickDecision = async (status: "resolved" | "rejected") => {
+    if (!id) return;
+    setQuickAction(status);
     setError(null);
     try {
       await post("/dispute/admin/update-status", {
         disputeId: id,
-        status: pendingStatus,
+        status,
         resolution: resolutionNote || undefined,
       });
-      setResolutionNote("");
       setPendingStatus("");
       await load();
     } catch (e: any) {
-      setError(
-        e?.response?.data?.message ||
-          e?.message ||
-          "Failed to update status"
-      );
+      setError(e?.response?.data?.message || e?.message || "Failed to update");
     } finally {
-      setUpdating(false);
+      setQuickAction(null);
     }
   };
 
-  const getStatusConfig = (s: DisputeStatus) => {
-    const configs = {
-      open: {
-        bg: "bg-blue-50",
-        text: "text-blue-700",
-        border: "border-blue-200",
-        icon: AlertCircle,
-      },
-      in_review: {
-        bg: "bg-purple-50",
-        text: "text-purple-700",
-        border: "border-purple-200",
-        icon: Clock,
-      },
-      awaiting_user: {
-        bg: "bg-amber-50",
-        text: "text-amber-700",
-        border: "border-amber-200",
-        icon: Clock,
-      },
-      resolved: {
-        bg: "bg-green-50",
-        text: "text-green-700",
-        border: "border-green-200",
-        icon: CheckCircle2,
-      },
-      rejected: {
-        bg: "bg-red-50",
-        text: "text-red-700",
-        border: "border-red-200",
-        icon: XCircle,
-      },
-    } as const;
-    return configs[s];
-  };
-
-  const openPreview = (images: Attachment[], index: number) => {
-    if (!images.length) return;
-    setPreviewState({ images, index });
-  };
-
+  const openPreview = (imgs: Attachment[], i: number) => setPreviewState({ images: imgs, index: i });
   const closePreview = () => setPreviewState(null);
+  const prevImg = () =>
+    setPreviewState((p) =>
+      p && p.images.length > 1 ? { ...p, index: (p.index - 1 + p.images.length) % p.images.length } : p
+    );
+  const nextImg = () =>
+    setPreviewState((p) =>
+      p && p.images.length > 1 ? { ...p, index: (p.index + 1) % p.images.length } : p
+    );
 
-  const prevImage = () =>
-    setPreviewState((prev) => {
-      if (!prev || prev.images.length < 2) return prev;
-      const nextIndex =
-        (prev.index - 1 + prev.images.length) % prev.images.length;
-      return { ...prev, index: nextIndex };
+  const handleReplyToBrandComment = (replyToComment: Comment) => {
+    const brandDisplayName = d?.brandName || "Brand";
+    setActiveReplyCommentId(replyToComment.commentId);
+    setComment((prev) => (prev.trim() ? prev : `@${brandDisplayName} `));
+
+    requestAnimationFrame(() => {
+      replyTextareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      replyTextareaRef.current?.focus();
     });
+  };
 
-  const nextImage = () =>
-    setPreviewState((prev) => {
-      if (!prev || prev.images.length < 2) return prev;
-      const nextIndex = (prev.index + 1) % prev.images.length;
-      return { ...prev, index: nextIndex };
-    });
+  const cancelInlineReply = () => {
+    setActiveReplyCommentId(null);
+    setComment("");
+    setCommentFiles([]);
+  };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading dispute details...</p>
-        </div>
+  // ── Loading / error guards ──
+  if (loading) return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="text-center">
+        <div className="h-10 w-10 rounded-full border-2 border-black/5 border-t-black/70 animate-spin mx-auto" />
+        <p className="mt-4 text-sm text-gray-500">Loading dispute…</p>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (error && !d) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full text-center">
-          <XCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
-            Error Loading Dispute
-          </h2>
-          <p className="text-red-600 mb-6">{error}</p>
-          <Button variant="outline" onClick={() => router.back()}>
-            Go Back
-          </Button>
-        </div>
+  if (error && !d) return (
+    <div className="min-h-screen bg-white flex items-center justify-center p-6">
+      <div className="bg-white rounded-lg border border-black/5 p-8 max-w-md w-full text-center">
+        <XCircle className="h-10 w-10 text-red-500 mx-auto mb-4" />
+        <p className="text-red-600 text-sm mb-4">{error}</p>
+        <Button variant="outline" onClick={() => router.back()}>Go Back</Button>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (!d) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">Dispute not found</p>
-        </div>
-      </div>
-    );
-  }
+  if (!d) return null;
 
-  const statusConfig = getStatusConfig(d.status);
-  const StatusIcon = statusConfig.icon;
+  const st = STATUS_MAP[d.status] ?? STATUS_MAP.open;
+  const pri = PRIORITY_MAP[d.priority ?? "medium"] ?? PRIORITY_MAP.medium;
   const isFinalized = d.status === "resolved" || d.status === "rejected";
-  const hasCampaign = Boolean(d.campaignId);
 
-  const handleMailClick =
-    (email: string | null | undefined) =>
-    (e: React.MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation(); // prevent card navigation
-      if (!email) return;
-      window.location.href = `mailto:${email}`;
-    };
+  const raisedByName = d.raisedBy?.name || (d.raisedByRole === "Brand" ? d.brandName : d.influencerName) || d.raisedBy?.id?.slice(-6) || "—";
+  const raisedAgainstName = d.raisedAgainst?.name || (d.raisedAgainst?.role === "Brand" ? d.brandName : d.influencerName) || d.raisedAgainst?.id?.slice(-6) || "—";
+  const brandEmail = d.brandEmail || d.raisedBy?.email || null;
+  const influencerEmail = d.influencerEmail || d.raisedAgainst?.email || null;
+  const brandLogoUrl = getBrandLogoUrl(d);
+  const influencerProfileImage =
+    d.influencerProfileImage ||
+    (d.raisedBy?.role === "Influencer"
+      ? d.raisedBy.logoUrl
+      : d.raisedAgainst?.role === "Influencer"
+        ? d.raisedAgainst.logoUrl
+        : null) ||
+    null;
+
+  const brandSince =
+    d.brandSince ||
+    (d.raisedBy?.role === "Brand"
+      ? d.raisedBy.since
+      : d.raisedAgainst?.role === "Brand"
+        ? d.raisedAgainst.since
+        : null) ||
+    "—";
+
+  const influencerSince =
+    d.influencerSince ||
+    (d.raisedBy?.role === "Influencer"
+      ? d.raisedBy.since
+      : d.raisedAgainst?.role === "Influencer"
+        ? d.raisedAgainst.since
+        : null) ||
+    "—";
+
+  const brandDisputesFiledCount =
+    d.brandDisputesFiledCount ?? (d.raisedByRole === "Brand" ? 1 : 0);
+  const brandDisputesAgainstCount =
+    d.brandDisputesAgainstCount ?? (d.raisedByRole === "Influencer" ? 1 : 0);
+  const influencerDisputesFiledCount =
+    d.influencerDisputesFiledCount ?? (d.raisedByRole === "Influencer" ? 1 : 0);
+  const influencerDisputesAgainstCount =
+    d.influencerDisputesAgainstCount ?? (d.raisedByRole === "Brand" ? 1 : 0);
+
+  const brandRoleInDispute = d.raisedByRole === "Brand" ? "Filed" : "Against";
+  const influencerRoleInDispute = d.raisedByRole === "Influencer" ? "Filed" : "Against";
+
+  const influencerSignals = [
+    {
+      key: "influencer-dispute-frequency",
+      title: "Influencer Dispute Frequency",
+      description: "Involved in 3 disputes in the last 6 months. Platform avg: 0.5.",
+      icon: "clock",
+    },
+  ];
+
+  const brandSignals = [
+    {
+      key: "brand-first-time-dispute",
+      title: "First-time Brand Dispute",
+      description: "Brand has a clean record — 42 successful campaigns.",
+      icon: "check",
+    },
+  ];
+
+  const activeRiskSignals = riskTab === "brand" ? brandSignals : influencerSignals;
 
   return (
     <>
-      <div className="min-h-screen bg-gray-50 py-8">
-        <div className="max-w-6xl mx-auto px-6">
-          {/* Header */}
-          <div className="mb-6">
-            <Button
-              variant="outline"
+      {/* ═══════════════════════════════
+          STICKY HEADER
+      ═══════════════════════════════ */}
+      <header className=" top-0 z-30 bg-white  ">
+        {/* Primary row */}
+        <div className=" h-14 flex items-center justify-between gap-4">
+          {/* Left */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
               onClick={() => router.push("/admin/disputes")}
-              className="mb-4"
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-black/5 hover:bg-black/5 text-gray-700 transition flex-shrink-0"
             >
-              ← Back to Disputes
-            </Button>
-
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <h1 className="text-3xl font-bold text-gray-900 mb-2">
-                    {d.subject}
-                  </h1>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                    <Calendar className="h-4 w-4" />
-                    <span>
-                      Created {new Date(d.createdAt).toLocaleString()}
-                    </span>
-                    <span className="mx-1">•</span>
-                    <span>
-                      Updated {new Date(d.updatedAt).toLocaleString()}
-                    </span>
-                    <span className="mx-1">•</span>
-                    <span className="font-mono text-xs">
-                      Ticket ID: {d.disputeId}
-                    </span>
-                  </div>
-                </div>
-                <div
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${statusConfig.bg} ${statusConfig.text} ${statusConfig.border}`}
-                >
-                  <StatusIcon className="h-5 w-5" />
-                  <span className="font-semibold capitalize">
-                    {d.status.replace("_", " ")}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Party Information */}
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
-            {/* Brand */}
-            <div
-              onClick={() =>
-                router.push(`/admin/brands/view?brandId=${d.brandId}`)
-              }
-              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition"
-            >
-              <div className="flex items-start gap-3">
-                <div className="bg-blue-100 rounded-lg p-3">
-                  <Building2 className="h-6 w-6 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">
-                    Brand
-                  </h3>
-                  <p className="text-lg font-semibold text-gray-900 truncate">
-                    {d.brandName || "Unknown Brand"}
-                  </p>
-                  <p className="text-xs text-gray-500 font-mono mt-1">
-                    {d.brandId}
-                  </p>
-
-                  {/* Mail to Brand */}
-                  {d.brandEmail && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500 truncate max-w-[180px]">
-                        {d.brandEmail}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleMailClick(d.brandEmail)}
-                        className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-100"
-                      >
-                        <Mail className="h-3 w-3" />
-                        <span>Email</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Influencer */}
-            <div
-              onClick={() =>
-                router.push(
-                  `/admin/influencers/view?influencerId=${d.influencerId}`
-                )
-              }
-              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition"
-            >
-              <div className="flex items-start gap-3">
-                <div className="bg-purple-100 rounded-lg p-3">
-                  <User className="h-6 w-6 text-purple-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-1">
-                    Influencer
-                  </h3>
-                  <p className="text-lg font-semibold text-gray-900 truncate">
-                    {d.influencerName || "Unknown Influencer"}
-                  </p>
-                  <p className="text-xs text-gray-500 font-mono mt-1">
-                    {d.influencerId}
-                  </p>
-
-                  {/* Mail to Influencer */}
-                  {d.influencerEmail && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[11px] text-gray-500 truncate max-w-[180px]">
-                        {d.influencerEmail}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleMailClick(d.influencerEmail)}
-                        className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-1 text-[11px] text-purple-700 hover:bg-purple-100"
-                      >
-                        <Mail className="h-3 w-3" />
-                        <span>Email</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Campaign & Opened By */}
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
-            {/* Campaign */}
-            <div
-              className={`bg-white rounded-lg shadow-sm border border-gray-200 p-6 ${
-                hasCampaign ? "cursor-pointer hover:shadow-md transition" : ""
-              }`}
-              onClick={() => {
-                if (hasCampaign) {
-                  router.push(`/admin/campaigns/view?id=${d.campaignId}`);
-                }
-              }}
-            >
-              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-                Campaign
-              </h3>
-
-              {hasCampaign ? (
-                <>
-                  <p className="text-lg font-semibold text-gray-900 truncate">
-                    {d.campaignName || "Linked campaign"}
-                  </p>
-                  <p className="text-xs text-gray-500 font-mono mt-1">
-                    {d.campaignId}
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-gray-500">No campaign linked</p>
-              )}
-            </div>
-
-            {/* Opened By */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-              <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-3">
-                Dispute By
-              </h3>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <div className="h-5 w-px bg-black/10 flex-shrink-0" />
+            <Shield className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm font-medium">
-                  {d.createdBy?.role || "Unknown"}
+                <span className="text-[15px] font-bold text-gray-900 truncate max-w-[220px]">
+                  {d.subject || "Untitled Dispute"}
                 </span>
-                {d.createdBy?.role === "Brand" && (
-                  <span className="text-sm text-gray-600">
-                    • {d.brandName || d.brandId}
-                  </span>
-                )}
-                {d.createdBy?.role === "Influencer" && (
-                  <span className="text-sm text-gray-600">
-                    • {d.influencerName || d.influencerId}
-                  </span>
-                )}
+                {/* Status */}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ring-1 ${st.bg} ${st.text} ${st.ring}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${st.dot}`} />
+                  {st.label.toUpperCase()}
+                </span>
+                {/* Priority */}
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold border border-black/5 ${pri.bg} ${pri.text}`}>
+                  {pri.label}
+                </span>
               </div>
+              <p className="text-[11px] text-gray-400 mt-0.5">Admin Resolution Panel · {d.disputeId}</p>
             </div>
           </div>
 
-          {/* Status Update */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <FileText className="h-5 w-5 text-gray-600" />
-              Update Status
-            </h2>
-            <div className="flex flex-col md:flex-row gap-3">
-              <div className="md:w-56">
-                <Select
-                  value={pendingStatus}
-                  onValueChange={(v) =>
-                    setPendingStatus(v as DisputeStatus)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select new status" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
-                    {statusOptions.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex-1">
-                <Input
-                  placeholder="Add a resolution note (optional)"
-                  value={resolutionNote}
-                  onChange={(e) => setResolutionNote(e.target.value)}
-                />
-              </div>
-              <Button
-                onClick={updateStatus}
-                disabled={updating || !pendingStatus}
-                className="md:w-32 bg-red-100 text-black hover:bg-red-700 border-red-200 hover:text-white"
-              >
-                {updating ? "Updating..." : "Update"}
-              </Button>
-            </div>
+          {/* Right: action buttons */}
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+            <button
+              onClick={() => handleQuickDecision("resolved")}
+              disabled={quickAction !== null || updating}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${d.status === "resolved"
+                ? "text-white bg-black"
+                : "text-white bg-black hover:bg-black/80"
+                }`}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {quickAction === "resolved" ? "Accepting..." : "Accept"}
+            </button>
+            <button
+              onClick={() => handleQuickDecision("rejected")}
+              disabled={quickAction !== null || updating}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border transition disabled:opacity-50 disabled:cursor-not-allowed ${d.status === "rejected"
+                ? "border-black bg-black text-white"
+                : "border-black/10 bg-white text-gray-900 hover:bg-black/5"
+                }`}
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              {quickAction === "rejected" ? "Rejecting..." : "Reject"}
+            </button>
           </div>
+        </div>
 
-          {/* Description */}
-          {d.description && (
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                Description
-              </h2>
-              <div className="prose prose-sm max-w-none">
-                <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                  {d.description}
-                </p>
-              </div>
-              {d.attachments && d.attachments.length > 0 && (
-                <div className="mt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">
-                    Dispute Attachments
-                  </h3>
-                  <AttachmentPillList
-                    attachments={d.attachments}
-                    onImageClick={openPreview}
-                  />
-                </div>
-              )}
-            </div>
+        {/* Meta sub-row */}
+        <div className="max-w-[1440px] mx-auto px-6 pb-2.5 flex items-center gap-5 flex-wrap">
+          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+            <Hash className="h-3.5 w-3.5 text-gray-300" />
+            <span className="font-mono text-gray-700 font-medium">{d.disputeId}</span>
+          </span>
+          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+            <Calendar className="h-3.5 w-3.5 text-gray-300" />
+            Created {new Date(d.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </span>
+          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+            <Activity className="h-3.5 w-3.5 text-gray-300" />
+            Updated {new Date(d.updatedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          </span>
+          {d.assignedTo?.name && (
+            <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+              <User className="h-3.5 w-3.5 text-gray-300" />
+              Admin: <span className="font-medium text-gray-800 ml-1">{d.assignedTo.name}</span>
+            </span>
           )}
+        </div>
+      </header>
 
-          {/* Comments */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-gray-600" />
-              Comments
-              <span className="text-sm font-normal text-gray-500">
-                ({d.comments?.length || 0})
-              </span>
-            </h2>
+      {/* ═══════════════════════════════
+          PAGE BODY
+      ═══════════════════════════════ */}
+      <div className="min-h-screen bg-white">
+        <div className=" py-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_308px] gap-5">
 
-            {error && d && (
-              <p className="text-sm text-red-600 mb-3">{error}</p>
-            )}
+            {/* ───────────────────────────
+                LEFT COLUMN
+            ___________________________ */}
+            <div className="space-y-5">
 
-            {d.comments && d.comments.length > 0 ? (
-              <div className="space-y-4 mb-6">
-                {d.comments.map((c) => {
-                  const roleColors: Record<Comment["authorRole"], string> = {
-                    Admin: "bg-red-100 text-red-700",
-                    Brand: "bg-blue-100 text-blue-700",
-                    Influencer: "bg-purple-100 text-purple-700",
-                  };
-                  return (
-                    <div
-                      key={c.commentId}
-                      className="bg-gray-50 rounded-lg border border-gray-200 p-4"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`px-2 py-1 rounded text-xs font-semibold ${roleColors[c.authorRole]}`}
-                          >
-                            {c.authorRole}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {new Date(c.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-gray-800 whitespace-pre-wrap leading-relaxed">
-                        {c.text}
-                      </p>
-
-                      {c.attachments && c.attachments.length > 0 && (
-                        <div className="mt-3">
-                          <AttachmentPillList
-                            attachments={c.attachments}
-                            onImageClick={openPreview}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8 mb-6">
-                <MessageSquare className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No comments yet</p>
-              </div>
-            )}
-
-            {isFinalized ? (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-sm text-gray-600">
-                  This dispute has been {d.status}. Comments are no longer
-                  allowed.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <Textarea
-                  rows={4}
-                  placeholder="Write your comment here..."
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  className="resize-none"
-                />
-
-                {/* Attachments for admin comment */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <label className="inline-flex items-center gap-2 px-3 py-2 border rounded-md text-xs cursor-pointer bg-gray-50 hover:bg-gray-100">
-                      <Paperclip className="h-3 w-3" />
-                      <span>Add attachments</span>
-                      <input
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={handleCommentFileChange}
-                      />
-                    </label>
-                    {commentFiles.length > 0 && (
-                      <span className="text-[11px] text-gray-600">
-                        {commentFiles.length} file
-                        {commentFiles.length > 1 ? "s" : ""} selected
-                      </span>
-                    )}
+              {/* ① Dispute Overview */}
+              <Card>
+                <CardHeader title="Dispute Overview" />
+                <div className="p-5">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-4 mb-4 border-b border-black/5">
+                    <MetaChip
+                      icon={<Layers className="h-3.5 w-3.5" />}
+                      label="Campaign"
+                      value={d.campaignName || (d.campaignId ? "View Campaign" : "—")}
+                      valueClass={d.campaignId ? "text-gray-900 cursor-pointer hover:underline" : "text-gray-400"}
+                    />
+                    <MetaChip
+                      icon={<Tag className="h-3.5 w-3.5" />}
+                      label="Issue Types"
+                      value={<IssueTypeSummary issueTypes={d.issueType} compact />}
+                    />
+                    <MetaChip
+                      icon={<Shield className="h-3.5 w-3.5" />}
+                      label="Raised By"
+                      value={`${d.raisedBy?.role || d.createdBy?.role || "—"} · ${raisedByName}`}
+                    />
+                    <MetaChip
+                      icon={<AlertCircle className="h-3.5 w-3.5" />}
+                      label="Against"
+                      value={`${d.raisedAgainst?.role || "—"} · ${raisedAgainstName}`}
+                    />
                   </div>
 
-                  {commentFiles.length > 0 && (
-                    <ul className="space-y-1 text-[11px] text-gray-700">
-                      {commentFiles.map((file, idx) => (
-                        <li
-                          key={`${file.name}-${idx}`}
-                          className="flex items-center justify-between gap-2 border rounded px-2 py-1 bg-gray-50"
-                        >
-                          <span className="truncate max-w-xs">
-                            {file.name}
-                          </span>
+                  {d.description ? (
+                    <div className="bg-white rounded-lg border border-black/5 px-4 py-3 mb-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Dispute Reason</p>
+                      <p className="text-[13px] text-gray-700 leading-relaxed">{d.description}</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-lg border border-dashed border-black/5 px-4 py-3 mb-4">
+                      <p className="text-[12px] text-gray-400 italic">No description provided.</p>
+                    </div>
+                  )}
+
+                  {d.attachments && d.attachments.length > 0 && (
+                    <AttachmentPillList attachments={d.attachments} onImageClick={openPreview} />
+                  )}
+                </div>
+              </Card>
+
+              {/* ② Brand + Influencer + Campaign Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                {/* Brand card */}
+                <Card
+                  className="cursor-pointer hover:shadow-md transition"
+                  onClick={() => router.push(`/admin/brands/view?brandId=${d.brandId}`)}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Brand Details</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-gray-600 font-semibold border border-black/5">Client</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 mb-4">
+                      <ProfileAvatar
+                        name={d.brandName || "Unknown Brand"}
+                        imageUrl={brandLogoUrl}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.brandName || "Unknown Brand"}</p>
+                        <p className="text-[11px] text-gray-400 font-mono">{d.brandId.slice(-10)}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-3 gap-x-3 text-[12px]">
+                      {[
+                        ["In This Dispute", brandRoleInDispute],
+                        ["Since", brandSince],
+                        ["Disputes Filed", String(brandDisputesFiledCount)],
+                        ["Disputes Against", String(brandDisputesAgainstCount)],
+                      ].map(([k, v]) => (
+                        <div key={k}>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide">{k}</p>
+                          <p className="font-semibold text-gray-800">{v}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {brandEmail && (
+                      <div className="mt-4 pt-4 border-t border-black/5 flex items-center justify-between">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Contact</p>
+                        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5">
                           <button
                             type="button"
-                            onClick={() => removeCommentFile(idx)}
-                            className="text-gray-500 hover:text-red-600"
+                            onClick={(e) => { e.stopPropagation(); window.location.href = `mailto:${brandEmail}`; }}
+                            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-black text-white text-[10px] font-medium hover:bg-black/80 flex-shrink-0"
                           >
-                            <X className="h-3 w-3" />
+                            <Mail className="h-3 w-3" />Email
                           </button>
-                        </li>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Influencer card */}
+                <Card
+                  className="cursor-pointer hover:shadow-md transition"
+                  onClick={() => router.push(`/admin/influencers/view?influencerId=${d.influencerId}`)}
+                >
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Influencer Details</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-gray-600 font-semibold border border-black/5">Creator</span>
+                    </div>
+                    <div className="flex items-center gap-2.5 mb-4">
+                      <ProfileAvatar
+                        name={d.influencerName || "Unknown Influencer"}
+                        imageUrl={influencerProfileImage}
+                        fallbackClassName="bg-white text-gray-900"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.influencerName || "Unknown Influencer"}</p>
+                        <p className="text-[11px] text-gray-400 font-mono">{d.influencerId.slice(-10)}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-y-3 gap-x-3 text-[12px]">
+                      {[
+                        ["In This Dispute", influencerRoleInDispute],
+                        ["Since", influencerSince],
+                        ["Disputes Filed", String(influencerDisputesFiledCount)],
+                        ["Disputes Against", String(influencerDisputesAgainstCount)],
+                      ].map(([k, v]) => (
+                        <div key={k}>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide">{k}</p>
+                          <p className="font-semibold text-gray-800">{v}</p>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
+                    {influencerEmail && (
+                      <div className="mt-4 pt-4 border-t border-black/5 flex items-center justify-between">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Contact</p>
+                        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2.5">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); window.location.href = `mailto:${influencerEmail}`; }}
+                            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg bg-black text-white text-[10px] font-medium hover:bg-black/80 flex-shrink-0"
+                          >
+                            <Mail className="h-3 w-3" />Email
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+
+                {/* Campaign status card */}
+                <Card>
+                  <div className="p-4">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Campaign Status</p>
+                    {d.campaignId ? (
+                      <button
+                        onClick={() => router.push(`/admin/campaigns/view?id=${d.campaignId}`)}
+                        className="w-full flex items-center justify-between border border-black/5 rounded-lg px-3 py-2.5 hover:bg-black/5 transition mb-3 group bg-white"
+                      >
+                        <div className="text-left min-w-0">
+                          <p className="text-[12px] font-semibold text-gray-800 truncate">{d.campaignName || "Linked Campaign"}</p>
+                          <p className="text-[11px] text-gray-400 font-mono mt-0.5">{d.campaignId.slice(-12)}</p>
+                        </div>
+                        <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-gray-700 transition flex-shrink-0" />
+                      </button>
+                    ) : (
+                      <div className="border border-dashed border-black/5 rounded-lg px-3 py-2.5 mb-3">
+                        <p className="text-[12px] text-gray-400 italic">No campaign linked</p>
+                      </div>
+                    )}
+                    <div className="space-y-2.5 text-[12px]">
+                      {[
+                        ["Dispute Status", <span key="s" className={`font-semibold ${st.text}`}>{st.label}</span>],
+                        ["Priority", <span key="p" className={`inline-flex items-center rounded-lg border border-black/5 px-2 py-0.5 font-semibold ${pri.text}`}>{pri.label}</span>],
+                        ["Assigned Admin", <span key="a" className="font-semibold text-gray-800">{d.assignedTo?.name || "Unassigned"}</span>],
+                        ["Attachments", <span key="at" className="font-semibold text-gray-800">{d.attachments?.length ?? 0} files</span>],
+                        ["Comments", <span key="c" className="font-semibold text-gray-800">{d.comments?.length ?? 0}</span>],
+                      ].map(([k, v]) => (
+                        <div key={String(k)} className="flex items-center justify-between">
+                          <span className="text-gray-500">{k}</span>
+                          {v}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Card>
+              </div>
+
+              {/* ④ Evidence Room */}
+              <Card>
+                <CardHeader
+                  title="Evidence Room"
+                  extra={
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-gray-400">{d.attachments?.length ?? 0} files</span>
+                      {!isFinalized && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setError(null);
+                            setIsEvidenceDialogOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-black px-3 py-1.5 text-[11px] font-medium text-white transition hover:bg-black/80"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          Add Evidence
+                        </button>
+                      )}
+                    </div>
+                  }
+                />
+                <div className="p-5">
+                  {d.attachments && d.attachments.length > 0 ? (
+                    <>
+                      <div className="grid grid-cols-[minmax(0,1fr)_120px_48px] text-[10px] font-bold uppercase tracking-wider text-gray-400 pb-2 mb-1 border-b border-black/5">
+                        <span>Evidence</span><span>Uploader</span><span className="text-right">View</span>
+                      </div>
+                      <div className="divide-y divide-black/5">
+                        {d.attachments.map((att, idx) => {
+                          const name =
+                            att.evidenceName ||
+                            att.originalName ||
+                            att.url.split("?")[0].split("/").pop() ||
+                            `Evidence ${idx + 1}`;
+                          const sizeKB = att.size ? `${(att.size / 1024).toFixed(0)} KB` : "";
+                          const isImg = isImageAttachment(att);
+                          const uploaderRole = getAttachmentUploaderRole(att, d);
+
+                          return (
+                            <div key={att.url || idx} className="grid grid-cols-[minmax(0,1fr)_120px_48px] items-center gap-3 py-3 text-[12px]">
+                              <div className="flex items-start gap-2.5 min-w-0">
+                                <div className="mt-0.5 h-7 w-7 rounded-lg bg-white border border-black/5 flex items-center justify-center flex-shrink-0">
+                                  {isImg
+                                    ? <Eye className="h-3.5 w-3.5 text-gray-400" />
+                                    : <FileText className="h-3.5 w-3.5 text-gray-400" />}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="font-medium text-gray-800 truncate">{name}</p>
+                                  <div className="mt-0.5 flex items-center gap-2 flex-wrap text-[10px] text-gray-400">
+                                    {att.originalName && att.evidenceName && <span className="truncate max-w-[220px]">{att.originalName}</span>}
+                                    {sizeKB && <span>{sizeKB}</span>}
+                                  </div>
+                                  {att.notes && (
+                                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{att.notes}</p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center">
+                                <AttachmentUploaderBadge role={uploaderRole} />
+                              </div>
+                              <div className="flex justify-end">
+                                {isImg ? (
+                                  <button
+                                    onClick={() => openPreview([att], 0)}
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-black/5 transition"
+                                  >
+                                    <Eye className="h-3.5 w-3.5 text-gray-500" />
+                                  </button>
+                                ) : (
+                                  <a
+                                    href={att.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-black/5 transition"
+                                  >
+                                    <ArrowUpRight className="h-3.5 w-3.5 text-gray-500" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-black/5 px-4 py-10 text-center">
+                      <p className="text-[13px] font-medium text-gray-700">No evidence</p>
+                      <p className="mt-1 text-[11px] text-gray-400">No evidence has been added for this dispute yet.</p>
+                    </div>
                   )}
                 </div>
+              </Card>
 
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setComment("");
-                      setCommentFiles([]);
-                    }}
-                    disabled={posting || (!comment.trim() && !commentFiles.length)}
-                  >
-                    Clear
-                  </Button>
-                  <Button
-                    onClick={postComment}
-                    disabled={
-                      posting || (!comment.trim() && !commentFiles.length)
-                    }
-                    className="min-w-32 bg-gray-800 hover:bg-gray-900 text-white"
-                  >
-                    {posting ? "Posting..." : "Post Comment"}
-                  </Button>
+              {/* ③ Audit Timeline */}
+              <Card>
+                <CardHeader
+                  title="Audit Timeline"
+                  extra={<span className="text-[11px] text-gray-400">{(d.comments?.length ?? 0) + 1} events</span>}
+                />
+                <div className="p-5">
+                  {error && d && (
+                    <div className="mb-4 text-[12px] text-red-600 bg-white rounded-lg px-3 py-2 border border-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="relative border-l border-black/5 ml-3.5">
+                    <TimelineItem
+                      role="System"
+                      label="System"
+                      action="Dispute opened"
+                      time={d.createdAt}
+                      text={null}
+                    />
+                    {(d.comments ?? []).map((c) => {
+                      const canReplyToBrand = c.authorRole === "Brand" && !isSystemGeneratedBrandComment(c);
+                      const authorLabel =
+                        c.authorRole === "Brand"
+                          ? d.brandName || "Brand"
+                          : c.authorRole === "Influencer"
+                            ? d.influencerName || "Influencer"
+                            : "Admin";
+
+                      return (
+                        <TimelineItem
+                          key={c.commentId}
+                          role={c.authorRole}
+                          label={authorLabel}
+                          action={c.authorRole === "Admin" ? "added a note" : "sent a message"}
+                          time={c.createdAt}
+                          text={c.text || null}
+                          attachments={c.attachments}
+                          onImageClick={openPreview}
+                          showReply={canReplyToBrand}
+                          onReply={canReplyToBrand ? () => handleReplyToBrandComment(c) : undefined}
+                          avatarSrc={c.authorRole === "Brand" ? brandLogoUrl : null}
+                        >
+                          {activeReplyCommentId === c.commentId && !isFinalized && (
+                            <div className="rounded-lg border border-black/5 bg-white p-3">
+                              <div className="mb-3 flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-[12px] font-semibold text-gray-900">Reply to {d.brandName || "Brand"}</p>
+                                  <p className="text-[11px] text-gray-400">Your reply will be added directly in this timeline.</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={cancelInlineReply}
+                                  className="text-[11px] font-medium text-gray-500 transition hover:text-gray-900"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              <Textarea
+                                ref={replyTextareaRef}
+                                rows={3}
+                                placeholder={`Reply to ${d.brandName || "Brand"}...`}
+                                value={comment}
+                                onChange={(e) => setComment(e.target.value)}
+                                className="resize-none text-[13px] rounded-lg border-black/5 bg-white focus:border-black focus:ring-0"
+                              />
+
+                              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                                <label className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg cursor-pointer hover:bg-black/5 transition">
+                                  <Paperclip className="h-3.5 w-3.5" />Attach files
+                                  <input type="file" multiple className="hidden" onChange={handleCommentFileChange} />
+                                </label>
+                                {commentFiles.length > 0 && (
+                                  <>
+                                    <span className="text-[11px] text-gray-500">
+                                      {commentFiles.length} file{commentFiles.length > 1 ? "s" : ""}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setCommentFiles([])}
+                                      className="text-[11px] text-red-400 hover:text-red-600"
+                                    >
+                                      Remove all
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+
+                              <div className="mt-3 flex items-center justify-between gap-3">
+                                <span className="text-[11px] text-gray-400">Admin timeline reply</span>
+                                <button
+                                  type="button"
+                                  onClick={postComment}
+                                  disabled={posting || (!comment.trim() && !commentFiles.length)}
+                                  className="inline-flex items-center gap-1.5 h-8 px-4 text-[12px] font-semibold text-white bg-black rounded-lg hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                                >
+                                  {posting ? "Posting..." : "Post Reply"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </TimelineItem>
+                      );
+                    })}
+                  </div>
                 </div>
+              </Card>
+
+
+            </div>
+
+            {/* ───────────────────────────
+                RIGHT SIDEBAR
+            ___________________________ */}
+            <div className="space-y-4">
+
+              {/* Resolution Control */}
+              <Card>
+                <CardHeader title="Resolution Control" />
+                <div className="p-4 space-y-3.5">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">Update Status</label>
+                    <Select value={pendingStatus} onValueChange={(v) => setPendingStatus(v as DisputeStatus)}>
+                      <SelectTrigger className="text-[13px] h-9 rounded-lg border-black/5 bg-white">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg">
+                        {statusOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">Priority Level</label>
+                    <Select value={pendingPriority} onValueChange={setPendingPriority}>
+                      <SelectTrigger className="text-[13px] h-9 rounded-lg border-black/5 bg-white">
+                        <SelectValue placeholder="Select priority" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg">
+                        {priorityOptions.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
+                      Resolution Notes (Audit Trail)
+                    </label>
+                    <Textarea
+                      rows={3}
+                      placeholder="Summarise the decision or current status update…"
+                      value={resolutionNote}
+                      onChange={(e) => setResolutionNote(e.target.value)}
+                      className="resize-none text-[13px] rounded-lg border-black/5 bg-white focus:border-black focus:ring-0"
+                    />
+                  </div>
+
+                  <button
+                    onClick={updateStatus}
+                    disabled={updating || !pendingStatus}
+                    className="w-full h-9 text-[13px] font-semibold text-white bg-black rounded-lg hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    {updating ? "Updating…" : "Update Record"}
+                  </button>
+                </div>
+              </Card>
+
+              {/* Risk & Signals */}
+              <Card>
+                <CardHeader
+                  title="Risk & Signals"
+                  extra={<AlertTriangle className="h-4 w-4 text-gray-700" />}
+                />
+                <div className="p-4">
+                  <Tabs
+                    value={riskTab}
+                    onValueChange={(value) => setRiskTab(value as "brand" | "influencer")}
+                    className="w-full"
+                  >
+                    <TabsList className="mb-3 grid w-full grid-cols-2 rounded-lg bg-white p-0 border border-black/10">
+                      <TabsTrigger
+                        value="brand"
+                        className="inline-flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-none"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <Building2 className="h-3.5 w-3.5" />
+                          Brand
+                        </span>
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-black px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {brandSignals.length}
+                        </span>
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="influencer"
+                        className="inline-flex items-center justify-between rounded-lg px-3 py-2 text-[12px] font-medium data-[state=active]:bg-black data-[state=active]:text-white data-[state=active]:shadow-none"
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <User className="h-3.5 w-3.5" />
+                          Influencer
+                        </span>
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-black px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          {influencerSignals.length}
+                        </span>
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="brand" className="mt-0 space-y-2.5">
+                      {brandSignals.length > 0 ? (
+                        brandSignals.map((signal) => (
+                          <div key={signal.key} className="rounded-lg bg-white border border-black/5 p-3">
+                            <div className="flex items-start gap-2">
+                              {signal.icon === "clock" ? (
+                                <Clock className="h-4 w-4 text-gray-700 mt-0.5 flex-shrink-0" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4 text-gray-700 mt-0.5 flex-shrink-0" />
+                              )}
+                              <div>
+                                <p className="text-[12px] font-semibold text-gray-900">{signal.title}</p>
+                                <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
+                                  {signal.description}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-black/10 px-3 py-6 text-center">
+                          <p className="text-[12px] font-medium text-gray-700">No signals</p>
+                          <p className="mt-1 text-[11px] text-gray-400">No risk signals available for the brand yet.</p>
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="influencer" className="mt-0 space-y-2.5">
+                      {influencerSignals.length > 0 ? (
+                        influencerSignals.map((signal) => (
+                          <div key={signal.key} className="rounded-lg bg-white border border-black/5 p-3">
+                            <div className="flex items-start gap-2">
+                              {signal.icon === "clock" ? (
+                                <Clock className="h-4 w-4 text-gray-700 mt-0.5 flex-shrink-0" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4 text-gray-700 mt-0.5 flex-shrink-0" />
+                              )}
+                              <div>
+                                <p className="text-[12px] font-semibold text-gray-900">{signal.title}</p>
+                                <p className="text-[11px] text-gray-600 mt-0.5 leading-snug">
+                                  {signal.description}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-black/10 px-3 py-6 text-center">
+                          <p className="text-[12px] font-medium text-gray-700">No signals</p>
+                          <p className="mt-1 text-[11px] text-gray-400">No risk signals available for the influencer yet.</p>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </div>
+              </Card>
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-2.5">
+                <StatBox value="12" label="Open Disputes" />
+                <StatBox value="45" label="Resolved / Mo" />
+                <StatBox value="8%" label="Escalation" />
               </div>
-            )}
+
+              {/* Financial actions */}
+              <div className="space-y-2">
+                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                  <DollarSign className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  Release Payment to Escrow
+                </button>
+                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                  <BarChart2 className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  Issue Partial Refund…
+                </button>
+                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                  <Flag className="h-4 w-4 text-red-400 flex-shrink-0" />
+                  Flag for Legal Review
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
 
-      {/* Image preview overlay */}
-      <ImagePreviewModal
-        state={previewState}
-        onClose={closePreview}
-        onPrev={prevImage}
-        onNext={nextImage}
-      />
+      {isEvidenceDialogOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
+          onClick={closeEvidenceDialog}
+        >
+          <div
+            className="w-full max-w-xl rounded-lg border border-black/10 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.18)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-black/5 px-5 py-4">
+              <div>
+                <h3 className="text-[15px] font-semibold text-gray-900">Add Evidence</h3>
+                <p className="mt-1 text-[12px] text-gray-400">Add evidence name, notes, and supporting attachments.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeEvidenceDialog}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-black/5 text-gray-500 transition hover:bg-black/5"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  Evidence Name
+                </label>
+                <input
+                  type="text"
+                  value={evidenceName}
+                  onChange={(e) => setEvidenceName(e.target.value)}
+                  placeholder="Enter evidence name"
+                  className="h-10 w-full rounded-lg border border-black/5 bg-white px-3 text-[13px] text-gray-900 outline-none transition focus:border-black"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  Notes
+                </label>
+                <Textarea
+                  rows={4}
+                  value={evidenceNotes}
+                  onChange={(e) => setEvidenceNotes(e.target.value)}
+                  placeholder="Add supporting notes for this evidence..."
+                  className="resize-none text-[13px] rounded-lg border-black/5 bg-white focus:border-black focus:ring-0"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  Attachments
+                </label>
+                <div className="rounded-lg border border-dashed border-black/10 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[12px] font-medium text-gray-700">Upload files</p>
+                      <p className="text-[11px] text-gray-400">PDF, JPG, PNG, MP4 · max 10 MB each</p>
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 py-2 text-[12px] font-medium text-gray-700 transition hover:bg-black/5">
+                      <Paperclip className="h-3.5 w-3.5" />
+                      Choose files
+                      <input type="file" multiple className="hidden" onChange={handleEvidenceFileChange} />
+                    </label>
+                  </div>
+
+                  {evidenceFiles.length > 0 && (
+                    <div className="mt-3 space-y-2 border-t border-black/5 pt-3">
+                      {evidenceFiles.map((file, index) => (
+                        <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-black/5 px-3 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] font-medium text-gray-800">{file.name}</p>
+                            <p className="text-[10px] text-gray-400">{(file.size / 1024).toFixed(0)} KB</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEvidenceFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
+                            className="text-[11px] font-medium text-red-500 transition hover:text-red-600"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-black/5 px-5 py-4">
+              <p className="text-[11px] text-gray-400">This will add a new evidence entry to the dispute.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeEvidenceDialog}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-black/10 bg-white px-4 text-[12px] font-medium text-gray-700 transition hover:bg-black/5"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitEvidence}
+                  disabled={submittingEvidence}
+                  className="inline-flex h-9 items-center justify-center rounded-lg bg-black px-4 text-[12px] font-semibold text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {submittingEvidence ? "Saving..." : "Save Evidence"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image lightbox */}
+      <ImagePreviewModal state={previewState} onClose={closePreview} onPrev={prevImg} onNext={nextImg} />
     </>
   );
 }
