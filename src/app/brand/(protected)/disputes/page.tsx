@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { post } from "@/lib/api";
 import { DisputeTable } from "./disputesTable";
 import DisputeFilters from "./disputeFilter";
@@ -10,7 +10,8 @@ export type DisputeStatus =
   | "in_review"
   | "awaiting_user"
   | "resolved"
-  | "rejected";
+  | "rejected"
+  | "revoked";
 
 export type Role = "Admin" | "Brand" | "Influencer";
 
@@ -29,21 +30,37 @@ export type Attachment = {
   size?: number | null;
 };
 
+export type Comment = {
+  commentId: string;
+  authorRole: Role;
+  authorId: string;
+  text: string;
+  createdAt: string;
+  attachments?: Attachment[];
+};
+
+export type AssignedAdmin = {
+  adminId?: string | null;
+  name?: string | null;
+};
+
 export type Dispute = {
   disputeId: string;
   subject: string;
-  description?: string;
+  description: string;
   status: DisputeStatus;
+  priority?: string;
   campaignId?: string | null;
   campaignName?: string | null;
   brandId: string;
   influencerId: string;
-  assignedTo?: { adminId?: string | null; name?: string | null } | null;
+  issueType?: string[];
+  assignedTo?: AssignedAdmin | null;
+  comments: Comment[];
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
-  attachments?: Attachment[];
-  createdBy?: { id: string; role: Role };
-  raisedByRole?: Role | null;
+  raisedByRole?: string | null;
   raisedById?: string | null;
   raisedBy?: DisputeParty | null;
   raisedAgainst?: DisputeParty | null;
@@ -58,7 +75,34 @@ type ListResp = {
   disputes: Dispute[];
 };
 
+type ApiErrorShape = {
+  response?: {
+    data?: {
+      message?: unknown;
+    };
+  };
+  message?: unknown;
+};
+
 const PAGE_SIZE = 10;
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error !== "object" || error === null) {
+    return fallback;
+  }
+
+  const candidate = error as ApiErrorShape;
+
+  if (typeof candidate.response?.data?.message === "string") {
+    return candidate.response.data.message;
+  }
+
+  if (typeof candidate.message === "string") {
+    return candidate.message;
+  }
+
+  return fallback;
+}
 
 const BrandDisputesPage: React.FC = () => {
   const [brandId, setBrandId] = useState<string | null>(null);
@@ -79,23 +123,25 @@ const BrandDisputesPage: React.FC = () => {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setBrandId(localStorage.getItem("brandId"));
+
+    setBrandId(window.localStorage.getItem("brandId"));
     setBrandLoaded(true);
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       setPage(1);
       setDebouncedSearch(search.trim());
     }, 300);
-    return () => clearTimeout(t);
+
+    return () => window.clearTimeout(timeoutId);
   }, [search]);
 
   useEffect(() => {
     setPage(1);
   }, [status, direction]);
 
-  const fetchDisputes = async () => {
+  const fetchDisputes = useCallback(async (): Promise<void> => {
     if (!brandLoaded) return;
 
     if (!brandId) {
@@ -114,60 +160,85 @@ const BrandDisputesPage: React.FC = () => {
         limit: PAGE_SIZE,
       };
 
-      const statusNum = parseInt(status, 10);
-      if (!isNaN(statusNum)) body.status = statusNum;
+      const statusNum = Number.parseInt(status, 10);
+      if (!Number.isNaN(statusNum) && statusNum > 0) {
+        body.status = statusNum;
+      }
 
-      if (direction === "raised_by_you") body.appliedBy = "brand";
-      else if (direction === "against_you") body.appliedBy = "influencer";
+      if (direction === "raised_by_you") {
+        body.appliedBy = "brand";
+      } else if (direction === "against_you") {
+        body.appliedBy = "influencer";
+      }
 
-      if (debouncedSearch) body.search = debouncedSearch;
+      if (debouncedSearch) {
+        body.search = debouncedSearch;
+      }
 
       const data = await post<ListResp>("/dispute/brand/list", body);
 
       setRows(data.disputes || []);
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
-    } catch (e: any) {
-      setError(e?.message || "Failed to load disputes.");
+    } catch (fetchError: unknown) {
+      setError(getErrorMessage(fetchError, "Failed to load disputes."));
     } finally {
       setLoading(false);
     }
-  };
+  }, [brandLoaded, brandId, page, status, direction, debouncedSearch]);
 
   useEffect(() => {
     if (!brandLoaded) return;
-    fetchDisputes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brandLoaded, brandId, page, status, debouncedSearch, direction]);
+    void fetchDisputes();
+  }, [brandLoaded, fetchDisputes]);
+
+  const handleDisputeCreated = useCallback(() => {
+    if (page !== 1) {
+      setPage(1);
+      return;
+    }
+
+    void fetchDisputes();
+  }, [page, fetchDisputes]);
 
   const pageNumbers = useMemo(() => {
     const pages: number[] = [];
     const maxButtons = 5;
+
     let start = Math.max(1, page - Math.floor(maxButtons / 2));
     let end = Math.min(totalPages, start + maxButtons - 1);
+
     start = Math.max(1, end - maxButtons + 1);
-    for (let i = start; i <= end; i++) pages.push(i);
+
+    for (let current = start; current <= end; current += 1) {
+      pages.push(current);
+    }
+
     return pages;
   }, [page, totalPages]);
 
   return (
     <div className="w-full mx-auto">
       <Suspense fallback={<div>Loading filters...</div>}>
-      <DisputeFilters
-        search={search}
-        onSearchChange={setSearch}
-        status={status}
-        onStatusChange={setStatus}
-        direction={direction}
-        onDirectionChange={setDirection}
-        onDisputeCreated={fetchDisputes}
-      />
+        <DisputeFilters
+          search={search}
+          onSearchChange={setSearch}
+          status={status}
+          onStatusChange={setStatus}
+          direction={direction}
+          onDirectionChange={setDirection}
+          onDisputeCreated={handleDisputeCreated}
+        />
       </Suspense>
+
       <DisputeTable
         rows={rows}
         loading={loading}
         error={error}
-        onRetry={fetchDisputes}
+        onRetry={() => {
+          void fetchDisputes();
+        }}
+        brandId={brandId}
         page={page}
         totalPages={totalPages}
         total={total}

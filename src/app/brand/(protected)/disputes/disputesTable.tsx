@@ -28,6 +28,8 @@ import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 import { Button } from "@/components/ui/buttonComp";
 import type { Dispute } from "./page";
 import Swal from "sweetalert2";
+import { apiRevokeDispute } from "../../services/brandApi";
+import ConfirmRevokeModal from "./confirmRevokeModal";
 
 // ─── Status display helpers ────────────────────────────────────────────────────
 
@@ -37,6 +39,7 @@ const STATUS_LABEL: Record<string, string> = {
     awaiting_user: "Awaiting User",
     resolved: "Resolved",
     rejected: "Rejected",
+    revoked: "Revoked",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -45,6 +48,7 @@ const STATUS_COLORS: Record<string, string> = {
     awaiting_user: "bg-amber-50 text-amber-700 border border-amber-200",
     resolved: "bg-emerald-50 text-emerald-700 border border-emerald-200",
     rejected: "bg-red-50 text-red-600 border border-red-200",
+    revoked: "bg-gray-100 text-gray-700 border border-gray-200",
 };
 
 // ─── Header carets ─────────────────────────────────────────────────────────────
@@ -84,6 +88,7 @@ function DisputeImage({ src }: { src?: string | null }) {
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
 type DisputeThreeDotMenuProps = {
+    status: string;
     onCopyDisputeLink?: () => void;
     onOpenInNewTab?: () => void;
     onRequestEscalation?: () => void;
@@ -95,6 +100,7 @@ export type DisputeTableProps = {
     loading: boolean;
     error: string | null;
     onRetry: () => void;
+    brandId: string | null;
     // Pagination
     page: number;
     totalPages: number;
@@ -125,6 +131,7 @@ export function DisputeTable({
     loading,
     error,
     onRetry,
+    brandId,
     page,
     totalPages,
     total,
@@ -134,13 +141,43 @@ export function DisputeTable({
 }: DisputeTableProps) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
 
-    const allSelected =
-        rows.length > 0 && rows.every((r) => selected.has(r.disputeId));
+    // ── Revoke modal state ──────────────────────────────────────────────────────
+    const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
+    const [isRevoking, setIsRevoking] = useState(false);
+    const [revokeError, setRevokeError] = useState<string | null>(null);
+
+    const handleRevokeConfirm = async () => {
+        if (!revokeTarget) return;
+        setIsRevoking(true);
+        setRevokeError(null);
+
+        try {
+            console.log(
+                "brandId and disputeId being sent to apiRevokeDispute:",
+                brandId,
+                revokeTarget
+            )
+            await apiRevokeDispute({ disputeId: revokeTarget, brandId });
+            setRevokeTarget(null);
+            onRetry();
+        } catch {
+            setRevokeError("Something went wrong while revoking the dispute. Please try again.");
+        } finally {
+            setIsRevoking(false);
+        }
+    };
+
+    const handleRevokeClose = () => {
+        if (isRevoking) return;
+        setRevokeTarget(null);
+        setRevokeError(null);
+    };
+
+    // ── Existing selection logic ────────────────────────────────────────────────
+    const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.disputeId));
 
     const toggleAll = () =>
-        setSelected(
-            allSelected ? new Set() : new Set(rows.map((r) => r.disputeId))
-        );
+        setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.disputeId)));
 
     const toggleOne = (id: string) =>
         setSelected((prev) => {
@@ -160,348 +197,333 @@ export function DisputeTable({
         action: "min-w-[9rem] flex-[1_1_0%]",
     };
 
-    const headerCell =
-        "flex items-center justify-between w-full text-sm font-semibold text-[#1A1A1A]";
-
+    const headerCell = "flex items-center justify-between w-full text-sm font-semibold text-[#1A1A1A]";
     const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
     const to = Math.min(page * pageSize, total);
 
     return (
-        <div className="w-full overflow-x-auto">
-            <div className="min-w-full w-max mt-[1.5rem]  px-[2rem] pb-[2.5rem]">
-                {/* ── Header row ──────────────────────────────────────────────────── */}
-                <div className="flex items-center h-12 bg-[#E6E6E6] rounded-lg px-4">
-                    <div className={col.checkbox}>
-                        <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
-                    </div>
+        <>
+            {/* ── Revoke confirmation modal ─────────────────────────────────────── */}
+            <ConfirmRevokeModal
+                open={revokeTarget !== null}
+                onClose={handleRevokeClose}
+                onConfirm={handleRevokeConfirm}
+                isSubmitting={isRevoking}
+                error={revokeError}
+            />
 
-                    <div className={`${col.title} px-2`}>
-                        <div className={headerCell}>
-                            <span>Dispute Title & ID</span>
-                            <HeaderCarets />
+            <div className="w-full overflow-x-auto">
+                <div className="min-w-full w-max mt-[1.5rem] px-[2rem] pb-[2.5rem]">
+                    {/* ── Header row ──────────────────────────────────────────────── */}
+                    <div className="flex items-center h-12 bg-[#E6E6E6] rounded-lg px-4">
+                        <div className={col.checkbox}>
+                            <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
                         </div>
-                    </div>
-
-                    <div className={`${col.image} px-2`}>
-                        <div className={headerCell}>
-                            <span>Image</span>
-                            <HeaderCarets />
-                        </div>
-                    </div>
-
-                    <div className={`${col.campaign} pl-5 pr-2`}>
-                        <div className={headerCell}>
-                            <span>Campaign Name</span>
-                            <HeaderCarets />
-                        </div>
-                    </div>
-
-                    <div className={`${col.status} px-2`}>
-                        <div className={headerCell}>
-                            <span>Status</span>
-                            <HeaderCarets />
-                        </div>
-                    </div>
-
-                    <div className={`${col.raisedAgainst} px-2`}>
-                        <div className={headerCell}>
-                            <span>Raised Against</span>
-                            <HeaderCarets />
-                        </div>
-                    </div>
-
-                    <div className={`${col.date} px-2`}>
-                        <div className={headerCell}>
-                            <span>Date</span>
-                            <HeaderCarets />
-                        </div>
-                    </div>
-
-                    <div className={`${col.action} px-2`}>
-                        <span className="text-sm font-semibold">Action</span>
-                    </div>
-                </div>
-
-                {/* ── Body ────────────────────────────────────────────────────────── */}
-                <div className="flex flex-col mt-3 gap-[0.75rem] mt-[2rem] ">
-                    {/* Loading skeletons */}
-                    {loading &&
-                        Array.from({ length: 5 }).map((_, i) => (
-                            <div
-                                key={i}
-                                className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white animate-pulse"
-                            >
-                                <div className={col.checkbox}>
-                                    <div className="h-4 w-4 rounded bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.title} px-2 space-y-2`}>
-                                    <div className="h-3.5 w-3/4 rounded bg-gray-200" />
-                                    <div className="h-3 w-1/2 rounded bg-gray-100" />
-                                </div>
-
-                                <div className={`${col.image} px-2 flex items-center justify-center`}>
-                                    <div className="h-10 w-10 rounded-lg bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.campaign} pl-5 pr-2`}>
-                                    <div className="h-3.5 w-2/3 rounded bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.status} px-2`}>
-                                    <div className="h-6 w-20 rounded-full bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.raisedAgainst} px-2`}>
-                                    <div className="h-3.5 w-2/3 rounded bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.date} px-2`}>
-                                    <div className="h-3.5 w-24 rounded bg-gray-200" />
-                                </div>
-
-                                <div className={`${col.action} px-2 flex gap-2`}>
-                                    <div className="h-8 w-16 rounded-xl bg-gray-200" />
-                                    <div className="h-8 w-8 rounded-xl bg-gray-100" />
-                                </div>
+                        <div className={`${col.title} px-2`}>
+                            <div className={headerCell}>
+                                <span>Dispute Title & ID</span>
+                                <HeaderCarets />
                             </div>
-                        ))}
-
-                    {/* Error state */}
-                    {!loading && error && (
-                        <div className="flex flex-col items-center justify-center py-20 gap-3 text-red-500">
-                            <AlertCircle className="size-8" />
-                            <p className="text-sm font-medium">{error}</p>
-                            <button
-                                onClick={onRetry}
-                                className="text-xs underline text-[#1a1a1a] hover:opacity-70"
-                            >
-                                Try again
-                            </button>
                         </div>
-                    )}
-
-                    {/* Empty state */}
-                    {!loading && !error && rows.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-20 gap-3 text-[#888]">
-                            <GavelIcon size={36} />
-                            <p className="text-sm font-medium">No disputes found</p>
-                            <p className="text-xs text-[#bbb]">
-                                Try adjusting your filters or search term
-                            </p>
+                        <div className={`${col.image} px-2`}>
+                            <div className={headerCell}>
+                                <span>Image</span>
+                                <HeaderCarets />
+                            </div>
                         </div>
-                    )}
+                        <div className={`${col.campaign} pl-5 pr-2`}>
+                            <div className={headerCell}>
+                                <span>Campaign Name</span>
+                                <HeaderCarets />
+                            </div>
+                        </div>
+                        <div className={`${col.status} px-2`}>
+                            <div className={headerCell}>
+                                <span>Status</span>
+                                <HeaderCarets />
+                            </div>
+                        </div>
+                        <div className={`${col.raisedAgainst} px-2`}>
+                            <div className={headerCell}>
+                                <span>Raised Against</span>
+                                <HeaderCarets />
+                            </div>
+                        </div>
+                        <div className={`${col.date} px-2`}>
+                            <div className={headerCell}>
+                                <span>Date</span>
+                                <HeaderCarets />
+                            </div>
+                        </div>
+                        <div className={`${col.action} px-2`}>
+                            <span className="text-sm font-semibold">Action</span>
+                        </div>
+                    </div>
 
-                    {/* Data rows */}
-                    {!loading &&
-                        !error &&
-                        rows.map((row) => (
-                            <div
-                                key={row.disputeId}
-                                className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white hover:bg-[#fafafa] transition-colors"
-                            >
-                                <div className={col.checkbox}>
-                                    <Checkbox
-                                        checked={selected.has(row.disputeId)}
-                                        onCheckedChange={() => toggleOne(row.disputeId)}
-                                    />
-                                </div>
-
-                                <div className={`${col.title} px-2`}>
-                                    <div className="font-medium truncate">{row.subject}</div>
-                                    <div className="text-xs text-gray-400 mt-0.5 truncate">
-                                        #{row.disputeId}
+                    {/* ── Body ────────────────────────────────────────────────────── */}
+                    <div className="flex flex-col mt-3 gap-[0.75rem] mt-[2rem]">
+                        {/* Loading skeletons */}
+                        {loading &&
+                            Array.from({ length: 5 }).map((_, i) => (
+                                <div
+                                    key={i}
+                                    className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white animate-pulse"
+                                >
+                                    <div className={col.checkbox}>
+                                        <div className="h-4 w-4 rounded bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.title} px-2 space-y-2`}>
+                                        <div className="h-3.5 w-3/4 rounded bg-gray-200" />
+                                        <div className="h-3 w-1/2 rounded bg-gray-100" />
+                                    </div>
+                                    <div className={`${col.image} px-2 flex items-center justify-center`}>
+                                        <div className="h-10 w-10 rounded-lg bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.campaign} pl-5 pr-2`}>
+                                        <div className="h-3.5 w-2/3 rounded bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.status} px-2`}>
+                                        <div className="h-6 w-20 rounded-full bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.raisedAgainst} px-2`}>
+                                        <div className="h-3.5 w-2/3 rounded bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.date} px-2`}>
+                                        <div className="h-3.5 w-24 rounded bg-gray-200" />
+                                    </div>
+                                    <div className={`${col.action} px-2 flex gap-2`}>
+                                        <div className="h-8 w-16 rounded-xl bg-gray-200" />
+                                        <div className="h-8 w-8 rounded-xl bg-gray-100" />
                                     </div>
                                 </div>
+                            ))}
 
-                                <div className={`${col.image} px-2 flex items-center justify-center`}>
-                                    <DisputeImage src={getDisputeImageUrl(row)} />
-                                </div>
+                        {/* Error state */}
+                        {!loading && error && (
+                            <div className="flex flex-col items-center justify-center py-20 gap-3 text-red-500">
+                                <AlertCircle className="size-8" />
+                                <p className="text-sm font-medium">{error}</p>
+                                <button
+                                    onClick={onRetry}
+                                    className="text-xs underline text-[#1a1a1a] hover:opacity-70"
+                                >
+                                    Try again
+                                </button>
+                            </div>
+                        )}
 
-                                <div className={`${col.campaign} pl-5 pr-2`}>
-                                    <span className="truncate text-sm text-gray-700">
-                                        {row.campaignName ?? (
-                                            <span className="text-gray-400 italic text-xs">No campaign</span>
-                                        )}
-                                    </span>
-                                </div>
+                        {/* Empty state */}
+                        {!loading && !error && rows.length === 0 && (
+                            <div className="flex flex-col items-center justify-center py-20 gap-3 text-[#888]">
+                                <GavelIcon size={36} />
+                                <p className="text-sm font-medium">No disputes found</p>
+                                <p className="text-xs text-[#bbb]">
+                                    Try adjusting your filters or search term
+                                </p>
+                            </div>
+                        )}
 
-                                <div className={`${col.status} px-2`}>
-                                    <span
-                                        className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLORS[row.status] ?? "bg-gray-100 text-gray-600"
-                                            }`}
-                                    >
-                                        {STATUS_LABEL[row.status] ?? row.status}
-                                    </span>
-                                </div>
-
-                                <div className={`${col.raisedAgainst} px-2`}>
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-[#1a1a1a]">
-                                            {row.raisedAgainst?.name || "—"}
-                                        </span>
-                                        {row.raisedAgainst?.handle ? (
-                                            <span className="text-xs text-[#888]">
-                                                {formatHandle(row.raisedAgainst.handle)}
-                                            </span>
-                                        ) : <span className="text-xs text-[#888]">
-                                            -
-                                        </span>}
+                        {/* Data rows */}
+                        {!loading &&
+                            !error &&
+                            rows.map((row) => (
+                                <div
+                                    key={row.disputeId}
+                                    className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white hover:bg-[#fafafa] transition-colors"
+                                >
+                                    <div className={col.checkbox}>
+                                        <Checkbox
+                                            checked={selected.has(row.disputeId)}
+                                            onCheckedChange={() => toggleOne(row.disputeId)}
+                                        />
                                     </div>
-                                    {/* {row.raisedAgainst?.role && (
-                                        <div className="text-xs text-gray-400 mt-0.5">
-                                            {row.raisedAgainst.role}
+
+                                    <div className={`${col.title} px-2`}>
+                                        <div className="font-medium truncate">{row.subject}</div>
+                                        <div className="text-xs text-gray-400 mt-0.5 truncate">
+                                            #{row.disputeId}
                                         </div>
-                                    )} */}
-                                </div>
+                                    </div>
 
-                                <div className={`${col.date} px-2 text-sm text-gray-500 whitespace-nowrap`}>
-                                    {new Date(row.createdAt).toLocaleDateString("en-GB", {
-                                        day: "2-digit",
-                                        month: "2-digit",
-                                        year: "2-digit",
-                                    })}
-                                </div>
+                                    <div className={`${col.image} px-2 flex items-center justify-center`}>
+                                        <DisputeImage src={getDisputeImageUrl(row)} />
+                                    </div>
 
-                                <div className={`${col.action} flex items-center gap-2`}>
-                                    <Button
-                                        className="!w-[7rem] !h-[2.0625rem] !px-[0.5rem] !rounded-[0.5rem] text-xs font-medium "
-                                        onClick={() => {
-                                            window.location.href = `/brand/disputes/${row.disputeId}`;
-                                        }}
-                                    >
-                                        View
-                                    </Button>
+                                    <div className={`${col.campaign} pl-5 pr-2`}>
+                                        <span className="truncate text-sm text-gray-700">
+                                            {row.campaignName ?? (
+                                                <span className="text-gray-400 italic text-xs">No campaign</span>
+                                            )}
+                                        </span>
+                                    </div>
 
-                                    <DisputeThreeDotMenu
-                                        onCopyDisputeLink={async () => {
-                                            if (!row?.disputeId) {
-                                                await Swal.fire({
-                                                    icon: "error",
-                                                    title: "Missing dispute ID",
-                                                    text: "We couldn't generate the dispute link.",
-                                                    confirmButtonColor: "#1A1A1A",
-                                                });
-                                                return;
-                                            }
+                                    <div className={`${col.status} px-2`}>
+                                        <span
+                                            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLORS[row.status] ?? "bg-gray-100 text-gray-600"
+                                                }`}
+                                        >
+                                            {STATUS_LABEL[row.status] ?? row.status}
+                                        </span>
+                                    </div>
 
-                                            const disputeName = row?.subject || "untitled-dispute";
-                                            const disputeSlug = slugify(disputeName);
-                                            const disputePath = `/brand/disputes/${disputeSlug}-${encodeURIComponent(
-                                                row.disputeId
-                                            )}`;
-                                            const disputeUrl = `${window.location.origin}${disputePath}`;
+                                    <div className={`${col.raisedAgainst} px-2`}>
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-[#1a1a1a]">
+                                                {row.raisedAgainst?.name || "—"}
+                                            </span>
+                                            {row.raisedAgainst?.handle ? (
+                                                <span className="text-xs text-[#888]">
+                                                    {formatHandle(row.raisedAgainst.handle)}
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs text-[#888]">-</span>
+                                            )}
+                                        </div>
+                                    </div>
 
-                                            try {
-                                                await navigator.clipboard.writeText(disputeUrl);
+                                    <div className={`${col.date} px-2 text-sm text-gray-500 whitespace-nowrap`}>
+                                        {new Date(row.createdAt).toLocaleDateString("en-GB", {
+                                            day: "2-digit",
+                                            month: "2-digit",
+                                            year: "2-digit",
+                                        })}
+                                    </div>
 
-                                                await Swal.fire({
-                                                    icon: "success",
-                                                    title: "Copied",
-                                                    text: "Dispute link copied successfully.",
-                                                    confirmButtonColor: "#1A1A1A",
-                                                });
-                                            } catch {
+                                    <div className={`${col.action} flex items-center gap-2`}>
+                                        <Button
+                                            className="!w-[7rem] !h-[2.0625rem] !px-[0.5rem] !rounded-[0.5rem] text-xs font-medium"
+                                            onClick={() => {
+                                                window.location.href = `/brand/disputes/${row.disputeId}`;
+                                            }}
+                                        >
+                                            View
+                                        </Button>
+
+                                        <DisputeThreeDotMenu
+                                            status={row.status}
+                                            onCopyDisputeLink={async () => {
+                                                if (!row?.disputeId) {
+                                                    await Swal.fire({
+                                                        icon: "error",
+                                                        title: "Missing dispute ID",
+                                                        text: "We couldn't generate the dispute link.",
+                                                        confirmButtonColor: "#1A1A1A",
+                                                    });
+                                                    return;
+                                                }
+
+                                                const disputeName = row?.subject || "untitled-dispute";
+                                                const disputeSlug = slugify(disputeName);
+                                                const disputePath = `/public/dispute/${encodeURIComponent(row.disputeId)}-${disputeSlug}`;
+                                                const disputeUrl = `${window.location.origin}${disputePath}`;
+
                                                 try {
-                                                    const textArea = document.createElement("textarea");
-                                                    textArea.value = disputeUrl;
-                                                    textArea.style.position = "fixed";
-                                                    textArea.style.opacity = "0";
-                                                    textArea.style.pointerEvents = "none";
-                                                    document.body.appendChild(textArea);
-                                                    textArea.focus();
-                                                    textArea.select();
-
-                                                    const copied = document.execCommand("copy");
-                                                    document.body.removeChild(textArea);
-
-                                                    if (!copied) {
-                                                        throw new Error("Fallback copy failed");
-                                                    }
-
+                                                    await navigator.clipboard.writeText(disputeUrl);
                                                     await Swal.fire({
                                                         icon: "success",
                                                         title: "Copied",
                                                         text: "Dispute link copied successfully.",
-                                                        confirmButtonColor: "#1A1A1A",
+                                                        timer: 2000,
+                                                        showConfirmButton: false,
                                                     });
                                                 } catch {
-                                                    await Swal.fire({
-                                                        icon: "error",
-                                                        title: "Copy failed",
-                                                        text: "Unable to copy the dispute link. Please try again.",
-                                                        confirmButtonColor: "#1A1A1A",
-                                                    });
+                                                    try {
+                                                        const textArea = document.createElement("textarea");
+                                                        textArea.value = disputeUrl;
+                                                        textArea.style.position = "fixed";
+                                                        textArea.style.opacity = "0";
+                                                        textArea.style.pointerEvents = "none";
+                                                        document.body.appendChild(textArea);
+                                                        textArea.focus();
+                                                        textArea.select();
+                                                        const copied = document.execCommand("copy");
+                                                        document.body.removeChild(textArea);
+                                                        if (!copied) throw new Error("Fallback copy failed");
+                                                        await Swal.fire({
+                                                            icon: "success",
+                                                            title: "Copied",
+                                                            text: "Dispute link copied successfully.",
+                                                            confirmButtonColor: "#1A1A1A",
+                                                        });
+                                                    } catch {
+                                                        await Swal.fire({
+                                                            icon: "error",
+                                                            title: "Copy failed",
+                                                            text: "Unable to copy the dispute link. Please try again.",
+                                                            confirmButtonColor: "#1A1A1A",
+                                                        });
+                                                    }
                                                 }
-                                            }
-                                        }}
-                                        onOpenInNewTab={() => {
-                                            if (!row?.disputeId) return;
-                                            const disputePath = `/brand/disputes/${encodeURIComponent(
-                                                row.disputeId
-                                            )}`;
-
-                                            window.open(disputePath, "_blank", "noopener,noreferrer");
-                                        }}
-                                        onRequestEscalation={() => {
-                                            // escalation logic
-                                        }}
-                                        onAddCommentNote={() => {
-                                            // add note logic
-                                        }}
-                                        onRevokeDispute={() => {
-                                            // revoke logic
-                                        }}
-                                    />
+                                            }}
+                                            onOpenInNewTab={() => {
+                                                if (!row?.disputeId) return;
+                                                window.open(
+                                                    `/brand/disputes/${encodeURIComponent(row.disputeId)}`,
+                                                    "_blank",
+                                                    "noopener,noreferrer"
+                                                );
+                                            }}
+                                            onRequestEscalation={() => {
+                                                // escalation logic
+                                            }}
+                                            onAddCommentNote={() => {
+                                                // add note logic
+                                            }}
+                                            onRevokeDispute={() => {
+                                                setRevokeError(null);
+                                                setRevokeTarget(row.disputeId); // ← opens modal
+                                            }}
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                </div>
-
-                {/* ── Pagination ───────────────────────────────────────────────────── */}
-                {!loading && !error && totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-6 px-1">
-                        <p className="text-sm text-gray-500">
-                            Showing{" "}
-                            <span className="font-medium text-[#1a1a1a]">{from}–{to}</span>{" "}
-                            of{" "}
-                            <span className="font-medium text-[#1a1a1a]">{total}</span>
-                        </p>
-
-                        <div className="flex items-center gap-1">
-                            <button
-                                disabled={page <= 1}
-                                onClick={() => onPageChange(page - 1)}
-                                className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                                <ChevronLeft className="size-4" />
-                            </button>
-
-                            {pageNumbers.map((p) => (
-                                <button
-                                    key={p}
-                                    onClick={() => onPageChange(p)}
-                                    className={`size-8 flex items-center justify-center rounded-lg text-sm transition-colors ${p === page
-                                        ? "bg-[#1a1a1a] text-white font-semibold"
-                                        : "border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5]"
-                                        }`}
-                                >
-                                    {p}
-                                </button>
                             ))}
-
-                            <button
-                                disabled={page >= totalPages}
-                                onClick={() => onPageChange(page + 1)}
-                                className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            >
-                                <ChevronRight className="size-4" />
-                            </button>
-                        </div>
                     </div>
-                )}
+
+                    {/* ── Pagination ───────────────────────────────────────────────── */}
+                    {!loading && !error && totalPages > 1 && (
+                        <div className="flex items-center justify-between mt-6 px-1">
+                            <p className="text-sm text-gray-500">
+                                Showing{" "}
+                                <span className="font-medium text-[#1a1a1a]">{from}–{to}</span>{" "}
+                                of{" "}
+                                <span className="font-medium text-[#1a1a1a]">{total}</span>
+                            </p>
+
+                            <div className="flex items-center gap-1">
+                                <button
+                                    disabled={page <= 1}
+                                    onClick={() => onPageChange(page - 1)}
+                                    className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft className="size-4" />
+                                </button>
+
+                                {pageNumbers.map((p) => (
+                                    <button
+                                        key={p}
+                                        onClick={() => onPageChange(p)}
+                                        className={`size-8 flex items-center justify-center rounded-lg text-sm transition-colors ${p === page
+                                            ? "bg-[#1a1a1a] text-white font-semibold"
+                                            : "border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5]"
+                                            }`}
+                                    >
+                                        {p}
+                                    </button>
+                                ))}
+
+                                <button
+                                    disabled={page >= totalPages}
+                                    onClick={() => onPageChange(page + 1)}
+                                    className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight className="size-4" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
+        </>
     );
 }
 
@@ -509,6 +531,7 @@ export function DisputeTable({
 
 
 export function DisputeThreeDotMenu({
+    status,
     onCopyDisputeLink,
     onOpenInNewTab,
     onRequestEscalation,
@@ -581,7 +604,7 @@ export function DisputeThreeDotMenu({
                         </span>
                     </ComboboxItem>
 
-                    <ComboboxItem
+                    {/* <ComboboxItem
                         value="request_escalation"
                         showIndicator={false}
                         className="h-12 rounded-[0.75rem] px-3 data-[highlighted]:bg-[#F5F5F5] data-[selected]:bg-[#F5F5F5]"
@@ -590,7 +613,7 @@ export function DisputeThreeDotMenu({
                         <span className="text-[1rem] font-normal text-[#1A1A1A]">
                             Request Escalation
                         </span>
-                    </ComboboxItem>
+                    </ComboboxItem> */}
 
                     <ComboboxItem
                         value="add_comment_note"
@@ -605,16 +628,20 @@ export function DisputeThreeDotMenu({
 
                     <ComboboxSeparator className="my-2 bg-[#E9E9E9]" />
 
-                    <ComboboxItem
-                        value="revoke_dispute"
-                        showIndicator={false}
-                        className="h-12 rounded-[0.75rem] px-3 text-[#FF4D3A] data-[highlighted]:bg-[#FFF5F4] data-[highlighted]:text-[#FF4D3A] data-[selected]:bg-[#FFF5F4] data-[selected]:text-[#FF4D3A]"
-                    >
-                        <Undo2 className="size-[1.1rem] text-[#FF4D3A]" />
-                        <span className="text-[1rem] font-normal">
-                            Revoke Dispute
-                        </span>
-                    </ComboboxItem>
+                    {status !== "revoked" && (        // ← guard
+                        <>
+                            <ComboboxItem
+                                value="revoke_dispute"
+                                showIndicator={false}
+                                className="h-12 rounded-[0.75rem] px-3 text-[#FF4D3A] data-[highlighted]:bg-[#FFF5F4] data-[highlighted]:text-[#FF4D3A] data-[selected]:bg-[#FFF5F4] data-[selected]:text-[#FF4D3A]"
+                            >
+                                <Undo2 className="size-[1.1rem] text-[#FF4D3A]" />
+                                <span className="text-[1rem] font-normal">
+                                    Revoke Dispute
+                                </span>
+                            </ComboboxItem>
+                        </>
+                    )}
                 </ComboboxList>
             </ComboboxContent>
         </Combobox>

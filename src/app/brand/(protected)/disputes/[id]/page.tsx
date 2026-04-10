@@ -1,52 +1,105 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { get, postFormData } from "@/lib/api";
+import api from "@/lib/api";
 import {
-  ArrowLeft,
-  Paperclip,
-  X,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  RotateCcw,
   Clock,
-  CheckCircle2,
-  Circle,
+  Paperclip,
   Send,
-  MoreHorizontal,
+  X,
 } from "lucide-react";
+import { Button } from "@/components/ui/buttonComp";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  ArrowUUpLeftIcon,
+  ChatTeardropTextIcon,
+  CheckIcon,
+  DotsThreeIcon,
+  FlagIcon,
+  NoteIcon,
+  NotePencilIcon,
+  PencilSimpleLineIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
+import {
+  apiEditDispute,
+  apiGetBrandLite,
+  apiRevokeDispute,
+  type BrandLiteResponse,
+} from "@/app/brand/services/brandApi";
+import { DisputeFormDialog, ExistingAttachment } from "../disputeDialog";
+import { toast } from "@/components/ui/toast";
+import Swal from "sweetalert2";
+import ConfirmRevokeModal from "../confirmRevokeModal";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+/* -------------------------------------------------------------------------- */
+/*                                    Types                                   */
+/* -------------------------------------------------------------------------- */
 
-type Attachment = {
+type AuthorRole = "Admin" | "Brand" | "Influencer";
+
+type DisputeStatus =
+  | "open"
+  | "in_review"
+  | "awaiting_user"
+  | "resolved"
+  | "rejected"
+  | "revoked";
+
+interface Attachment {
   url: string;
   originalName?: string | null;
   mimeType?: string | null;
   size?: number | null;
-};
+}
 
-type Comment = {
+interface Comment {
   commentId: string;
-  authorRole: "Admin" | "Brand" | "Influencer";
+  authorRole: AuthorRole;
   authorId: string;
   text: string;
   createdAt: string;
   attachments?: Attachment[];
-};
+}
 
-type DisputeStatus = "open" | "in_review" | "awaiting_user" | "resolved" | "rejected";
-
-type DisputeParty = {
+interface DisputeParty {
   role: "Brand" | "Influencer";
   id: string;
   name?: string | null;
   handle?: string | null;
   provider?: string | null;
-};
+  profilePic?: string | null;
+}
 
-type Dispute = {
+interface AssignedAdmin {
+  adminId?: string | null;
+  name?: string | null;
+}
+
+interface Dispute {
   disputeId: string;
   subject: string;
   description: string;
@@ -56,7 +109,8 @@ type Dispute = {
   campaignName?: string | null;
   brandId: string;
   influencerId: string;
-  assignedTo?: { adminId?: string | null; name?: string | null } | null;
+  issueType?: string[];
+  assignedTo?: AssignedAdmin | null;
   comments: Comment[];
   attachments?: Attachment[];
   createdAt: string;
@@ -66,56 +120,309 @@ type Dispute = {
   raisedBy?: DisputeParty | null;
   raisedAgainst?: DisputeParty | null;
   viewerIsRaiser?: boolean;
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function daysSince(dateStr: string): number {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-function timeAgo(dateStr: string): string {
-  const days = daysSince(dateStr);
-  if (days === 0) return "Today";
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
-}
-function formatHandle(handle?: string | null): string | null {
-  if (!handle) return null;
-  return handle.startsWith("@") ? handle : `@${handle}`;
-}
-function isImage(a: Attachment): boolean {
-  if (a.mimeType?.startsWith("image/")) return true;
-  return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test((a.url || "").split("?")[0]);
+interface DisputeResponse {
+  dispute: Dispute;
 }
 
-const STATUS_STEPS = [
+interface LightboxState {
+  images: Attachment[];
+  index: number;
+}
+
+interface MetaItem {
+  label: string;
+  value: string;
+  sub?: string;
+}
+
+interface FaqItem {
+  value: string;
+  title: string;
+  body: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  Constants                                 */
+/* -------------------------------------------------------------------------- */
+
+const PAGE_GUTTER = "px-[1.875rem] py-[1.875rem] lg:px-6";
+/** Full border shorthand: `border border-[#e8e8e8]` */
+const SURFACE_BORDER = "border border-[#e8e8e8]";
+/** Border colour token only – use when the `border` utility is already applied. */
+const SURFACE_BORDER_COLOR = "border-[#e8e8e8]";
+const SUBTLE_BORDER = "border-[#f0f0f0]";
+const MUTED_BG = "bg-[#F9F9F9]";
+
+const STATUS_STEPS: Array<{ key: DisputeStatus; label: string }> = [
   { key: "open", label: "Dispute Submitted" },
   { key: "in_review", label: "Response & Evidence" },
   { key: "awaiting_user", label: "Under Review" },
   { key: "resolved", label: "Resolved" },
 ];
 
-const STATUS_STEP_INDEX: Record<string, number> = {
+const STATUS_STEP_INDEX: Record<DisputeStatus, number> = {
   open: 0,
   in_review: 1,
   awaiting_user: 2,
   resolved: 3,
   rejected: 3,
+  revoked: 3,
 };
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABELS: Record<DisputeStatus, string> = {
   open: "Open",
   in_review: "In Progress",
   awaiting_user: "Awaiting You",
   resolved: "Resolved",
   rejected: "Rejected",
+  revoked: "Revoked",
 };
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+const FAQ_ITEMS: FaqItem[] = [
+  {
+    value: "whats-happening-now",
+    title: "What's happening now?",
+    body: "Our team has received your dispute and is currently reviewing the details. This typically takes 2–5 business days. You'll be notified of any updates.",
+  },
+  {
+    value: "whats-next",
+    title: "What's next?",
+    body: "Once the initial review is complete, both parties may be asked to provide evidence or respond to questions. Keep an eye on your email and notifications for further instructions.",
+  },
+];
 
-// Image lightbox
+const ROLE_AVATAR_STYLES: Record<AuthorRole, string> = {
+  Admin: "bg-purple-100 text-purple-700",
+  Brand: "bg-orange-100 text-orange-700",
+  Influencer: "bg-blue-100 text-blue-700",
+};
+
+const ISSUE_TYPE_LABELS: Record<string, string> = {
+  content_not_as_expected: "Content Not as Expected",
+  delay_or_missed_deadline: "Delay or Missed Deadline",
+  payment_issue: "Payment Issue",
+  revision_issue: "Revision Issue",
+  agreement_issue: "Agreement Issue",
+  scope_change: "Scope Change",
+  no_response: "No Response",
+  other: "Other",
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                  Utilities                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Extracts a human-readable error message from an unknown thrown value.
+ * Prefers `response.data.message`, then `message`, then the supplied fallback.
+ */
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error == null || typeof error !== "object") return fallback;
+
+  const maybeAxios = error as Record<string, unknown>;
+
+  const serverMsg =
+    (maybeAxios["response"] as Record<string, unknown> | undefined)?.["data"];
+  if (
+    serverMsg != null &&
+    typeof serverMsg === "object" &&
+    typeof (serverMsg as Record<string, unknown>)["message"] === "string"
+  ) {
+    return (serverMsg as Record<string, string>)["message"];
+  }
+
+  if (typeof maybeAxios["message"] === "string") return maybeAxios["message"];
+
+  return fallback;
+}
+
+function formatIssueTypeLabel(value?: string | null): string {
+  if (!value) return "—";
+  return (
+    ISSUE_TYPE_LABELS[value] ??
+    value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function daysSince(dateStr: string): number {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const days = daysSince(dateStr);
+  if (days <= 0) return "Today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
+
+function formatDaysLeft(days: number): string {
+  return `${days} day${days !== 1 ? "s" : ""} left`;
+}
+
+function formatHandle(handle?: string | null): string | null {
+  if (!handle) return null;
+  return handle.startsWith("@") ? handle : `@${handle}`;
+}
+
+function isImageAttachment(attachment: Attachment): boolean {
+  if (attachment.mimeType?.startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(
+    attachment.url.split("?")[0] ?? ""
+  );
+}
+
+function getImageAttachments(attachments?: Attachment[]): Attachment[] {
+  return (attachments ?? []).filter(isImageAttachment);
+}
+
+function getFileAttachments(attachments?: Attachment[]): Attachment[] {
+  return (attachments ?? []).filter((a) => !isImageAttachment(a));
+}
+
+function getInitials(name?: string | null, role?: string): string {
+  return (name || role || "?")
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function getStatusPillClasses(status: DisputeStatus): string {
+  switch (status) {
+    case "resolved":
+      return "bg-emerald-50 text-emerald-700";
+    case "rejected":
+      return "bg-red-50 text-red-600";
+    case "in_review":
+      return "bg-blue-50 text-blue-700";
+    default:
+      return "bg-[#f0faf0] text-[#2d7a3a]";
+  }
+}
+
+function getStatusDotClasses(status: DisputeStatus): string {
+  switch (status) {
+    case "resolved":
+      return "bg-emerald-500";
+    case "rejected":
+      return "bg-red-500";
+    default:
+      return "bg-[#2d7a3a]";
+  }
+}
+
+function getDisputeNarrative(dispute: Dispute): string {
+  if (dispute.viewerIsRaiser) {
+    return `You raised this dispute against ${dispute.raisedAgainst?.name ?? "the influencer"
+      }`;
+  }
+  return `${dispute.raisedBy?.name ?? "The influencer"
+    } raised this dispute against you`;
+}
+
+function getCommentAuthorLabel(comment: Comment, dispute: Dispute): string {
+  if (comment.authorRole === "Brand" && dispute.viewerIsRaiser) return "You";
+  return comment.authorRole;
+}
+
+/** Returns true when the logged-in brand user authored this comment. */
+function canManageComment(comment: Comment, dispute: Dispute): boolean {
+  if (!dispute.viewerIsRaiser) return false;
+  const ownerRole = dispute.raisedByRole ?? dispute.raisedBy?.role ?? null;
+  const ownerId = dispute.raisedById ?? dispute.raisedBy?.id ?? null;
+  return (
+    String(comment.authorRole) === String(ownerRole ?? "") &&
+    String(comment.authorId) === String(ownerId ?? "")
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                               UI Primitives                                */
+/* -------------------------------------------------------------------------- */
+
+function SectionCard({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <div className={`rounded-lg bg-white ${className}`}>{children}</div>;
+}
+
+function IconButton({
+  children,
+  className = "",
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      className={`h-8 w-8 rounded-lg border-none bg-transparent p-0 shadow-none hover:bg-[#f5f5f5] ${className}`}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
+}
+
+function StatusPill({ status }: { status: DisputeStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium ${getStatusPillClasses(
+        status
+      )}`}
+    >
+      <span className={`size-1.5 rounded-lg ${getStatusDotClasses(status)}`} />
+      {STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="min-h-screen bg-[#f7f7f5] p-6">
+      <div className="mx-auto max-w-4xl animate-pulse space-y-4">
+        <div className="h-8 w-48 rounded-lg bg-gray-200" />
+        <div className="h-16 rounded-lg bg-gray-200" />
+        <div className="h-32 rounded-lg bg-gray-200" />
+        <div className="h-48 rounded-lg bg-gray-200" />
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({
+  message,
+  onBack,
+}: {
+  message: string;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#f7f7f5]">
+      <div className="space-y-4 text-center">
+        <p className="text-[#888]">{message}</p>
+        <Button
+          type="button"
+          onClick={onBack}
+          className="text-sm text-[#1a1a1a] underline"
+        >
+          Go back
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              Feature Components                             */
+/* -------------------------------------------------------------------------- */
+
 function LightboxModal({
   images,
   index,
@@ -125,53 +432,85 @@ function LightboxModal({
   index: number;
   onClose: () => void;
 }) {
-  const [idx, setIdx] = useState(index);
-  const current = images[idx];
+  const [activeIndex, setActiveIndex] = useState(index);
+  const currentImage = images[activeIndex];
+
+  const prev = useCallback(
+    () => setActiveIndex((i) => (i - 1 + images.length) % images.length),
+    [images.length]
+  );
+  const next = useCallback(
+    () => setActiveIndex((i) => (i + 1) % images.length),
+    [images.length]
+  );
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft") setIdx((i) => (i - 1 + images.length) % images.length);
-      if (e.key === "ArrowRight") setIdx((i) => (i + 1) % images.length);
+      if (e.key === "ArrowLeft") prev();
+      if (e.key === "ArrowRight") next();
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [images.length, onClose]);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, prev, next]);
 
-  if (!current) return null;
+  if (!currentImage) return null;
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm"
       onClick={onClose}
     >
-      <div className="relative max-w-5xl w-full px-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3 text-xs text-gray-300">
-          <span className="truncate max-w-xs">{current.originalName || "Image"}</span>
+      <div
+        className="relative w-full max-w-5xl px-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between text-xs text-gray-300">
+          <span className="max-w-xs truncate">
+            {currentImage.originalName ?? "Image"}
+          </span>
           <div className="flex items-center gap-3">
-            <span>{idx + 1} / {images.length}</span>
-            <button onClick={onClose} className="size-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center">
+            <span>
+              {activeIndex + 1} / {images.length}
+            </span>
+            <Button
+              type="button"
+              onClick={onClose}
+              className="flex size-7 items-center justify-center rounded-lg bg-white/10 p-0 hover:bg-white/20"
+            >
               <X className="size-4 text-white" />
-            </button>
+            </Button>
           </div>
         </div>
-        <div className="relative flex items-center justify-center rounded-lg overflow-hidden bg-black/30 min-h-[300px] max-h-[80vh]">
+
+        <div className="relative h-[80vh] min-h-[300px] overflow-hidden rounded-lg bg-black/30">
           {images.length > 1 && (
-            <button
-              onClick={() => setIdx((i) => (i - 1 + images.length) % images.length)}
-              className="absolute left-3 size-9 rounded-lg bg-black/50 hover:bg-black/70 flex items-center justify-center"
+            <Button
+              type="button"
+              onClick={prev}
+              className="absolute left-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg bg-black/50 p-0 hover:bg-black/70"
             >
               <ChevronLeft className="size-5 text-white" />
-            </button>
+            </Button>
           )}
-          <img src={current.url} alt={current.originalName || ""} className="max-h-[80vh] max-w-full object-contain" />
+
+          <Image
+            src={currentImage.url}
+            alt={currentImage.originalName ?? "Preview image"}
+            fill
+            unoptimized
+            sizes="100vw"
+            className="object-contain"
+          />
+
           {images.length > 1 && (
-            <button
-              onClick={() => setIdx((i) => (i + 1) % images.length)}
-              className="absolute right-3 size-9 rounded-lg bg-black/50 hover:bg-black/70 flex items-center justify-center"
+            <Button
+              type="button"
+              onClick={next}
+              className="absolute right-3 top-1/2 z-10 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg bg-black/50 p-0 hover:bg-black/70"
             >
               <ChevronRight className="size-5 text-white" />
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -179,574 +518,1230 @@ function LightboxModal({
   );
 }
 
-// Accordion
-function Accordion({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+function MetaGrid({ items }: { items: MetaItem[] }) {
   return (
-    <div className="border border-[#e8e8e8] rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 bg-white hover:bg-[#fafafa] transition-colors"
+    <div className="mt-5 pt-5">
+      <div
+        className={`grid gap-3 rounded-[12px] px-4 py-5 ${MUTED_BG} [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]`}
       >
-        <span className="text-sm font-medium text-[#1a1a1a]">{title}</span>
-        <ChevronDown
-          className="size-4 text-[#888] transition-transform duration-200"
-          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
-        />
-      </button>
-      {open && (
-        <div className="px-5 pb-4 pt-1 bg-white text-sm text-[#555] border-t border-[#f0f0f0]">
-          {children}
+        {items.map((item) => (
+          <div key={item.label} className="min-w-0">
+            <p className="mb-1 text-[11px] leading-4 text-[#999]">
+              {item.label}
+            </p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
+                {item.value}
+              </p>
+              {item.sub && (
+                <p className="mt-0.5 truncate text-xs leading-4 text-[#888]">
+                  {item.sub}
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AttachmentGallery({
+  imageAttachments,
+  fileAttachments,
+  onOpenLightbox,
+}: {
+  imageAttachments: Attachment[];
+  fileAttachments: Attachment[];
+  onOpenLightbox: (images: Attachment[], index: number) => void;
+}) {
+  if (imageAttachments.length === 0 && fileAttachments.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h2 className="mb-4 text-sm font-semibold text-[#1a1a1a]">
+        Image / Reference
+      </h2>
+
+      {imageAttachments.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-3">
+          {imageAttachments.map((attachment, index) => (
+            <Button
+              key={`${attachment.url}-${index}`}
+              type="button"
+              onClick={() => onOpenLightbox(imageAttachments, index)}
+              className={`group relative !h-[11.4375rem] !w-[13.75rem] shrink-0 overflow-hidden rounded-[1.1875rem] ${SURFACE_BORDER} bg-[#f5f5f5] !p-0 transition-colors hover:border-[#ccc]`}
+            >
+              <Image
+                src={attachment.url}
+                alt={attachment.originalName ?? `Image ${index + 1}`}
+                fill
+                unoptimized
+                sizes="220px"
+                className="object-cover"
+              />
+              <div className="absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/10" />
+            </Button>
+          ))}
+        </div>
+      )}
+
+      {fileAttachments.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {fileAttachments.map((attachment, index) => (
+            <a
+              key={`${attachment.url}-${index}`}
+              href={attachment.url}
+              target="_blank"
+              rel="noreferrer"
+              className={`inline-flex items-center gap-2 rounded-lg ${SURFACE_BORDER} bg-[#fafafa] px-3 py-1.5 text-xs text-[#555] transition-colors hover:bg-[#f5f5f5]`}
+            >
+              <Paperclip className="size-3.5 shrink-0 text-[#aaa]" />
+              <span className="max-w-[160px] truncate">
+                {attachment.originalName ?? "File"}
+              </span>
+            </a>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// Avatar initials
-function Avatar({ name, role, size = "sm" }: { name?: string | null; role?: string; size?: "sm" | "md" }) {
-  const initials = (name || role || "?")
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
-  const colors: Record<string, string> = {
-    Brand: "bg-orange-100 text-orange-700",
-    Influencer: "bg-blue-100 text-blue-700",
-    Admin: "bg-purple-100 text-purple-700",
-  };
-
-  const color = colors[role || ""] || "bg-gray-100 text-gray-600";
-  const sz = size === "md" ? "size-9 text-sm" : "size-7 text-xs";
+function ProgressTracker({
+  status,
+  title,
+}: {
+  status: DisputeStatus;
+  title: string;
+}) {
+  const activeStepIndex = STATUS_STEP_INDEX[status] ?? 0;
 
   return (
-    <div className={`${sz} ${color} rounded-lg flex items-center justify-center font-semibold shrink-0`}>
-      {initials}
+    <div
+      className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}
+    >
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#e8f5e9] p-1">
+          <CheckIcon color="#2d7a3a" />
+        </div>
+        <p className="text-sm font-medium text-[#444]">{title}</p>
+      </div>
+
+      <div className="space-y-2">
+        {/* Segmented progress bar */}
+        <div className="grid grid-cols-4 gap-3">
+          {STATUS_STEPS.map((step, index) => {
+            const isDone = index < activeStepIndex;
+            const isActive = index === activeStepIndex;
+            return (
+              <div
+                key={step.key}
+                className="h-1.5 overflow-hidden rounded-full bg-[#e8e8e8]"
+              >
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${isDone || isActive ? "bg-[#2fb344]" : "bg-transparent"
+                    }`}
+                  style={{ width: isDone ? "100%" : isActive ? "50%" : "0%" }}
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Step labels */}
+        <div className="grid grid-cols-4 gap-3">
+          {STATUS_STEPS.map((step, index) => {
+            const isDone = index < activeStepIndex;
+            const isActive = index === activeStepIndex;
+            const isPending = !isDone && !isActive;
+            return (
+              <div
+                key={step.key}
+                className="flex items-center gap-1.5 text-[10px] leading-none"
+              >
+                {isDone ? (
+                  <CheckCircle2
+                    className="size-3.5 shrink-0 text-[#2fb344]"
+                    strokeWidth={2.5}
+                  />
+                ) : (
+                  <span
+                    className={`inline-block size-3 rounded-full border ${isActive ? "border-[#1a1a1a]" : "border-[#bdbdbd]"
+                      }`}
+                  />
+                )}
+                <span
+                  className={`whitespace-nowrap font-medium ${isPending ? "text-[#9b9b9b]" : "text-[#1a1a1a]"
+                    }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+function FaqSection() {
+  return (
+    <div className="space-y-2">
+      {FAQ_ITEMS.map((item, index) => (
+        <React.Fragment key={item.value}>
+          <div className="overflow-hidden rounded-lg bg-[#F9F9F9] px-5">
+            <Accordion type="single" collapsible>
+              <AccordionItem value={item.value} className="border-b-0">
+                <AccordionTrigger className="py-4 text-sm font-medium text-[#1a1a1a] hover:no-underline">
+                  {item.title}
+                </AccordionTrigger>
+                <AccordionContent className="text-sm text-[#555]">
+                  <p>{item.body}</p>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
+          {index < FAQ_ITEMS.length - 1 && (
+            <div className="my-2 border-t border-[#e8e8e8]" />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** Three-dot menu shown on the initial "dispute raised" system log entry — always disabled. */
+function DisabledLogActionsMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Open log actions"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+        >
+          <DotsThreeIcon size={18} weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-[204px] rounded-[24px] border border-[#EAEAEA] bg-white p-3 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+      >
+        <DropdownMenuItem
+          disabled
+          className="flex h-14 items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
+        >
+          <PencilSimpleLineIcon size={24} className="text-[#444]" />
+          <span>Edit</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled
+          className="mt-1 flex h-14 items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
+        >
+          <TrashIcon size={24} className="text-[#444]" />
+          <span>Delete</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Three-dot menu shown on the Collabglam system log entry. */
+function SystemLogActionsMenu({ onRaiseFlag }: { onRaiseFlag?: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Open system log actions"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+        >
+          <DotsThreeIcon size={18} weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-[180px] rounded-[20px] border border-[#EAEAEA] bg-white p-2 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+      >
+        <DropdownMenuItem
+          onClick={onRaiseFlag}
+          className="flex h-11 cursor-pointer items-center gap-2 rounded-[14px] px-3 text-sm font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+        >
+          <FlagIcon color="#1A1A1A" />
+          <span>Raise flag</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ProfileAvatar({
+  name,
+  role,
+  imageUrl,
+  size = "sm",
+}: {
+  name?: string | null;
+  role?: AuthorRole | string;
+  imageUrl?: string | null;
+  size?: "sm" | "md";
+}) {
+  const sizeClass = size === "md" ? "size-10" : "size-8";
+  const fallbackTextClass = size === "md" ? "text-sm" : "text-xs";
+  const colorClass =
+    role && role in ROLE_AVATAR_STYLES
+      ? ROLE_AVATAR_STYLES[role as AuthorRole]
+      : "bg-gray-100 text-gray-600";
+
+  if (imageUrl) {
+    return (
+      <div
+        className={`${sizeClass} relative shrink-0 overflow-hidden rounded-full border border-[#f0f0f0] bg-white`}
+      >
+        <Image
+          src={imageUrl}
+          alt={name ?? "Profile"}
+          fill
+          unoptimized
+          sizes={size === "md" ? "40px" : "32px"}
+          className="object-cover"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClass} ${colorClass} ${fallbackTextClass} flex shrink-0 items-center justify-center rounded-full font-semibold`}
+    >
+      {getInitials(name, role)}
+    </div>
+  );
+}
+
+function ActivityFeed({
+  dispute,
+  onOpenLightbox,
+  brandLogoUrl,
+  brandProfilePic,
+  onEditComment,
+  onDeleteComment,
+  onRaiseSystemFlag,
+}: {
+  dispute: Dispute;
+  onOpenLightbox: (images: Attachment[], index: number) => void;
+  brandLogoUrl?: string | null;
+  brandProfilePic?: string | null;
+  onEditComment?: (comment: Comment) => void;
+  onDeleteComment?: (comment: Comment) => void;
+  onRaiseSystemFlag?: () => void;
+}) {
+  const raisedNarrative = getDisputeNarrative(dispute);
+
+  return (
+    <SectionCard className={`${SURFACE_BORDER} p-5`}>
+      <div className="mb-4 flex items-center gap-2">
+        <ChatTeardropTextIcon className="size-5 text-[#1a1a1a]" />
+        <h2 className="text-sm font-semibold leading-5 text-[#1a1a1a]">
+          We&apos;re verifying the dispute, thanks for your Patience
+        </h2>
+      </div>
+
+      <div className="space-y-4">
+        {/* Initial "dispute raised" entry */}
+        <div className="rounded-lg bg-[#fafafa] px-4 py-3">
+          <div className="flex items-start gap-3">
+            <ProfileAvatar
+              name={dispute.viewerIsRaiser ? "You" : dispute.raisedBy?.name}
+              role={dispute.raisedBy?.role}
+              imageUrl={
+                dispute.viewerIsRaiser
+                  ? brandProfilePic
+                  : dispute.raisedBy?.profilePic
+              }
+              size="sm"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-medium text-[#1a1a1a]">
+                    {dispute.viewerIsRaiser
+                      ? "You"
+                      : (dispute.raisedBy?.name ?? dispute.raisedBy?.role)}
+                  </span>
+                  <span className="text-xs text-[#999]">
+                    {formatTimeAgo(dispute.createdAt)}
+                  </span>
+                </div>
+                <DisabledLogActionsMenu />
+              </div>
+
+              <p className="mt-2 text-sm leading-6 text-[#666]">
+                {raisedNarrative}
+                {dispute.raisedAgainst?.handle && (
+                  <span className="font-medium text-[#1a1a1a]">
+                    {" "}
+                    {formatHandle(dispute.raisedAgainst.handle)}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* User comments */}
+        {dispute.comments.map((comment) => {
+          const commentImages = getImageAttachments(comment.attachments);
+          const isBrandComment = comment.authorRole === "Brand";
+          const commentName = getCommentAuthorLabel(comment, dispute);
+          const showActions = canManageComment(comment, dispute);
+
+          return (
+            <div
+              key={comment.commentId}
+              className="rounded-lg bg-[#fafafa] px-4 py-3"
+            >
+              <div className="flex items-start gap-3">
+                <ProfileAvatar
+                  name={commentName}
+                  role={comment.authorRole}
+                  imageUrl={
+                    isBrandComment && dispute.viewerIsRaiser
+                      ? brandProfilePic
+                      : undefined
+                  }
+                  size="sm"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-medium text-[#1a1a1a]">
+                        {commentName}
+                      </span>
+                      <span className="text-xs text-[#999]">
+                        {formatTimeAgo(comment.createdAt)}
+                      </span>
+                    </div>
+
+                    {showActions && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="Open comment actions"
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+                          >
+                            <DotsThreeIcon size={18} weight="bold" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          sideOffset={8}
+                          className="w-[204px] rounded-[24px] border border-[#EAEAEA] bg-white p-3 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+                        >
+                          <DropdownMenuItem
+                            onClick={() => onEditComment?.(comment)}
+                            className="flex h-14 cursor-pointer items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+                          >
+                            <PencilSimpleLineIcon
+                              size={24}
+                              className="text-[#444]"
+                            />
+                            <span>Edit</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onDeleteComment?.(comment)}
+                            className="mt-1 flex h-14 cursor-pointer items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+                          >
+                            <TrashIcon size={24} className="text-[#444]" />
+                            <span>Delete</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#666]">
+                    {comment.text}
+                  </p>
+
+                  {commentImages.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {commentImages.map((attachment, index) => (
+                        <Button
+                          key={`${attachment.url}-${index}`}
+                          type="button"
+                          onClick={() => onOpenLightbox(commentImages, index)}
+                          className={`relative h-14 w-20 overflow-hidden rounded-xl ${SURFACE_BORDER} bg-[#f5f5f5] !p-0`}
+                        >
+                          <Image
+                            src={attachment.url}
+                            alt={
+                              attachment.originalName ?? "Comment attachment"
+                            }
+                            fill
+                            unoptimized
+                            sizes="80px"
+                            className="object-cover"
+                          />
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Collabglam system log entry */}
+        <div className="rounded-lg bg-[#fafafa] px-4 py-3">
+          <div className="flex items-start gap-3">
+            <ProfileAvatar name="Collabglam" imageUrl={brandLogoUrl} size="sm" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="text-sm font-medium text-[#1a1a1a]">
+                    Collabglam
+                  </span>
+                  <span className="text-xs text-[#999]">
+                    {formatTimeAgo(dispute.createdAt)}
+                  </span>
+                </div>
+                <SystemLogActionsMenu onRaiseFlag={onRaiseSystemFlag} />
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#666]">
+                Raised a dispute
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </SectionCard>
+  );
+}
+
+/**
+ * Comment composer — manages its own file-input ref internally so the
+ * parent page doesn't need to hold an imperativeref to a DOM node it never
+ * directly touches.
+ */
+function CommentComposer({
+  currentUserName,
+  currentUserImageUrl,
+  isFinalized,
+  comment,
+  setComment,
+  commentFiles,
+  setCommentFiles,
+  posting,
+  postError,
+  onSubmit,
+}: {
+  currentUserName?: string | null;
+  currentUserImageUrl?: string | null;
+  isFinalized: boolean;
+  comment: string;
+  setComment: React.Dispatch<React.SetStateAction<string>>;
+  commentFiles: File[];
+  setCommentFiles: React.Dispatch<React.SetStateAction<File[]>>;
+  posting: boolean;
+  postError: string | null;
+  onSubmit: () => Promise<void>;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const canSubmit = comment.trim().length > 0 || commentFiles.length > 0;
+
+  const handleReset = () => {
+    setComment("");
+    setCommentFiles([]);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setCommentFiles((prev) => [...prev, ...picked]);
+    // Reset the input so the same file can be re-selected if removed.
+    e.target.value = "";
+  };
+
+  return (
+    <SectionCard
+      className={`${SURFACE_BORDER} flex flex-col rounded-[20px] p-5`}
+    >
+      <div className="mb-4 flex items-center gap-2">
+        <ProfileAvatar
+          name={currentUserName ?? "Brand"}
+          role="Brand"
+          imageUrl={currentUserImageUrl}
+          size="md"
+        />
+        <div>
+          <p className="text-[14px] font-medium text-[#1a1a1a]">
+            {currentUserName ?? "Brand"}
+          </p>
+          <p className="text-[10px] text-[#999]">Now</p>
+        </div>
+        <IconButton className="ml-auto text-[#888]">
+          <DotsThreeIcon className="size-4" weight="bold" />
+        </IconButton>
+      </div>
+
+      {isFinalized ? (
+        <div className="flex flex-1 items-center justify-center py-6 text-xs text-[#bbb]">
+          This dispute is finalized and cannot receive further comments.
+        </div>
+      ) : (
+        <div className="flex flex-1 flex-col gap-3">
+          <textarea
+            rows={8}
+            placeholder="Add a comment..."
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            className={`w-full flex-1 resize-none rounded-[16px] ${SURFACE_BORDER} bg-[#fafafa] px-4 py-3 text-sm text-[#1a1a1a] outline-none transition-all placeholder:text-[#ccc] focus:border-[#1a1a1a] focus:bg-white focus:ring-1 focus:ring-[#1a1a1a]/10`}
+          />
+
+          {commentFiles.length > 0 && (
+            <ul className="space-y-1">
+              {commentFiles.map((file, index) => (
+                <li
+                  key={`${file.name}-${file.size}-${index}`}
+                  className={`flex items-center justify-between rounded-lg ${SURFACE_BORDER} px-3 py-1.5 text-[11px] text-[#555]`}
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Paperclip className="size-3 shrink-0 text-[#aaa]" />
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                  <IconButton
+                    onClick={() =>
+                      setCommentFiles((prev) =>
+                        prev.filter((_, i) => i !== index)
+                      )
+                    }
+                    className="ml-2 text-red-500 hover:bg-red-50"
+                  >
+                    <X className="size-3" />
+                  </IconButton>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {postError && (
+            <p className="text-xs text-red-500">{postError}</p>
+          )}
+
+          <div className="flex items-center justify-end gap-2">
+            {/* Hidden native file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            {/* <Button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={posting}
+              className="inline-flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-sm text-[#1a1a1a] transition-colors hover:bg-[#f5f5f5] disabled:opacity-40"
+            >
+              <Paperclip className="size-3.5" />
+              Attach
+            </Button> */}
+
+            <Button
+              type="button"
+              onClick={handleReset}
+              disabled={posting || !canSubmit}
+              className="rounded-[12px] px-4 py-2 text-sm !text-[#1a1a1a] transition-colors !bg-white hover:!bg-white !shadow-none disabled:opacity-40"
+            >
+              Cancel
+            </Button>
+
+            <Button
+              type="button"
+              onClick={() => void onSubmit()}
+              disabled={posting || !canSubmit}
+              className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#1a1a1a] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-40"
+            >
+              {posting ? (
+                <span className="text-xs">Posting…</span>
+              ) : (
+                <>
+                  <Send className="size-3.5" />
+                  Submit
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                           Edit-Dispute Dialog                              */
+/* -------------------------------------------------------------------------- */
+
+interface EditableDisputeSeed {
+  disputeId: string;
+  campaignId?: string | null;
+  influencerId: string;
+  influencerName?: string | null;
+  subject: string;
+  description?: string | null;
+  issueType?: string[];
+  /** Server-persisted attachments to display inside the edit dialog. */
+  existingAttachments?: ExistingAttachment[];
+}
+
+function EditDisputeDialog({
+  open,
+  onOpenChange,
+  onSuccess,
+  dispute,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSuccess?: () => void;
+  dispute: EditableDisputeSeed;
+}) {
+  return (
+    <DisputeFormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      title="Edit Dispute"
+      submitLabel="Save Changes"
+      disputeId={dispute.disputeId}
+      lockedCampaignId={dispute.campaignId ?? undefined}
+      disableInfluencer
+      initialValues={{
+        campaignId: dispute.campaignId ?? "",
+        influencerId: dispute.influencerId,
+        subject: dispute.subject,
+        description: dispute.description ?? "",
+        issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
+      }}
+      influencerDisplayName={dispute.influencerName ?? undefined}
+      // ── NEW: pass server-side attachments so the dialog renders them ──────
+      existingAttachments={dispute.existingAttachments}
+      onSubmit={async ({ brandId, values, removedExistingUrls }) => {
+        await apiEditDispute({
+          disputeId: dispute.disputeId,
+          brandId,
+          subject: values.subject,
+          description: values.description,
+          issueType: values.issueType,
+          attachments: values.attachments,
+          // Forward removed URLs so the API can delete them server-side.
+          removedAttachmentUrls: removedExistingUrls,
+        });
+      }}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    Page                                    */
+/* -------------------------------------------------------------------------- */
 
 export default function BrandDisputeDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const id = params?.id;
+  const disputeId = params?.id ?? "";
 
+  // ── Auth ────────────────────────────────────────────────────────────────
   const [brandId, setBrandId] = useState<string | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
+
+  // ── Data ────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [d, setD] = useState<Dispute | null>(null);
+  const [dispute, setDispute] = useState<Dispute | null>(null);
+  const [brandLite, setBrandLite] = useState<BrandLiteResponse | null>(null);
 
-  // Comment state
+  // ── Comment composer ────────────────────────────────────────────────────
   const [comment, setComment] = useState("");
   const [commentFiles, setCommentFiles] = useState<File[]>([]);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
-  // Lightbox
-  const [lightbox, setLightbox] = useState<{ images: Attachment[]; index: number } | null>(null);
+  // ── Revoke modal ────────────────────────────────────────────────────────
+  const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // ── Lightbox ─────────────────────────────────────────────────────────────
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
+  // ── Edit dialog ──────────────────────────────────────────────────────────
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  // ── Resolve brandId from localStorage ───────────────────────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = localStorage.getItem("brandId");
-    setBrandId(stored);
-    if (!stored) setError("Not logged in as brand.");
+    const stored = window.localStorage.getItem("brandId");
+    if (!stored) {
+      setError("Not logged in as brand.");
+      setLoading(false);
+    } else {
+      setBrandId(stored);
+    }
+    setAuthResolved(true);
   }, []);
 
-  const load = useCallback(async () => {
-    if (!id || !brandId) return;
+  // ── Fetch brand lite profile ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!brandId) return;
+    let cancelled = false;
+
+    apiGetBrandLite(brandId)
+      .then((data) => {
+        if (!cancelled) setBrandLite(data ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setBrandLite(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId]);
+
+  // ── Load dispute ─────────────────────────────────────────────────────────
+  const loadDispute = useCallback(async () => {
+    if (!disputeId || !brandId) return;
+
     setLoading(true);
     setError(null);
+
     try {
-      const data = await get<{ dispute: Dispute }>(`/dispute/brand/${id}`, { brandId });
-      setD(data.dispute);
-    } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to load dispute.");
+      const response = await get<DisputeResponse>(
+        `/dispute/brand/${disputeId}`,
+        { brandId }
+      );
+      setDispute(response.dispute);
+    } catch (err) {
+      setError(getErrorMessage(err, "Failed to load dispute."));
     } finally {
       setLoading(false);
     }
-  }, [id, brandId]);
+  }, [brandId, disputeId]);
 
   useEffect(() => {
-    if (id && brandId) load();
-  }, [load, id, brandId]);
+    if (!authResolved || !brandId) return;
+    void loadDispute();
+  }, [authResolved, brandId, loadDispute]);
 
-  const postComment = async () => {
-    if (!id || !brandId || (!comment.trim() && !commentFiles.length)) return;
+  // ── Lightbox helpers ─────────────────────────────────────────────────────
+  const handleOpenLightbox = useCallback(
+    (images: Attachment[], index: number) => setLightbox({ images, index }),
+    []
+  );
+  const handleCloseLightbox = useCallback(() => setLightbox(null), []);
+
+  // ── Revoke handlers ──────────────────────────────────────────────────────
+  const handleRevokeDispute = useCallback(() => {
+    setRevokeError(null);
+    setIsRevokeModalOpen(true);
+  }, []);
+
+  const handleCloseRevokeModal = useCallback(() => {
+    if (isRevoking) return;
+    setIsRevokeModalOpen(false);
+    setRevokeError(null);
+  }, [isRevoking]);
+
+  const handleConfirmRevoke = useCallback(async () => {
+    if (!brandId || !disputeId || isRevoking) return;
+
+    setIsRevoking(true);
+    setRevokeError(null);
+
+    try {
+      await apiRevokeDispute({ disputeId, brandId });
+      setIsRevokeModalOpen(false);
+      void Swal.fire({
+        icon: "success",
+        title: "Dispute Withdrawn",
+        text: "This dispute has been successfully withdrawn and marked as closed.",
+        confirmButtonText: "OK",
+        customClass: {
+          popup: "swal2-border-radius",
+          confirmButton: "swal2-confirm-button",
+        },
+      });
+    } catch (err) {
+      setRevokeError(getErrorMessage(err, "Failed to revoke dispute."));
+    } finally {
+      setIsRevoking(false);
+    }
+  }, [brandId, disputeId, isRevoking]);
+
+  // ── Comment handlers ─────────────────────────────────────────────────────
+  const handlePostComment = useCallback(async () => {
+    if (!disputeId || !brandId) return;
+
+    const trimmed = comment.trim();
+    if (trimmed.length === 0 && commentFiles.length === 0) return;
+
     setPosting(true);
     setPostError(null);
+
     try {
-      const form = new FormData();
-      form.append("brandId", brandId);
-      form.append("text", comment.trim() || " ");
-      commentFiles.forEach((f) => form.append("attachments", f));
-      await postFormData(`/dispute/brand/${id}/comment`, form);
+      const formData = new FormData();
+      formData.append("brandId", brandId);
+      formData.append("text", trimmed || " ");
+      commentFiles.forEach((file) => formData.append("attachments", file));
+
+      await postFormData(`/dispute/brand/${disputeId}/comment`, formData);
+
       setComment("");
       setCommentFiles([]);
-      await load();
-    } catch (e: any) {
-      setPostError(e?.response?.data?.message || e?.message || "Failed to post comment.");
+      await loadDispute();
+    } catch (err) {
+      setPostError(getErrorMessage(err, "Failed to post comment."));
     } finally {
       setPosting(false);
     }
-  };
+  }, [brandId, comment, commentFiles, disputeId, loadDispute]);
 
-  // ── Loading / error skeletons ──────────────────────────────────────────────
+  const handleEditComment = useCallback(
+    async (target: Comment) => {
+      if (!brandId) return;
 
-  if (loading) {
+      const result = await Swal.fire({
+        title: "Edit comment",
+        input: "textarea",
+        inputValue: target.text,
+        inputPlaceholder: "Update your comment",
+        showCancelButton: true,
+        confirmButtonText: "Save",
+        cancelButtonText: "Cancel",
+        customClass: {
+          popup: "swal2-border-radius",
+          confirmButton: "swal2-confirm-button",
+        },
+        inputValidator: (value) =>
+          !String(value ?? "").trim() ? "Comment text is required" : null,
+      });
+
+      if (!result.isConfirmed) return;
+
+      const nextText = String(result.value ?? "").trim();
+      if (!nextText) return;
+
+      try {
+        const formData = new FormData();
+        formData.append("brandId", brandId);
+        formData.append("text", nextText);
+
+        await api.patch(
+          `/dispute/brand/comment/${target.commentId}`,
+          formData
+        );
+
+        toast({ icon: "success", title: "Comment updated", text: "" });
+        await loadDispute();
+      } catch (err) {
+        toast({
+          icon: "error",
+          title: "Failed to update comment",
+          text: getErrorMessage(err, "Failed to update comment."),
+        });
+      }
+    },
+    [brandId, loadDispute]
+  );
+
+  const handleDeleteComment = useCallback(
+    async (target: Comment) => {
+      if (!brandId) return;
+
+      const result = await Swal.fire({
+        icon: "warning",
+        title: "Delete comment?",
+        text: "This action cannot be undone.",
+        showCancelButton: true,
+        confirmButtonText: "Delete",
+        cancelButtonText: "Cancel",
+        customClass: {
+          popup: "swal2-border-radius",
+          confirmButton: "swal2-confirm-button",
+        },
+      });
+
+      if (!result.isConfirmed) return;
+
+      try {
+        await api.delete(`/dispute/brand/comment/${target.commentId}`, {
+          data: { brandId },
+        });
+
+        toast({ icon: "success", title: "Comment deleted", text: "" });
+        await loadDispute();
+      } catch (err) {
+        toast({
+          icon: "error",
+          title: "Failed to delete comment",
+          text: getErrorMessage(err, "Failed to delete comment."),
+        });
+      }
+    },
+    [brandId, loadDispute]
+  );
+
+  const handleRaiseSystemFlag = useCallback(() => {
+    toast({
+      icon: "success",
+      title: "Flag raised",
+      text: "The system log has been flagged for review.",
+    });
+  }, []);
+
+  // ── Derived state ────────────────────────────────────────────────────────
+  const derived = useMemo(() => {
+    if (!dispute) {
+      return {
+        daysOpen: 0,
+        daysLeftLabel: "",
+        isFinalized: false,
+        imageAttachments: [] as Attachment[],
+        fileAttachments: [] as Attachment[],
+        metaItems: [] as MetaItem[],
+      };
+    }
+
+    const daysOpen = daysSince(dispute.createdAt);
+    const imageAttachments = getImageAttachments(dispute.attachments);
+    const fileAttachments = getFileAttachments(dispute.attachments);
+
+    const metaItems: MetaItem[] = [
+      {
+        label: "Dispute By",
+        value: dispute.viewerIsRaiser
+          ? "You"
+          : (dispute.raisedBy?.name ?? "—"),
+      },
+      {
+        label: "Dispute Against",
+        value: dispute.raisedAgainst?.name ?? "—",
+        ...(formatHandle(dispute.raisedAgainst?.handle) != null && {
+          sub: formatHandle(dispute.raisedAgainst?.handle) as string,
+        }),
+      },
+      {
+        label: "Dispute Type",
+        value: formatIssueTypeLabel(dispute.issueType?.[0]),
+      },
+      {
+        label: "Dispute ID",
+        value: dispute.disputeId,
+      },
+      {
+        label: "Dispute age",
+        value: formatDaysLeft(daysOpen),
+      },
+    ];
+
+    const isFinalized =
+      dispute.status === "resolved" ||
+      dispute.status === "rejected" ||
+      dispute.status === "revoked";
+
+    return {
+      daysOpen,
+      daysLeftLabel: formatDaysLeft(daysOpen),
+      isFinalized,
+      imageAttachments,
+      fileAttachments,
+      metaItems,
+    };
+  }, [dispute]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
+  if (loading) return <LoadingState />;
+
+  if (error || !dispute) {
     return (
-      <div className="min-h-screen bg-[#f7f7f5] p-6">
-        <div className="max-w-4xl mx-auto space-y-4 animate-pulse">
-          <div className="h-8 w-48 rounded-lg bg-gray-200" />
-          <div className="h-16 rounded-lg bg-gray-200" />
-          <div className="h-32 rounded-lg bg-gray-200" />
-          <div className="h-48 rounded-lg bg-gray-200" />
-        </div>
-      </div>
+      <ErrorState
+        message={error ?? "Dispute not found."}
+        onBack={() => router.back()}
+      />
     );
   }
-
-  if (error || !d) {
-    return (
-      <div className="min-h-screen bg-[#f7f7f5] flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <p className="text-[#888]">{error || "Dispute not found."}</p>
-          <button onClick={() => router.back()} className="text-sm underline text-[#1a1a1a]">
-            Go back
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Derived values ─────────────────────────────────────────────────────────
-
-  const age = daysSince(d.createdAt);
-  const stepIdx = STATUS_STEP_INDEX[d.status] ?? 0;
-  const isFinalized = d.status === "resolved" || d.status === "rejected";
-  const imgAttachments = (d.attachments || []).filter(isImage);
-  const nonImgAttachments = (d.attachments || []).filter((a) => !isImage(a));
-
-  const whoIsDispute = d.viewerIsRaiser
-    ? `You raised this dispute against ${d.raisedAgainst?.name || "the influencer"}`
-    : `${d.raisedBy?.name || "The influencer"} raised this dispute against you`;
 
   return (
     <>
-      <div className="min-h-screen" style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <div
+        className="min-h-screen"
+        style={{ fontFamily: "'DM Sans', system-ui, sans-serif" }}
+      >
         <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');`}</style>
 
-        <div className="px-[1.875rem] py-[1.875rem] space-y-4">
-
-          {/* ── Back ───────────────────────────────────────────────────────── */}
-
-          {/* ── Hero Header ────────────────────────────────────────────────── */}
-          <div className="bg-white rounded-lg border border-[#e8e8e8] px-6 py-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              {/* Left: title + meta */}
-              <div className="flex-1 min-w-0">
-                <h1 className="text-xl font-semibold text-[#1a1a1a] leading-tight truncate">
-                  {d.subject}
+        <div className={`space-y-4 ${PAGE_GUTTER}`}>
+          {/* Header card */}
+          <SectionCard className="py-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-xl font-semibold leading-tight text-[#1a1a1a]">
+                  {dispute.subject}
                 </h1>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className="text-xs text-[#999]">ID: {d.disputeId}</span>
-                  {d.priority && (
-                    <span className="text-xs px-2 py-0.5 rounded-lg bg-[#f5f5f5] text-[#666] capitalize">
-                      {d.priority} priority
-                    </span>
-                  )}
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-[#999]">
+                    ID: {dispute.disputeId}
+                  </span>
                 </div>
               </div>
 
-              {/* Right: age + status + action */}
-              <div className="flex items-center gap-3 shrink-0 flex-wrap">
+              <div className="flex shrink-0 flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5 text-xs text-[#666]">
                   <Clock className="size-3.5" />
-                  <span>{age} day{age !== 1 ? "s" : ""} left</span>
+                  <span>{derived.daysLeftLabel}</span>
                 </div>
 
-                {/* Status pill */}
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium ${d.status === "resolved" ? "bg-emerald-50 text-emerald-700" :
-                  d.status === "rejected" ? "bg-red-50 text-red-600" :
-                    d.status === "in_review" ? "bg-blue-50 text-blue-700" :
-                      "bg-[#f0faf0] text-[#2d7a3a]"
-                  }`}>
-                  <span className={`size-1.5 rounded-lg ${d.status === "resolved" ? "bg-emerald-500" :
-                    d.status === "rejected" ? "bg-red-500" :
-                      "bg-[#2d7a3a]"
-                    }`} />
-                  {STATUS_LABEL[d.status] ?? d.status}
-                </span>
+                <StatusPill status={dispute.status} />
 
-                {/* Revoke / action button — only if open */}
-                {!isFinalized && (
-                  <button className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] transition-colors">
-                    <RotateCcw className="size-3.5" />
-                    Revoke Dispute
-                  </button>
+                {!derived.isFinalized && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsEditDialogOpen(true)}
+                      className="!h-[2.25rem] !max-w-[3.9375rem] !rounded-[0.5rem] !border !border-[#E6E6E6]"
+                    >
+                      <span className="flex items-center gap-2">
+                        <NotePencilIcon className="size-4" />
+                        Edit
+                      </span>
+                    </Button>
+
+                    <Button
+                      type="button"
+                      onClick={handleRevokeDispute}
+                      variant="outline"
+                      className="inline-flex !h-[2.25rem] !max-w-[9.875rem] items-center gap-1.5 !rounded-[0.5rem] !border !border-[#E35141] px-3 py-1.5 text-xs font-medium !text-[#E35141] transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ArrowUUpLeftIcon className="size-4" />
+                        Withdraw Dispute
+                      </span>
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
 
-            {/* ── Meta row ─────────────────────────────────────────────────── */}
-            <div className="mt-5 pt-5 border-t border-[#f0f0f0] grid grid-cols-2 sm:grid-cols-5 gap-4">
-              {[
-                { label: "Dispute By", value: d.viewerIsRaiser ? "You" : (d.raisedBy?.name || "—") },
-                {
-                  label: "Dispute Against",
-                  value: d.raisedAgainst?.name || "—",
-                  sub: formatHandle(d.raisedAgainst?.handle) || undefined,
-                },
-                { label: "Dispute Type", value: d.subject, truncate: true },
-                { label: "Dispute ID", value: d.disputeId },
-                { label: "Dispute age", value: `${age} day${age !== 1 ? "s" : ""} left` },
-              ].map((item) => (
-                <div key={item.label}>
-                  <p className="text-[11px] text-[#999] mb-0.5">{item.label}</p>
-                  <p className={`text-sm font-medium text-[#1a1a1a] ${item.truncate ? "truncate" : ""}`}>
-                    {item.value}
-                  </p>
-                  {item.sub && <p className="text-xs text-[#888]">{item.sub}</p>}
-                </div>
-              ))}
-            </div>
-          </div>
+            <MetaGrid items={derived.metaItems} />
+          </SectionCard>
 
-          {/* ── Dispute Summary ────────────────────────────────────────────── */}
-          <div className="bg-white rounded-lg border border-[#e8e8e8] px-6 py-5">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="size-5 rounded bg-[#f0f0f0] flex items-center justify-center">
-                <span className="text-[10px]">📋</span>
-              </div>
-              <h2 className="text-sm font-semibold text-[#1a1a1a]">Dispute Summary</h2>
+          {/* Summary card */}
+          <SectionCard className={`${SURFACE_BORDER} px-6 py-5`}>
+            <div
+              className={`mb-3 flex items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
+            >
+              <NoteIcon className="size-4" />
+              <h2 className="text-sm font-semibold text-[#1a1a1a]">
+                Dispute Summary
+              </h2>
             </div>
-            <p className="text-sm text-[#555] leading-relaxed whitespace-pre-wrap">
-              {d.description || "No description provided."}
+
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#555]">
+              {dispute.description || "No description provided."}
             </p>
-            {d.campaignName && (
-              <p className="text-xs text-[#888] mt-3">
-                Campaign: <span className="font-medium text-[#555]">{d.campaignName}</span>
+
+            {dispute.campaignName && (
+              <p className="mt-3 text-xs text-[#888]">
+                Campaign:{" "}
+                <span className="font-medium text-[#555]">
+                  {dispute.campaignName}
+                </span>
               </p>
             )}
+          </SectionCard>
+
+          <AttachmentGallery
+            imageAttachments={derived.imageAttachments}
+            fileAttachments={derived.fileAttachments}
+            onOpenLightbox={handleOpenLightbox}
+          />
+
+          <ProgressTracker
+            status={dispute.status}
+            title="We're verifying the dispute, thanks for your Patience"
+          />
+
+          <FaqSection />
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <ActivityFeed
+              dispute={dispute}
+              onOpenLightbox={handleOpenLightbox}
+              brandLogoUrl="/logo.png"
+              brandProfilePic={brandLite?.profilePic}
+              onEditComment={handleEditComment}
+              onDeleteComment={handleDeleteComment}
+              onRaiseSystemFlag={handleRaiseSystemFlag}
+            />
+
+            <CommentComposer
+              currentUserName={
+                brandLite?.name ?? dispute.raisedBy?.name ?? "Brand"
+              }
+              currentUserImageUrl={brandLite?.profilePic ?? null}
+              isFinalized={derived.isFinalized}
+              comment={comment}
+              setComment={setComment}
+              commentFiles={commentFiles}
+              setCommentFiles={setCommentFiles}
+              posting={posting}
+              postError={postError}
+              onSubmit={handlePostComment}
+            />
           </div>
-
-          {/* ── Image / Reference ──────────────────────────────────────────── */}
-          {(imgAttachments.length > 0 || nonImgAttachments.length > 0) && (
-            <div className="bg-white rounded-lg border border-[#e8e8e8] px-6 py-5">
-              <h2 className="text-sm font-semibold text-[#1a1a1a] mb-4">Image / Reference</h2>
-
-              {imgAttachments.length > 0 && (
-                <div className="flex flex-wrap gap-3 mb-3">
-                  {imgAttachments.map((a, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setLightbox({ images: imgAttachments, index: i })}
-                      className="relative group w-32 h-24 rounded-lg overflow-hidden border border-[#e8e8e8] bg-[#f5f5f5] hover:border-[#ccc] transition-colors"
-                    >
-                      <img
-                        src={a.url}
-                        alt={a.originalName || `Image ${i + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {nonImgAttachments.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {nonImgAttachments.map((a, i) => (
-                    <a
-                      key={i}
-                      href={a.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#e8e8e8] bg-[#fafafa] hover:bg-[#f5f5f5] text-xs text-[#555] transition-colors"
-                    >
-                      <Paperclip className="size-3.5 shrink-0 text-[#aaa]" />
-                      <span className="truncate max-w-[160px]">{a.originalName || "File"}</span>
-                    </a>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Progress tracker ───────────────────────────────────────────── */}
-          <div className="bg-white rounded-lg border border-[#e8e8e8] px-6 py-5">
-            {/* Verification banner */}
-            <div className="flex items-center gap-2 mb-5">
-              <div className="size-5 rounded-lg bg-[#e8f5e9] flex items-center justify-center shrink-0">
-                <span className="text-[10px]">✓</span>
-              </div>
-              <p className="text-sm text-[#444] font-medium">
-                We're verifying the dispute, thanks for your Patience
-              </p>
-            </div>
-
-            {/* Step track */}
-            <div className="relative flex items-center">
-              {STATUS_STEPS.map((step, i) => {
-                const done = i < stepIdx;
-                const active = i === stepIdx;
-                const isLast = i === STATUS_STEPS.length - 1;
-
-                return (
-                  <React.Fragment key={step.key}>
-                    <div className="flex flex-col items-center gap-1.5 z-10">
-                      <div className={`size-4 rounded-lg border-2 flex items-center justify-center transition-colors ${done ? "border-[#2d7a3a] bg-[#2d7a3a]" :
-                        active ? "border-[#2d7a3a] bg-white" :
-                          "border-[#ddd] bg-white"
-                        }`}>
-                        {done && <CheckCircle2 className="size-3 text-white" strokeWidth={3} />}
-                        {active && <span className="size-1.5 rounded-lg bg-[#2d7a3a]" />}
-                      </div>
-                      <span className={`text-[10px] whitespace-nowrap font-medium ${done || active ? "text-[#1a1a1a]" : "text-[#bbb]"
-                        }`}>
-                        {step.label}
-                      </span>
-                    </div>
-
-                    {!isLast && (
-                      <div className="flex-1 h-0.5 mx-1 mb-4 relative overflow-hidden rounded-lg bg-[#e8e8e8]">
-                        <div
-                          className="h-full bg-[#2d7a3a] transition-all duration-500"
-                          style={{ width: done ? "100%" : active ? "50%" : "0%" }}
-                        />
-                      </div>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── FAQs / Accordions ──────────────────────────────────────────── */}
-          <Accordion title="What's happening now?">
-            <p>Our team has received your dispute and is currently reviewing the details. This typically takes 2–5 business days. You'll be notified of any updates.</p>
-          </Accordion>
-          <Accordion title="What's next?">
-            <p>Once the initial review is complete, both parties may be asked to provide evidence or respond to questions. Keep an eye on your email and notifications for further instructions.</p>
-          </Accordion>
-
-          {/* ── Activity + Comment split ───────────────────────────────────── */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-            {/* Left — activity feed */}
-            <div className="bg-white rounded-lg border border-[#e8e8e8] p-5 flex flex-col">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="size-5 rounded bg-[#f0f0f0] flex items-center justify-center text-[10px]">💬</div>
-                <h2 className="text-sm font-semibold text-[#1a1a1a]">
-                  We're verifying the dispute, thanks for your Patience
-                </h2>
-              </div>
-
-              {d.comments.length === 0 ? (
-                <div className="flex-1 flex items-center justify-center py-10 text-[#bbb] text-xs">
-                  No activity yet
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 overflow-y-auto max-h-[400px] pr-1">
-                  {/* Synthetic "dispute raised" event */}
-                  <div className="flex items-start gap-3">
-                    <Avatar name={d.raisedBy?.name} role={d.raisedBy?.role} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-[#1a1a1a]">
-                          {d.viewerIsRaiser ? "You" : (d.raisedBy?.name || d.raisedBy?.role)}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] text-[#bbb]">{timeAgo(d.createdAt)}</span>
-                          <button className="text-[#ccc] hover:text-[#888]">
-                            <MoreHorizontal className="size-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      <p className="text-xs text-[#555] mt-0.5">
-                        {whoIsDispute}
-                        {d.raisedAgainst?.handle && (
-                          <span className="font-medium text-[#1a1a1a]"> {formatHandle(d.raisedAgainst.handle)}</span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Comments */}
-                  {d.comments.map((c) => (
-                    <div key={c.commentId} className="flex items-start gap-3">
-                      <Avatar role={c.authorRole} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-medium text-[#1a1a1a] capitalize">
-                            {c.authorRole === "Brand" && d.viewerIsRaiser ? "You" : c.authorRole}
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-[#bbb]">{timeAgo(c.createdAt)}</span>
-                            <button className="text-[#ccc] hover:text-[#888]">
-                              <MoreHorizontal className="size-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                        <p className="text-xs text-[#555] mt-0.5 whitespace-pre-wrap">{c.text}</p>
-                        {c.attachments && c.attachments.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5 mt-1.5">
-                            {c.attachments.filter(isImage).map((a, ai) => (
-                              <button
-                                key={ai}
-                                onClick={() => setLightbox({ images: c.attachments!.filter(isImage), index: ai })}
-                                className="w-14 h-10 rounded-lg overflow-hidden border border-[#e8e8e8] bg-[#f5f5f5]"
-                              >
-                                <img src={a.url} alt="" className="w-full h-full object-cover" />
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* System event */}
-              <div className="mt-4 pt-4 border-t border-[#f0f0f0] flex items-start gap-3">
-                <div className="size-7 rounded-lg bg-[#f5f5f5] border border-[#e8e8e8] flex items-center justify-center text-[10px] shrink-0">
-                  ⚙
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-[#1a1a1a]">System</span>
-                    <span className="text-[10px] text-[#bbb]">{timeAgo(d.createdAt)}</span>
-                  </div>
-                  <p className="text-xs text-[#888] mt-0.5">Raised a dispute</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Right — comment input */}
-            <div className="bg-white rounded-lg border border-[#e8e8e8] p-5 flex flex-col">
-              {/* Placeholder commenter */}
-              <div className="flex items-center gap-2 mb-4">
-                <Avatar name={d.raisedAgainst?.name} role={d.raisedAgainst?.role} size="md" />
-                <div>
-                  <p className="text-sm font-medium text-[#1a1a1a]">
-                    {d.raisedAgainst?.name || "Other Party"}
-                  </p>
-                  {d.raisedAgainst?.handle && (
-                    <p className="text-xs text-[#888]">
-                      {formatHandle(d.raisedAgainst.handle)}
-                    </p>
-                  )}
-                  <p className="text-[10px] text-[#bbb]">10 days ago</p>
-                </div>
-                <button className="ml-auto text-[#ccc] hover:text-[#888]">
-                  <MoreHorizontal className="size-4" />
-                </button>
-              </div>
-
-              {isFinalized ? (
-                <div className="flex-1 flex items-center justify-center text-xs text-[#bbb] py-6">
-                  This dispute is finalized and cannot receive further comments.
-                </div>
-              ) : (
-                <div className="flex flex-col flex-1 gap-3">
-                  {/* Textarea */}
-                  <textarea
-                    rows={6}
-                    placeholder="Add a comment…"
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    className="w-full flex-1 resize-none rounded-lg border border-[#e8e8e8] bg-[#fafafa] px-4 py-3 text-sm text-[#1a1a1a] placeholder:text-[#ccc] outline-none focus:border-[#1a1a1a] focus:bg-white focus:ring-1 focus:ring-[#1a1a1a]/10 transition-all"
-                  />
-
-                  {/* Attached files preview */}
-                  {commentFiles.length > 0 && (
-                    <ul className="space-y-1">
-                      {commentFiles.map((f, i) => (
-                        <li key={i} className="flex items-center justify-between text-[11px] border border-[#e8e8e8] rounded-lg px-3 py-1.5 text-[#555]">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <Paperclip className="size-3 shrink-0 text-[#aaa]" />
-                            <span className="truncate">{f.name}</span>
-                          </div>
-                          <button
-                            onClick={() => setCommentFiles((p) => p.filter((_, j) => j !== i))}
-                            className="text-[#ccc] hover:text-red-500 ml-2 shrink-0"
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-
-                  {postError && (
-                    <p className="text-xs text-red-500">{postError}</p>
-                  )}
-
-                  {/* Footer actions */}
-                  <div className="flex items-center justify-between gap-3">
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="inline-flex items-center gap-1.5 text-xs text-[#888] hover:text-[#1a1a1a] transition-colors px-2 py-1.5 rounded-lg hover:bg-[#f5f5f5]"
-                    >
-                      <Paperclip className="size-3.5" />
-                      Attach
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        setCommentFiles((p) => [...p, ...files]);
-                        e.target.value = "";
-                      }}
-                    />
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => { setComment(""); setCommentFiles([]); setPostError(null); }}
-                        disabled={posting || (!comment.trim() && !commentFiles.length)}
-                        className="text-sm text-[#888] hover:text-[#1a1a1a] px-3 py-1.5 rounded-lg hover:bg-[#f5f5f5] transition-colors disabled:opacity-40"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={postComment}
-                        disabled={posting || (!comment.trim() && !commentFiles.length)}
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-white bg-[#1a1a1a] hover:bg-[#333] px-4 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-                      >
-                        {posting ? (
-                          <span className="text-xs">Posting…</span>
-                        ) : (
-                          <>
-                            <Send className="size-3.5" />
-                            Submit
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
         </div>
       </div>
 
-      {/* Lightbox */}
+      <EditDisputeDialog
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        onSuccess={() => void loadDispute()}
+        dispute={{
+          disputeId: dispute.disputeId,
+          campaignId: dispute.campaignId,
+          influencerId: dispute.influencerId,
+          influencerName: dispute.raisedAgainst?.name ?? null,
+          subject: dispute.subject,
+          description: dispute.description,
+          issueType: dispute.issueType,
+          existingAttachments: dispute.attachments ?? [],   // ← ADD THIS
+        }}
+      />
+
+      <ConfirmRevokeModal
+        open={isRevokeModalOpen}
+        onClose={handleCloseRevokeModal}
+        onConfirm={handleConfirmRevoke}
+        isSubmitting={isRevoking}
+        error={revokeError}
+      />
+
       {lightbox && (
         <LightboxModal
           images={lightbox.images}
           index={lightbox.index}
-          onClose={() => setLightbox(null)}
+          onClose={handleCloseLightbox}
         />
       )}
     </>

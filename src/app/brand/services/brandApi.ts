@@ -1,7 +1,7 @@
 // services/brandApi.ts
 import axios from "axios";
 import * as Api from "@/lib/api";
-import { post as libPost } from "@/lib/api";
+import { post as libPost, patch as libPatch } from "@/lib/api";
 
 const BRAND_BASE = "/brand";
 const LIST_BASE = "/list";
@@ -75,7 +75,7 @@ export function getApiErrorMessage(err: unknown, fallback = "Something went wron
 /** -------------------------
  *  ✅ Request Core (GET/POST only)
  *  ------------------------*/
-type HttpMethod = "GET" | "POST";
+type HttpMethod = "GET" | "POST" | "PATCH";
 type AnyObj = Record<string, any>;
 
 type RequestConfig = {
@@ -145,6 +145,16 @@ async function apiPost<T>(path: string, body?: any, config?: RequestConfig) {
   }
   return apiRequest<T>("POST", path, { data: body, config });
 }
+
+async function apiPatch<T>(path: string, body?: any, config?: RequestConfig) {
+  // Prefer your existing lib patch() if present
+  if (typeof libPatch === "function") {
+    const res = await (libPatch as any)(path, body, config);
+    return unwrap<T>(res as any);
+  }
+  return apiRequest<T>("PATCH", path, { data: body, config });
+}
+
 
 /** -------------------------
  *  ✅ AUTH + SIGNUP
@@ -2047,4 +2057,49 @@ export async function apiDisputeCreate(payload: {
   reason: string;
 }) {
   return apiPost<any>(`${DISPUTE_BASE}/brand/create`, payload);
+}
+
+export async function apiRevokeDispute(payload: {
+  disputeId: string | null;
+  brandId: string | null;
+}) {
+  const { disputeId, brandId } = payload;
+
+  return apiPatch(`${DISPUTE_BASE}/brand/disputes/${disputeId}/revoke`, {
+    brandId,
+  });
+}
+
+export async function apiEditDispute(payload: {
+  disputeId: string;
+  brandId: string;
+  subject: string;
+  description: string;
+  issueType: string[];
+  attachments?: File[];
+  removedAttachmentUrls?: string[];   // ← ADD
+}) {
+  const {
+    disputeId,
+    brandId,
+    subject,
+    description,
+    issueType,
+    attachments = [],
+    removedAttachmentUrls = [],       // ← ADD
+  } = payload;
+
+  const form = new FormData();
+  form.append("brandId", brandId);
+  form.append("subject", subject.trim());
+  form.append("description", description.trim());
+  form.append("issueType", JSON.stringify(issueType.length > 0 ? issueType : ["other"]));
+  attachments.forEach((file) => form.append("attachments", file));
+
+  // Only append if there are actual removals — avoids sending empty JSON to the API
+  if (removedAttachmentUrls.length > 0) {
+    form.append("removedAttachmentUrls", JSON.stringify(removedAttachmentUrls));  // ← ADD
+  }
+
+  return apiPatch(`${DISPUTE_BASE}/brand/disputes/${disputeId}/edit`, form);
 }

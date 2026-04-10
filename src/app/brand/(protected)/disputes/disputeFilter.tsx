@@ -25,12 +25,13 @@ import { SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { LabeledTextarea } from "@/components/ui/textAreaComp";
 import { ProductCardUpload } from "@/components/ui/productCard-Image";
+import { DisputeFormDialog } from "./disputeDialog";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 // The active-campaign API can return either _id or campaignsId as the identifier,
 // and either campaignTitle or productOrServiceName as the display label.
-type Campaign = {
+export type Campaign = {
   _id?: string;
   campaignsId?: string;
   campaignTitle?: string;
@@ -38,14 +39,14 @@ type Campaign = {
 };
 
 // Helper: extract a stable id and display label regardless of field shape
-function getCampaignId(c: Campaign): string {
+export function getCampaignId(c: Campaign): string {
   return c.campaignsId || c._id || "";
 }
-function getCampaignLabel(c: Campaign): string {
+export function getCampaignLabel(c: Campaign): string {
   return c.productOrServiceName || c.campaignTitle || getCampaignId(c);
 }
 
-type Applicant = { influencerId: string; name?: string; handle?: string | null };
+export type Applicant = { influencerId: string; name?: string; handle?: string | null };
 
 // ─── Filter option sets ────────────────────────────────────────────────────────
 
@@ -65,16 +66,7 @@ const DIRECTION_OPTIONS = [
   { value: "against_you", label: "Raised against you" },
 ];
 
-const DISPUTE_CATEGORIES = [
-  { value: "content_not_as_expected", label: "Content Not as Expected" },
-  { value: "delay_or_missed_deadline", label: "Delay or Missed Deadline" },
-  { value: "payment_issue", label: "Payment Issue" },
-  { value: "revision_issue", label: "Revision Issue" },
-  { value: "agreement_issue", label: "Agreement Issue" },
-  { value: "scope_change", label: "Scope Change" },
-  { value: "no_response", label: "No Response" },
-  { value: "other", label: "Other" },
-];
+
 
 // ─── ComboboxFilter ────────────────────────────────────────────────────────────
 
@@ -149,184 +141,11 @@ function ComboboxFilter({
   );
 }
 
-function IssueTypeSelect({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (
-        triggerRef.current?.contains(e.target as Node) ||
-        dropdownRef.current?.contains(e.target as Node)
-      ) {
-        return;
-      }
-      setOpen(false);
-      setSearch("");
-    };
-
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const toggle = (val: string) => {
-    if (value.includes(val)) {
-      onChange(value.filter((v) => v !== val));
-    } else {
-      onChange([...value, val]);
-    }
-  };
-
-  const filtered = DISPUTE_CATEGORIES.filter((c) =>
-    c.label.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const selectedLabels = DISPUTE_CATEGORIES.filter((c) =>
-    value.includes(c.value)
-  ).map((c) => c.label);
-
-  return (
-    <div className="relative w-full mt-2">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className={cn(
-          "relative flex h-14 w-full items-center rounded-lg border bg-white px-4 pr-12 text-left transition-all",
-          open
-            ? "border-[#bfc6d4] ring-2 ring-[#e9edf5]"
-            : "border-[#d9d9d9] hover:border-[#c7c7c7]"
-        )}
-      >
-        <span
-          className={cn(
-            "truncate text-[15px] leading-none",
-            value.length > 0 ? "text-[#1a1a1a]" : "text-[#707070]"
-          )}
-        >
-          {value.length > 0 ? (
-            selectedLabels.join(", ")
-          ) : (
-            <>
-              Issue Type <span className="text-red-500">*</span>
-            </>
-          )}
-        </span>
-
-        <ChevronDownIcon
-          className={cn(
-            "absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#9ca3af] transition-transform duration-200",
-            open && "rotate-180"
-          )}
-        />
-      </button>
-
-      {open && (
-        <div
-          ref={dropdownRef}
-          className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg"
-        >
-          <div className="flex items-center gap-2 border-b border-[#f1f1f1] px-4 py-3">
-            <SearchIcon className="size-4 shrink-0 text-[#9ca3af]" />
-            <input
-              type="text"
-              placeholder="Search issue types..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-1 bg-transparent text-sm text-[#1a1a1a] outline-none placeholder:text-[#9ca3af]"
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                className="text-[#9ca3af] transition-colors hover:text-[#6b7280]"
-              >
-                <XIcon className="size-3.5" />
-              </button>
-            )}
-          </div>
-
-          <div className="max-h-56 overflow-y-auto py-2">
-            {filtered.length > 0 ? (
-              filtered.map((cat) => {
-                const checked = value.includes(cat.value);
-
-                return (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => toggle(cat.value)}
-                    className={cn(
-                      "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f8f8f8]",
-                      checked && "bg-[#fafafa]"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex h-4 w-4 items-center justify-center rounded border transition-all",
-                        checked
-                          ? "border-[#1a1a1a] bg-[#1a1a1a]"
-                          : "border-[#d1d5db] bg-white"
-                      )}
-                    >
-                      {checked && (
-                        <svg
-                          className="h-3 w-3 text-white"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            clipRule="evenodd"
-                            d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                          />
-                        </svg>
-                      )}
-                    </div>
-
-                    <span className="text-sm text-[#1f2937]">{cat.label}</span>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-4 py-8 text-center text-sm text-[#9ca3af]">
-                No matching issue types found
-              </div>
-            )}
-          </div>
-
-          {value.length > 0 && (
-            <div className="flex items-center justify-between border-t border-[#f1f1f1] bg-[#fafafa] px-4 py-2">
-              <span className="text-xs text-[#6b7280]">
-                {value.length} selected
-              </span>
-              <button
-                type="button"
-                onClick={() => onChange([])}
-                className="text-xs text-[#6b7280] transition-colors hover:text-[#374151]"
-              >
-                Clear all
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── RaiseDisputeDialog ────────────────────────────────────────────────────────
 
-function RaiseDisputeDialog({
+export function RaiseDisputeDialog({
   open,
   onOpenChange,
   onSuccess,
@@ -337,276 +156,27 @@ function RaiseDisputeDialog({
   onSuccess?: () => void;
   lockedCampaignId?: string;
 }) {
-  const [brandId, setBrandId] = useState<string | null>(null);
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [applicants, setApplicants] = useState<Applicant[]>([]);
-  const [loadingCampaigns, setLoadingCampaigns] = useState(false);
-  const [loadingApplicants, setLoadingApplicants] = useState(false);
-
-  const [campaignId, setCampaignId] = useState(lockedCampaignId || "");
-  const [influencerId, setInfluencerId] = useState("");
-  const [subject, setSubject] = useState("");
-  const [description, setDescription] = useState("");
-  const [relatedType, setRelatedType] = useState<string[]>([]);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [dragging, setDragging] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const isCampaignLocked = !!lockedCampaignId;
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setBrandId(localStorage.getItem("brandId"));
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    setCampaignId(lockedCampaignId || "");
-    setInfluencerId("");
-    setError(null);
-  }, [open, lockedCampaignId]);
-
-  useEffect(() => {
-    if (!brandId || !open) return;
-    setLoadingCampaigns(true);
-    get<{ data: Campaign[] }>("/campaign/active", { brandId, page: 1, limit: 1000 })
-      .then((d) => setCampaigns(d?.data || []))
-      .catch(() => {})
-      .finally(() => setLoadingCampaigns(false));
-  }, [brandId, open]);
-
-  useEffect(() => {
-    setApplicants([]);
-    setInfluencerId("");
-    if (!campaignId) return;
-
-    setLoadingApplicants(true);
-    post<{ influencers: Applicant[] }>("/apply/list", { campaignId, page: 1, limit: 1000 })
-      .then((d) => setApplicants(d?.influencers || []))
-      .catch(() => {})
-      .finally(() => setLoadingApplicants(false));
-  }, [campaignId]);
-
-  const campaignOptions = campaigns.filter((c) => getCampaignId(c));
-  const selectedCampaignExists = campaignOptions.some(
-    (c) => getCampaignId(c) === campaignId
-  );
-
-  const reset = () => {
-    setCampaignId(lockedCampaignId || "");
-    setInfluencerId("");
-    setSubject("");
-    setDescription("");
-    setRelatedType([]);
-    setAttachments([]);
-    setError(null);
-  };
-
-  const handleClose = () => {
-    reset();
-    onOpenChange(false);
-  };
-
-  const addFiles = (files: FileList | File[]) =>
-    setAttachments((prev) => [...prev, ...Array.from(files)]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
-  }, []);
-
-  const submit = async () => {
-    setError(null);
-    if (!brandId) {
-      setError("Missing brand ID — please log in again.");
-      return;
-    }
-    if (!campaignId) {
-      setError("Please select a campaign.");
-      return;
-    }
-    if (!influencerId) {
-      setError("Please select an influencer.");
-      return;
-    }
-    if (!subject.trim()) {
-      setError("Dispute title is required.");
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const form = new FormData();
-      form.append("brandId", brandId);
-      form.append("influencerId", influencerId);
-      form.append("campaignId", campaignId);
-      form.append("subject", subject.trim());
-      form.append("description", description.trim());
-      form.append(
-        "issueType",
-        JSON.stringify(relatedType.length ? relatedType : ["other"])
-      );
-      attachments.forEach((f) => form.append("attachments", f));
-
-      await postFormData("/dispute/brand/create", form);
-      handleClose();
-      onSuccess?.();
-    } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to create dispute.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent
-        showCloseButton={false}
-        className=" !flex !flex-col
-      w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] md:w-full
-      !max-w-[43.0625rem]
-      max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] md:max-h-[min(54.25rem,calc(100dvh-3rem))]
-      rounded-xl sm:rounded-2xl
-      overflow-hidden
-      p-0 gap-0"
-        style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}
-      >
-        <div className="flex shrink-0 items-center justify-between ">
-          <DialogTitle className="text-[1.15rem] font-semibold text-[#1a1a1a] tracking-tight">
-            Raise a Dispute
-          </DialogTitle>
+    <DisputeFormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+      lockedCampaignId={lockedCampaignId}
+      title="Raise a Dispute"
+      submitLabel="Submit Dispute"
+      onSubmit={async ({ brandId, values }) => {
+        const form = new FormData();
+        form.append("brandId", brandId);
+        form.append("influencerId", values.influencerId);
+        form.append("campaignId", values.campaignId);
+        form.append("subject", values.subject);
+        form.append("description", values.description);
+        form.append("issueType", JSON.stringify(values.issueType));
+        values.attachments.forEach((file) => form.append("attachments", file));
 
-          <button
-            onClick={handleClose}
-            className="size-7 flex items-center justify-center rounded-lg text-[#888] hover:bg-[#f5f5f5] hover:text-[#1a1a1a] transition-colors"
-          >
-            <XIcon className="size-4" />
-          </button>
-        </div>
-
-        <hr />
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {error && (
-            <div className="mb-2 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 text-xs text-red-600">
-              <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <FloatingInput
-              label="Dispute Title"
-              required
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            />
-
-            <FloatingSelect
-              label={loadingCampaigns ? "Loading campaigns…" : "Campaign name"}
-              value={campaignId}
-              onValueChange={setCampaignId}
-              disabled={isCampaignLocked || loadingCampaigns}
-              searchable={!isCampaignLocked}
-              searchPlaceholder="Search campaigns…"
-              safeBottom={80}
-              icon={!!campaignId}
-            >
-              {selectedCampaignExists ? null : campaignId ? (
-                <SelectItem value={campaignId}>{campaignId}</SelectItem>
-              ) : null}
-
-              {campaignOptions.length > 0 ? (
-                campaignOptions.map((c) => (
-                  <SelectItem key={getCampaignId(c)} value={getCampaignId(c)}>
-                    {getCampaignLabel(c)}
-                  </SelectItem>
-                ))
-              ) : (
-                <SelectItem value="__empty__" disabled>
-                  No active campaigns
-                </SelectItem>
-              )}
-            </FloatingSelect>
-          </div>
-
-          <div className=" flex flex-col gap-2">
-            <FloatingSelect
-              label={
-                !campaignId
-                  ? "Select a campaign first"
-                  : loadingApplicants
-                    ? "Loading influencers…"
-                    : "Influencer name"
-              }
-              required
-              value={influencerId}
-              onValueChange={setInfluencerId}
-              disabled={!campaignId || loadingApplicants}
-              searchable={applicants.length > 5}
-              searchPlaceholder="Search influencers…"
-              safeBottom={80}
-              icon={!!influencerId}
-            >
-              {applicants.length > 0 ? (
-                applicants.map((a) => (
-                  <SelectItem key={a.influencerId} value={a.influencerId}>
-                    {a.name || a.influencerId}
-                    {a.handle ? ` (${a.handle})` : ""}
-                  </SelectItem>
-                ))
-              ) : (
-                <SelectItem value="__empty__" disabled>
-                  No influencers in this campaign
-                </SelectItem>
-              )}
-            </FloatingSelect>
-
-            <LabeledTextarea
-              label="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the issue in detail…"
-              maxLength={500}
-              rows={4}
-              className="min-h-28!"
-            />
-
-            <IssueTypeSelect value={relatedType} onChange={setRelatedType} />
-
-            <ProductCardUpload
-              showLabel={false}
-              files={attachments}
-              onFilesChange={(files) => setAttachments(files)}
-              title="Upload Attachments"
-              helperTypes="SVG, PNG, JPG or PDF (max 5 MB each)"
-            />
-          </div>
-        </div>
-
-        <div className="mt-auto flex shrink-0 items-center justify-end gap-3 bg-white">
-          <Button
-            onClick={handleClose}
-            disabled={submitting}
-            className="h-9 px-5 rounded-lg text-sm font-medium !text-[#1a1a1a] !bg-white transition-colors disabled:opacity-50 !shadow-none hover:!bg-[#f5f5f5] "
-          >
-            Discard
-          </Button>
-
-          <Button
-            onClick={submit}
-            disabled={submitting}
-            className="flex h-9 items-center gap-2 rounded-lg bg-[#1a1a1a] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#333] disabled:opacity-50"
-          >
-            {submitting && <Loader2 className="size-3.5 animate-spin" />}
-            {submitting ? "Creating…" : "Submit Dispute"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        await postFormData("/dispute/brand/create", form);
+      }}
+    />
   );
 }
 
