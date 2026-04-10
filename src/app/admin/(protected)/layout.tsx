@@ -1,9 +1,9 @@
-// File: app/admin/layout.tsx
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AdminSidebar from "../components/AdminSideBar";
+import AdminTopBar from "../components/AdminTopBar";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -12,7 +12,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [authorized, setAuthorized] = useState(false);
 
-  // Allow the login route to render without auth
   const isLoginRoute = pathname === "/admin/login";
 
   useEffect(() => {
@@ -23,7 +22,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Check either key; adjust if your app uses a single canonical key
       const adminId =
         window.localStorage.getItem("adminId") ??
         window.localStorage.getItem("admin_id");
@@ -39,24 +37,29 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     }
   }, [isLoginRoute, router]);
 
-  // Prevent UI flash/hydration mismatch while we check auth
   if (!ready) return null;
-
-  // If unauthorized, we've triggered a redirect—render nothing
   if (!authorized && !isLoginRoute) return null;
 
   const showSidebar = !isLoginRoute;
+  const showTopbar = !isLoginRoute;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="flex h-screen overflow-hidden bg-slate-50 font-sans text-slate-900">
       {showSidebar && <AdminSidebar />}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <main
-          className={`pt-12 ${
-            showSidebar ? "ml-0 md:ml-64 lg:ml-72" : "ml-0"
-          } flex-1 overflow-y-auto p-6`}
-        >
-          {children}
+
+      <div
+        className={`flex flex-1 flex-col overflow-hidden transition-all duration-300 ${
+          showSidebar ? "md:ml-72" : ""
+        }`}
+      >
+        <div className={showSidebar ? "pt-16 md:pt-0" : ""}>
+          {showTopbar && <AdminTopBar />}
+        </div>
+
+        <main className="flex-1 overflow-y-auto p-4 md:p-8">
+          <div className="mx-auto max-w-full min-h-[calc(100vh-8rem)] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
+            {children}
+          </div>
         </main>
       </div>
     </div>
