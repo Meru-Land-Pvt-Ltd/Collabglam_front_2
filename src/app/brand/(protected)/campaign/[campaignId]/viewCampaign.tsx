@@ -2607,7 +2607,7 @@ export default function ViewCampaignPage() {
           </div>
         ) : null}
       </div>
-      {/* {!isAdminCreatedCampaign ? (
+       {!isAdminCreatedCampaign ? (
         <div className="mt-7 w-full flex flex-col items-start self-stretch">
           <div
             className="self-stretch text-[#1A1A1A] text-[1.25rem] font-semibold leading-[1.75rem]"
@@ -2620,7 +2620,7 @@ export default function ViewCampaignPage() {
             className="mt-2 self-stretch text-[#B8B8B8] text-[0.875rem] font-normal leading-[1.25rem]"
             style={{ fontFamily: "Inter" }}
           >
-            {lorem10}
+            {lorem1}
           </div>
 
           <div className="mt-6 w-full mb-[3.5rem]">
@@ -2754,7 +2754,7 @@ export default function ViewCampaignPage() {
             )}
           </div>
         </div>
-      ) : null} */}
+      ) : null}
 
       {addFundsModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 px-4">

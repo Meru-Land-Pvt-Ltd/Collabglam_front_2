@@ -17,6 +17,7 @@ import {
   apiGetBrandLite,
   apiGetBrandWallet,
 } from "@/app/brand/services/brandApi";
+import NotificationCard from "./notificationCard";
 
 import {
   Bell,
@@ -429,6 +430,7 @@ export default function BrandSidebar({
   );
 
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
 
   const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -476,6 +478,7 @@ export default function BrandSidebar({
         };
       });
   }, [liteSubscription, brandLite]);
+
   /* --------------------------------- state -------------------------------- */
 
   const [active, setActive] = useState<string>("dashboard");
@@ -583,7 +586,6 @@ export default function BrandSidebar({
           </span>
         ),
       },
-
       { key: "help", label: "Help", icon: Question, section: "manage" },
     ],
     []
@@ -682,20 +684,8 @@ export default function BrandSidebar({
 
   const footerPlanLabel = titleCasePlan(
     brandLite?.subscriptionDetails?.brandPlanName ||
-    brandLite?.subscriptionDetails?.plan ||
-    planName
-  );
-
-  const helpMenuItems = useMemo<
-    Array<{ key: SupportMenuKey; label: string }>
-  >(
-    () => [
-      { key: "dispute", label: "Dispute" },
-      { key: "report_issue", label: "Report an Issue" },
-      { key: "help_center", label: "Help Center" },
-      { key: "privacy_policy", label: "Privacy Policy" },
-    ],
-    []
+      brandLite?.subscriptionDetails?.plan ||
+      planName
   );
 
   /* -------------------------------- effects -------------------------------- */
@@ -719,7 +709,7 @@ export default function BrandSidebar({
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -772,7 +762,7 @@ export default function BrandSidebar({
 
           if (latestName) window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch { }
+        } catch {}
       } catch {
         // keep cached values on failure
       }
@@ -794,7 +784,7 @@ export default function BrandSidebar({
         try {
           const stored = window.localStorage.getItem("sidebar-collapsed");
           if (stored !== null) initialCollapsed = stored === "true";
-        } catch { }
+        } catch {}
         setCollapsed(initialCollapsed);
         setWidthCollapsed(initialCollapsed);
         hasInitializedCollapsed.current = true;
@@ -907,16 +897,31 @@ export default function BrandSidebar({
   }, [profileMenuOpen]);
 
   useEffect(() => {
-    if (!helpDialogOpen) return;
+    if (!isNotificationModalOpen || typeof window === "undefined") return;
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setHelpDialogOpen(false);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsNotificationModalOpen(false);
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
-
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [helpDialogOpen]);
+  }, [isNotificationModalOpen]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const previousOverflow = document.body.style.overflow;
+
+    if (isNotificationModalOpen) {
+      document.body.style.overflow = "hidden";
+    }
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isNotificationModalOpen]);
 
   /* ------------------------------- callbacks ------------------------------- */
 
@@ -935,7 +940,6 @@ export default function BrandSidebar({
     },
     [router]
   );
-
 
   const handlePlanClick = useCallback(() => {
     router.push("/brand/subscriptions");
@@ -1006,13 +1010,28 @@ export default function BrandSidebar({
     [goTo, isDesktop, setDrawerOpen]
   );
 
+  const handleNotificationOpen = useCallback(() => {
+    setCreditsOpen(false);
+    setProfileMenuOpen(false);
+    setWorkspaceOpen(false);
+    setCampaignOpen(false);
+    campaignHoverRef.current = false;
+    setIsNotificationModalOpen(true);
+
+    if (!isDesktop) setDrawerOpen(false);
+  }, [isDesktop, setDrawerOpen]);
+
+  const handleNotificationClose = useCallback(() => {
+    setIsNotificationModalOpen(false);
+  }, []);
+
   const beginOpenDesktop = useCallback(() => {
     setCollapsed(false);
     setIsClosing(false);
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch { }
+    } catch {}
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -1023,7 +1042,7 @@ export default function BrandSidebar({
     setWidthCollapsed(true);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch { }
+    } catch {}
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -1046,7 +1065,7 @@ export default function BrandSidebar({
         "brandPlanId",
         "brandPlanName",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch { }
+    } catch {}
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
@@ -1171,18 +1190,18 @@ export default function BrandSidebar({
         );
       }
 
-      if (item.key === "help") {
+      if (item.key === "notification") {
         return (
-          <div key={item.key} ref={helpAnchorRef}>
-            <RowButton
-              icon={item.icon}
-              label={item.label}
-              active={helpDialogOpen}
-              tight={tight}
-              collapsed={isCollapsed}
-              onClick={openHelpDialog}
-            />
-          </div>
+          <RowButton
+            key={item.key}
+            icon={item.icon}
+            label={item.label}
+            right={item.right}
+            active={isNotificationModalOpen || isActiveItem}
+            tight={tight}
+            collapsed={isCollapsed}
+            onClick={handleNotificationOpen}
+          />
         );
       }
 
@@ -1206,11 +1225,12 @@ export default function BrandSidebar({
       collapsed,
       creditsOpen,
       creditUsageItems,
+      handleNotificationOpen,
       handleSetActive,
       isCampaignChildActive,
       isClosing,
       isDesktop,
-      helpDialogOpen,
+      isNotificationModalOpen,
       motionTransitions.content,
       openHelpDialog,
       tight,
@@ -1301,107 +1321,6 @@ export default function BrandSidebar({
             </button>
           )}
         </div>
-
-        {/* <AnimatePresence initial={false}>
-          {!compactUI && (
-            <m.div
-              key="workspace-switcher"
-              ref={workspaceRef}
-              variants={fadeScale}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={motionTransitions.content}
-              className="relative z-50 w-full"
-              style={{ willChange: "transform, opacity" }}
-            >
-              <m.button
-                type="button"
-                onClick={() => setWorkspaceOpen((v) => !v)}
-                animate={{ scale: workspaceOpen ? 1.02 : 1 }}
-                transition={motionTransitions.content}
-                className={cn(
-                  "flex items-center gap-3 rounded-s border border-[#E6E6E6] bg-white p-2 text-left transition hover:bg-neutral-50",
-                  "w-full cursor-pointer",
-                  FOCUS_RING,
-                  workspaceOpen ? "shadow-sm" : "shadow-none"
-                )}
-              >
-                <WorkspaceLogo ws={selectedWorkspace} />
-
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-semibold leading-[20px] text-[#1a1a1a]">
-                    {selectedWorkspace.name}
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-2">
-                    <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-[#1a1a1a]">
-                      {planLabel}
-                    </span>
-                    {planId && (
-                      <span className="truncate text-[11px] text-neutral-500">Current plan</span>
-                    )}
-                  </div>
-                </div>
-
-                <span className="ml-auto grid h-8 w-8 place-items-center">
-                  <CaretUpDown size={20} className="text-[#1a1a1a]" />
-                </span>
-              </m.button>
-
-              <AnimatePresence initial={false}>
-                {workspaceOpen && (
-                  <m.div
-                    key="workspace-options"
-                    variants={dropdownY}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    transition={motionTransitions.content}
-                    className="absolute left-1/2 top-full z-[60] mt-2 w-[calc(100%+26px)] -translate-x-1/2"
-                  >
-                    <m.div
-                      initial={{ scale: 0.98, opacity: 0 }}
-                      animate={{ scale: 1.02, opacity: 1 }}
-                      exit={{ scale: 0.98, opacity: 0 }}
-                      transition={motionTransitions.content}
-                      className="w-full rounded-s border border-[#E6E6E6] bg-white p-3 shadow-lg"
-                    >
-                      <div className="flex flex-col gap-2.5">
-                        {workspaces.map((workspace) => {
-                          const isSelected = workspace.key === selectedWorkspace.key;
-
-                          return (
-                            <button
-                              key={workspace.key}
-                              type="button"
-                              onClick={() => {
-                                setWorkspaceKey(workspace.key);
-                                setWorkspaceOpen(false);
-                              }}
-                              className={cn(
-                                "flex h-14 w-full cursor-pointer items-center gap-3 rounded-s border border-[#E6E6E6] bg-white px-4 text-left transition hover:bg-neutral-50",
-                                FOCUS_RING,
-                                isSelected ? "ring-1 ring-[#1a1a1a]/30" : ""
-                              )}
-                            >
-                              <WorkspaceLogo ws={workspace} />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-[14px] font-semibold leading-[20px] text-[#1a1a1a]">
-                                  {workspace.name}
-                                </div>
-                              </div>
-                              <CaretUpDown size={18} className="text-[#1a1a1a] opacity-70" />
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </m.div>
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </m.div>
-          )}
-        </AnimatePresence> */}
       </div>
 
       <div className={cn("mt-6 flex min-h-0 flex-1 flex-col", tight ? "mt-4" : "")}>
@@ -1870,65 +1789,56 @@ export default function BrandSidebar({
     </AnimatePresence>
   );
 
-  const HelpDialog = (
+  const NotificationModal = (
     <AnimatePresence>
-      {helpDialogOpen ? (
-        <m.div
-          ref={helpDialogRef}
-          key="help-support-dialog"
-          role="dialog"
-          aria-modal="false"
-          aria-labelledby="help-support-dialog-title"
-          variants={fadeScale}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          transition={motionTransitions.content}
-          className="fixed z-[140] w-full max-w-[320px]"
-          style={{
-            top: helpDialogPosition.top,
-            left: helpDialogPosition.left,
+      {isNotificationModalOpen ? (
+        <>
+          <m.button
+            type="button"
+            aria-label="Close notifications modal"
+            className="fixed inset-0 z-[140] bg-black/45 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={motionTransitions.content}
+            onClick={handleNotificationClose}
+          />
 
-          }}
-        >
-          <div className="rounded-[18px] -top-40 border border-neutral-200 bg-white px-3 py-4 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
-            <div className="mb-2 flex items-center justify-between gap-3 px-1">
-              <div>
-                <h2
-                  id="help-support-dialog-title"
-                  className="text-[16px] font-semibold text-[#1a1a1a]"
-                >
-                  Help & Support
-                </h2>
-                <p className="mt-1 text-[12px] text-neutral-500">
-                  Choose where you want to go next.
-                </p>
-              </div>
-            </div>
+          <div className="fixed inset-0 z-[141] flex items-center justify-center p-4 sm:p-6">
+            <m.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="brand-notification-modal-title"
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={motionTransitions.content}
+              className="relative w-full max-w-[760px]"
+            >
+              <div className="relative max-h-[calc(100dvh-2rem)] overflow-hidden rounded-[24px] bg-white shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
+                <div id="brand-notification-modal-title" className="sr-only">
+                  Notifications
+                </div>
 
-            <div className="mt-3 flex flex-col gap-1">
-              {helpMenuItems.map((item) => (
                 <button
-
-                  key={item.key}
                   type="button"
-                  onClick={() => handleHelpMenuSelect(item.key)}
+                  onClick={handleNotificationClose}
+                  aria-label="Close notifications"
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[#1a1a1a] transition hover:bg-[#F8F8F8]",
+                    "absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-[#1a1a1a] shadow-sm transition hover:bg-white",
                     FOCUS_RING
                   )}
                 >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center text-[#1a1a1a]">
-                    <SupportMenuIcon kind={item.key} className="h-5 w-5" />
-                  </span>
-                  <span className="text-[16px] font-medium leading-6">
-                    {item.label}
-                  </span>
+                  <X size={20} />
                 </button>
-              ))}
-            </div>
+
+                <div className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
+                  <NotificationCard />
+                </div>
+              </div>
+            </m.div>
           </div>
-        </m.div>
+        </>
       ) : null}
     </AnimatePresence>
   );
@@ -1938,7 +1848,7 @@ export default function BrandSidebar({
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
         <>
           {isDesktop ? DesktopAside : MobileDrawer}
-          {HelpDialog}
+          {NotificationModal}
         </>
       </MotionConfig>
     </LazyMotion>
