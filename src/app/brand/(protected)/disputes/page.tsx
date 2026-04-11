@@ -9,6 +9,9 @@ export type DisputeStatus =
   | "open"
   | "in_review"
   | "awaiting_user"
+  | "evidence_submitted"
+  | "in_negotiation"
+  | "resolution_proposed"
   | "resolved"
   | "rejected"
   | "revoked";

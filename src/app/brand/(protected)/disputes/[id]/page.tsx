@@ -65,6 +65,9 @@ type DisputeStatus =
   | "open"
   | "in_review"
   | "awaiting_user"
+  | "evidence_submitted"
+  | "in_negotiation"
+  | "resolution_proposed"
   | "resolved"
   | "rejected"
   | "revoked";
@@ -155,17 +158,23 @@ const SURFACE_BORDER_COLOR = "border-[#e8e8e8]";
 const SUBTLE_BORDER = "border-[#f0f0f0]";
 const MUTED_BG = "bg-[#F9F9F9]";
 
-const STATUS_STEPS: Array<{ key: DisputeStatus; label: string }> = [
-  { key: "open", label: "Dispute Submitted" },
-  { key: "in_review", label: "Response & Evidence" },
-  { key: "awaiting_user", label: "Under Review" },
+const STATUS_STEPS: Array<{ key: string; label: string }> = [
+  { key: "submitted", label: "Dispute Submitted" },
+  { key: "under_review", label: "Under Review" },
+  { key: "response_evidence", label: "Response & Evidence" },
   { key: "resolved", label: "Resolved" },
 ];
 
 const STATUS_STEP_INDEX: Record<DisputeStatus, number> = {
   open: 0,
+
   in_review: 1,
+  in_negotiation: 1,
+  resolution_proposed: 1,
+
   awaiting_user: 2,
+  evidence_submitted: 2,
+
   resolved: 3,
   rejected: 3,
   revoked: 3,
@@ -173,8 +182,11 @@ const STATUS_STEP_INDEX: Record<DisputeStatus, number> = {
 
 const STATUS_LABELS: Record<DisputeStatus, string> = {
   open: "Open",
-  in_review: "In Progress",
-  awaiting_user: "Awaiting You",
+  in_review: "Under Review",
+  awaiting_user: "Awaiting Response",
+  evidence_submitted: "Evidence Submitted",
+  in_negotiation: "In Negotiation",
+  resolution_proposed: "Resolution Proposed",
   resolved: "Resolved",
   rejected: "Rejected",
   revoked: "Revoked",
@@ -296,8 +308,18 @@ function getStatusPillClasses(status: DisputeStatus): string {
       return "bg-emerald-50 text-emerald-700";
     case "rejected":
       return "bg-red-50 text-red-600";
+    case "revoked":
+      return "bg-gray-100 text-gray-700";
     case "in_review":
       return "bg-blue-50 text-blue-700";
+    case "awaiting_user":
+      return "bg-amber-50 text-amber-700";
+    case "evidence_submitted":
+      return "bg-slate-100 text-slate-700";
+    case "in_negotiation":
+      return "bg-orange-50 text-orange-700";
+    case "resolution_proposed":
+      return "bg-cyan-50 text-cyan-700";
     default:
       return "bg-[#f0faf0] text-[#2d7a3a]";
   }
@@ -309,6 +331,18 @@ function getStatusDotClasses(status: DisputeStatus): string {
       return "bg-emerald-500";
     case "rejected":
       return "bg-red-500";
+    case "revoked":
+      return "bg-gray-500";
+    case "in_review":
+      return "bg-blue-500";
+    case "awaiting_user":
+      return "bg-amber-500";
+    case "evidence_submitted":
+      return "bg-slate-500";
+    case "in_negotiation":
+      return "bg-orange-500";
+    case "resolution_proposed":
+      return "bg-cyan-500";
     default:
       return "bg-[#2d7a3a]";
   }

@@ -46,7 +46,7 @@ import {
 // Types
 // ─────────────────────────────────────────────
 
-type DisputeStatus = "open" | "in_review" | "awaiting_user" | "resolved" | "rejected";
+type DisputeStatus = "open" | "in_review" | "awaiting_user" | "evidence_submitted" | "in_negotiation" | "resolution_proposed" | "resolved" | "rejected"
 type DisputePriority = "low" | "medium" | "high" | "critical";
 
 type Attachment = {
@@ -74,6 +74,21 @@ type Comment = {
   createdAt: string;
   attachments?: Attachment[];
   isSystemGenerated?: boolean;
+  parentCommentId?: string | null;
+  threadRootCommentId?: string | null;
+};
+
+type EvidenceEntry = {
+  evidenceId?: string;
+  evidenceName: string;
+  notes?: string | null;
+  attachments?: Attachment[];
+  createdAt?: string;
+  createdBy?: {
+    role?: "Admin" | "Brand" | "Influencer" | string;
+    id?: string | null;
+    name?: string | null;
+  } | null;
 };
 
 type Party = {
@@ -116,6 +131,7 @@ type Dispute = {
   assignedTo?: { adminId?: string | null; name?: string | null } | null;
   comments?: Comment[];
   attachments?: Attachment[];
+  evidence?: EvidenceEntry[];
   createdAt: string;
   updatedAt: string;
 };
@@ -242,11 +258,15 @@ const AttachmentPillList: React.FC<{
 // ─────────────────────────────────────────────
 
 const STATUS_MAP: Record<DisputeStatus, { label: string; bg: string; text: string; ring: string; dot: string }> = {
-  open: { label: "Open", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-blue-500" },
-  in_review: { label: "In Review", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-amber-500" },
-  awaiting_user: { label: "Awaiting User", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-orange-500" },
-  resolved: { label: "Resolved", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-green-500" },
-  rejected: { label: "Rejected", bg: "bg-white", text: "text-gray-900", ring: "ring-black/10", dot: "bg-red-500" },
+  open: { label: "Open", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  in_review: { label: "Under Review", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  awaiting_user: { label: "Awaiting Response", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  evidence_submitted: { label: "Evidence Submitted", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  in_negotiation: { label: "In Negotiation", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  resolution_proposed: { label: "Resolution Proposed", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-green-600" },
+  resolved: { label: "Completed", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-blue-500" },
+  rejected: { label: "Rejected", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-red-500" },
+  // revoked: { label: "Withdrawn", bg: "bg-white", text: "text-gray-700", ring: "ring-black/10", dot: "bg-orange-400" },
 };
 
 const PRIORITY_MAP: Record<string, { label: string; bg: string; text: string }> = {
@@ -264,12 +284,32 @@ const ISSUE_TYPE_MAP: Record<string, string> = {
   other: "Other",
 };
 
-const statusOptions = [
-  { value: "open", label: "Open" },
-  { value: "in_review", label: "In Review" },
-  { value: "awaiting_user", label: "Awaiting User" },
-  { value: "resolved", label: "Resolved" },
-  { value: "rejected", label: "Rejected" },
+const statusOptions: Array<{
+  value: string;
+  label: string;
+  disabled?: boolean;
+  dot: string;
+}> = [
+    { value: "open", label: "Open", dot: "bg-green-600" },
+    { value: "in_review", label: "Under Review", dot: "bg-green-600" },
+    { value: "awaiting_user", label: "Awaiting Response", dot: "bg-green-600" },
+    { value: "evidence_submitted", label: "Evidence Submitted", dot: "bg-green-600" },
+    { value: "in_negotiation", label: "In Negotiation", dot: "bg-green-600" },
+    { value: "resolution_proposed", label: "Resolution Proposed", dot: "bg-green-600" },
+    { value: "resolved", label: "Resolve", dot: "bg-blue-500" },
+    { value: "rejected", label: "Reject", dot: "bg-red-500" },
+    // { value: "revoked", label: "Withdrawn", dot: "bg-orange-400" },
+  ];
+
+const STATUS_FLOW_ORDER: DisputeStatus[] = [
+  "open",
+  "in_review",
+  "awaiting_user",
+  "evidence_submitted",
+  "in_negotiation",
+  "resolution_proposed",
+  "resolved",
+  "rejected",
 ];
 
 const priorityOptions = [
@@ -326,6 +366,17 @@ const isSystemGeneratedBrandComment = (comment: Comment): boolean => {
     /^system\s*:/i.test(text)
   );
 };
+
+const isEvidenceAuditComment = (comment: Comment): boolean => {
+  if (comment.authorRole !== "Admin") return false;
+  return /^Evidence added by Admin:/i.test((comment.text || "").trim());
+};
+
+const getEvidenceFilesCount = (evidence?: EvidenceEntry[]) =>
+  (evidence || []).reduce(
+    (total, item) => total + (Array.isArray(item.attachments) ? item.attachments.length : 0),
+    0
+  );
 
 const getAttachmentUploaderRole = (attachment: Attachment, dispute?: Dispute | null) => {
   const directRole = attachment.uploaderRole || attachment.uploadedBy?.role;
@@ -473,6 +524,20 @@ const StatBox: React.FC<{ value: string; label: string }> = ({ value, label }) =
   </div>
 );
 
+const StatusBadge: React.FC<{
+  label: string;
+  dotClass: string;
+  className?: string;
+}> = ({ label, dotClass, className = "" }) => (
+  <span
+    className={`inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 ${className}`}
+  >
+    <span className={`h-3 w-3 rounded-full ${dotClass}`} />
+    {label}
+  </span>
+);
+
+
 // ─────────────────────────────────────────────
 // Timeline item
 // ─────────────────────────────────────────────
@@ -561,7 +626,7 @@ export default function AdminDisputeDetailPage() {
   const [pendingPriority, setPendingPriority] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [updating, setUpdating] = useState(false);
-  const [quickAction, setQuickAction] = useState<"resolved" | "rejected" | null>(null);
+  const [quickAction, setQuickAction] = useState<"accept" | "rejected" | null>(null);
   const [riskTab, setRiskTab] = useState<"brand" | "influencer">("influencer");
   const [previewState, setPreviewState] = useState<ImagePreviewState>(null);
   const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
@@ -616,7 +681,7 @@ export default function AdminDisputeDetailPage() {
   };
 
   const submitEvidence = async () => {
-    if (!id) return;
+    if (!id || !d || !canAdminModify) return;
     if (!evidenceName.trim()) {
       setError("Evidence name is required.");
       return;
@@ -651,23 +716,35 @@ export default function AdminDisputeDetailPage() {
   };
 
   const postComment = async () => {
-    if (!id || (!comment.trim() && !commentFiles.length)) return;
-    setPosting(true); setError(null);
+    if (!id || !d || !canAdminModify || (!comment.trim() && !commentFiles.length)) return;
+
+    setPosting(true);
+    setError(null);
+
     try {
       const form = new FormData();
       form.append("text", comment.trim());
+
+      if (activeReplyCommentId) {
+        form.append("parentCommentId", activeReplyCommentId);
+      }
+
       commentFiles.forEach((f) => form.append("attachments", f));
+
       await postFormData(`/dispute/admin/${id}/comment`, form);
+
       setComment("");
       setCommentFiles([]);
       setActiveReplyCommentId(null);
       await load();
-    } catch (e: any) { setError(e?.response?.data?.message || e?.message || "Failed to post"); }
-    finally { setPosting(false); }
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Failed to post");
+    } finally {
+      setPosting(false);
+    }
   };
-
   const updateStatus = async () => {
-    if (!id || !pendingStatus) return;
+    if (!id || !d || !canAdminModify || !pendingStatus) return;
     setUpdating(true); setError(null);
     try {
       await post("/dispute/admin/update-status", {
@@ -678,20 +755,39 @@ export default function AdminDisputeDetailPage() {
     finally { setUpdating(false); }
   };
 
-  const handleQuickDecision = async (status: "resolved" | "rejected") => {
-    if (!id) return;
-    setQuickAction(status);
+  const handleAcceptDispute = async () => {
+    if (!id || !d || d.status !== "open") return;
+    setQuickAction("accept");
     setError(null);
     try {
       await post("/dispute/admin/update-status", {
         disputeId: id,
-        status,
+        status: "in_review",
         resolution: resolutionNote || undefined,
       });
       setPendingStatus("");
       await load();
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to update");
+      setError(e?.response?.data?.message || e?.message || "Failed to accept dispute");
+    } finally {
+      setQuickAction(null);
+    }
+  };
+
+  const handleRejectDispute = async () => {
+    if (!id || !d || isFinalized) return;
+    setQuickAction("rejected");
+    setError(null);
+    try {
+      await post("/dispute/admin/update-status", {
+        disputeId: id,
+        status: "rejected",
+        resolution: resolutionNote || undefined,
+      });
+      setPendingStatus("");
+      await load();
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Failed to reject dispute");
     } finally {
       setQuickAction(null);
     }
@@ -750,6 +846,13 @@ export default function AdminDisputeDetailPage() {
   const st = STATUS_MAP[d.status] ?? STATUS_MAP.open;
   const pri = PRIORITY_MAP[d.priority ?? "medium"] ?? PRIORITY_MAP.medium;
   const isFinalized = d.status === "resolved" || d.status === "rejected";
+  const currentStatusOption =
+    statusOptions.find((option) => option.value === d.status) ||
+    { value: d.status, label: st.label, dot: st.dot };
+  const currentStatusIndex = Math.max(0, STATUS_FLOW_ORDER.indexOf(d.status));
+  const hasAdminAccepted = d.status !== "open" && !isFinalized;
+  const canAdminModify = hasAdminAccepted && !isFinalized;
+  const modificationLockMessage = "Accept the dispute first to unlock admin actions.";
 
   const raisedByName = d.raisedBy?.name || (d.raisedByRole === "Brand" ? d.brandName : d.influencerName) || d.raisedBy?.id?.slice(-6) || "—";
   const raisedAgainstName = d.raisedAgainst?.name || (d.raisedAgainst?.role === "Brand" ? d.brandName : d.influencerName) || d.raisedAgainst?.id?.slice(-6) || "—";
@@ -795,6 +898,9 @@ export default function AdminDisputeDetailPage() {
   const brandRoleInDispute = d.raisedByRole === "Brand" ? "Filed" : "Against";
   const influencerRoleInDispute = d.raisedByRole === "Influencer" ? "Filed" : "Against";
 
+  const evidenceItems = Array.isArray(d.evidence) ? d.evidence : [];
+  const evidenceFilesCount = getEvidenceFilesCount(evidenceItems);
+
   const influencerSignals = [
     {
       key: "influencer-dispute-frequency",
@@ -814,7 +920,16 @@ export default function AdminDisputeDetailPage() {
   ];
 
   const activeRiskSignals = riskTab === "brand" ? brandSignals : influencerSignals;
+  const visibleComments = (d.comments ?? []).filter((c) => !isEvidenceAuditComment(c));
+  const rootComments = visibleComments.filter((c) => !c.parentCommentId);
 
+  const repliesByParent = visibleComments.reduce<Record<string, Comment[]>>((acc, item) => {
+    if (item.parentCommentId) {
+      if (!acc[item.parentCommentId]) acc[item.parentCommentId] = [];
+      acc[item.parentCommentId].push(item);
+    }
+    return acc;
+  }, {});
   return (
     <>
       {/* ═══════════════════════════════
@@ -844,9 +959,9 @@ export default function AdminDisputeDetailPage() {
                   {st.label.toUpperCase()}
                 </span>
                 {/* Priority */}
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold border border-black/5 ${pri.bg} ${pri.text}`}>
+                {/* <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[11px] font-semibold border border-black/5 ${pri.bg} ${pri.text}`}>
                   {pri.label}
-                </span>
+                </span> */}
               </div>
               <p className="text-[11px] text-gray-400 mt-0.5">Admin Resolution Panel · {d.disputeId}</p>
             </div>
@@ -855,27 +970,30 @@ export default function AdminDisputeDetailPage() {
           {/* Right: action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
             <button
-              onClick={() => handleQuickDecision("resolved")}
-              disabled={quickAction !== null || updating}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${d.status === "resolved"
+              onClick={handleAcceptDispute}
+              disabled={quickAction !== null || updating || d.status !== "open"}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${hasAdminAccepted
                 ? "text-white bg-black"
                 : "text-white bg-black hover:bg-black/80"
                 }`}
             >
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {quickAction === "resolved" ? "Accepting..." : "Accept"}
+              {quickAction === "accept"
+                ? "Accepting..."
+                : hasAdminAccepted
+                  ? "Accepted"
+                  : "Accept"}
             </button>
-            <button
-              onClick={() => handleQuickDecision("rejected")}
-              disabled={quickAction !== null || updating}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border transition disabled:opacity-50 disabled:cursor-not-allowed ${d.status === "rejected"
-                ? "border-black bg-black text-white"
-                : "border-black/10 bg-white text-gray-900 hover:bg-black/5"
-                }`}
-            >
-              <XCircle className="h-3.5 w-3.5" />
-              {quickAction === "rejected" ? "Rejecting..." : "Reject"}
-            </button>
+            {d.status === "open" && (
+              <button
+                onClick={handleRejectDispute}
+                disabled={quickAction !== null || updating}
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border border-black/10 bg-white text-gray-900 hover:bg-black/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                {quickAction === "rejected" ? "Rejecting..." : "Reject"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -918,6 +1036,11 @@ export default function AdminDisputeDetailPage() {
               <Card>
                 <CardHeader title="Dispute Overview" />
                 <div className="p-5">
+                  {!canAdminModify && !isFinalized && (
+                    <div className="mb-3 rounded-lg border border-dashed border-black/10 bg-white px-3 py-2 text-[11px] text-gray-500">
+                      {modificationLockMessage}
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-4 mb-4 border-b border-black/5">
                     <MetaChip
                       icon={<Layers className="h-3.5 w-3.5" />}
@@ -1107,15 +1230,19 @@ export default function AdminDisputeDetailPage() {
                   title="Evidence Room"
                   extra={
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-gray-400">{d.attachments?.length ?? 0} files</span>
+                      <span className="text-[11px] text-gray-400">
+                        {evidenceItems.length} evidence · {evidenceFilesCount} files
+                      </span>
                       {!isFinalized && (
                         <button
                           type="button"
                           onClick={() => {
+                            if (!canAdminModify) return;
                             setError(null);
                             setIsEvidenceDialogOpen(true);
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-black px-3 py-1.5 text-[11px] font-medium text-white transition hover:bg-black/80"
+                          disabled={!canAdminModify}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-black px-3 py-1.5 text-[11px] font-medium text-white transition hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
                           <Upload className="h-3.5 w-3.5" />
                           Add Evidence
@@ -1125,68 +1252,60 @@ export default function AdminDisputeDetailPage() {
                   }
                 />
                 <div className="p-5">
-                  {d.attachments && d.attachments.length > 0 ? (
-                    <>
-                      <div className="grid grid-cols-[minmax(0,1fr)_120px_48px] text-[10px] font-bold uppercase tracking-wider text-gray-400 pb-2 mb-1 border-b border-black/5">
-                        <span>Evidence</span><span>Uploader</span><span className="text-right">View</span>
-                      </div>
-                      <div className="divide-y divide-black/5">
-                        {d.attachments.map((att, idx) => {
-                          const name =
-                            att.evidenceName ||
-                            att.originalName ||
-                            att.url.split("?")[0].split("/").pop() ||
-                            `Evidence ${idx + 1}`;
-                          const sizeKB = att.size ? `${(att.size / 1024).toFixed(0)} KB` : "";
-                          const isImg = isImageAttachment(att);
-                          const uploaderRole = getAttachmentUploaderRole(att, d);
+                  {evidenceItems.length > 0 ? (
+                    <div className="space-y-3">
+                      {evidenceItems.map((item, idx) => {
+                        const files = Array.isArray(item.attachments) ? item.attachments : [];
+                        const createdAtLabel = item.createdAt
+                          ? new Date(item.createdAt).toLocaleString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })
+                          : null;
 
-                          return (
-                            <div key={att.url || idx} className="grid grid-cols-[minmax(0,1fr)_120px_48px] items-center gap-3 py-3 text-[12px]">
-                              <div className="flex items-start gap-2.5 min-w-0">
-                                <div className="mt-0.5 h-7 w-7 rounded-lg bg-white border border-black/5 flex items-center justify-center flex-shrink-0">
-                                  {isImg
-                                    ? <Eye className="h-3.5 w-3.5 text-gray-400" />
-                                    : <FileText className="h-3.5 w-3.5 text-gray-400" />}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="font-medium text-gray-800 truncate">{name}</p>
-                                  <div className="mt-0.5 flex items-center gap-2 flex-wrap text-[10px] text-gray-400">
-                                    {att.originalName && att.evidenceName && <span className="truncate max-w-[220px]">{att.originalName}</span>}
-                                    {sizeKB && <span>{sizeKB}</span>}
-                                  </div>
-                                  {att.notes && (
-                                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{att.notes}</p>
+                        return (
+                          <div
+                            key={item.evidenceId || `${item.evidenceName}-${idx}`}
+                            className="rounded-lg border border-black/5 bg-white p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[13px] font-semibold text-gray-900 truncate">
+                                  {item.evidenceName || `Evidence ${idx + 1}`}
+                                </p>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-gray-400">
+                                  <AttachmentUploaderBadge role={item.createdBy?.role || "Admin"} />
+                                  <span className="text-gray-500">{item.createdBy?.name || "Admin"}</span>
+                                  {createdAtLabel && (
+                                    <>
+                                      <span className="text-gray-300">•</span>
+                                      <span>{createdAtLabel}</span>
+                                    </>
                                   )}
+                                  <span className="text-gray-300">•</span>
+                                  <span>{files.length} file{files.length !== 1 ? "s" : ""}</span>
                                 </div>
-                              </div>
-                              <div className="flex items-center">
-                                <AttachmentUploaderBadge role={uploaderRole} />
-                              </div>
-                              <div className="flex justify-end">
-                                {isImg ? (
-                                  <button
-                                    onClick={() => openPreview([att], 0)}
-                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-black/5 transition"
-                                  >
-                                    <Eye className="h-3.5 w-3.5 text-gray-500" />
-                                  </button>
-                                ) : (
-                                  <a
-                                    href={att.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-black/5 transition"
-                                  >
-                                    <ArrowUpRight className="h-3.5 w-3.5 text-gray-500" />
-                                  </a>
-                                )}
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </>
+
+                            {item.notes ? (
+                              <p className="mt-3 text-[12px] leading-relaxed text-gray-600">
+                                {item.notes}
+                              </p>
+                            ) : null}
+
+                            {files.length > 0 ? (
+                              <div className="mt-3">
+                                <AttachmentPillList attachments={files} onImageClick={openPreview} />
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
                     <div className="rounded-lg border border-dashed border-black/5 px-4 py-10 text-center">
                       <p className="text-[13px] font-medium text-gray-700">No evidence</p>
@@ -1200,7 +1319,11 @@ export default function AdminDisputeDetailPage() {
               <Card>
                 <CardHeader
                   title="Audit Timeline"
-                  extra={<span className="text-[11px] text-gray-400">{(d.comments?.length ?? 0) + 1} events</span>}
+                  extra={
+                    <span className="text-[11px] text-gray-400">
+                      {((d.comments ?? []).filter((c) => !isEvidenceAuditComment(c)).length) + 1} events
+                    </span>
+                  }
                 />
                 <div className="p-5">
                   {error && d && (
@@ -1217,8 +1340,8 @@ export default function AdminDisputeDetailPage() {
                       time={d.createdAt}
                       text={null}
                     />
-                    {(d.comments ?? []).map((c) => {
-                      const canReplyToBrand = c.authorRole === "Brand" && !isSystemGeneratedBrandComment(c);
+                    {rootComments.map((c) => {
+                      const canReplyToBrand = canAdminModify && c.authorRole === "Brand" && !isSystemGeneratedBrandComment(c);
                       const authorLabel =
                         c.authorRole === "Brand"
                           ? d.brandName || "Brand"
@@ -1299,6 +1422,69 @@ export default function AdminDisputeDetailPage() {
                               </div>
                             </div>
                           )}
+                          {(repliesByParent[c.commentId] ?? []).length > 0 && (
+                            <div className="mt-3 ml-4 rounded-lg border border-black/5 bg-[#fafafa] p-3">
+                              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                                Thread
+                              </p>
+
+                              <div className="space-y-3">
+                                {(repliesByParent[c.commentId] ?? []).map((reply) => {
+                                  const replyAuthorLabel =
+                                    reply.authorRole === "Brand"
+                                      ? d.brandName || "Brand"
+                                      : reply.authorRole === "Influencer"
+                                        ? d.influencerName || "Influencer"
+                                        : "Admin";
+
+                                  return (
+                                    <div
+                                      key={reply.commentId}
+                                      className="rounded-lg border border-black/5 bg-white p-3"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <TimelineAvatar
+                                          role={reply.authorRole}
+                                          label={replyAuthorLabel}
+                                          avatarSrc={reply.authorRole === "Brand" ? brandLogoUrl : null}
+                                        />
+                                        <p className="text-[12px] text-gray-500">
+                                          <span className="font-semibold text-gray-900">{replyAuthorLabel}</span>
+                                          <span className="mx-1.5 text-gray-300">·</span>
+                                          <span className="text-gray-400">
+                                            {new Date(reply.createdAt).toLocaleString("en-US", {
+                                              month: "short",
+                                              day: "numeric",
+                                              year: "numeric",
+                                              hour: "numeric",
+                                              minute: "2-digit",
+                                            })}
+                                          </span>
+                                        </p>
+                                      </div>
+
+                                      {reply.text ? (
+                                        <div className="mt-2 rounded-lg border border-black/5 px-3 py-2.5 bg-white">
+                                          <p className="text-[13px] leading-relaxed text-gray-700 whitespace-pre-wrap">
+                                            {reply.text}
+                                          </p>
+                                        </div>
+                                      ) : null}
+
+                                      {reply.attachments?.length ? (
+                                        <div className="mt-2">
+                                          <AttachmentPillList
+                                            attachments={reply.attachments}
+                                            onImageClick={openPreview}
+                                          />
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </TimelineItem>
                       );
                     })}
@@ -1317,34 +1503,66 @@ export default function AdminDisputeDetailPage() {
               {/* Resolution Control */}
               <Card>
                 <CardHeader title="Resolution Control" />
-                <div className="p-4 space-y-3.5">
+                <div className="p-4 space-y-4">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">Update Status</label>
-                    <Select value={pendingStatus} onValueChange={(v) => setPendingStatus(v as DisputeStatus)}>
-                      <SelectTrigger className="text-[13px] h-9 rounded-lg border-black/5 bg-white">
-                        <SelectValue placeholder="Select status" />
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
+                      Current Status
+                    </label>
+                    <StatusBadge label={currentStatusOption.label} dotClass={currentStatusOption.dot} />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
+                      Update Status
+                    </label>
+                    <Select value={pendingStatus} onValueChange={(v) => setPendingStatus(v as DisputeStatus)} disabled={!canAdminModify}>
+                      <SelectTrigger className="w-full text-[13px] h-9 rounded-lg border-black/5 bg-white disabled:opacity-50">
+                        <SelectValue placeholder="Select new status" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg">
-                        {statusOptions.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                        ))}
+                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg [&_[data-highlighted]]:!bg-black [&_[data-highlighted]]:!text-white [&_[data-highlighted]_*]:!text-white">
+                        {statusOptions.map((o) => {
+                          const optionIndex = STATUS_FLOW_ORDER.indexOf(o.value as DisputeStatus);
+                          const isBackwardMove =
+                            optionIndex !== -1 && optionIndex < currentStatusIndex;
+                          return (
+                            <SelectItem
+                              key={o.value}
+                              value={o.value}
+                              disabled={Boolean(o.disabled) || isBackwardMove}
+                              className="cursor-pointer data-[highlighted]:!bg-black data-[highlighted]:!text-white data-[highlighted]:outline-none focus:!bg-black focus:!text-white"
+                            >
+                              <div className="inline-flex items-center gap-2">
+                                <span className={`h-2.5 w-2.5 rounded-full ${o.dot}`} />
+                                <span>{o.label}</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">Priority Level</label>
-                    <Select value={pendingPriority} onValueChange={setPendingPriority}>
-                      <SelectTrigger className="text-[13px] h-9 rounded-lg border-black/5 bg-white">
+                  {/* <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
+                      Priority Level
+                    </label>
+                    <Select value={pendingPriority} onValueChange={setPendingPriority} disabled={!canAdminModify}>
+                      <SelectTrigger className="w-full text-[13px] h-9 rounded-lg border-black/5 bg-white disabled:opacity-50">
                         <SelectValue placeholder="Select priority" />
                       </SelectTrigger>
-                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg">
+                      <SelectContent className="bg-white border border-black/5 shadow-xl rounded-lg [&_[data-highlighted]]:!bg-black [&_[data-highlighted]]:!text-white [&_[data-highlighted]_*]:!text-white">
                         {priorityOptions.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                          <SelectItem
+                            key={o.value}
+                            value={o.value}
+                            className="cursor-pointer data-[highlighted]:!bg-black data-[highlighted]:!text-white data-[highlighted]:outline-none focus:!bg-black focus:!text-white"
+                          >
+                            {o.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                  </div> */}
 
                   <div>
                     <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-1.5">
@@ -1352,23 +1570,29 @@ export default function AdminDisputeDetailPage() {
                     </label>
                     <Textarea
                       rows={3}
-                      placeholder="Summarise the decision or current status update…"
+                      placeholder="Summarise the decision or current status update..."
                       value={resolutionNote}
                       onChange={(e) => setResolutionNote(e.target.value)}
-                      className="resize-none text-[13px] rounded-lg border-black/5 bg-white focus:border-black focus:ring-0"
+                      disabled={!canAdminModify}
+                      className="resize-none text-[13px] rounded-lg border-black/5 bg-white focus:border-black focus:ring-0 disabled:opacity-50"
                     />
                   </div>
 
+                  {!canAdminModify && !isFinalized && (
+                    <div className="rounded-lg border border-dashed border-black/10 bg-white px-3 py-2 text-[11px] text-gray-500">
+                      {modificationLockMessage}
+                    </div>
+                  )}
+
                   <button
                     onClick={updateStatus}
-                    disabled={updating || !pendingStatus}
+                    disabled={updating || !pendingStatus || !canAdminModify}
                     className="w-full h-9 text-[13px] font-semibold text-white bg-black rounded-lg hover:bg-black/80 disabled:opacity-40 disabled:cursor-not-allowed transition"
                   >
-                    {updating ? "Updating…" : "Update Record"}
+                    {updating ? "Updating..." : "Update Record"}
                   </button>
                 </div>
               </Card>
-
               {/* Risk & Signals */}
               <Card>
                 <CardHeader
@@ -1474,15 +1698,15 @@ export default function AdminDisputeDetailPage() {
 
               {/* Financial actions */}
               <div className="space-y-2">
-                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                <button disabled={!canAdminModify} className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <DollarSign className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Release Payment to Escrow
                 </button>
-                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                <button disabled={!canAdminModify} className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <BarChart2 className="h-4 w-4 text-gray-400 flex-shrink-0" />
                   Issue Partial Refund…
                 </button>
-                <button className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition">
+                <button disabled={!canAdminModify} className="w-full flex items-center gap-2.5 h-10 px-4 text-[12px] font-medium text-gray-900 bg-white border border-black/5 rounded-lg hover:bg-black/5 transition disabled:opacity-40 disabled:cursor-not-allowed">
                   <Flag className="h-4 w-4 text-red-400 flex-shrink-0" />
                   Flag for Legal Review
                 </button>
