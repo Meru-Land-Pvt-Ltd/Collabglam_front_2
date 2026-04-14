@@ -281,26 +281,18 @@ function SupportMenuIcon({
   className?: string;
 }) {
   if (kind === "dispute") {
-    return (
-      <GavelIcon />
-    );
+    return <GavelIcon />;
   }
 
   if (kind === "report_issue") {
-    return (
-      <LinkIcon />
-    );
+    return <LinkIcon />;
   }
 
   if (kind === "help_center") {
-    return (
-      <QuestionIcon />
-    );
+    return <QuestionIcon />;
   }
 
-  return (
-    <FilesIcon />
-  );
+  return <FilesIcon />;
 }
 
 function getWalletAmount(res: unknown) {
@@ -361,7 +353,10 @@ const RowButton = React.memo(function RowButton({
         !disabled && (active ? ACTIVE_NAV : HOVER_NAV),
         collapsed
           ? cn("mx-auto justify-center", tight ? "h-11 w-11" : "h-12 w-12")
-          : cn("w-full justify-start", tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2")
+          : cn(
+              "w-full justify-start",
+              tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
+            )
       )}
       style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
     >
@@ -435,17 +430,24 @@ export default function BrandSidebar({
   const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
-  const [helpDialogPosition, setHelpDialogPosition] = useState({ top: 0, left: 0 });
+  const [helpDialogPosition, setHelpDialogPosition] = useState({
+    top: 0,
+    left: 0,
+  });
 
   const helpAnchorRef = useRef<HTMLDivElement | null>(null);
   const helpDialogRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
-  const liteSubscription = brandLite?.subscriptionDetails ?? brandLite?.subscription ?? null;
+  const liteSubscription =
+    brandLite?.subscriptionDetails ?? brandLite?.subscription ?? null;
 
   const influencerSearchFeature = useMemo(() => {
     const features = liteSubscription?.features ?? brandLite?.features ?? [];
-    return features.find((item) => item?.key === "influencer_search_per_month") ?? null;
+    return (
+      features.find((item) => item?.key === "influencer_search_per_month") ??
+      null
+    );
   }, [liteSubscription, brandLite]);
 
   const creditsLimitLabel =
@@ -539,12 +541,14 @@ export default function BrandSidebar({
       {
         key: "nike",
         name: "Nike Workspace",
-        logoSrc: "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg",
+        logoSrc:
+          "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg",
       },
       {
         key: "jordan",
         name: "Jordan Workspace",
-        logoSrc: "https://upload.wikimedia.org/wikipedia/en/3/37/Jumpman_logo.svg",
+        logoSrc:
+          "https://upload.wikimedia.org/wikipedia/en/3/37/Jumpman_logo.svg",
       },
     ],
     []
@@ -557,8 +561,18 @@ export default function BrandSidebar({
 
   const items = useMemo<Item[]>(
     () => [
-      { key: "dashboard", label: "Dashboard", icon: House, section: "overview" },
-      { key: "create", label: "Create Campaign", icon: NotePencil, section: "overview" },
+      {
+        key: "dashboard",
+        label: "Dashboard",
+        icon: House,
+        section: "overview",
+      },
+      {
+        key: "create",
+        label: "Create Campaign",
+        icon: NotePencil,
+        section: "overview",
+      },
       {
         key: "campaigns",
         label: "Campaigns",
@@ -571,10 +585,25 @@ export default function BrandSidebar({
           { key: "campaigns_scheduled", label: "Scheduled Campaigns " },
         ],
       },
-      { key: "browse", label: "Browse Influencer", icon: Users, section: "overview" },
-      { key: "inbox", label: "Inbox", icon: PaperPlaneTilt, section: "overview" },
+      {
+        key: "browse",
+        label: "Browse Influencer",
+        icon: Users,
+        section: "overview",
+      },
+      {
+        key: "inbox",
+        label: "Inbox",
+        icon: PaperPlaneTilt,
+        section: "overview",
+      },
       { key: "wallet", label: "Wallet", icon: Wallet, section: "overview" },
-      { key: "credits", label: "Credits", icon: ContactlessPayment, section: "manage" },
+      {
+        key: "credits",
+        label: "Credits",
+        icon: ContactlessPayment,
+        section: "manage",
+      },
       {
         key: "notification",
         label: "Notification",
@@ -594,7 +623,6 @@ export default function BrandSidebar({
   const dashboardItems = useMemo(() => {
     return items.filter((i) => {
       if (i.section !== "overview") return false;
-
       return true;
     });
   }, [items, isFullyManagedPlan]);
@@ -688,6 +716,16 @@ export default function BrandSidebar({
       planName
   );
 
+  const helpMenuItems = useMemo<Array<{ key: SupportMenuKey; label: string }>>(
+    () => [
+      { key: "dispute", label: "Dispute" },
+      { key: "report_issue", label: "Report an Issue" },
+      { key: "help_center", label: "Help Center" },
+      { key: "privacy_policy", label: "Privacy Policy" },
+    ],
+    []
+  );
+
   /* -------------------------------- effects -------------------------------- */
 
   useEffect(() => {
@@ -760,7 +798,8 @@ export default function BrandSidebar({
           if (latestId) window.localStorage.setItem("brandPlanId", latestId);
           else window.localStorage.removeItem("brandPlanId");
 
-          if (latestName) window.localStorage.setItem("brandPlanName", latestName);
+          if (latestName)
+            window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
         } catch {}
       } catch {
@@ -821,12 +860,14 @@ export default function BrandSidebar({
 
     const currentPath = pathname.replace(/\/+$/, "") || "/";
     const match = routePairs.find(
-      ({ path }) => currentPath === path || currentPath.startsWith(`${path}/`)
+      ({ path }) =>
+        currentPath === path || currentPath.startsWith(`${path}/`)
     );
 
     const nextKey =
       match?.key ??
-      (currentPath === CAMPAIGN_PREFIX || currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
+      (currentPath === CAMPAIGN_PREFIX ||
+      currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
         ? "campaigns"
         : null);
 
@@ -857,16 +898,16 @@ export default function BrandSidebar({
 
         setBrandLite(data ?? null);
 
-        const nextSubscription = data?.subscriptionDetails ?? data?.subscription ?? null;
+        const nextSubscription =
+          data?.subscriptionDetails ?? data?.subscription ?? null;
 
         const nextPlanId = nextSubscription?.brandPlanId ?? null;
         const nextPlanNameRaw =
-          nextSubscription?.brandPlanName ??
-          nextSubscription?.plan ??
-          null;
+          nextSubscription?.brandPlanName ?? nextSubscription?.plan ?? null;
 
         if (nextPlanId) setPlanId(nextPlanId);
-        if (nextPlanNameRaw) setPlanName(String(nextPlanNameRaw).toLowerCase());
+        if (nextPlanNameRaw)
+          setPlanName(String(nextPlanNameRaw).toLowerCase());
       } catch {
         if (!cancelled) setBrandLite(null);
       }
@@ -896,6 +937,19 @@ export default function BrandSidebar({
     };
   }, [profileMenuOpen]);
 
+  useEffect(() => {
+    if (!helpDialogOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpDialogOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [helpDialogOpen]);
+
+  // FIX 1: Restored missing useEffect wrapper for notification keyboard handler
   useEffect(() => {
     if (!isNotificationModalOpen || typeof window === "undefined") return;
 
@@ -950,19 +1004,16 @@ export default function BrandSidebar({
     const rect = helpAnchorRef.current?.getBoundingClientRect();
 
     if (rect) {
-      const DIALOG_HEIGHT = 340; // realistic estimated height
+      const DIALOG_HEIGHT = 340;
       const GAP = 12;
       const VIEWPORT_PADDING = 16;
 
-      // Anchor to the top of the button, then clamp so it never overflows
       let top = rect.top;
 
-      // If it would overflow the bottom, push it up
       if (top + DIALOG_HEIGHT > window.innerHeight - VIEWPORT_PADDING) {
         top = window.innerHeight - VIEWPORT_PADDING - DIALOG_HEIGHT;
       }
 
-      // Never go above the top edge
       top = Math.max(VIEWPORT_PADDING, top);
 
       setHelpDialogPosition({
@@ -973,6 +1024,7 @@ export default function BrandSidebar({
 
     setHelpDialogOpen((prev) => !prev);
   }, []);
+
   const handleHelpMenuSelect = useCallback((key: SupportMenuKey) => {
     setHelpDialogOpen(false);
 
@@ -1077,7 +1129,8 @@ export default function BrandSidebar({
     (item: Item) => {
       const isActiveItem = active === item.key;
       const campaignsActive =
-        item.key === "campaigns" && (active === "campaigns" || isCampaignChildActive);
+        item.key === "campaigns" &&
+        (active === "campaigns" || isCampaignChildActive);
 
       const isCollapsed = isDesktop && (collapsed || isClosing);
 
@@ -1129,7 +1182,9 @@ export default function BrandSidebar({
               style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
             >
               <Icon size={20} weight="regular" className="shrink-0 text-current" />
-              <span className="truncate text-[14px] leading-5 text-current">Credits</span>
+              <span className="truncate text-[14px] leading-5 text-current">
+                Credits
+              </span>
 
               <m.span
                 className="ml-auto inline-flex items-center"
@@ -1190,6 +1245,22 @@ export default function BrandSidebar({
         );
       }
 
+      // FIX 2: Restored missing closing brace after the help item's return
+      if (item.key === "help") {
+        return (
+          <div key={item.key} ref={helpAnchorRef}>
+            <RowButton
+              icon={item.icon}
+              label={item.label}
+              active={helpDialogOpen}
+              tight={tight}
+              collapsed={isCollapsed}
+              onClick={openHelpDialog}
+            />
+          </div>
+        );
+      }
+
       if (item.key === "notification") {
         return (
           <RowButton
@@ -1230,6 +1301,7 @@ export default function BrandSidebar({
       isCampaignChildActive,
       isClosing,
       isDesktop,
+      helpDialogOpen,
       isNotificationModalOpen,
       motionTransitions.content,
       openHelpDialog,
@@ -1243,7 +1315,12 @@ export default function BrandSidebar({
   const SidebarBody = (
     <div className="flex h-full flex-col">
       <div className={cn("flex flex-col", tight ? "gap-3" : "gap-4")}>
-        <div className={cn("flex w-full items-center", railMode ? "flex-col gap-3" : "gap-3")}>
+        <div
+          className={cn(
+            "flex w-full items-center",
+            railMode ? "flex-col gap-3" : "gap-3"
+          )}
+        >
           <button
             type="button"
             onClick={() => {
@@ -1286,7 +1363,9 @@ export default function BrandSidebar({
                 >
                   CollabGlam
                 </div>
-                <div className="truncate text-[12px] text-neutral-500">For Brand</div>
+                <div className="truncate text-[12px] text-neutral-500">
+                  For Brand
+                </div>
               </m.div>
             )}
           </AnimatePresence>
@@ -1305,7 +1384,11 @@ export default function BrandSidebar({
                 railMode ? "" : "ml-auto"
               )}
             >
-              {collapsed ? <PanelCaretGlyph dir="right" /> : <PanelCaretGlyph dir="left" />}
+              {collapsed ? (
+                <PanelCaretGlyph dir="right" />
+              ) : (
+                <PanelCaretGlyph dir="left" />
+              )}
             </button>
           ) : (
             <button
@@ -1347,7 +1430,12 @@ export default function BrandSidebar({
             )}
           </AnimatePresence>
 
-          <div className={cn("flex flex-col", railMode ? "gap-3" : "w-full gap-2")}>
+          <div
+            className={cn(
+              "flex flex-col",
+              railMode ? "gap-3" : "w-full gap-2"
+            )}
+          >
             {dashboardItems
               .filter((item) => item.key !== "wallet")
               .map((item) => {
@@ -1358,7 +1446,9 @@ export default function BrandSidebar({
                 }
 
                 const isCampaignActive =
-                  campaignOpen || active === "campaigns" || isCampaignChildActive;
+                  campaignOpen ||
+                  active === "campaigns" ||
+                  isCampaignChildActive;
 
                 return (
                   <div key={item.key} className="w-full">
@@ -1380,7 +1470,11 @@ export default function BrandSidebar({
                         }}
                         className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
                       >
-                        <item.icon size={20} weight="regular" className="shrink-0 text-current" />
+                        <item.icon
+                          size={20}
+                          weight="regular"
+                          className="shrink-0 text-current"
+                        />
                         <span className="truncate text-[14px] leading-5 text-current">
                           {item.label}
                         </span>
@@ -1388,7 +1482,11 @@ export default function BrandSidebar({
 
                       <button
                         type="button"
-                        aria-label={campaignOpen ? "Close campaigns menu" : "Open campaigns menu"}
+                        aria-label={
+                          campaignOpen
+                            ? "Close campaigns menu"
+                            : "Open campaigns menu"
+                        }
                         onClick={(e) => {
                           e.stopPropagation();
                           setCampaignOpen((prev) => !prev);
@@ -1400,7 +1498,10 @@ export default function BrandSidebar({
                           animate={{ rotate: campaignOpen ? 180 : 0 }}
                           transition={motionTransitions.content}
                         >
-                          <CaretDown size={18} className="text-current opacity-70" />
+                          <CaretDown
+                            size={18}
+                            className="text-current opacity-70"
+                          />
                         </m.span>
                       </button>
                     </div>
@@ -1458,8 +1559,15 @@ export default function BrandSidebar({
             )}
           />
 
-          <div className={cn("flex flex-col", isDesktop && collapsed ? "gap-3" : "w-full gap-2")}>
-            {dashboardItems.filter((item) => item.key === "wallet").map((item) => renderItem(item))}
+          <div
+            className={cn(
+              "flex flex-col",
+              isDesktop && collapsed ? "gap-3" : "w-full gap-2"
+            )}
+          >
+            {dashboardItems
+              .filter((item) => item.key === "wallet")
+              .map((item) => renderItem(item))}
           </div>
 
           <div
@@ -1485,7 +1593,12 @@ export default function BrandSidebar({
             )}
           </AnimatePresence>
 
-          <div className={cn("flex flex-col", isDesktop && collapsed ? "gap-3" : "w-full gap-2")}>
+          <div
+            className={cn(
+              "flex flex-col",
+              isDesktop && collapsed ? "gap-3" : "w-full gap-2"
+            )}
+          >
             {manageItems.map((item) => renderItem(item))}
           </div>
         </div>
@@ -1526,7 +1639,12 @@ export default function BrandSidebar({
                 )}
               </m.button>
 
-              <div className={cn("my-5 h-px w-full bg-neutral-200", tight ? "my-4" : "")} />
+              <div
+                className={cn(
+                  "my-5 h-px w-full bg-neutral-200",
+                  tight ? "my-4" : ""
+                )}
+              />
 
               <div
                 className="h-10 w-10 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100"
@@ -1572,12 +1690,18 @@ export default function BrandSidebar({
               >
                 <div
                   className="pointer-events-none absolute inset-0"
-                  style={{ background: UPGRADE_REST, borderRadius: "inherit" }}
+                  style={{
+                    background: UPGRADE_REST,
+                    borderRadius: "inherit",
+                  }}
                 />
 
                 <m.div
                   className="pointer-events-none absolute inset-0"
-                  style={{ background: UPGRADE_HOVER, borderRadius: "inherit" }}
+                  style={{
+                    background: UPGRADE_HOVER,
+                    borderRadius: "inherit",
+                  }}
                   variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
                   transition={upgradeSpring}
                 />
@@ -1590,7 +1714,11 @@ export default function BrandSidebar({
                         variants={{ rest: { opacity: 1 }, hover: { opacity: 0 } }}
                         transition={upgradeSpring}
                       >
-                        <Lightning size={24} weight="regular" className="text-[#1a1a1a]" />
+                        <Lightning
+                          size={24}
+                          weight="regular"
+                          className="text-[#1a1a1a]"
+                        />
                       </m.span>
 
                       <m.span
@@ -1598,7 +1726,11 @@ export default function BrandSidebar({
                         variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
                         transition={upgradeSpring}
                       >
-                        <Lightning size={24} weight="fill" className="text-[#1a1a1a]" />
+                        <Lightning
+                          size={24}
+                          weight="fill"
+                          className="text-[#1a1a1a]"
+                        />
                       </m.span>
                     </div>
 
@@ -1617,7 +1749,12 @@ export default function BrandSidebar({
                 </div>
               </m.div>
 
-              <div className={cn("my-5 h-px w-full bg-neutral-200", tight ? "my-4" : "")} />
+              <div
+                className={cn(
+                  "my-5 h-px w-full bg-neutral-200",
+                  tight ? "my-4" : ""
+                )}
+              />
 
               <div className="relative">
                 <div className="flex w-full items-center gap-3 bg-white p-3">
@@ -1687,7 +1824,9 @@ export default function BrandSidebar({
                       >
                         <button
                           type="button"
-                          onClick={() => handleProfileMenuAction("/brand/profile")}
+                          onClick={() =>
+                            handleProfileMenuAction("/brand/profile")
+                          }
                           className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] font-medium text-[#1a1a1a] transition hover:bg-[#F5F5F5]"
                         >
                           <UserCircle size={20} />
@@ -1789,6 +1928,68 @@ export default function BrandSidebar({
     </AnimatePresence>
   );
 
+  // FIX 3: Restored missing closing tags for HelpDialog AnimatePresence
+  const HelpDialog = (
+    <AnimatePresence>
+      {helpDialogOpen ? (
+        <m.div
+          ref={helpDialogRef}
+          key="help-support-dialog"
+          role="dialog"
+          aria-modal="false"
+          aria-labelledby="help-support-dialog-title"
+          variants={fadeScale}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          transition={motionTransitions.content}
+          className="fixed z-[140] w-full max-w-[320px]"
+          style={{
+            top: helpDialogPosition.top,
+            left: helpDialogPosition.left,
+          }}
+        >
+          <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-4 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
+            <div className="mb-2 flex items-center justify-between gap-3 px-1">
+              <div>
+                <h2
+                  id="help-support-dialog-title"
+                  className="text-[16px] font-semibold text-[#1a1a1a]"
+                >
+                  Help & Support
+                </h2>
+                <p className="mt-1 text-[12px] text-neutral-500">
+                  Choose where you want to go next.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-1">
+              {helpMenuItems.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => handleHelpMenuSelect(item.key)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[#1a1a1a] transition hover:bg-[#F8F8F8]",
+                    FOCUS_RING
+                  )}
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center text-[#1a1a1a]">
+                    <SupportMenuIcon kind={item.key} className="h-5 w-5" />
+                  </span>
+                  <span className="text-[16px] font-medium leading-6">
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </m.div>
+      ) : null}
+    </AnimatePresence>
+  );
+
   const NotificationModal = (
     <AnimatePresence>
       {isNotificationModalOpen ? (
@@ -1816,7 +2017,10 @@ export default function BrandSidebar({
               className="relative w-full max-w-[760px]"
             >
               <div className="relative max-h-[calc(100dvh-2rem)] overflow-hidden rounded-[24px] bg-white shadow-[0_24px_80px_rgba(0,0,0,0.22)]">
-                <div id="brand-notification-modal-title" className="sr-only">
+                <div
+                  id="brand-notification-modal-title"
+                  className="sr-only"
+                >
                   Notifications
                 </div>
 
@@ -1848,6 +2052,7 @@ export default function BrandSidebar({
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
         <>
           {isDesktop ? DesktopAside : MobileDrawer}
+          {HelpDialog}
           {NotificationModal}
         </>
       </MotionConfig>
