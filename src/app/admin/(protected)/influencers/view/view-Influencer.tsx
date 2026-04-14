@@ -400,7 +400,7 @@ const Copy: React.FC<{ value?: string | null }> = ({ value }) => {
       className="group inline-flex items-center gap-1.5 text-[13px] text-indigo-600 hover:text-indigo-800"
     >
       <span className="border-b border-dashed border-indigo-200 group-hover:border-indigo-500">{value}</span>
-      <span className={cx("text-[10px] font-bold", ok ? "text-emerald-500" : "text-slate-300 group-hover:text-indigo-400")}>
+      <span className={cx("text-[10px] font-bold", ok ? "text-emerald-500" : "text-slate-300 group-hover:text-indigo-400 cursor-pointer")}>
         {ok ? "✓" : "copy"}
       </span>
     </button>
@@ -683,7 +683,7 @@ export default function AdminInfluencerView() {
     return (
       <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
         {fontImport}
-        <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6">
+        <div className="w-full max-w-full space-y-4 px-4 py-8 sm:px-6">
           <Skeleton className="h-7 w-32 rounded-xl" />
           <Skeleton className="h-48 rounded-2xl" />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -698,7 +698,7 @@ export default function AdminInfluencerView() {
     return (
       <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
         {fontImport}
-        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <div className="w-full max-w-full px-4 py-8 sm:px-6">
           <button onClick={() => router.back()} className="mb-5 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
             <ChevronLeft className="h-4 w-4" /> Back
           </button>
@@ -729,7 +729,7 @@ export default function AdminInfluencerView() {
               style={{ background: `radial-gradient(ellipse 35% 50% at -5% 100%, ${theme.accent}14 0%, transparent 60%)` }}
             />
 
-            <div className="relative mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-6">
+            <div className="relative mx-auto max-w-full px-4 py-5 sm:px-6 sm:py-6">
               <button
                 onClick={() => router.back()}
                 className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white/90"
@@ -826,37 +826,37 @@ export default function AdminInfluencerView() {
           </div>
 
           <div className="border-b border-slate-200/60 bg-white/78 backdrop-blur-xl">
-            <div className="mx-auto max-w-5xl px-4 py-2 sm:px-6">
+            <div className="mx-auto max-w-full px-4 py-2 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
                 <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
-                  {["overview", "profile", "campaigns", "payment"].map(v => (
+                  {["overview", "demographics","campaigns", "payment details",  "subscription","activity log"].map(v => (
                     <TabsTrigger
                       key={v}
                       value={v}
-                      className="rounded-lg px-3 py-1.5 text-[11px] font-medium capitalize text-slate-400 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                      className="rounded-lg px-3 py-1.5 text-[16px] font-medium capitalize text-slate-400 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white cursor-pointer"
                     >
                       {v}
                     </TabsTrigger>
                   ))}
 
+                </TabsList>
+
+                <div className="flex items-center gap-2">
                   {selectedProfile?.url ? (
                     <a
                       href={selectedProfile.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-1 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:text-slate-700"
+                      className="ml-1 flex items-right gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:text-slate-700"
                     >
                       Open <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   ) : null}
-                </TabsList>
-
-                <div className="flex items-center gap-2">
                   <div
                     className="h-2 w-2 rounded-full shadow-sm transition-all duration-500"
                     style={{ background: theme.accent }}
                   />
-                  <span className="text-[10px] font-medium text-slate-400">
+                  <span className="text-[15px] font-medium text-slate-400">
                     {theme.label}{selectedProfile?.username ? ` · ${selectedProfile.username}` : ""}
                   </span>
                 </div>
@@ -865,7 +865,7 @@ export default function AdminInfluencerView() {
           </div>
         </div>
 
-        <div className="relative z-0 mx-auto max-w-5xl px-4 pb-8 pt-6 sm:px-6">
+        <div className="relative z-0 w-full max-w-full px-4 pb-8 pt-6 sm:px-6">
           <TabsContent value="overview" className="space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat
@@ -915,7 +915,7 @@ export default function AdminInfluencerView() {
             </div>
           </TabsContent>
 
-          <TabsContent value="profile" className="space-y-4">
+          <TabsContent value="demographics" className="space-y-4">
             {selectedProfile ? (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -1169,63 +1169,67 @@ export default function AdminInfluencerView() {
           </TabsContent>
 
           <TabsContent value="campaigns" className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <Stat label="Total" value={fmtNum(campaignMeta.totalItems)} color={theme.accent} icon={<BriefcaseBusiness className="h-4 w-4" />} />
-              <Stat label="Page" value={`${campaignMeta.page}/${campaignMeta.totalPages}`} color={theme.accent} icon={<Activity className="h-4 w-4" />} />
-              <Stat label="Per Page" value={`${campaignMeta.limit}`} color={theme.accent} icon={<Hash className="h-4 w-4" />} />
-            </div>
-
             <Sect title={<><BriefcaseBusiness className="h-4 w-4" style={{ color: theme.accent }} />Campaign History</>}>
-              <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white/70">
-                <AdminTable<CampaignItem>
-                  data={campaigns}
-                  columns={campaignColumns}
-                  rowKey={getCId}
-                  loading={campaignLoading}
-                  error={campaignError}
-                  emptyTitle="No campaigns"
-                  emptyDescription="No campaigns found for this influencer."
-                  expandable={{
-                    expandedRowId: expandedCampaignId,
-                    onToggle: rowId => setExpandedCampaignId(cur => cur === rowId ? null : rowId),
-                    canExpand: row => Boolean(row.description || row.brief || row.objective || row.goals?.length || row.deliverables?.length),
-                    renderExpandedRow: row => (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
-                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Overview</p>
-                          <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Objective:</strong> {row.objective || "—"}</p>
-                          <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Description:</strong> {row.description || row.brief || "—"}</p>
+              {campaignLoading ? (
+                <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                  <div className="space-y-3">
+                    <Skeleton className="h-12 w-full rounded-lg" />
+                    <Skeleton className="h-12 w-full rounded-lg" />
+                    <Skeleton className="h-12 w-full rounded-lg" />
+                  </div>
+                </div>
+              ) : campaignError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-6 py-10 text-center">
+                  <p className="text-sm font-semibold text-rose-600">{campaignError}</p>
+                </div>
+              ) : campaigns.length > 0 ? (
+                <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white/70">
+                  <AdminTable<CampaignItem>
+                    data={campaigns}
+                    columns={campaignColumns}
+                    rowKey={getCId}
+                    loading={campaignLoading}
+                    error={campaignError}
+                    emptyTitle="No campaigns"
+                    emptyDescription="No campaigns found for this influencer."
+                    expandable={{
+                      expandedRowId: expandedCampaignId,
+                      onToggle: rowId => setExpandedCampaignId(cur => cur === rowId ? null : rowId),
+                      canExpand: row => Boolean(row.description || row.brief || row.objective || row.goals?.length || row.deliverables?.length),
+                      renderExpandedRow: row => (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Overview</p>
+                            <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Objective:</strong> {row.objective || "—"}</p>
+                            <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Description:</strong> {row.description || row.brief || "—"}</p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Deliverables</p>
+                            <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Goals:</strong> {row.goals?.length ? row.goals.join(", ") : "—"}</p>
+                            <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Deliverables:</strong> {row.deliverables?.length ? `${row.deliverables.length} item(s)` : "—"}</p>
+                          </div>
                         </div>
-                        <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
-                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Deliverables</p>
-                          <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Goals:</strong> {row.goals?.length ? row.goals.join(", ") : "—"}</p>
-                          <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Deliverables:</strong> {row.deliverables?.length ? `${row.deliverables.length} item(s)` : "—"}</p>
-                        </div>
-                      </div>
-                    ),
-                  }}
-                  pagination={{
-                    page: campaignMeta.page,
-                    totalPages: campaignMeta.totalPages,
-                    totalItems: campaignMeta.totalItems,
-                    limit: campaignMeta.limit,
-                    onPageChange: p => setCampaignPage(p),
-                    showRowsSelector: false,
-                    showSummary: true,
-                    loading: campaignLoading,
-                  }}
-                />
-              </div>
+                      ),
+                    }}
+                    pagination={{
+                      page: campaignMeta.page,
+                      totalPages: campaignMeta.totalPages,
+                      totalItems: campaignMeta.totalItems,
+                      limit: campaignMeta.limit,
+                      onPageChange: p => setCampaignPage(p),
+                      showRowsSelector: false,
+                      showSummary: true,
+                      loading: campaignLoading,
+                    }}
+                  />
+                </div>
+              ) : (
+                <Empty label="No Campaign Found" desc="No campaigns found for this influencer." />
+              )}
             </Sect>
           </TabsContent>
 
-          <TabsContent value="payment" className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <Stat label="Methods" value={paymentDetails.length} color={theme.accent} icon={<Wallet className="h-4 w-4" />} />
-              <Stat label="Bank Accounts" value={paymentDetails.filter(d => d.type === 1).length} color={theme.accent} icon={<Building2 className="h-4 w-4" />} />
-              <Stat label="PayPal" value={paymentDetails.filter(d => d.type === 0).length} color={theme.accent} icon={<CreditCard className="h-4 w-4" />} />
-            </div>
-
+          <TabsContent value="payment details" className="space-y-4">
             <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Payment Methods</>}>
               {paymentLoading ? (
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1257,7 +1261,10 @@ export default function AdminInfluencerView() {
                       ) : (
                         <>
                           <KV label="Holder" value={pm.bank?.accountHolder || "—"} />
-                          <KV label="Account No." value={<code className="font-mono text-[12px]">{maskAcct(pm.bank?.accountNumber)}</code>} />
+                          <KV
+                            label="Account No."
+                            value={<code className="font-mono text-[12px]">{pm.bank?.accountNumber || "—"}</code>}
+                          />
                           <KV label="Bank" value={pm.bank?.bankName || "—"} />
                           <KV label="IFSC" value={<code className="font-mono text-[12px]">{pm.bank?.ifsc || "—"}</code>} />
                           <KV label="SWIFT" value={<code className="font-mono text-[12px]">{pm.bank?.swift || "—"}</code>} />
@@ -1270,6 +1277,16 @@ export default function AdminInfluencerView() {
               ) : (
                 <Empty label="No payment methods" desc="No saved payment details found." />
               )}
+            </Sect>
+          </TabsContent>
+          <TabsContent value="subscription" className="space-y-4">
+            <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Subscription</>}>
+              <Empty label="API NOT connected" desc="Subscription details are not available right now." />
+            </Sect>
+          </TabsContent>
+          <TabsContent value="activity log" className="space-y-4">
+            <Sect title={<><Activity className="h-4 w-4" style={{ color: theme.accent }} />Activity Logs</>}>
+              <Empty label="API NOT connected" desc="Activity logs are not available right now." />
             </Sect>
           </TabsContent>
         </div>

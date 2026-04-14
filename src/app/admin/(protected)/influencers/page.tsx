@@ -272,7 +272,7 @@ function MetricCard({ title, tooltip, value, hint, icon: Icon, accentColor = "#0
       </div>
       <div>
         <div className="text-[28px] font-black tracking-tight text-slate-900 leading-none">{value}</div>
-        <div className="mt-1.5 flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           {trend === "up" && <span className="inline-flex items-center rounded-sm bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">???</span>}
           {trend === "down" && <span className="inline-flex items-center rounded-sm bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-500">???</span>}
           <span className="text-xs text-slate-400">{hint}</span>
@@ -651,11 +651,7 @@ function PlatformMixMonthlyAnalytics({
         </div>
 
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Selected Month</div>
-              <div className="mt-1.5 text-base font-black text-slate-900">{monthLabel}</div>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
               <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Total Signups</div>
               <div className="mt-1.5 text-2xl font-black text-slate-900">{total}</div>
@@ -895,18 +891,13 @@ const AdminInfluencersPage = () => {
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-3">
             <MetricCard title="Total Influencers" tooltip="Overall influencer records." value={formatCompactNumber(analyticsRows.length)} icon={Users} accentColor="#0f172a" hint={""} />
             <MetricCard title="This Month" tooltip="Signups in current calendar month." value={formatCompactNumber(currentMonthSignups)} icon={CalendarDays} accentColor="#3b82f6" hint={""} />
             <MetricCard title="Growth Rate" tooltip="Month-over-month signup growth." value={formatSignedPercent(growthRate)} icon={TrendingUp} accentColor={growthRate >= 0 ? "#10b981" : "#ef4444"} hint={""} />
-            <MetricCard title="Completion" tooltip="Share who finished all onboarding." value={`${completionRate.toFixed(0)}%`} hint={`${completedCount} fully onboarded`} icon={BadgeCheck} accentColor="#10b981" />
           </div>
 
           <div className="grid gap-5 =">
-            {/* <SectionShell title="Signup Trend" description="6-month stacked breakdown ??? hover any month for platform split"
-              right={<FilterField label="Platform" value={graphPlatformFilter} onChange={v=>setGraphPlatformFilter(v as PlatformFilter)} options={[{label:"All Platforms",value:"all"},{label:"Instagram",value:"instagram"},{label:"YouTube",value:"youtube"},{label:"TikTok",value:"tiktok"}]}/>}>
-              <SignupTrendChart data={signupTrend} platformFilter={graphPlatformFilter}/>
-            </SectionShell> */}
             <SectionShell title={<span className="text-xl font-semibold">Platform Mix</span>} description="Month-wise platform analytics with separate month and year dropdowns"
               right={
                 <div className="flex flex-col gap-3 sm:flex-row">
@@ -935,14 +926,14 @@ const AdminInfluencersPage = () => {
           </div>
 
           <SectionShell
-            title={<span className="text-xl font-semibold">Filters</span>}
+            title={<span className="text-lg font-semibold">Filters</span>}
             description="Affects the influencer table below only"
           >
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="flex flex-col gap-1.5 xl:flex-row xl:items-end xl:justify-between">
+              <div className="grid flex-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
                 <div className="xl:col-span-2">
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+                  <label className="flex flex-col gap-0.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       Search
                     </span>
                     <div className="relative">
@@ -951,7 +942,7 @@ const AdminInfluencersPage = () => {
                         placeholder="Search .. "
                         value={tableSearch}
                         onChange={e => setTableSearch(e.target.value)}
-                        className="h-9 rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
+                        className="h-8 rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
                       />
                     </div>
                   </label>
@@ -982,7 +973,7 @@ const AdminInfluencersPage = () => {
                 />
               </div>
 
-              <div className="flex items-end gap-3">
+              <div className="flex items-end gap-2">
                 <FilterField
                   label="Onboarding"
                   value={tableOnboardingFilter}
@@ -997,7 +988,7 @@ const AdminInfluencersPage = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-9 shrink-0 rounded-lg !border-slate-200 !text-slate-500 hover:!bg-[#EDEDED] hover:!text-slate-500 hover:!border-slate-200 focus-visible:!ring-0"
+                  className="h-8 shrink-0 rounded-lg !border-slate-200 px-3 !text-slate-500 hover:!bg-[#EDEDED] hover:!text-slate-500 hover:!border-slate-200 focus-visible:!ring-0"
                   onClick={() => {
                     setTableSearch("");
                     setTablePlatformFilter("all");
@@ -1086,7 +1077,7 @@ const AdminInfluencersPage = () => {
                           <TableCell className="py-3.5 text-center"><div className="flex flex-col items-center gap-1"><OnboardingBadge influencer={inf} /><span className="text-xs text-slate-400">{completedPages}/3 steps</span></div></TableCell>
                           <TableCell className="py-3.5 text-center">
                             <div className="flex items-center justify-center gap-0.5">
-                              <Link href={`/admin/influencers/view?influencerId=${inf._id}`}><Button variant="ghost" size="icon" className="h-8 w-22 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">View Details</Button></Link>
+                              <Link href={`/admin/influencers/view?influencerId=${inf._id}`}><Button variant="outline" size="icon" className="h-8 w-25 rounded-lg text-black hover:bg-slate-100 hover:text-slate-700">View Details</Button></Link>
                             </div>
                           </TableCell>
                         </TableRow>
