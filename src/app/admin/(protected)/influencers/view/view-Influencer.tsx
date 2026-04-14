@@ -4,531 +4,467 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { get, post } from "@/lib/api";
 import {
-  ChevronLeft,
-  Mail,
-  MapPin,
-  Calendar,
-  Users,
-  Globe,
-  CheckCircle,
-  ExternalLink,
-  BarChart2,
-  Hash,
-  Tag,
-  Info,
-  ArrowUpRight,
-  Image as ImageIcon,
-  Sparkles,
+  ArrowUpRight, BarChart3, BriefcaseBusiness, Building2, Calendar,
+  CheckCircle2, ChevronLeft, CreditCard, ExternalLink, Globe, Hash,
+  Heart, Info, Mail, MapPin, MessageCircle, Sparkles, Tag, TrendingUp,
+  Users, Wallet, Eye, PlayCircle, Star, Layers3, ChevronUp, ChevronDown,
+  Activity, Zap, Shield,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table";
+import AdminTable, { type AdminTableColumn } from "../../../components/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 
 /* -------------------------------------------------------------------------- */
 /*                                   Types                                    */
 /* -------------------------------------------------------------------------- */
-
-interface NamedItem {
-  _id?: string | null;
-  name?: string | null;
-}
-
-interface PostSponsor {
-  name?: string;
-  logo_url?: string;
-  domain?: string;
-}
-
+interface NamedItem { _id?: string | null; name?: string | null }
+interface PostSponsor { name?: string; logo_url?: string; domain?: string }
 interface PostItem {
-  id?: string;
-  text?: string;
-  url?: string;
-  created?: string;
-  type?: string;
-  likes?: number;
-  comments?: number;
-  views?: number;
-  plays?: number;
-  image?: string;
-  thumbnail?: string;
-  mentions?: string[];
-  hashtags?: string[];
-  sponsors?: PostSponsor[];
+  id?: string; title?: string; text?: string; url?: string; created?: string;
+  type?: string; likes?: number; comments?: number; views?: number; plays?: number;
+  image?: string; thumbnail?: string; video?: string;
+  mentions?: string[]; hashtags?: string[]; sponsors?: PostSponsor[];
 }
-
-interface StatWithCompared {
-  value?: number;
-  compared?: number;
-}
-
+interface StatWithCompared { value?: number; compared?: number }
 interface StatsBlock {
-  avgLikes?: StatWithCompared;
-  avgShares?: StatWithCompared;
-  avgComments?: StatWithCompared;
-  followers?: StatWithCompared;
+  avgLikes?: StatWithCompared; avgShares?: StatWithCompared;
+  avgComments?: StatWithCompared; followers?: StatWithCompared;
   paidPostPerformance?: number;
 }
-
 interface HistoryPoint {
-  month?: string;
-  avg_likes?: number;
-  avg_engagements?: number;
+  month?: string; avg_likes?: number; avg_engagements?: number;
+  avg_comments?: number; avg_views?: number; avg_shares?: number;
 }
-
 interface StatsByContentTypeEntry {
-  engagements?: number;
-  engagementRate?: number;
-  avgLikes?: number;
-  avgComments?: number;
-  avgShares?: number;
-  avgReelsPlays?: number;
-  statHistory?: HistoryPoint[];
+  engagements?: number; engagementRate?: number; avgLikes?: number;
+  avgComments?: number; avgShares?: number; avgViews?: number;
+  avgReelsPlays?: number; avgPosts4weeks?: number; statHistory?: HistoryPoint[];
 }
-
-interface AudienceWeightItem {
-  code?: string;
-  name?: string;
-  weight?: number;
-}
-
-interface AudienceGenderPerAge {
-  code?: string;
-  male?: number;
-  female?: number;
-}
-
-interface AudienceGeoCity {
-  name?: string;
-  weight?: number;
-  country?: string;
-  state?: string;
-}
-
+interface AudienceWeightItem { code?: string; name?: string; weight?: number }
+interface AudienceGenderPerAge { code?: string; male?: number; female?: number }
+interface AudienceGeoCity { name?: string; weight?: number; country?: string; state?: string }
 interface AudienceUser {
-  userId?: string;
-  username?: string;
-  fullname?: string;
-  url?: string;
-  picture?: string;
-  followers?: number;
-  engagements?: number;
+  userId?: string; username?: string; fullname?: string; url?: string;
+  picture?: string; followers?: number; engagements?: number;
 }
-
 interface AudienceData {
-  languages?: AudienceWeightItem[];
-  ethnicities?: AudienceWeightItem[];
-  genders?: AudienceWeightItem[];
-  geoCountries?: AudienceWeightItem[];
-  geoStates?: AudienceWeightItem[];
-  ages?: AudienceWeightItem[];
-  interests?: AudienceWeightItem[];
-  brandAffinity?: AudienceWeightItem[];
-  gendersPerAge?: AudienceGenderPerAge[];
-  geoCities?: AudienceGeoCity[];
-  notableUsers?: AudienceUser[];
-  credibility?: number;
-  notable?: number;
+  languages?: AudienceWeightItem[]; ethnicities?: AudienceWeightItem[];
+  genders?: AudienceWeightItem[]; geoCountries?: AudienceWeightItem[];
+  geoStates?: AudienceWeightItem[]; ages?: AudienceWeightItem[];
+  interests?: AudienceWeightItem[]; brandAffinity?: AudienceWeightItem[];
+  gendersPerAge?: AudienceGenderPerAge[]; geoCities?: AudienceGeoCity[];
+  notableUsers?: AudienceUser[]; credibility?: number; notable?: number;
 }
-
 interface ModashCategory {
-  categoryId?: string | number | null;
-  categoryName?: string | null;
-  subcategoryId?: string | number | null;
-  subcategoryName?: string | null;
+  categoryId?: string | number | null; categoryName?: string | null;
+  subcategoryId?: string | number | null; subcategoryName?: string | null;
 }
-
-interface TagWeight {
-  tag?: string;
-  weight?: number;
-}
-
-interface BrandAffinityItem {
-  id?: number | string;
-  name?: string;
-}
-
+interface TagWeight { tag?: string; weight?: number }
+interface BrandAffinityItem { id?: number | string; name?: string }
 interface Page1ProfileData {
   profile?: {
-    userId?: string;
-    username?: string;
-    fullname?: string;
-    handle?: string;
-    url?: string;
-    picture?: string;
-    followers?: number;
-    engagements?: number;
-    engagementRate?: number;
+    userId?: string; username?: string; fullname?: string; handle?: string;
+    url?: string; picture?: string; followers?: number; engagements?: number; engagementRate?: number;
   };
-  isPrivate?: boolean;
-  isVerified?: boolean;
-  accountType?: string;
-  secUid?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  ageGroup?: string | null;
-  gender?: string | null;
+  isPrivate?: boolean; isVerified?: boolean; accountType?: string;
+  secUid?: string | null; city?: string | null; state?: string | null;
+  country?: string | null; ageGroup?: string | null; gender?: string | null;
   language?: string | { code?: string; name?: string } | null;
   statsByContentType?: {
-    all?: StatsByContentTypeEntry;
-    reels?: StatsByContentTypeEntry;
-    posts?: StatsByContentTypeEntry;
-    videos?: StatsByContentTypeEntry;
+    all?: StatsByContentTypeEntry; reels?: StatsByContentTypeEntry;
+    posts?: StatsByContentTypeEntry; videos?: StatsByContentTypeEntry;
     [key: string]: StatsByContentTypeEntry | undefined;
   };
-  stats?: StatsBlock;
-  recentPosts?: PostItem[];
-  popularPosts?: PostItem[];
-  sponsoredPosts?: PostItem[];
-  postsCount?: number;
-  avgLikes?: number;
-  avgComments?: number;
-  avgReelsPlays?: number;
-  bio?: string;
-  categories?: ModashCategory[];
-  hashtags?: TagWeight[];
-  mentions?: TagWeight[];
-  brandAffinity?: BrandAffinityItem[];
-  audience?: AudienceData;
+  stats?: StatsBlock; recentPosts?: PostItem[]; popularPosts?: PostItem[];
+  sponsoredPosts?: PostItem[]; postsCount?: number; avgLikes?: number;
+  avgComments?: number; avgReelsPlays?: number; bio?: string;
+  categories?: ModashCategory[]; hashtags?: TagWeight[]; mentions?: TagWeight[];
+  brandAffinity?: BrandAffinityItem[]; audience?: AudienceData;
 }
-
-interface Page1Item {
-  platform?: string;
-  handle?: string;
-  username?: string;
-  data?: Page1ProfileData;
-}
-
-interface InfluencerResponse {
-  influencer?: InfluencerDoc;
-}
-
+interface Page1Item { platform?: string; handle?: string; username?: string; data?: Page1ProfileData }
 interface InfluencerDoc {
-  _id?: string;
-  influencerId?: string;
-  email?: string;
-  name?: string;
-  countryId?: string;
-  countryName?: string;
-  languages?: NamedItem[];
-  categories?: NamedItem[];
-  page1?: Page1Item[];
-  createdAt?: string;
-  updatedAt?: string;
+  _id?: string; influencerId?: string; email?: string; name?: string;
+  countryId?: string; countryName?: string; languages?: NamedItem[];
+  categories?: NamedItem[]; page1?: Page1Item[]; createdAt?: string; updatedAt?: string;
 }
-
-interface PaypalDetails {
-  email?: string;
-  username?: string;
-}
-
+interface InfluencerResponse { influencer?: InfluencerDoc }
+interface PaypalDetails { email?: string; username?: string }
 interface BankDetails {
-  accountHolder?: string;
-  accountNumber?: string;
-  ifsc?: string;
-  swift?: string;
-  bankName?: string;
-  branch?: string;
-  countryId?: string;
-  countryName?: string;
+  accountHolder?: string; accountNumber?: string; ifsc?: string; swift?: string;
+  bankName?: string; branch?: string; countryId?: string; countryName?: string;
 }
-
-interface PaypalDetails {
-  email?: string;
-  username?: string;
-}
-
-interface BankDetails {
-  accountHolder?: string;
-  accountNumber?: string;
-  ifsc?: string;
-  swift?: string;
-  bankName?: string;
-  branch?: string;
-  countryId?: string;
-  countryName?: string;
-}
-
 interface PaymentDetailItem {
-  _id?: string;
-  influencerId?: string;
-  label?: string;
-  type?: number; // 0 = paypal, 1 = bank
-  isDefault?: boolean;
-  paypal?: PaypalDetails;
-  bank?: BankDetails;
-  createdAt?: string;
-  updatedAt?: string;
+  _id?: string; influencerId?: string; label?: string; type?: number;
+  isDefault?: boolean; paypal?: PaypalDetails; bank?: BankDetails;
+  createdAt?: string; updatedAt?: string;
 }
-
-interface PaymentDetailsResponse {
+interface PaymentDetailsResponse { success?: boolean; count?: number; data?: PaymentDetailItem[] }
+interface CampaignItem {
+  _id?: string; id?: string; campaignId?: string; title?: string; name?: string;
+  campaignName?: string; briefTitle?: string; brandName?: string; companyName?: string;
+  clientName?: string; status?: string | number; platform?: string | string[];
+  platforms?: string[]; socialPlatform?: string | string[];
+  budget?: number; amount?: number; payout?: number; totalBudget?: number;
+  createdAt?: string; startDate?: string; endDate?: string;
+  description?: string; brief?: string; objective?: string;
+  goals?: string[]; deliverables?: Array<Record<string, unknown>>;
+  brand?: { name?: string };
+}
+interface GetCampaignsResponse {
   success?: boolean;
-  count?: number;
-  data?: PaymentDetailItem[];
+  data?: CampaignItem[] | {
+    data?: CampaignItem[]; items?: CampaignItem[]; docs?: CampaignItem[];
+    total?: number; totalItems?: number; totalCount?: number; count?: number;
+    page?: number; totalPages?: number; pages?: number; limit?: number;
+  };
+  campaigns?: CampaignItem[]; items?: CampaignItem[]; docs?: CampaignItem[];
+  results?: CampaignItem[]; total?: number; totalItems?: number; totalCount?: number;
+  count?: number; page?: number; totalPages?: number; pages?: number; limit?: number;
+}
+interface CampaignMeta { page: number; totalPages: number; totalItems: number; limit: number }
+interface NormalizedSocialProfile {
+  provider: string; username?: string; fullname?: string; handle?: string;
+  url?: string; picture?: string; followers?: number; engagements?: number;
+  engagementRate?: number; isPrivate?: boolean; isVerified?: boolean;
+  accountType?: string; city?: string | null; state?: string | null;
+  country?: string | null; ageGroup?: string | null; gender?: string | null;
+  language?: string; stats?: StatsBlock;
+  statsByContentType?: Page1ProfileData["statsByContentType"];
+  recentPosts?: PostItem[]; popularPosts?: PostItem[]; sponsoredPosts?: PostItem[];
+  postsCount?: number; avgLikes?: number; avgComments?: number; avgReelsPlays?: number;
+  bio?: string; categories?: ModashCategory[]; hashtags?: TagWeight[];
+  mentions?: TagWeight[]; brandAffinity?: BrandAffinityItem[]; audience?: AudienceData;
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                UI Utilities                                */
+/*                              Platform Theming                              */
 /* -------------------------------------------------------------------------- */
+interface PlatformTheme {
+  label: string; gradient: string; accent: string;
+  chipCls: string; softBg: string; softText: string; softBorder: string;
+}
 
+function getPlatformTheme(platform?: string): PlatformTheme {
+  const k = String(platform || "").trim().toLowerCase();
+  if (k === "instagram") return {
+    label: "Instagram", accent: "#C13584",
+    gradient: "linear-gradient(135deg,#F58529 0%,#DD2A7B 50%,#8134AF 100%)",
+    chipCls: "bg-gradient-to-r from-orange-500 via-pink-600 to-purple-600 text-white",
+    softBg: "bg-pink-50", softText: "text-pink-700", softBorder: "border-pink-200",
+  };
+  if (k === "youtube") return {
+    label: "YouTube", accent: "#FF0000",
+    gradient: "linear-gradient(135deg,#FF0000 0%,#CC0000 100%)",
+    chipCls: "bg-red-600 text-white",
+    softBg: "bg-red-50", softText: "text-red-700", softBorder: "border-red-200",
+  };
+  if (k === "tiktok") return {
+    label: "TikTok", accent: "#EE1D52",
+    gradient: "linear-gradient(135deg,#010101 0%,#69C9D0 50%,#EE1D52 100%)",
+    chipCls: "bg-gradient-to-r from-slate-900 via-cyan-400 to-rose-500 text-white",
+    softBg: "bg-rose-50", softText: "text-rose-700", softBorder: "border-rose-200",
+  };
+  return {
+    label: k ? k[0].toUpperCase() + k.slice(1) : "Unknown", accent: "#6366F1",
+    gradient: "linear-gradient(135deg,#6366F1 0%,#8B5CF6 100%)",
+    chipCls: "bg-indigo-600 text-white",
+    softBg: "bg-indigo-50", softText: "text-indigo-700", softBorder: "border-indigo-200",
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 Utilities                                  */
+/* -------------------------------------------------------------------------- */
+const CAMPAIGN_LIMIT = 10;
 const fmtDate = (iso?: string | null) =>
-  iso
-    ? new Date(iso).toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    })
-    : "—";
-
-const fmtDateTime = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString() : "—";
-
+  iso ? new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
+const fmtDateTime = (iso?: string | null) => iso ? new Date(iso).toLocaleString() : "—";
 const fmtNum = (n?: number | null) => {
-  if (n === undefined || n === null || Number.isNaN(n)) return "—";
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  if (n == null || Number.isNaN(n)) return "—";
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
   return `${n}`;
 };
-
+const fmtCurrency = (n?: number | null) => {
+  if (n == null || Number.isNaN(n)) return "—";
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+};
 const fmtPercent = (n?: number | null) => {
-  if (n === undefined || n === null || Number.isNaN(n)) return "—";
+  if (n == null || Number.isNaN(n)) return "—";
   return `${(n * 100).toFixed(2)}%`;
 };
-
-const Copyable: React.FC<{ value?: string | null; className?: string }> = ({
-  value,
-  className,
-}) => {
-  if (!value) return <span>—</span>;
-
-  return (
-    <button
-      type="button"
-      className={`text-blue-600 hover:underline hover:text-blue-800 ${className ?? ""}`}
-      onClick={() => navigator.clipboard.writeText(value)}
-      title="Copy"
-    >
-      {value}
-    </button>
-  );
+const fmtWt = (v?: number) => {
+  if (v == null || Number.isNaN(v)) return "—";
+  const p = v <= 1 ? v * 100 : v;
+  return `${p.toFixed(1)}%`;
 };
+const pctVal = (v?: number) => v == null ? 0 : (v <= 1 ? v * 100 : v);
 
-const Pill: React.FC<{
-  children: React.ReactNode;
-  tone?: "default" | "success" | "danger" | "warning" | "muted";
-}> = ({ children, tone = "default" }) => (
-  <span
-    className={
-      "px-2 py-1 rounded-full text-xs font-medium " +
-      (tone === "success"
-        ? "bg-green-100 text-green-700"
-        : tone === "danger"
-          ? "bg-red-100 text-red-700"
-          : tone === "warning"
-            ? "bg-yellow-100 text-yellow-800"
-            : tone === "muted"
-              ? "bg-slate-100 text-slate-700"
-              : "bg-blue-100 text-blue-700")
-    }
+function cx(...cls: Array<string | false | null | undefined>) { return cls.filter(Boolean).join(" ") }
+function getInitials(n?: string | null) {
+  return (n || "IN").split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("") || "IN";
+}
+function normPlatform(p?: string | null) { return String(p || "").trim().toLowerCase() }
+function getLangLabel(v?: string | { code?: string; name?: string } | null) {
+  if (!v) return "—";
+  if (typeof v === "string") return v;
+  return v.name || v.code || "—";
+}
+function getStatVal(d?: number, s?: StatWithCompared, f?: number) { return d ?? s?.value ?? f }
+function getPostViews(p: PostItem) { return p.views ?? p.plays }
+function truncate(v?: string, max = 120) {
+  if (!v) return "—"; return v.length <= max ? v : `${v.slice(0, max).trim()}…`;
+}
+function compactList(arr: Array<string | undefined | null>) { return arr.filter(Boolean).join(", ") || "—" }
+function maskAcct(v?: string) {
+  if (!v) return "—"; if (v.length <= 4) return v;
+  return `${"•".repeat(v.length - 4)}${v.slice(-4)}`;
+}
+function normalizeProfiles(page1?: Page1Item[]): NormalizedSocialProfile[] {
+  return (page1 || []).map(item => {
+    const d = item.data || {}, pr = d.profile || {};
+    const all = d.statsByContentType?.all, reels = d.statsByContentType?.reels;
+    return {
+      provider: item.platform || "unknown",
+      username: pr.username || item.username, fullname: pr.fullname,
+      handle: pr.handle || item.handle, url: pr.url, picture: pr.picture,
+      followers: getStatVal(undefined, d.stats?.followers, pr.followers),
+      engagements: pr.engagements || all?.engagements,
+      engagementRate: pr.engagementRate ?? all?.engagementRate ?? reels?.engagementRate,
+      isPrivate: d.isPrivate, isVerified: d.isVerified, accountType: d.accountType,
+      city: d.city, state: d.state, country: d.country,
+      ageGroup: d.ageGroup, gender: d.gender, language: getLangLabel(d.language),
+      stats: d.stats, statsByContentType: d.statsByContentType,
+      recentPosts: d.recentPosts || [], popularPosts: d.popularPosts || [], sponsoredPosts: d.sponsoredPosts || [],
+      postsCount: d.postsCount,
+      avgLikes: getStatVal(d.avgLikes, d.stats?.avgLikes, all?.avgLikes),
+      avgComments: getStatVal(d.avgComments, d.stats?.avgComments, all?.avgComments),
+      avgReelsPlays: d.avgReelsPlays ?? reels?.avgReelsPlays,
+      bio: d.bio, categories: d.categories || [], hashtags: d.hashtags || [],
+      mentions: d.mentions || [], brandAffinity: d.brandAffinity || [], audience: d.audience,
+    };
+  });
+}
+function fmtDelta(v?: number) {
+  if (!v || Number.isNaN(v) || v === 0) return null;
+  return `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+}
+function deltaTone(v?: number) { return !v || Number.isNaN(v) ? "text-slate-400" : v > 0 ? "text-emerald-500" : "text-rose-500" }
+
+function extractItems(r: GetCampaignsResponse | undefined | null): CampaignItem[] {
+  if (!r) return [];
+  const c = (() => { const d = r.data; return d && !Array.isArray(d) && typeof d === "object" ? d : r; })();
+  for (const k of [c, (c as any).data, (c as any).campaigns, (c as any).items, (c as any).docs, (c as any).results]) {
+    if (Array.isArray(k)) return k as CampaignItem[];
+  }
+  return [];
+}
+function extractMeta(r: GetCampaignsResponse | undefined | null, page: number, limit: number, len: number): CampaignMeta {
+  const c = (() => { const d = r?.data; return d && !Array.isArray(d) && typeof d === "object" ? d : r; })() as Record<string, unknown> | null;
+  const ti = Number(c?.totalItems ?? c?.totalCount ?? c?.total ?? c?.count ?? len);
+  const tp = Number(c?.totalPages ?? c?.pages ?? Math.max(1, Math.ceil(ti / limit)));
+  return {
+    page: Number.isFinite(Number(c?.page)) && Number(c?.page) > 0 ? Number(c?.page) : page,
+    totalPages: Number.isFinite(tp) && tp > 0 ? tp : 1,
+    totalItems: Number.isFinite(ti) && ti >= 0 ? ti : len,
+    limit: Number.isFinite(Number(c?.limit)) && Number(c?.limit) > 0 ? Number(c?.limit) : limit,
+  };
+}
+
+const getCId = (c: CampaignItem, i: number) => c._id || c.id || c.campaignId || `c-${i}`;
+const getCTitle = (c: CampaignItem) => c.title || c.campaignName || c.name || c.briefTitle || "Untitled";
+const getCBrand = (c: CampaignItem) => c.brandName || c.companyName || c.clientName || c.brand?.name || "—";
+const getCBudget = (c: CampaignItem) => c.budget ?? c.amount ?? c.payout ?? c.totalBudget;
+function getCPlats(c: CampaignItem): string[] {
+  const r = c.platform ?? c.platforms ?? c.socialPlatform;
+  if (Array.isArray(r)) return r.filter(Boolean).map(String);
+  if (typeof r === "string" && r.trim()) return r.split(",").map(s => s.trim()).filter(Boolean);
+  return [];
+}
+const getCTimeline = (c: CampaignItem) => (c.startDate || c.endDate) ? compactList([fmtDate(c.startDate), fmtDate(c.endDate)]) : fmtDate(c.createdAt);
+const getStatusLabel = (s?: string | number) => {
+  if (s == null || s === "") return "Unknown";
+  if (typeof s === "number") return `${s}`;
+  return s.replace(/[_-]+/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+};
+function statusStyle(s?: string | number) {
+  const n = String(s ?? "").toLowerCase();
+  if (["active", "live", "approved", "completed"].includes(n)) return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (["pending", "draft", "review", "in progress"].includes(n)) return "bg-amber-50 text-amber-700 border-amber-200";
+  if (["cancelled", "rejected", "paused", "failed"].includes(n)) return "bg-rose-50 text-rose-700 border-rose-200";
+  return "bg-slate-50 text-slate-500 border-slate-200";
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              UI Primitives                                 */
+/* -------------------------------------------------------------------------- */
+
+/** Bordered card */
+const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <div
+    className={cx(
+      "rounded-2xl border border-slate-200/80 bg-white/80 backdrop-blur-sm shadow-[0_10px_30px_rgba(15,23,42,0.04)]",
+      className
+    )}
   >
     {children}
-  </span>
+  </div>
 );
 
-const Section: React.FC<{
-  title: React.ReactNode;
-  subtitle?: React.ReactNode;
-  right?: React.ReactNode;
-  className?: string;
-  children?: React.ReactNode;
-}> = ({ title, subtitle, right, className, children }) => (
-  <Card
-    className={`p-6 bg-white/80 backdrop-blur-sm border-0 shadow-xl ${className ?? ""}`}
-  >
-    <div className="flex items-start justify-between gap-4 mb-4">
-      <div>
-        <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          {title}
-        </h3>
-        {subtitle && <p className="text-slate-600 text-sm mt-1">{subtitle}</p>}
+/** Section wrapper */
+const Sect: React.FC<{
+  title?: React.ReactNode; subtitle?: string; action?: React.ReactNode;
+  children: React.ReactNode; className?: string;
+}> = ({ title, subtitle, action, children, className }) => (
+  <Card className={cx("p-5 sm:p-6", className)}>
+    {(title || action) && (
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          {title && <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-800">{title}</div>}
+          {subtitle && <p className="mt-0.5 text-[11px] text-slate-400">{subtitle}</p>}
+        </div>
+        {action}
       </div>
-      {right}
-    </div>
+    )}
     {children}
   </Card>
 );
 
-const fmtWeightPercent = (value?: number) => {
-  if (value === undefined || value === null || Number.isNaN(value)) return "—";
+/** KV row */
+const KV: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
+  <div className="flex items-start gap-3 border-b border-slate-100 py-2.5 last:border-0">
+    <span className="w-28 shrink-0 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</span>
+    <span className="text-[13px] text-slate-700">{value ?? <span className="text-slate-300">—</span>}</span>
+  </div>
+);
 
-  const percent = value <= 1 ? value * 100 : value;
-
-  return `${percent.toFixed(2)}%`;
+/** Platform chip */
+const Chip: React.FC<{ platform?: string; size?: "xs" | "sm" }> = ({ platform, size = "sm" }) => {
+  const t = getPlatformTheme(platform);
+  return (
+    <span className={cx("inline-flex items-center rounded-full font-semibold", size === "xs" ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-[11px]", t.chipCls)}>
+      {t.label}
+    </span>
+  );
 };
 
-const KVRow: React.FC<{ label: string; value?: React.ReactNode }> = ({
-  label,
-  value,
-}) => (
-  <div className="grid grid-cols-3 gap-2 py-2">
-    <div className="text-slate-500 text-sm col-span-1">{label}</div>
-    <div className="col-span-2 font-medium text-slate-900 break-words">
-      {value ?? "—"}
+/** Copyable */
+const Copy: React.FC<{ value?: string | null }> = ({ value }) => {
+  const [ok, setOk] = useState(false);
+  if (!value) return <span className="text-slate-300">—</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(value);
+        setOk(true);
+        setTimeout(() => setOk(false), 1500);
+      }}
+      className="group inline-flex items-center gap-1.5 text-[13px] text-indigo-600 hover:text-indigo-800"
+    >
+      <span className="border-b border-dashed border-indigo-200 group-hover:border-indigo-500">{value}</span>
+      <span className={cx("text-[10px] font-bold", ok ? "text-emerald-500" : "text-slate-300 group-hover:text-indigo-400")}>{ok ? "✓" : "copy"}</span>
+    </button>
+  );
+};
+
+/** Stat card */
+const Stat: React.FC<{
+  label: string; value: React.ReactNode; sub?: React.ReactNode;
+  delta?: number; color: string; icon?: React.ReactNode;
+}> = ({ label, value, sub, delta, color, icon }) => (
+  <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 p-5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300">
+    <div className="absolute left-0 top-0 h-[3px] w-full rounded-t-2xl" style={{ background: color }} />
+    <div className="flex items-start justify-between gap-2">
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
+        <p className="mt-2 font-['Syne',sans-serif] text-[26px] font-bold leading-none tracking-tight text-slate-800">{value}</p>
+        {sub && <p className="mt-1.5 text-[11px] text-slate-400">{sub}</p>}
+        {(() => {
+          const d = fmtDelta(delta);
+          return d ? (
+            <span className={cx("mt-1.5 flex items-center gap-0.5 text-[11px] font-semibold", deltaTone(delta))}>
+              {(delta ?? 0) > 0 ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              {d} vs prev
+            </span>
+          ) : null;
+        })()}
+      </div>
+      {icon && <div className="shrink-0 rounded-xl p-2.5" style={{ background: `${color}15`, color }}>{icon}</div>}
     </div>
   </div>
 );
 
-function getInitials(name?: string | null) {
+/** Audience bar */
+const ABar: React.FC<{ label: string; pct: number; color: string }> = ({ label, pct, color }) => (
+  <div className="flex items-center gap-3">
+    <span className="w-24 shrink-0 truncate text-[12px] text-slate-600">{label}</span>
+    <div className="flex-1 overflow-hidden rounded-full bg-slate-100" style={{ height: 5 }}>
+      <div className="h-full rounded-full" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
+    </div>
+    <span className="w-10 text-right text-[11px] font-semibold text-slate-500">{pct.toFixed(1)}%</span>
+  </div>
+);
+
+/** Post card */
+const PostCard: React.FC<{ post: PostItem; color: string }> = ({ post, color }) => {
+  const media = post.image || post.thumbnail;
   return (
-    (name || "Influencer")
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "IN"
+    <div className="flex overflow-hidden rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300">
+      <div className="w-20 shrink-0 sm:w-24" style={{ background: `${color}12` }}>
+        {media
+          ? <img src={media} alt="" className="h-full w-full object-cover" />
+          : <div className="flex h-full min-h-[88px] items-center justify-center"><Globe className="h-5 w-5 text-slate-200" /></div>
+        }
+      </div>
+      <div className="min-w-0 flex-1 p-3 sm:p-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{post.type || "post"}</span>
+          <span className="text-[10px] text-slate-400">{fmtDate(post.created)}</span>
+        </div>
+        <p className="mt-1.5 text-[12px] font-medium leading-4 text-slate-700">{truncate(post.title || post.text, 90)}</p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
+          <span className="flex items-center gap-1"><Heart className="h-3 w-3 text-rose-400" />{fmtNum(post.likes)}</span>
+          <span className="flex items-center gap-1"><MessageCircle className="h-3 w-3 text-violet-400" />{fmtNum(post.comments)}</span>
+          <span className="flex items-center gap-1"><Eye className="h-3 w-3 text-sky-400" />{fmtNum(getPostViews(post))}</span>
+          {post.url && (
+            <a
+              href={post.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto flex items-center gap-0.5 text-[11px] font-semibold"
+              style={{ color }}
+            >
+              View <ArrowUpRight className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+        {(post.hashtags?.length ?? 0) > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {post.hashtags!.slice(0, 3).map(h => (
+              <span key={h} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${color}15`, color }}># {h}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
-}
+};
 
-function normalizePlatform(platform?: string | null) {
-  return String(platform || "").trim().toLowerCase();
-}
-
-function getLanguageLabel(
-  value?: string | { code?: string; name?: string } | null,
-) {
-  if (!value) return "—";
-  if (typeof value === "string") return value;
-  return value.name || value.code || "—";
-}
-
-function getStatValue(
-  direct?: number,
-  fromStats?: StatWithCompared,
-  fromFallback?: number,
-) {
-  return direct ?? fromStats?.value ?? fromFallback ?? undefined;
-}
-
-function getPostViews(post: PostItem) {
-  return post.views ?? post.plays;
-}
+/** Empty state */
+const Empty: React.FC<{ label: string; desc?: string }> = ({ label, desc }) => (
+  <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/55 py-12 text-center">
+    <p className="text-sm font-semibold text-slate-500">{label}</p>
+    {desc && <p className="mt-1 text-xs text-slate-400">{desc}</p>}
+  </div>
+);
 
 /* -------------------------------------------------------------------------- */
-/*                              Normalized Profile                            */
+/*                               Main Component                               */
 /* -------------------------------------------------------------------------- */
-
-interface NormalizedSocialProfile {
-  provider: string;
-  username?: string;
-  fullname?: string;
-  handle?: string;
-  url?: string;
-  picture?: string;
-  followers?: number;
-  engagements?: number;
-  engagementRate?: number;
-  isPrivate?: boolean;
-  isVerified?: boolean;
-  accountType?: string;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  ageGroup?: string | null;
-  gender?: string | null;
-  language?: string;
-  stats?: StatsBlock;
-  statsByContentType?: Page1ProfileData["statsByContentType"];
-  recentPosts?: PostItem[];
-  popularPosts?: PostItem[];
-  sponsoredPosts?: PostItem[];
-  postsCount?: number;
-  avgLikes?: number;
-  avgComments?: number;
-  avgReelsPlays?: number;
-  bio?: string;
-  categories?: ModashCategory[];
-  hashtags?: TagWeight[];
-  mentions?: TagWeight[];
-  brandAffinity?: BrandAffinityItem[];
-  audience?: AudienceData;
-}
-
-function normalizeProfiles(page1?: Page1Item[]): NormalizedSocialProfile[] {
-  return (page1 || []).map((item) => {
-    const data = item.data || {};
-    const profile = data.profile || {};
-    const allStats = data.statsByContentType?.all;
-    const reelsStats = data.statsByContentType?.reels;
-
-    return {
-      provider: item.platform || "unknown",
-      username: profile.username || item.username,
-      fullname: profile.fullname,
-      handle: profile.handle || item.handle,
-      url: profile.url,
-      picture: profile.picture,
-      followers: getStatValue(undefined, data.stats?.followers, profile.followers),
-      engagements: profile.engagements || allStats?.engagements,
-      engagementRate:
-        profile.engagementRate ??
-        allStats?.engagementRate ??
-        reelsStats?.engagementRate,
-      isPrivate: data.isPrivate,
-      isVerified: data.isVerified,
-      accountType: data.accountType,
-      city: data.city,
-      state: data.state,
-      country: data.country,
-      ageGroup: data.ageGroup,
-      gender: data.gender,
-      language: getLanguageLabel(data.language),
-      stats: data.stats,
-      statsByContentType: data.statsByContentType,
-      recentPosts: data.recentPosts || [],
-      popularPosts: data.popularPosts || [],
-      sponsoredPosts: data.sponsoredPosts || [],
-      postsCount: data.postsCount,
-      avgLikes: getStatValue(data.avgLikes, data.stats?.avgLikes, allStats?.avgLikes),
-      avgComments: getStatValue(
-        data.avgComments,
-        data.stats?.avgComments,
-        allStats?.avgComments,
-      ),
-      avgReelsPlays: data.avgReelsPlays ?? reelsStats?.avgReelsPlays,
-      bio: data.bio,
-      categories: data.categories || [],
-      hashtags: data.hashtags || [],
-      mentions: data.mentions || [],
-      brandAffinity: data.brandAffinity || [],
-      audience: data.audience,
-    };
-  });
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                Main Component                              */
-/* -------------------------------------------------------------------------- */
-
 export default function AdminInfluencerView() {
   const router = useRouter();
   const params = useSearchParams();
@@ -536,866 +472,649 @@ export default function AdminInfluencerView() {
 
   const [data, setData] = useState<InfluencerDoc | null>(null);
   const [profiles, setProfiles] = useState<NormalizedSocialProfile[]>([]);
+  const [selectedPlatform, setSelectedPlatform] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailItem[]>([]);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
+  const [campaigns, setCampaigns] = useState<CampaignItem[]>([]);
+  const [campaignMeta, setCampaignMeta] = useState<CampaignMeta>({ page: 1, totalPages: 1, totalItems: 0, limit: CAMPAIGN_LIMIT });
+  const [campaignPage, setCampaignPage] = useState(1);
+  const [campaignLoading, setCampaignLoading] = useState(false);
+  const [campaignError, setCampaignError] = useState<string | null>(null);
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
+
   useEffect(() => {
-    const fetcher = async () => {
-      if (!id) return;
-
-      setLoading(true);
-      setPaymentLoading(true);
-
-      try {
-        const resp: InfluencerResponse | InfluencerDoc = await get(
-          "/admin/influencer/getById",
-          { id },
-        );
-
-        const influencerDoc =
-          (resp as InfluencerResponse)?.influencer ?? (resp as InfluencerDoc);
-
-        setData(influencerDoc);
-        setProfiles(normalizeProfiles(influencerDoc.page1));
+    if (!id) { setError("Missing influencer id."); setLoading(false); return; }
+    setLoading(true);
+    get("/admin/influencer/getById", { id })
+      .then((res: InfluencerResponse | InfluencerDoc) => {
+        const doc = (res as InfluencerResponse)?.influencer ?? (res as InfluencerDoc);
+        const np = normalizeProfiles(doc.page1);
+        setData(doc);
+        setProfiles(np);
+        setSelectedPlatform(np[0]?.provider || "");
         setError(null);
-
-        const paymentResp: PaymentDetailsResponse = await post(
-          "/payment-details/get-payment-details",
-          {
-            influencerId: influencerDoc.influencerId || influencerDoc._id,
-          },
-        );
-
-        setPaymentDetails(paymentResp?.data || []);
-      } catch (e: any) {
-        setError(e?.message ?? "Failed to load influencer");
-      } finally {
-        setLoading(false);
-        setPaymentLoading(false);
-      }
-    };
-
-    fetcher();
+      })
+      .catch((e: any) => setError(e?.message ?? "Failed to load influencer."))
+      .finally(() => setLoading(false));
   }, [id]);
 
-  const primaryProfile = useMemo(() => profiles[0], [profiles]);
+  const influencerId = data?.influencerId || data?._id;
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-8">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <Skeleton className="h-10 w-60" />
-          <Card className="p-6 space-y-6 shadow-xl">
-            <div className="flex items-center gap-6">
-              <Skeleton className="h-24 w-24 rounded-full" />
-              <div className="flex-1 space-y-3">
-                <Skeleton className="h-7 w-64" />
-                <Skeleton className="h-4 w-96" />
-                <Skeleton className="h-4 w-80" />
-              </div>
-            </div>
-          </Card>
+  useEffect(() => {
+    if (!influencerId) return;
+    setPaymentLoading(true);
+    (post as any)("/payment-details/get-payment-details", { influencerId })
+      .then((r: PaymentDetailsResponse) => setPaymentDetails(r?.data || []))
+      .catch(() => setPaymentDetails([]))
+      .finally(() => setPaymentLoading(false));
+  }, [influencerId]);
+
+  useEffect(() => {
+    if (!influencerId) return;
+    setCampaignLoading(true);
+    setCampaignError(null);
+    (post as any)("/admin/campaign/getByInfluencerId", {
+      influencerId,
+      page: campaignPage,
+      limit: CAMPAIGN_LIMIT,
+      search: "",
+      sortBy: "createdAt",
+      sortOrder: "desc",
+      status: "all",
+    })
+      .then((res: GetCampaignsResponse) => {
+        const items = extractItems(res);
+        setCampaigns(items);
+        setCampaignMeta(extractMeta(res, campaignPage, CAMPAIGN_LIMIT, items.length));
+      })
+      .catch((e: any) => {
+        setCampaigns([]);
+        setCampaignError(e?.message ?? "Failed to load campaigns.");
+      })
+      .finally(() => setCampaignLoading(false));
+  }, [campaignPage, influencerId]);
+
+  const platformOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return profiles.filter(p => {
+      const k = normPlatform(p.provider);
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }, [profiles]);
+
+  const selectedProfile = useMemo(
+    () => profiles.find(p => normPlatform(p.provider) === normPlatform(selectedPlatform)) || profiles[0] || null,
+    [profiles, selectedPlatform]
+  );
+
+  useEffect(() => {
+    if (!selectedPlatform && platformOptions[0]?.provider) {
+      setSelectedPlatform(platformOptions[0].provider);
+      return;
+    }
+    if (!platformOptions.some(p => normPlatform(p.provider) === normPlatform(selectedPlatform)) && platformOptions[0]) {
+      setSelectedPlatform(platformOptions[0].provider);
+    }
+  }, [platformOptions, selectedPlatform]);
+
+  const theme = useMemo(() => getPlatformTheme(selectedProfile?.provider), [selectedProfile?.provider]);
+
+  const campaignColumns = useMemo<AdminTableColumn<CampaignItem>[]>(() => [
+    {
+      id: "campaign",
+      header: "Campaign",
+      widthClassName: "min-w-[200px]",
+      render: row => (
+        <div>
+          <p className="text-[13px] font-semibold text-slate-800">{getCTitle(row)}</p>
+          <p className="mt-0.5 text-[11px] text-slate-400">{getCBrand(row)}</p>
         </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-8">
-        <div className="max-w-7xl mx-auto">
-          <Button
-            variant="ghost"
-            onClick={() => router.back()}
-            className="mb-4 hover:bg-white/80"
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Back
-          </Button>
-
-          <Card className="p-6 border-red-200 bg-red-50 shadow-xl">
-            <div className="flex items-center gap-3">
-              <span className="text-red-600 font-medium">Error: {error}</span>
-            </div>
-          </Card>
+      ),
+    },
+    {
+      id: "platform",
+      header: "Platform",
+      widthClassName: "min-w-[120px]",
+      render: row => {
+        const ps = getCPlats(row);
+        return ps.length ? <div className="flex flex-wrap gap-1">{ps.map(p => <Chip key={p} platform={p} size="xs" />)}</div> : <span className="text-[13px] text-slate-300">—</span>;
+      },
+    },
+    {
+      id: "status",
+      header: "Status",
+      widthClassName: "min-w-[100px]",
+      render: row => (
+        <span className={cx("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold", statusStyle(row.status))}>
+          {getStatusLabel(row.status)}
+        </span>
+      ),
+    },
+    {
+      id: "timeline",
+      header: "Timeline",
+      widthClassName: "min-w-[140px]",
+      render: row => (
+        <div>
+          <p className="text-[12px] text-slate-600">{getCTimeline(row)}</p>
+          <p className="text-[10px] text-slate-400">Created {fmtDate(row.createdAt)}</p>
         </div>
+      ),
+    },
+    {
+      id: "budget",
+      header: "Budget",
+      align: "right",
+      widthClassName: "min-w-[100px]",
+      render: row => <span className="font-['Syne',sans-serif] text-[14px] font-bold text-slate-800">{fmtCurrency(getCBudget(row))}</span>,
+    },
+  ], []);
+
+  const fontImport = (
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Outfit:wght@400;500;600&display=swap');*{font-family:'Outfit',sans-serif}.syne{font-family:'Syne',sans-serif}`}</style>
+  );
+
+  const pageBg = "linear-gradient(180deg,#F8FAFC 0%,#F4F7FB 52%,#EEF2FF 100%)";
+
+  if (loading) return (
+    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+      {fontImport}
+      <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6">
+        <Skeleton className="h-7 w-32 rounded-xl" />
+        <Skeleton className="h-48 rounded-2xl" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
       </div>
-    );
-  }
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+      {fontImport}
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        <button onClick={() => router.back()} className="mb-5 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"><ChevronLeft className="h-4 w-4" /> Back</button>
+        <div className="rounded-2xl border border-rose-200 bg-white/80 p-5 text-rose-600 shadow-sm backdrop-blur-sm">{error}</div>
+      </div>
+    </div>
+  );
 
   if (!data) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex gap-2 items-center">
-          <Button
-            variant="ghost"
-            onClick={() => router.back()}
-            className="hover:bg-white/80 shadow-sm"
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Back to Influencers
-          </Button>
-        </div>
+    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+      {fontImport}
 
-        <Card className="p-6 md:p-8 bg-white/80 backdrop-blur-sm shadow-xl border-0">
-          <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-            <div className="flex-shrink-0">
-              {primaryProfile?.picture ? (
-                <img
-                  src={primaryProfile.picture}
-                  alt={data.name ?? data.email ?? "Influencer"}
-                  className="h-28 w-28 md:h-32 md:w-32 rounded-full object-cover border-4 border-white shadow-lg ring-4 ring-blue-100"
-                />
-              ) : (
-                <div className="h-28 w-28 md:h-32 md:w-32 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-4xl md:text-5xl font-bold shadow-lg ring-4 ring-blue-100">
-                  {getInitials(data.name || data.email)}
+      {/* ═══ HERO ═══ */}
+      <div
+        className="relative overflow-hidden border-b border-white/10"
+        style={{ background: "linear-gradient(145deg,#0B1220 0%,#111827 45%,#172554 100%)" }}
+      >
+        <div
+          className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
+          style={{ background: `radial-gradient(ellipse 55% 90% at 90% -10%, ${theme.accent}25 0%, transparent 65%)` }}
+        />
+        <div
+          className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
+          style={{ background: `radial-gradient(ellipse 35% 50% at -5% 100%, ${theme.accent}14 0%, transparent 60%)` }}
+        />
+
+        <div className="relative mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
+          <button
+            onClick={() => router.back()}
+            className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white/90"
+          >
+            <ChevronLeft className="h-4 w-4" /> Back to Influencers
+          </button>
+
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              <div className="relative shrink-0 self-start">
+                {selectedProfile?.picture
+                  ? <img
+                      src={selectedProfile.picture}
+                      alt={data.name || "Influencer"}
+                      className="h-[72px] w-[72px] rounded-2xl object-cover shadow-lg sm:h-20 sm:w-20"
+                      style={{ boxShadow: `0 0 0 3px ${theme.accent}35` }}
+                    />
+                  : <div
+                      className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:h-20 sm:w-20"
+                      style={{ background: theme.gradient }}
+                    >
+                      {getInitials(data.name || data.email)}
+                    </div>
+                }
+                {selectedProfile?.isVerified && (
+                  <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full shadow-md" style={{ background: theme.accent }}>
+                    <CheckCircle2 className="h-3 w-3 text-white" />
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="syne text-2xl font-bold text-white sm:text-3xl">{data.name || "Unnamed Influencer"}</h1>
+                  {selectedProfile?.isVerified && (
+                    <span className="rounded-full border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold text-white/65">✓ Verified</span>
+                  )}
                 </div>
-              )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {platformOptions.map((p, i) => {
+                    const pt = getPlatformTheme(p.provider);
+                    const isActive = normPlatform(p.provider) === normPlatform(selectedPlatform);
+                    return (
+                      <button
+                        key={`${p.provider}-${i}`}
+                        onClick={() => setSelectedPlatform(p.provider)}
+                        className={cx(
+                          "rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-200",
+                          isActive
+                            ? `${pt.chipCls} shadow-sm`
+                            : "border border-white/15 bg-white/[0.03] text-white/55 hover:border-white/30 hover:bg-white/[0.06] hover:text-white/85"
+                        )}
+                      >
+                        {pt.label}{p.username ? ` · ${p.username}` : p.handle ? ` · ${p.handle}` : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                  {[
+                    { icon: <Mail className="h-3 w-3" />, val: data.email },
+                    { icon: <MapPin className="h-3 w-3" />, val: data.countryName },
+                    { icon: <Calendar className="h-3 w-3" />, val: `Joined ${fmtDate(data.createdAt)}` },
+                  ].map(({ icon, val }) => val ? (
+                    <span key={String(val)} className="flex items-center gap-1.5 text-[11px] text-white/45">
+                      {icon}{val}
+                    </span>
+                  ) : null)}
+                </div>
+
+                {selectedProfile?.bio && (
+                  <p className="mt-3 max-w-xl text-[12px] leading-5 text-white/45">{truncate(selectedProfile.bio, 160)}</p>
+                )}
+              </div>
             </div>
 
-            <div className="flex-1 space-y-4 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-3xl md:text-4xl font-bold text-slate-900 truncate">
-                  {data.name || "Unnamed Influencer"}
-                </h1>
-
-                {primaryProfile?.isVerified && (
-                  <Pill tone="success">
-                    <span className="inline-flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" />
-                      Verified
-                    </span>
-                  </Pill>
-                )}
-
-                {primaryProfile?.provider && (
-                  <Badge className="bg-gradient-to-r from-blue-500 to-indigo-500 text-white">
-                    {primaryProfile.provider.toUpperCase()}
-                  </Badge>
-                )}
-
-                {primaryProfile?.accountType && (
-                  <Pill tone="muted">{primaryProfile.accountType}</Pill>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <Mail className="h-4 w-4 text-blue-600" />
-                  <Copyable value={data.email} />
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
+              {[
+                { l: "Followers", v: fmtNum(selectedProfile?.followers) },
+                { l: "Eng. Rate", v: fmtPercent(selectedProfile?.engagementRate) },
+                { l: "Avg Likes", v: fmtNum(selectedProfile?.avgLikes) },
+                { l: "Campaigns", v: fmtNum(campaignMeta.totalItems) },
+              ].map(kpi => (
+                <div
+                  key={kpi.l}
+                  className="rounded-2xl border px-4 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-all duration-500"
+                  style={{ borderColor: `${theme.accent}25`, background: "rgba(255,255,255,0.06)" }}
+                >
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-white/40">{kpi.l}</p>
+                  <p className="syne mt-1.5 text-xl font-bold text-white">{kpi.v}</p>
                 </div>
-
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <MapPin className="h-4 w-4 text-red-600" />
-                  <span>{data.countryName || "—"}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <Calendar className="h-4 w-4 text-purple-600" />
-                  <span>{fmtDate(data.createdAt)}</span>
-                </div>
-
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <Users className="h-4 w-4 text-orange-600" />
-                  <span>
-                    {data.languages?.length
-                      ? data.languages.map((l) => l.name).filter(Boolean).join(", ")
-                      : "—"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <Tag className="h-4 w-4 text-indigo-600" />
-                  <span>
-                    {data.categories?.length
-                      ? data.categories.map((c) => c.name).filter(Boolean).join(", ")
-                      : "—"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-slate-700 bg-slate-50 p-2 rounded-lg">
-                  <Sparkles className="h-4 w-4 text-emerald-600" />
-                  <span>{profiles.length} connected profile{profiles.length === 1 ? "" : "s"}</span>
-                </div>
-              </div>
-
-              <div className="text-xs text-slate-500 flex flex-wrap gap-4">
-                <span>
-                  Influencer ID:{" "}
-                  <Copyable value={data.influencerId || data._id} />
-                </span>
-                <span>Created: {fmtDateTime(data.createdAt)}</span>
-                <span>Updated: {fmtDateTime(data.updatedAt)}</span>
-              </div>
+              ))}
             </div>
           </div>
-        </Card>
+        </div>
+      </div>
 
-        <Tabs defaultValue="profiles" className="space-y-6">
-          <TabsList className="bg-white shadow-lg p-1 border-0">
-            <TabsTrigger
-              value="overview"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Overview
-            </TabsTrigger>
-            <TabsTrigger
-              value="profiles"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Profiles
-            </TabsTrigger>
-            <TabsTrigger
-              value="posts"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Posts
-            </TabsTrigger>
-            <TabsTrigger
-              value="audience"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Audience
-            </TabsTrigger>
-            <TabsTrigger
-              value="payment"
-              className="data-[state=active]:bg-blue-500 data-[state=active]:text-white"
-            >
-              Payment Details
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-              <Card className="p-4 bg-blue-50/70 border-0 shadow-lg">
-                <div className="text-xs text-slate-600">Followers</div>
-                <div className="text-2xl font-bold text-blue-700">
-                  {fmtNum(primaryProfile?.followers)}
-                </div>
-              </Card>
-
-              <Card className="p-4 bg-green-50/70 border-0 shadow-lg">
-                <div className="text-xs text-slate-600">Engagement Rate</div>
-                <div className="text-2xl font-bold text-green-700">
-                  {fmtPercent(primaryProfile?.engagementRate)}
-                </div>
-              </Card>
-
-              <Card className="p-4 bg-purple-50/70 border-0 shadow-lg">
-                <div className="text-xs text-slate-600">Avg Likes</div>
-                <div className="text-2xl font-bold text-purple-700">
-                  {fmtNum(primaryProfile?.avgLikes)}
-                </div>
-              </Card>
-
-              <Card className="p-4 bg-pink-50/70 border-0 shadow-lg">
-                <div className="text-xs text-slate-600">Avg Comments</div>
-                <div className="text-2xl font-bold text-pink-700">
-                  {fmtNum(primaryProfile?.avgComments)}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-              <Section
-                title={
-                  <>
-                    <Info className="h-5 w-5" />
-                    Influencer Details
-                  </>
-                }
-              >
-                <KVRow label="Name" value={data.name} />
-                <KVRow label="Email" value={<Copyable value={data.email} />} />
-                <KVRow label="Country" value={data.countryName} />
-                <KVRow
-                  label="Languages"
-                  value={
-                    data.languages?.length
-                      ? data.languages.map((l) => l.name).filter(Boolean).join(", ")
-                      : "—"
-                  }
-                />
-                <KVRow
-                  label="Categories"
-                  value={
-                    data.categories?.length
-                      ? data.categories.map((c) => c.name).filter(Boolean).join(", ")
-                      : "—"
-                  }
-                />
-              </Section>
-
-              <Section
-                title={
-                  <>
-                    <BarChart2 className="h-5 w-5" />
-                    Primary Profile Summary
-                  </>
-                }
-                subtitle={primaryProfile?.bio || "No bio available"}
-              >
-                <KVRow label="Platform" value={primaryProfile?.provider} />
-                <KVRow
-                  label="Username"
-                  value={
-                    primaryProfile?.username ? `@${primaryProfile.username}` : "—"
-                  }
-                />
-                <KVRow label="Handle" value={primaryProfile?.handle} />
-                <KVRow
-                  label="Location"
-                  value={
-                    [primaryProfile?.city, primaryProfile?.state, primaryProfile?.country]
-                      .filter(Boolean)
-                      .join(", ") || "—"
-                  }
-                />
-                <KVRow label="Language" value={primaryProfile?.language} />
-                <KVRow label="Posts Count" value={fmtNum(primaryProfile?.postsCount)} />
-                <KVRow
-                  label="Avg Reels Plays"
-                  value={fmtNum(primaryProfile?.avgReelsPlays)}
-                />
-              </Section>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="profiles" className="space-y-4">
-            {profiles.length ? (
-              profiles.map((profile, idx) => (
-                <Section
-                  key={`${profile.provider}-${idx}`}
-                  title={
-                    <>
-                      <Globe className="h-5 w-5" />
-                      <span className="capitalize">{profile.provider}</span>
-                      {profile.isVerified && (
-                        <Badge
-                          variant="secondary"
-                          className="ml-2 bg-blue-100 text-blue-700"
-                        >
-                          Verified
-                        </Badge>
-                      )}
-                    </>
-                  }
-                  subtitle={profile.bio}
-                  right={
-                    profile.url ? (
-                      <a
-                        href={profile.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                      >
-                        View
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    ) : undefined
-                  }
+      {/* ═══ CONTENT ═══ */}
+      <div className="relative z-10 mx-auto -mt-3 max-w-5xl px-4 pb-8 pt-5 sm:px-6">
+        <Tabs defaultValue="overview" className="space-y-4">
+          <div className="sticky top-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/85 px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-md">
+            <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
+              {["overview", "profile", "campaigns", "posts", "audience", "payment"].map(v => (
+                <TabsTrigger
+                  key={v}
+                  value={v}
+                  className="rounded-xl px-3 py-1.5 text-[12px] font-semibold capitalize text-slate-500 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white"
                 >
-                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                    <Card className="p-4 bg-blue-50/60">
-                      <div className="text-xs text-slate-600">Followers</div>
-                      <div className="text-2xl font-bold text-blue-700">
-                        {fmtNum(profile.followers)}
-                      </div>
-                    </Card>
+                  {v}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-                    <Card className="p-4 bg-green-50/60">
-                      <div className="text-xs text-slate-600">Engagement Rate</div>
-                      <div className="text-2xl font-bold text-green-700">
-                        {fmtPercent(profile.engagementRate)}
-                      </div>
-                    </Card>
+            <div className="flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full shadow-sm transition-all duration-500" style={{ background: theme.accent }} />
+              <span className="text-[11px] font-semibold text-slate-500">
+                {theme.label}{selectedProfile?.username ? ` · ${selectedProfile.username}` : ""}
+              </span>
+            </div>
+          </div>
 
-                    <Card className="p-4 bg-purple-50/60">
-                      <div className="text-xs text-slate-600">Avg Likes</div>
-                      <div className="text-2xl font-bold text-purple-700">
-                        {fmtNum(profile.avgLikes)}
-                      </div>
-                    </Card>
+          {/* ── OVERVIEW ── */}
+          <TabsContent value="overview" className="space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Stat label="Followers" value={fmtNum(selectedProfile?.followers)} delta={selectedProfile?.stats?.followers?.compared} color={theme.accent} icon={<Users className="h-4 w-4" />} />
+              <Stat label="Engagement Rate" value={fmtPercent(selectedProfile?.engagementRate)} sub={theme.label} color={theme.accent} icon={<TrendingUp className="h-4 w-4" />} />
+              <Stat label="Avg Likes" value={fmtNum(selectedProfile?.avgLikes)} delta={selectedProfile?.stats?.avgLikes?.compared} color={theme.accent} icon={<Heart className="h-4 w-4" />} />
+              <Stat label="Campaigns" value={fmtNum(campaignMeta.totalItems)} sub="All time" color={theme.accent} icon={<BriefcaseBusiness className="h-4 w-4" />} />
+            </div>
 
-                    <Card className="p-4 bg-pink-50/60">
-                      <div className="text-xs text-slate-600">Avg Comments</div>
-                      <div className="text-2xl font-bold text-pink-700">
-                        {fmtNum(profile.avgComments)}
-                      </div>
-                    </Card>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Sect title={<><Info className="h-4 w-4" style={{ color: theme.accent }} />Influencer Info</>}>
+                <KV label="Name" value={data.name || "—"} />
+                <KV label="Email" value={<Copy value={data.email} />} />
+                <KV label="ID" value={<Copy value={data.influencerId || data._id} />} />
+                <KV label="Country" value={data.countryName || "—"} />
+                <KV label="Languages" value={compactList(data.languages?.map(l => l.name || "") || [])} />
+                <KV label="Categories" value={compactList(data.categories?.map(c => c.name || "") || [])} />
+                <KV label="Created" value={fmtDateTime(data.createdAt)} />
+                <KV label="Updated" value={fmtDateTime(data.updatedAt)} />
+              </Sect>
+
+              <Sect title={<><Sparkles className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} Snapshot</>}>
+                <div className="mb-4 grid grid-cols-2 gap-3">
+                  <Stat label="Posts" value={fmtNum(selectedProfile?.postsCount)} color={theme.accent} icon={<Hash className="h-4 w-4" />} />
+                  <Stat label="Avg Plays" value={fmtNum(selectedProfile?.avgReelsPlays)} color={theme.accent} icon={<PlayCircle className="h-4 w-4" />} />
+                </div>
+                <KV label="Handle" value={selectedProfile?.username ? `${selectedProfile.username}` : selectedProfile?.handle || "—"} />
+                <KV label="Account Type" value={selectedProfile?.accountType || "—"} />
+                <KV label="Location" value={compactList([selectedProfile?.city, selectedProfile?.state, selectedProfile?.country])} />
+                <KV label="Avg Comments" value={fmtNum(selectedProfile?.avgComments)} />
+                <KV label="Paid Post Perf." value={fmtWt(selectedProfile?.stats?.paidPostPerformance)} />
+              </Sect>
+            </div>
+
+            <Sect title={<><Tag className="h-4 w-4" style={{ color: theme.accent }} />Topics & Tags</>}>
+              <div className="grid gap-5 sm:grid-cols-3">
+                {[
+                  { label: "Categories", items: selectedProfile?.categories?.map(c => ({ key: `${c.categoryName}-${c.subcategoryId}`, text: [c.categoryName, c.subcategoryName].filter(Boolean).join(" · ") })) },
+                  { label: "Hashtags", items: selectedProfile?.hashtags?.map((h, i) => ({ key: `${h.tag}-${i}`, text: `#${h.tag}` })) },
+                  { label: "Brand Affinity", items: selectedProfile?.brandAffinity?.map((b, i) => ({ key: `${b.name}-${i}`, text: b.name || "" })) },
+                ].map(({ label, items }) => (
+                  <div key={label}>
+                    <p className="mb-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+                    {items?.length
+                      ? <div className="flex flex-wrap gap-1.5">{items.slice(0, 10).map(item => (
+                          <span
+                            key={item.key}
+                            className="rounded-full border px-2.5 py-0.5 text-[11px] text-slate-600"
+                            style={{ borderColor: `${theme.accent}25`, background: `${theme.accent}08` }}
+                          >
+                            {item.text}
+                          </span>
+                        ))}</div>
+                      : <p className="text-xs text-slate-400">None</p>
+                    }
                   </div>
+                ))}
+              </div>
+            </Sect>
+          </TabsContent>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2 flex items-center gap-2">
-                        <Info className="h-4 w-4" />
-                        Account
-                      </div>
-                      <KVRow
-                        label="Username"
-                        value={profile.username ? `@${profile.username}` : "—"}
-                      />
-                      <KVRow label="Full Name" value={profile.fullname} />
-                      <KVRow label="Handle" value={profile.handle} />
-                      <KVRow label="Account Type" value={profile.accountType} />
-                      <KVRow
-                        label="Private"
-                        value={profile.isPrivate ? <Pill tone="warning">Yes</Pill> : "No"}
-                      />
-                    </Card>
+          {/* ── PROFILE ── */}
+          <TabsContent value="profile" className="space-y-4">
+            {selectedProfile ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Stat label="Followers" value={fmtNum(selectedProfile.followers)} delta={selectedProfile.stats?.followers?.compared} color={theme.accent} icon={<Users className="h-4 w-4" />} />
+                  <Stat label="Engagements" value={fmtNum(selectedProfile.engagements)} color={theme.accent} icon={<Zap className="h-4 w-4" />} />
+                  <Stat label="Avg Comments" value={fmtNum(selectedProfile.avgComments)} delta={selectedProfile.stats?.avgComments?.compared} color={theme.accent} icon={<MessageCircle className="h-4 w-4" />} />
+                  <Stat label="Paid Perf." value={fmtWt(selectedProfile.stats?.paidPostPerformance)} color={theme.accent} icon={<BarChart3 className="h-4 w-4" />} />
+                </div>
 
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2 flex items-center gap-2">
-                        <MapPin className="h-4 w-4" />
-                        Localization
-                      </div>
-                      <KVRow label="City" value={profile.city} />
-                      <KVRow label="State" value={profile.state} />
-                      <KVRow label="Country" value={profile.country} />
-                      <KVRow label="Language" value={profile.language} />
-                      <KVRow label="Age Group" value={profile.ageGroup} />
-                      <KVRow label="Gender" value={profile.gender} />
-                    </Card>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Sect
+                    title={<><Globe className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} Profile</>}
+                    action={selectedProfile.url
+                      ? <a
+                          href={selectedProfile.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[12px] font-semibold"
+                          style={{ color: theme.accent }}
+                        >
+                          Open <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      : null}
+                  >
+                    <KV label="Username" value={selectedProfile.username ? `@${selectedProfile.username}` : "—"} />
+                    <KV label="Full Name" value={selectedProfile.fullname || "—"} />
+                    <KV label="Handle" value={selectedProfile.handle || "—"} />
+                    <KV label="Language" value={selectedProfile.language || "—"} />
+                    <KV label="Gender" value={selectedProfile.gender || "—"} />
+                    <KV label="Age Group" value={selectedProfile.ageGroup || "—"} />
+                    <KV label="Location" value={compactList([selectedProfile.city, selectedProfile.state, selectedProfile.country])} />
+                    <KV label="Acct Type" value={selectedProfile.accountType || "—"} />
+                    <KV label="Private" value={selectedProfile.isPrivate ? "Yes" : "No"} />
+                    <KV label="Verified" value={selectedProfile.isVerified ? "Yes" : "No"} />
+                    <KV label="Posts" value={fmtNum(selectedProfile.postsCount)} />
+                    <KV label="Avg Plays" value={fmtNum(selectedProfile.avgReelsPlays)} />
+                  </Sect>
 
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2 flex items-center gap-2">
-                        <BarChart2 className="h-4 w-4" />
-                        Stats
-                      </div>
-                      <KVRow
-                        label="Posts Count"
-                        value={fmtNum(profile.postsCount)}
-                      />
-                      <KVRow
-                        label="Followers"
-                        value={fmtNum(profile.stats?.followers?.value ?? profile.followers)}
-                      />
-                      <KVRow
-                        label="Avg Shares"
-                        value={fmtNum(profile.stats?.avgShares?.value)}
-                      />
-                      <KVRow
-                        label="Paid Post Performance"
-                        value={fmtNum(profile.stats?.paidPostPerformance)}
-                      />
-                    </Card>
-                  </div>
+                  <Sect title={<><Tag className="h-4 w-4" style={{ color: theme.accent }} />Topics & Affinity</>}>
+                    <div className="space-y-4">
+                      {[
+                        { l: "Categories", items: selectedProfile.categories?.slice(0, 10).map((c, i) => ({ k: i, t: [c.categoryName, c.subcategoryName].filter(Boolean).join(" · ") })) },
+                        { l: "Hashtags", items: selectedProfile.hashtags?.slice(0, 14).map((h, i) => ({ k: i, t: `#${h.tag}` })) },
+                        { l: "Mentions", items: selectedProfile.mentions?.slice(0, 10).map((m, i) => ({ k: i, t: `@${m.tag}` })) },
+                        { l: "Brand Affinity", items: selectedProfile.brandAffinity?.slice(0, 10).map((b, i) => ({ k: i, t: b.name || "" })) },
+                      ].map(({ l, items }, gi) => (
+                        <div key={l}>
+                          {gi > 0 && <Separator className="mb-4 bg-slate-100" />}
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">{l}</p>
+                          {items?.length
+                            ? <div className="flex flex-wrap gap-1.5">{items.map(item => (
+                                <span
+                                  key={item.k}
+                                  className="rounded-full border px-2.5 py-0.5 text-[11px] text-slate-600"
+                                  style={{ borderColor: `${theme.accent}25`, background: `${theme.accent}08` }}
+                                >
+                                  {item.t}
+                                </span>
+                              ))}</div>
+                            : <p className="text-xs text-slate-400">None</p>
+                          }
+                        </div>
+                      ))}
+                    </div>
+                  </Sect>
+                </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-                    <Card className="p-4">
-                      <div className="font-semibold mb-3 flex items-center gap-2">
-                        <Tag className="h-4 w-4" />
-                        Categories
-                      </div>
-
-                      {profile.categories?.length ? (
-                        <div className="flex flex-wrap gap-2">
-                          {profile.categories.map((c, i) => (
-                            <Badge
-                              key={`${c.categoryName}-${c.subcategoryName}-${i}`}
-                              variant="outline"
-                              className="border-slate-300"
-                            >
-                              {[c.categoryName, c.subcategoryName].filter(Boolean).join(" • ") || "—"}
-                            </Badge>
+                {Object.keys(selectedProfile.statsByContentType || {}).length > 0 && (
+                  <Sect title={<><Layers3 className="h-4 w-4" style={{ color: theme.accent }} />Content Performance by Type</>}>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      {Object.entries(selectedProfile.statsByContentType || {}).filter(([, v]) => !!v).map(([key, value]) => (
+                        <div key={key} className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                          <p className="mb-3 text-[10px] font-bold uppercase tracking-widest" style={{ color: theme.accent }}>{key}</p>
+                          {[
+                            { l: "Eng. Rate", v: fmtPercent(value?.engagementRate) },
+                            { l: "Avg Likes", v: fmtNum(value?.avgLikes) },
+                            { l: "Avg Comments", v: fmtNum(value?.avgComments) },
+                            { l: "Avg Shares", v: fmtNum(value?.avgShares) },
+                            { l: "Plays/Views", v: fmtNum(value?.avgReelsPlays ?? value?.avgViews) },
+                          ].map(row => (
+                            <div key={row.l} className="flex items-center justify-between border-b border-slate-100 py-1.5 text-[12px] last:border-0">
+                              <span className="text-slate-400">{row.l}</span>
+                              <span className="font-semibold text-slate-700">{row.v}</span>
+                            </div>
                           ))}
                         </div>
-                      ) : (
-                        <div className="text-sm text-slate-500">No categories</div>
-                      )}
-                    </Card>
-
-                    <Card className="p-4">
-                      <div className="font-semibold mb-3 flex items-center gap-2">
-                        <Hash className="h-4 w-4" />
-                        Hashtags & Mentions
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {profile.hashtags?.slice(0, 12).map((h, i) => (
-                          <Badge
-                            key={`h-${i}`}
-                            variant="secondary"
-                            className="bg-slate-100 text-slate-800"
-                          >
-                            #{h.tag}
-                          </Badge>
-                        ))}
-
-                        {profile.mentions?.slice(0, 12).map((m, i) => (
-                          <Badge
-                            key={`m-${i}`}
-                            variant="secondary"
-                            className="bg-indigo-100 text-indigo-800"
-                          >
-                            @{m.tag}
-                          </Badge>
-                        ))}
-                      </div>
-
-                      {profile.brandAffinity?.length ? (
-                        <>
-                          <Separator className="my-3" />
-                          <div className="text-sm text-slate-600 mb-1">Brand Affinity</div>
-                          <div className="flex flex-wrap gap-2">
-                            {profile.brandAffinity.slice(0, 12).map((b, i) => (
-                              <Badge
-                                key={`ba-${i}`}
-                                variant="outline"
-                                className="border-amber-300 text-amber-800 bg-amber-50"
-                              >
-                                {b.name}
-                              </Badge>
-                            ))}
-                          </div>
-                        </>
-                      ) : null}
-                    </Card>
-                  </div>
-                </Section>
-              ))
-            ) : (
-              <Card className="p-6 text-slate-600">No page1 social profiles found.</Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="posts" className="space-y-6">
-            {profiles.map((profile, idx) => (
-              <Section
-                key={`posts-${profile.provider}-${idx}`}
-                title={
-                  <>
-                    <ImageIcon className="h-5 w-5" />
-                    <span className="capitalize">{profile.provider}</span> Posts
-                  </>
-                }
-              >
-                <Accordion type="multiple" className="space-y-2">
-                  <AccordionItem value={`recent-${idx}`}>
-                    <AccordionTrigger>Recent Posts</AccordionTrigger>
-                    <AccordionContent>
-                      <ScrollArea className="h-72 rounded border bg-slate-50">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Text</TableHead>
-                              <TableHead className="text-right">Likes</TableHead>
-                              <TableHead className="text-right">Comments</TableHead>
-                              <TableHead className="text-right">Views</TableHead>
-                              <TableHead></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(profile.recentPosts || []).map((post, i) => (
-                              <TableRow key={i}>
-                                <TableCell>{fmtDate(post.created)}</TableCell>
-                                <TableCell>{post.type || "—"}</TableCell>
-                                <TableCell className="max-w-[360px] truncate" title={post.text}>
-                                  {post.text || "—"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.likes)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.comments)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(getPostViews(post))}
-                                </TableCell>
-                                <TableCell>
-                                  {post.url && (
-                                    <a
-                                      href={post.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                                    >
-                                      Open
-                                      <ArrowUpRight className="h-4 w-4" />
-                                    </a>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  <AccordionItem value={`popular-${idx}`}>
-                    <AccordionTrigger>Popular Posts</AccordionTrigger>
-                    <AccordionContent>
-                      <ScrollArea className="h-72 rounded border bg-slate-50">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Text</TableHead>
-                              <TableHead className="text-right">Likes</TableHead>
-                              <TableHead className="text-right">Comments</TableHead>
-                              <TableHead></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(profile.popularPosts || []).map((post, i) => (
-                              <TableRow key={i}>
-                                <TableCell>{fmtDate(post.created)}</TableCell>
-                                <TableCell>{post.type || "—"}</TableCell>
-                                <TableCell className="max-w-[360px] truncate" title={post.text}>
-                                  {post.text || "—"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.likes)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.comments)}
-                                </TableCell>
-                                <TableCell>
-                                  {post.url && (
-                                    <a
-                                      href={post.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                                    >
-                                      Open
-                                      <ArrowUpRight className="h-4 w-4" />
-                                    </a>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </AccordionContent>
-                  </AccordionItem>
-
-                  <AccordionItem value={`sponsored-${idx}`}>
-                    <AccordionTrigger>Sponsored Posts</AccordionTrigger>
-                    <AccordionContent>
-                      <ScrollArea className="h-72 rounded border bg-slate-50">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Text</TableHead>
-                              <TableHead className="text-right">Likes</TableHead>
-                              <TableHead className="text-right">Comments</TableHead>
-                              <TableHead>Sponsors</TableHead>
-                              <TableHead></TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(profile.sponsoredPosts || []).map((post, i) => (
-                              <TableRow key={i}>
-                                <TableCell>{fmtDate(post.created)}</TableCell>
-                                <TableCell>{post.type || "—"}</TableCell>
-                                <TableCell className="max-w-[320px] truncate" title={post.text}>
-                                  {post.text || "—"}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.likes)}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  {fmtNum(post.comments)}
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex flex-wrap gap-1">
-                                    {(post.sponsors || []).map((s, sponsorIdx) => (
-                                      <Badge key={sponsorIdx} variant="outline">
-                                        {s.name || s.domain || "Sponsor"}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </TableCell>
-                                <TableCell>
-                                  {post.url && (
-                                    <a
-                                      href={post.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
-                                    >
-                                      Open
-                                      <ArrowUpRight className="h-4 w-4" />
-                                    </a>
-                                  )}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </ScrollArea>
-                    </AccordionContent>
-                  </AccordionItem>
-                </Accordion>
-              </Section>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="audience" className="space-y-6">
-            {profiles.map((profile, idx) => (
-              <Section
-                key={`audience-${profile.provider}-${idx}`}
-                title={
-                  <>
-                    <Users className="h-5 w-5" />
-                    <span className="capitalize">{profile.provider}</span> Audience
-                  </>
-                }
-              >
-                {profile.audience ? (
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2">Overview</div>
-                      <KVRow label="Credibility" value={profile.audience.credibility ?? "—"} />
-                      <KVRow label="Notable" value={profile.audience.notable ?? "—"} />
-                      <KVRow
-                        label="Top Languages"
-                        value={
-                          profile.audience.languages?.slice(0, 5)
-                            .map((item) => item.name || item.code)
-                            .filter(Boolean)
-                            .join(", ") || "—"
-                        }
-                      />
-                      <KVRow
-                        label="Top Interests"
-                        value={
-                          profile.audience.interests?.slice(0, 5)
-                            .map((item) => item.name || item.code)
-                            .filter(Boolean)
-                            .join(", ") || "—"
-                        }
-                      />
-                    </Card>
-
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2">Top Countries</div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Country</TableHead>
-                            <TableHead className="text-right">Weight</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(profile.audience.geoCountries || []).slice(0, 8).map((item, i) => (
-                            <TableRow key={i}>
-                              <TableCell>{item.name || item.code || "—"}</TableCell>
-                              <TableCell className="text-right">
-                                {fmtWeightPercent(item.weight)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </Card>
-
-                    <Card className="p-4">
-                      <div className="font-semibold mb-2">Age Distribution</div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Age</TableHead>
-                            <TableHead className="text-right">Weight</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(profile.audience.ages || []).map((item, i) => (
-                            <TableRow key={i}>
-                              <TableCell>{item.code || item.name || "—"}</TableCell>
-                              <TableCell className="text-right">
-                                {fmtWeightPercent(item.weight)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </Card>
-                  </div>
-                ) : (
-                  <div className="text-slate-600">No audience data available.</div>
+                      ))}
+                    </div>
+                  </Sect>
                 )}
-              </Section>
-            ))}
+              </>
+            ) : <Empty label="No platform profile" desc="Select a connected platform above." />}
           </TabsContent>
 
-          <TabsContent value="payment" className="space-y-6">
-            <Section
-              title={
-                <>
-                  <Info className="h-5 w-5" />
-                  Payment Details
-                </>
-              }
-              subtitle="Available payout methods for this influencer"
-            >
-              {paymentLoading ? (
-                <div className="text-slate-600">Loading payment details...</div>
-              ) : paymentDetails.length ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {paymentDetails.map((item, idx) => (
-                    <Card key={item._id || idx} className="p-5 shadow-md">
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-lg font-semibold text-slate-900">
-                            {item.type === 0 ? "PayPal" : "Bank"}
-                          </h4>
-
-                          {item.isDefault && (
-                            <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                              Default
-                            </Badge>
-                          )}
+          {/* ── CAMPAIGNS ── */}
+          <TabsContent value="campaigns" className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Total" value={fmtNum(campaignMeta.totalItems)} color={theme.accent} icon={<BriefcaseBusiness className="h-4 w-4" />} />
+              <Stat label="Page" value={`${campaignMeta.page}/${campaignMeta.totalPages}`} color={theme.accent} icon={<Activity className="h-4 w-4" />} />
+              <Stat label="Per Page" value={`${campaignMeta.limit}`} color={theme.accent} icon={<Hash className="h-4 w-4" />} />
+            </div>
+            <Sect title={<><BriefcaseBusiness className="h-4 w-4" style={{ color: theme.accent }} />Campaign History</>}>
+              <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white/70">
+                <AdminTable<CampaignItem>
+                  data={campaigns}
+                  columns={campaignColumns}
+                  rowKey={getCId}
+                  loading={campaignLoading}
+                  error={campaignError}
+                  emptyTitle="No campaigns"
+                  emptyDescription="No campaigns found for this influencer."
+                  expandable={{
+                    expandedRowId: expandedCampaignId,
+                    onToggle: rowId => setExpandedCampaignId(cur => cur === rowId ? null : rowId),
+                    canExpand: row => Boolean(row.description || row.brief || row.objective || row.goals?.length || row.deliverables?.length),
+                    renderExpandedRow: row => (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Overview</p>
+                          <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Objective:</strong> {row.objective || "—"}</p>
+                          <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Description:</strong> {row.description || row.brief || "—"}</p>
                         </div>
-
-                        <Pill tone={item.type === 0 ? "default" : "muted"}>
-                          {item.type === 0 ? "PayPal" : "Bank Transfer"}
-                        </Pill>
+                        <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
+                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">Deliverables</p>
+                          <p className="text-[12px] text-slate-600"><strong className="text-slate-700">Goals:</strong> {row.goals?.length ? row.goals.join(", ") : "—"}</p>
+                          <p className="mt-1.5 text-[12px] text-slate-600"><strong className="text-slate-700">Deliverables:</strong> {row.deliverables?.length ? `${row.deliverables.length} item(s)` : "—"}</p>
+                        </div>
                       </div>
+                    ),
+                  }}
+                  pagination={{
+                    page: campaignMeta.page,
+                    totalPages: campaignMeta.totalPages,
+                    totalItems: campaignMeta.totalItems,
+                    limit: campaignMeta.limit,
+                    onPageChange: p => setCampaignPage(p),
+                    showRowsSelector: false,
+                    showSummary: true,
+                    loading: campaignLoading,
+                  }}
+                />
+              </div>
+            </Sect>
+          </TabsContent>
 
-                      {item.type === 0 ? (
-                        <>
-                          <KVRow label="Email" value={<Copyable value={item.paypal?.email} />} />
-                          <KVRow label="Username" value={item.paypal?.username || "—"} />
-                        </>
-                      ) : (
-                        <>
-                          <KVRow label="Account Holder" value={item.bank?.accountHolder || "—"} />
-                          <KVRow label="Account Number" value={item.bank?.accountNumber || "—"} />
-                          <KVRow label="Bank Name" value={item.bank?.bankName || "—"} />
-                          <KVRow label="Branch" value={item.bank?.branch || "—"} />
-                          <KVRow label="IFSC" value={item.bank?.ifsc || "—"} />
-                          <KVRow label="SWIFT" value={item.bank?.swift || "—"} />
-                          <KVRow label="Country" value={item.bank?.countryName || "—"} />
-                        </>
-                      )}
+          {/* ── POSTS ── */}
+          <TabsContent value="posts" className="space-y-4">
+            {selectedProfile ? (
+              <>
+                {[
+                  { key: "recent", label: "Recent Posts", posts: selectedProfile.recentPosts, lim: 6 },
+                  { key: "popular", label: "Top Posts", posts: selectedProfile.popularPosts, lim: 4 },
+                  { key: "sponsored", label: "Sponsored Posts", posts: selectedProfile.sponsoredPosts, lim: 4 },
+                ].map(({ key, label, posts, lim }) => (
+                  <Sect key={key} title={<><Hash className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} — {label}</>}>
+                    {posts?.length
+                      ? <div className="grid gap-3 sm:grid-cols-2">{posts.slice(0, lim).map((p, i) => <PostCard key={`${p.id || i}-${key}`} post={p} color={theme.accent} />)}</div>
+                      : <Empty label={`No ${label.toLowerCase()}`} desc="Not available for this platform." />
+                    }
+                  </Sect>
+                ))}
+              </>
+            ) : <Empty label="No platform profile" desc="Select a platform to view posts." />}
+          </TabsContent>
 
-                      <Separator className="my-4" />
+          {/* ── AUDIENCE ── */}
+          <TabsContent value="audience" className="space-y-4">
+            {selectedProfile?.audience ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <Stat label="Credibility" value={fmtWt(selectedProfile.audience.credibility)} sub="Real audience est." color={theme.accent} icon={<Shield className="h-4 w-4" />} />
+                  <Stat label="Notable" value={fmtWt(selectedProfile.audience.notable)} sub="Known accounts" color={theme.accent} icon={<Star className="h-4 w-4" />} />
+                  <Stat label="Top Country" value={selectedProfile.audience.geoCountries?.[0]?.name || "—"} sub={fmtWt(selectedProfile.audience.geoCountries?.[0]?.weight)} color={theme.accent} icon={<Globe className="h-4 w-4" />} />
+                  <Stat label="Top Age" value={selectedProfile.audience.ages?.[0]?.code || "—"} sub={fmtWt(selectedProfile.audience.ages?.[0]?.weight)} color={theme.accent} icon={<Users className="h-4 w-4" />} />
+                </div>
 
-                      <div className="text-xs text-slate-500 space-y-1">
-                        <div>Created: {fmtDateTime(item.createdAt)}</div>
-                        <div>Updated: {fmtDateTime(item.updatedAt)}</div>
-                      </div>
-                    </Card>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {[
+                    { title: "Languages", items: selectedProfile.audience.languages },
+                    { title: "Interests", items: selectedProfile.audience.interests },
+                    { title: "Countries", items: selectedProfile.audience.geoCountries },
+                    { title: "Gender Split", items: selectedProfile.audience.genders },
+                  ].map(({ title, items }) => (
+                    <Sect key={title} title={title}>
+                      {items?.length
+                        ? <div className="space-y-2.5">{items.slice(0, 8).map((item, i) => (
+                            <ABar key={`${item.name || i}`} label={item.name || item.code || "—"} pct={pctVal(item.weight)} color={theme.accent} />
+                          ))}</div>
+                        : <p className="text-xs text-slate-400">No data available.</p>
+                      }
+                    </Sect>
                   ))}
                 </div>
-              ) : (
-                <div className="text-slate-600">No payment details available.</div>
-              )}
-            </Section>
+
+                {(selectedProfile.audience.notableUsers?.length ?? 0) > 0 && (
+                  <Sect title={<><Users className="h-4 w-4" style={{ color: theme.accent }} />Notable Audience</>}>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {selectedProfile.audience.notableUsers!.slice(0, 9).map((user, i) => (
+                        <div key={user.userId || user.username || i} className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 p-3">
+                          {user.picture
+                            ? <img src={user.picture} alt="" className="h-10 w-10 rounded-xl object-cover" />
+                            : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ background: theme.gradient }}>
+                                {getInitials(user.fullname || user.username)}
+                              </div>
+                          }
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-semibold text-slate-700">{user.fullname || user.username || "—"}</p>
+                            <p className="text-[11px] text-slate-400">{user.username ? `@${user.username}` : "—"}</p>
+                            <p className="text-[10px] text-slate-400">{fmtNum(user.followers)} followers</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </Sect>
+                )}
+              </>
+            ) : <Empty label="No audience data" desc="Not available for this platform." />}
+          </TabsContent>
+
+          {/* ── PAYMENT ── */}
+          <TabsContent value="payment" className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <Stat label="Methods" value={paymentDetails.length} color={theme.accent} icon={<Wallet className="h-4 w-4" />} />
+              <Stat label="Bank Accounts" value={paymentDetails.filter(d => d.type === 1).length} color={theme.accent} icon={<Building2 className="h-4 w-4" />} />
+              <Stat label="PayPal" value={paymentDetails.filter(d => d.type === 0).length} color={theme.accent} icon={<CreditCard className="h-4 w-4" />} />
+            </div>
+            <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Payment Methods</>}>
+              {paymentLoading ? (
+                <div className="grid gap-3 sm:grid-cols-2">{[0, 1].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}</div>
+              ) : paymentDetails.length ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {paymentDetails.map((pm, i) => (
+                    <div key={pm._id || i} className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white/75 p-4 backdrop-blur-sm">
+                      <div className="absolute left-0 top-0 h-[3px] w-full" style={{ background: theme.gradient }} />
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-[13px] font-semibold text-slate-700">{pm.label || (pm.type === 0 ? "PayPal" : "Bank Account")}</p>
+                          <p className="text-[11px] text-slate-400">{pm.type === 0 ? "PayPal" : "Bank Transfer"}</p>
+                        </div>
+                        {pm.isDefault && (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">Default</span>
+                        )}
+                      </div>
+                      <Separator className="mb-3 bg-slate-100" />
+                      {pm.type === 0 ? (
+                        <>
+                          <KV label="Email" value={pm.paypal?.email || "—"} />
+                          <KV label="Username" value={pm.paypal?.username || "—"} />
+                          <KV label="Updated" value={fmtDateTime(pm.updatedAt)} />
+                        </>
+                      ) : (
+                        <>
+                          <KV label="Holder" value={pm.bank?.accountHolder || "—"} />
+                          <KV label="Account No." value={<code className="font-mono text-[12px]">{maskAcct(pm.bank?.accountNumber)}</code>} />
+                          <KV label="Bank" value={pm.bank?.bankName || "—"} />
+                          <KV label="IFSC" value={<code className="font-mono text-[12px]">{pm.bank?.ifsc || "—"}</code>} />
+                          <KV label="SWIFT" value={<code className="font-mono text-[12px]">{pm.bank?.swift || "—"}</code>} />
+                          <KV label="Country" value={pm.bank?.countryName || "—"} />
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : <Empty label="No payment methods" desc="No saved payment details found." />}
+            </Sect>
           </TabsContent>
         </Tabs>
       </div>

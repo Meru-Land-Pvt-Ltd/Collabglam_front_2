@@ -2,9 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { TopbarAction } from "./brandTopbarProvider";
-import { CaretRightIcon, ListDashes } from "@phosphor-icons/react";
+import NotificationCard from "./notificationCard";
+import { BellIcon, CaretRightIcon, ListDashes } from "@phosphor-icons/react";
 
 /* -------- tiny util (keeps this file standalone) -------- */
 function useMediaQuery(query: string) {
@@ -91,7 +98,9 @@ function ActionButton({ action }: { action: TopbarAction }) {
         aria-disabled={action.disabled}
       >
         {action.icon ? <span className="shrink-0">{action.icon}</span> : null}
-        {action.label ? <span className="whitespace-nowrap">{action.label}</span> : null}
+        {action.label ? (
+          <span className="whitespace-nowrap">{action.label}</span>
+        ) : null}
       </div>
     );
   }
@@ -102,13 +111,16 @@ function ActionButton({ action }: { action: TopbarAction }) {
 
   const secondary = "bg-transparent text-[#1A1A1A] hover:bg-[#F5F5F5]";
   const primary = "bg-[#1A1A1A] text-white hover:bg-black";
-  const cls = `${base} ${action.variant === "primary" ? primary : secondary} ${action.className ?? ""
-    }`;
+  const cls = `${base} ${
+    action.variant === "primary" ? primary : secondary
+  } ${action.className ?? ""}`;
 
   const content = (
     <>
       {action.icon ? <span className="shrink-0">{action.icon}</span> : null}
-      {action.label ? <span className="whitespace-nowrap">{action.label}</span> : null}
+      {action.label ? (
+        <span className="whitespace-nowrap">{action.label}</span>
+      ) : null}
     </>
   );
 
@@ -121,7 +133,12 @@ function ActionButton({ action }: { action: TopbarAction }) {
   }
 
   return (
-    <button className={cls} onClick={action.onClick} disabled={action.disabled} type="button">
+    <button
+      className={cls}
+      onClick={action.onClick}
+      disabled={action.disabled}
+      type="button"
+    >
       {content}
     </button>
   );
@@ -136,14 +153,21 @@ export default function BrandTopbar({
 }) {
   const pathname = usePathname();
 
-  // matches sidebar breakpoint (drawer on <1024)
   const isDesktop = useMediaQuery("(min-width: 1024px)");
-  // narrow helper for breadcrumb truncation
   const isNarrow = useMediaQuery("(max-width: 640px)");
   const topbarRef = useRef<HTMLDivElement>(null);
+  const notificationRef = useRef<HTMLDivElement>(null);
+
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationPosition, setNotificationPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
   const showHamburger = !isDesktop && Boolean(onMenuToggle);
 
-    useEffect(() => {
+  useEffect(() => {
     const el = topbarRef.current;
     if (!el) return;
 
@@ -162,10 +186,49 @@ export default function BrandTopbar({
     return () => ro.disconnect();
   }, []);
 
+  const updateNotificationPosition = useCallback(() => {
+    const trigger = notificationRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 8;
+    const desiredWidth = 565;
+
+    const width = Math.min(
+      desiredWidth,
+      Math.max(320, window.innerWidth - viewportPadding * 2)
+    );
+
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - width),
+      window.innerWidth - width - viewportPadding
+    );
+
+    const top = rect.bottom + gap;
+
+    setNotificationPosition({ top, left, width });
+  }, []);
+
+  useEffect(() => {
+    if (!showNotifications) return;
+
+    updateNotificationPosition();
+
+    const handleReposition = () => updateNotificationPosition();
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [showNotifications, updateNotificationPosition]);
+
   const crumbs = useMemo(() => getCrumbs(pathname), [pathname]);
 
   const displayCrumbs = useMemo(() => {
-    // On narrow: show only last 2 crumbs (prevents overflow)
     if (!isNarrow) return crumbs;
     if (crumbs.length <= 2) return crumbs;
     return crumbs.slice(-2);
@@ -177,106 +240,163 @@ export default function BrandTopbar({
       : getDefaultActions(pathname);
   }, [actionsOverride, pathname]);
 
-  return (
-    <div ref={topbarRef} className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white">
-      <div className="flex items-center gap-3 px-4 sm:px-6 py-4 min-w-0">
-        {/* Hamburger (only when sidebar is drawer mode) */}
-        {showHamburger ? (
-          <button
-            type="button"
-            onClick={onMenuToggle}
-            aria-label="Open menu"
-            title="Menu"
-            className={[
-              "grid h-10 w-10 place-items-center rounded-lg border border-neutral-200 bg-white shadow-sm",
-              "hover:bg-neutral-50 transition",
-            ].join(" ")}
-          >
-            <ListDashes size={22} className="text-[#1a1a1a]" />
-          </button>
-        ) : null}
+  const handleNotificationToggle = () => {
+    if (showNotifications) {
+      setShowNotifications(false);
+      return;
+    }
 
-        {/* If hamburger is showing, hide breadcrumbs and show current page title */}
-        {showHamburger ? (
-          <div
-            className="min-w-0 flex-1 truncate text-[14px] sm:text-[16px] font-semibold text-[#1A1A1A]"
-            style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
-          >
-            {crumbs[crumbs.length - 1]?.label ?? ""}
-          </div>
-        ) : (
-          <nav className="flex items-center gap-2 min-w-0 flex-1">
-            {isNarrow && crumbs.length > 2 ? (
-              <span
-                className="text-[#B8B8B8] font-semibold"
-                style={{
+    updateNotificationPosition();
+    setShowNotifications(true);
+  };
+
+  return (
+    <>
+      <div
+        ref={topbarRef}
+        className="sticky top-0 z-40 w-full border-b border-neutral-200 bg-white"
+      >
+        <div className="flex items-center gap-3 px-4 sm:px-6 py-4 min-w-0">
+          {showHamburger ? (
+            <button
+              type="button"
+              onClick={onMenuToggle}
+              aria-label="Open menu"
+              title="Menu"
+              className={[
+                "grid h-10 w-10 place-items-center rounded-lg border border-neutral-200 bg-white shadow-sm",
+                "hover:bg-neutral-50 transition",
+              ].join(" ")}
+            >
+              <ListDashes size={22} className="text-[#1a1a1a]" />
+            </button>
+          ) : null}
+
+          {showHamburger ? (
+            <div
+              className="min-w-0 flex-1 truncate text-[14px] sm:text-[16px] font-semibold text-[#1A1A1A]"
+              style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
+            >
+              {crumbs[crumbs.length - 1]?.label ?? ""}
+            </div>
+          ) : (
+            <nav className="flex items-center gap-2 min-w-0 flex-1">
+              {isNarrow && crumbs.length > 2 ? (
+                <span
+                  className="text-[#B8B8B8] font-semibold"
+                  style={{
+                    fontFamily: "var(--Font-Family-Inter, Inter)",
+                    fontSize: "14px",
+                    lineHeight: "20px",
+                  }}
+                >
+                  …
+                </span>
+              ) : null}
+
+              {displayCrumbs.map((c, idx) => {
+                const last = idx === displayCrumbs.length - 1;
+
+                const commonStyle: React.CSSProperties = {
                   fontFamily: "var(--Font-Family-Inter, Inter)",
                   fontSize: "14px",
+                  fontStyle: "normal",
+                  fontWeight: 600,
                   lineHeight: "20px",
-                }}
-              >
-                …
-              </span>
-            ) : null}
+                  letterSpacing: "0",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: isNarrow ? 140 : 220,
+                  display: "inline-block",
+                };
 
-            {displayCrumbs.map((c, idx) => {
-              const last = idx === displayCrumbs.length - 1;
+                const selectedStyle: React.CSSProperties = {
+                  ...commonStyle,
+                  color: "#1A1A1A",
+                };
+                const prevStyle: React.CSSProperties = {
+                  ...commonStyle,
+                  color: "#B8B8B8",
+                };
 
-              const commonStyle: React.CSSProperties = {
-                fontFamily: "var(--Font-Family-Inter, Inter)",
-                fontSize: "14px",
-                fontStyle: "normal",
-                fontWeight: 600,
-                lineHeight: "20px",
-                letterSpacing: "0",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                maxWidth: isNarrow ? 140 : 220,
-                display: "inline-block",
-              };
-
-              const selectedStyle: React.CSSProperties = { ...commonStyle, color: "#1A1A1A" };
-              const prevStyle: React.CSSProperties = { ...commonStyle, color: "#B8B8B8" };
-
-              return (
-                <React.Fragment key={c.href}>
-                  <Link href={c.href} style={last ? selectedStyle : prevStyle} className="min-w-0">
-                    {c.label}
-                  </Link>
-
-                  {!last ? (
-                    <span
-                      className="shrink-0 text-[#B8B8B8]"
-                      style={{
-                        fontFamily: "var(--Font-Family-Inter, Inter)",
-                        fontSize: "14px",
-                        fontWeight: 600,
-                        lineHeight: "20px",
-                      }}
+                return (
+                  <React.Fragment key={c.href}>
+                    <Link
+                      href={c.href}
+                      style={last ? selectedStyle : prevStyle}
+                      className="min-w-0"
                     >
-                      <CaretRightIcon />
-                    </span>
-                  ) : null}
-                </React.Fragment>
-              );
-            })}
-          </nav>
-        )}
+                      {c.label}
+                    </Link>
 
-        {/* Actions */}
-        <div
-          className={[
-            "ml-auto flex items-center gap-2 sm:gap-6 shrink-0",
-            "max-w-[46vw] sm:max-w-none overflow-x-auto",
-            "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-          ].join(" ")}
-        >
-          {actions.map((a) => (
-            <ActionButton key={a.key} action={a} />
-          ))}
+                    {!last ? (
+                      <span
+                        className="shrink-0 text-[#B8B8B8]"
+                        style={{
+                          fontFamily: "var(--Font-Family-Inter, Inter)",
+                          fontSize: "14px",
+                          fontWeight: 600,
+                          lineHeight: "20px",
+                        }}
+                      >
+                        <CaretRightIcon />
+                      </span>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </nav>
+          )}
+
+          <div className="ml-auto flex items-center gap-2 sm:gap-4 shrink-0">
+            <div className="relative shrink-0" ref={notificationRef}>
+              <button
+                type="button"
+                aria-label="Notifications"
+                title="Notifications"
+                onClick={handleNotificationToggle}
+                className="grid h-10 w-10 place-items-center rounded-lg  hover:bg-neutral-50 transition"
+              >
+                <BellIcon size={20} className="text-[#1A1A1A]" />
+              </button>
+            </div>
+
+            <div
+              className={[
+                "flex items-center gap-2 sm:gap-6 shrink-0",
+                "max-w-[46vw] sm:max-w-none overflow-x-auto",
+                "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+              ].join(" ")}
+            >
+              {actions.map((a) => (
+                <ActionButton key={a.key} action={a} />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+
+      {showNotifications && notificationPosition ? (
+        <div
+          className="fixed inset-0 z-[100]"
+          onMouseDown={() => setShowNotifications(false)}
+        >
+          <div className="absolute inset-0 bg-black/10" />
+
+          <div
+            className="absolute"
+            style={{
+              top: notificationPosition.top,
+              left: notificationPosition.left,
+              width: notificationPosition.width,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <NotificationCard onClose={() => setShowNotifications(false)} />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

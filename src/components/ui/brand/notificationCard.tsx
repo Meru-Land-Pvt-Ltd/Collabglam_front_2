@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useMemo, useState } from "react";
 import { CaretDown, FilePdf, GearSix, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/buttonComp";
@@ -174,14 +176,8 @@ export default function NotificationPanel({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-start p-5"
-      onClick={onClose}
-    >
-      <div
-        className="relative flex w-[35.3125rem] flex-col items-start gap-[0.9375rem] rounded-[0.75rem] bg-white pb-5"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="w-full overflow-hidden rounded-[0.75rem] border border-[#E6E6E6] bg-white shadow-[0_16px_40px_rgba(0,0,0,0.12)]">
+      <div className="flex max-h-[min(80vh,42rem)] flex-col">
         <div className="relative flex w-full items-start justify-between px-5 pt-5">
           <div className="relative">
             <button
@@ -194,7 +190,7 @@ export default function NotificationPanel({
             </button>
 
             {isCategoryOpen && (
-              <div className="absolute left-0 top-[calc(100%+0.5rem)] z-20 flex w-[13.1875rem] flex-col gap-2 rounded-[0.75rem] border border-[#F1F3F7] bg-white p-[0.625rem_0.5rem]">
+              <div className="absolute left-0 top-[calc(100%+0.5rem)] z-20 flex w-[13.1875rem] flex-col gap-2 rounded-[0.75rem] border border-[#F1F3F7] bg-white p-[0.625rem_0.5rem] shadow-[0_10px_24px_rgba(0,0,0,0.08)]">
                 {CATEGORY_OPTIONS.map((option) => (
                   <button
                     key={option}
@@ -204,7 +200,9 @@ export default function NotificationPanel({
                       setIsCategoryOpen(false);
                     }}
                     className={`flex h-[3.125rem] w-full items-center rounded-[0.5rem] px-4 py-5 text-left text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A] ${
-                      option === activeCategory ? "bg-[#EDEDED]" : "bg-white hover:bg-[#F7F7F7]"
+                      option === activeCategory
+                        ? "bg-[#EDEDED]"
+                        : "bg-white hover:bg-[#F7F7F7]"
                     }`}
                   >
                     {option}
@@ -260,27 +258,29 @@ export default function NotificationPanel({
           </button>
         </div>
 
-        <div className="flex w-full flex-col gap-[0.9375rem]">
-          {groupedNotifications.map((group) => (
-            <div key={group.label} className="flex w-full flex-col gap-[0.625rem]">
-              <div className="px-5 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]">
-                {group.label}
-              </div>
+        <div className="flex-1 overflow-y-auto py-[0.9375rem]">
+          <div className="flex w-full flex-col gap-[0.9375rem]">
+            {groupedNotifications.map((group) => (
+              <div key={group.label} className="flex w-full flex-col gap-[0.625rem]">
+                <div className="px-5 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]">
+                  {group.label}
+                </div>
 
-              <div className="flex w-full flex-col gap-3 px-5">
-                {group.items.map((item) => (
-                  <NotificationCard key={item.id} item={item} />
-                ))}
+                <div className="flex w-full flex-col gap-3 px-5">
+                  {group.items.map((item) => (
+                    <NotificationItemCard key={item.id} item={item} />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function NotificationCard({ item }: { item: NotificationItem }) {
+function NotificationItemCard({ item }: { item: NotificationItem }) {
   return (
     <div className="flex w-full items-start gap-3 rounded-[0.75rem] bg-white py-1">
       <img
