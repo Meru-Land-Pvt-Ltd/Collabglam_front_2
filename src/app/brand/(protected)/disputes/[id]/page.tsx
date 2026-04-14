@@ -86,6 +86,8 @@ interface Comment {
   text: string;
   createdAt: string;
   attachments?: Attachment[];
+  parentCommentId?: string | null;
+  threadRootCommentId?: string | null;
 }
 
 interface DisputeParty {
@@ -861,6 +863,11 @@ function ProfileAvatar({
 
 function ActivityFeed({
   dispute,
+  rootComments,
+  repliesByParent,
+  activeReplyCommentId,
+  isFinalized,
+  onStartReply,
   onOpenLightbox,
   brandLogoUrl,
   brandProfilePic,
@@ -869,6 +876,11 @@ function ActivityFeed({
   onRaiseSystemFlag,
 }: {
   dispute: Dispute;
+  rootComments: Comment[];
+  repliesByParent: Record<string, Comment[]>;
+  activeReplyCommentId: string | null;
+  isFinalized: boolean;
+  onStartReply: (comment: Comment) => void;
   onOpenLightbox: (images: Attachment[], index: number) => void;
   brandLogoUrl?: string | null;
   brandProfilePic?: string | null;
@@ -930,7 +942,7 @@ function ActivityFeed({
         </div>
 
         {/* User comments */}
-        {dispute.comments.map((comment) => {
+        {rootComments.map((comment) => {
           const commentImages = getImageAttachments(comment.attachments);
           const isBrandComment = comment.authorRole === "Brand";
           const commentName = getCommentAuthorLabel(comment, dispute);
@@ -1026,6 +1038,91 @@ function ActivityFeed({
                           />
                         </Button>
                       ))}
+                    </div>
+                  )}
+
+                  {comment.authorRole !== "Brand" && !isFinalized && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => onStartReply(comment)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-[#e8e8e8] bg-white px-3 py-1.5 text-xs font-medium text-[#444] transition hover:bg-[#f7f7f7]"
+                      >
+                        <ArrowUUpLeftIcon size={14} />
+                        {activeReplyCommentId === comment.commentId ? "Replying" : "Reply"}
+                      </button>
+                    </div>
+                  )}
+
+                  {(repliesByParent[comment.commentId] ?? []).length > 0 && (
+                    <div className="mt-4 ml-4 rounded-xl border border-[#eeeeee] bg-white p-3">
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[#999]">
+                        Thread
+                      </p>
+
+                      <div className="space-y-3">
+                        {(repliesByParent[comment.commentId] ?? []).map((reply) => {
+                          const replyImages = getImageAttachments(reply.attachments);
+                          const replyName = getCommentAuthorLabel(reply, dispute);
+                          const isReplyBrand = reply.authorRole === "Brand";
+
+                          return (
+                            <div
+                              key={reply.commentId}
+                              className="rounded-lg border border-[#f0f0f0] bg-[#fafafa] px-4 py-3"
+                            >
+                              <div className="flex items-start gap-3">
+                                <ProfileAvatar
+                                  name={replyName}
+                                  role={reply.authorRole}
+                                  imageUrl={
+                                    isReplyBrand && dispute.viewerIsRaiser
+                                      ? brandProfilePic
+                                      : undefined
+                                  }
+                                  size="sm"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <span className="truncate text-sm font-medium text-[#1a1a1a]">
+                                      {replyName}
+                                    </span>
+                                    <span className="text-xs text-[#999]">
+                                      {formatTimeAgo(reply.createdAt)}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#666]">
+                                    {reply.text}
+                                  </p>
+
+                                  {replyImages.length > 0 && (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {replyImages.map((attachment, index) => (
+                                        <Button
+                                          key={`${attachment.url}-${index}`}
+                                          type="button"
+                                          onClick={() => onOpenLightbox(replyImages, index)}
+                                          className={`relative h-14 w-20 overflow-hidden rounded-xl ${SURFACE_BORDER} bg-[#f5f5f5] !p-0`}
+                                        >
+                                          <Image
+                                            src={attachment.url}
+                                            alt={attachment.originalName ?? "Reply attachment"}
+                                            fill
+                                            unoptimized
+                                            sizes="80px"
+                                            className="object-cover"
+                                          />
+                                        </Button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1309,7 +1406,7 @@ export default function BrandDisputeDetailPage() {
   const [commentFiles, setCommentFiles] = useState<File[]>([]);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
-
+  const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
   // ── Revoke modal ────────────────────────────────────────────────────────
   const [isRevokeModalOpen, setIsRevokeModalOpen] = useState(false);
   const [isRevoking, setIsRevoking] = useState(false);
@@ -1436,20 +1533,25 @@ export default function BrandDisputeDetailPage() {
       const formData = new FormData();
       formData.append("brandId", brandId);
       formData.append("text", trimmed || " ");
+
+      if (activeReplyCommentId) {
+        formData.append("parentCommentId", activeReplyCommentId);
+      }
+
       commentFiles.forEach((file) => formData.append("attachments", file));
 
       await postFormData(`/dispute/brand/${disputeId}/comment`, formData);
 
       setComment("");
       setCommentFiles([]);
+      setActiveReplyCommentId(null);
       await loadDispute();
     } catch (err) {
       setPostError(getErrorMessage(err, "Failed to post comment."));
     } finally {
       setPosting(false);
     }
-  }, [brandId, comment, commentFiles, disputeId, loadDispute]);
-
+  }, [brandId, comment, commentFiles, disputeId, loadDispute, activeReplyCommentId]);
   const handleEditComment = useCallback(
     async (target: Comment) => {
       if (!brandId) return;
@@ -1543,6 +1645,30 @@ export default function BrandDisputeDetailPage() {
     });
   }, []);
 
+  const visibleComments = useMemo(
+    () => dispute?.comments ?? [],
+    [dispute?.comments]
+  );
+
+  const rootComments = useMemo(
+    () => visibleComments.filter((comment) => !comment.parentCommentId),
+    [visibleComments]
+  );
+
+  const repliesByParent = useMemo(
+    () =>
+      visibleComments.reduce<Record<string, Comment[]>>((acc, currentComment) => {
+        if (currentComment.parentCommentId) {
+          if (!acc[currentComment.parentCommentId]) {
+            acc[currentComment.parentCommentId] = [];
+          }
+          acc[currentComment.parentCommentId].push(currentComment);
+        }
+        return acc;
+      }, {}),
+    [visibleComments]
+  );
+
   // ── Derived state ────────────────────────────────────────────────────────
   const derived = useMemo(() => {
     if (!dispute) {
@@ -1555,7 +1681,6 @@ export default function BrandDisputeDetailPage() {
         metaItems: [] as MetaItem[],
       };
     }
-
     const daysOpen = daysSince(dispute.createdAt);
     const imageAttachments = getImageAttachments(dispute.attachments);
     const fileAttachments = getFileAttachments(dispute.attachments);
@@ -1721,6 +1846,16 @@ export default function BrandDisputeDetailPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <ActivityFeed
               dispute={dispute}
+              rootComments={rootComments}
+              repliesByParent={repliesByParent}
+              activeReplyCommentId={activeReplyCommentId}
+              isFinalized={derived.isFinalized}
+              onStartReply={(comment) => {
+                setActiveReplyCommentId(comment.commentId);
+                setComment((prev) =>
+                  prev.trim() ? prev : `@${getCommentAuthorLabel(comment, dispute)} `
+                );
+              }}
               onOpenLightbox={handleOpenLightbox}
               brandLogoUrl="/logo.png"
               brandProfilePic={brandLite?.profilePic}
@@ -1729,20 +1864,41 @@ export default function BrandDisputeDetailPage() {
               onRaiseSystemFlag={handleRaiseSystemFlag}
             />
 
-            <CommentComposer
-              currentUserName={
-                brandLite?.name ?? dispute.raisedBy?.name ?? "Brand"
-              }
-              currentUserImageUrl={brandLite?.profilePic ?? null}
-              isFinalized={derived.isFinalized}
-              comment={comment}
-              setComment={setComment}
-              commentFiles={commentFiles}
-              setCommentFiles={setCommentFiles}
-              posting={posting}
-              postError={postError}
-              onSubmit={handlePostComment}
-            />
+            <div className="space-y-3">
+              {activeReplyCommentId && (
+                <div className="rounded-xl border border-[#e8e8e8] bg-white px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-[#555]">
+                      Replying inside a thread. Your reply will be grouped under the selected comment.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveReplyCommentId(null);
+                        setComment("");
+                        setCommentFiles([]);
+                      }}
+                      className="text-xs font-medium text-[#888] hover:text-[#1a1a1a]"
+                    >
+                      Cancel reply
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <CommentComposer
+                currentUserName={brandLite?.name ?? dispute.raisedBy?.name ?? "Brand"}
+                currentUserImageUrl={brandLite?.profilePic ?? null}
+                isFinalized={derived.isFinalized}
+                comment={comment}
+                setComment={setComment}
+                commentFiles={commentFiles}
+                setCommentFiles={setCommentFiles}
+                posting={posting}
+                postError={postError}
+                onSubmit={handlePostComment}
+              />
+            </div>
           </div>
         </div>
       </div>
