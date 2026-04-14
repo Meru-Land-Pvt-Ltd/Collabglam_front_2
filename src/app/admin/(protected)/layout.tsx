@@ -56,8 +56,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           {showTopbar && <AdminTopBar />}
         </div>
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8">
-          <div className="mx-auto max-w-full min-h-[calc(100vh-8rem)] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-full min-h-[calc(100vh-8rem)] border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
             {children}
           </div>
         </main>
