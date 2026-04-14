@@ -216,11 +216,13 @@ function getLangLabel(v?: string | { code?: string; name?: string } | null) {
 function getStatVal(d?: number, s?: StatWithCompared, f?: number) { return d ?? s?.value ?? f }
 function getPostViews(p: PostItem) { return p.views ?? p.plays }
 function truncate(v?: string, max = 120) {
-  if (!v) return "—"; return v.length <= max ? v : `${v.slice(0, max).trim()}…`;
+  if (!v) return "—";
+  return v.length <= max ? v : `${v.slice(0, max).trim()}…`;
 }
 function compactList(arr: Array<string | undefined | null>) { return arr.filter(Boolean).join(", ") || "—" }
 function maskAcct(v?: string) {
-  if (!v) return "—"; if (v.length <= 4) return v;
+  if (!v) return "—";
+  if (v.length <= 4) return v;
   return `${"•".repeat(v.length - 4)}${v.slice(-4)}`;
 }
 function normalizeProfiles(page1?: Page1Item[]): NormalizedSocialProfile[] {
@@ -229,22 +231,38 @@ function normalizeProfiles(page1?: Page1Item[]): NormalizedSocialProfile[] {
     const all = d.statsByContentType?.all, reels = d.statsByContentType?.reels;
     return {
       provider: item.platform || "unknown",
-      username: pr.username || item.username, fullname: pr.fullname,
-      handle: pr.handle || item.handle, url: pr.url, picture: pr.picture,
+      username: pr.username || item.username,
+      fullname: pr.fullname,
+      handle: pr.handle || item.handle,
+      url: pr.url,
+      picture: pr.picture,
       followers: getStatVal(undefined, d.stats?.followers, pr.followers),
       engagements: pr.engagements || all?.engagements,
       engagementRate: pr.engagementRate ?? all?.engagementRate ?? reels?.engagementRate,
-      isPrivate: d.isPrivate, isVerified: d.isVerified, accountType: d.accountType,
-      city: d.city, state: d.state, country: d.country,
-      ageGroup: d.ageGroup, gender: d.gender, language: getLangLabel(d.language),
-      stats: d.stats, statsByContentType: d.statsByContentType,
-      recentPosts: d.recentPosts || [], popularPosts: d.popularPosts || [], sponsoredPosts: d.sponsoredPosts || [],
+      isPrivate: d.isPrivate,
+      isVerified: d.isVerified,
+      accountType: d.accountType,
+      city: d.city,
+      state: d.state,
+      country: d.country,
+      ageGroup: d.ageGroup,
+      gender: d.gender,
+      language: getLangLabel(d.language),
+      stats: d.stats,
+      statsByContentType: d.statsByContentType,
+      recentPosts: d.recentPosts || [],
+      popularPosts: d.popularPosts || [],
+      sponsoredPosts: d.sponsoredPosts || [],
       postsCount: d.postsCount,
       avgLikes: getStatVal(d.avgLikes, d.stats?.avgLikes, all?.avgLikes),
       avgComments: getStatVal(d.avgComments, d.stats?.avgComments, all?.avgComments),
       avgReelsPlays: d.avgReelsPlays ?? reels?.avgReelsPlays,
-      bio: d.bio, categories: d.categories || [], hashtags: d.hashtags || [],
-      mentions: d.mentions || [], brandAffinity: d.brandAffinity || [], audience: d.audience,
+      bio: d.bio,
+      categories: d.categories || [],
+      hashtags: d.hashtags || [],
+      mentions: d.mentions || [],
+      brandAffinity: d.brandAffinity || [],
+      audience: d.audience,
     };
   });
 }
@@ -252,18 +270,27 @@ function fmtDelta(v?: number) {
   if (!v || Number.isNaN(v) || v === 0) return null;
   return `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 }
-function deltaTone(v?: number) { return !v || Number.isNaN(v) ? "text-slate-400" : v > 0 ? "text-emerald-500" : "text-rose-500" }
+function deltaTone(v?: number) {
+  return !v || Number.isNaN(v) ? "text-slate-400" : v > 0 ? "text-emerald-500" : "text-rose-500";
+}
 
 function extractItems(r: GetCampaignsResponse | undefined | null): CampaignItem[] {
   if (!r) return [];
-  const c = (() => { const d = r.data; return d && !Array.isArray(d) && typeof d === "object" ? d : r; })();
+  const c = (() => {
+    const d = r.data;
+    return d && !Array.isArray(d) && typeof d === "object" ? d : r;
+  })();
   for (const k of [c, (c as any).data, (c as any).campaigns, (c as any).items, (c as any).docs, (c as any).results]) {
     if (Array.isArray(k)) return k as CampaignItem[];
   }
   return [];
 }
 function extractMeta(r: GetCampaignsResponse | undefined | null, page: number, limit: number, len: number): CampaignMeta {
-  const c = (() => { const d = r?.data; return d && !Array.isArray(d) && typeof d === "object" ? d : r; })() as Record<string, unknown> | null;
+  const c = (() => {
+    const d = r?.data;
+    return d && !Array.isArray(d) && typeof d === "object" ? d : r;
+  })() as Record<string, unknown> | null;
+
   const ti = Number(c?.totalItems ?? c?.totalCount ?? c?.total ?? c?.count ?? len);
   const tp = Number(c?.totalPages ?? c?.pages ?? Math.max(1, Math.ceil(ti / limit)));
   return {
@@ -284,7 +311,9 @@ function getCPlats(c: CampaignItem): string[] {
   if (typeof r === "string" && r.trim()) return r.split(",").map(s => s.trim()).filter(Boolean);
   return [];
 }
-const getCTimeline = (c: CampaignItem) => (c.startDate || c.endDate) ? compactList([fmtDate(c.startDate), fmtDate(c.endDate)]) : fmtDate(c.createdAt);
+const getCTimeline = (c: CampaignItem) =>
+  (c.startDate || c.endDate) ? compactList([fmtDate(c.startDate), fmtDate(c.endDate)]) : fmtDate(c.createdAt);
+
 const getStatusLabel = (s?: string | number) => {
   if (s == null || s === "") return "Unknown";
   if (typeof s === "number") return `${s}`;
@@ -302,7 +331,6 @@ function statusStyle(s?: string | number) {
 /*                              UI Primitives                                 */
 /* -------------------------------------------------------------------------- */
 
-/** Bordered card */
 const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <div
     className={cx(
@@ -314,10 +342,12 @@ const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ chi
   </div>
 );
 
-/** Section wrapper */
 const Sect: React.FC<{
-  title?: React.ReactNode; subtitle?: string; action?: React.ReactNode;
-  children: React.ReactNode; className?: string;
+  title?: React.ReactNode;
+  subtitle?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
 }> = ({ title, subtitle, action, children, className }) => (
   <Card className={cx("p-5 sm:p-6", className)}>
     {(title || action) && (
@@ -333,7 +363,6 @@ const Sect: React.FC<{
   </Card>
 );
 
-/** KV row */
 const KV: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div className="flex items-start gap-3 border-b border-slate-100 py-2.5 last:border-0">
     <span className="w-28 shrink-0 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</span>
@@ -341,20 +370,25 @@ const KV: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value
   </div>
 );
 
-/** Platform chip */
 const Chip: React.FC<{ platform?: string; size?: "xs" | "sm" }> = ({ platform, size = "sm" }) => {
   const t = getPlatformTheme(platform);
   return (
-    <span className={cx("inline-flex items-center rounded-full font-semibold", size === "xs" ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-[11px]", t.chipCls)}>
+    <span
+      className={cx(
+        "inline-flex items-center rounded-full font-semibold",
+        size === "xs" ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-[11px]",
+        t.chipCls
+      )}
+    >
       {t.label}
     </span>
   );
 };
 
-/** Copyable */
 const Copy: React.FC<{ value?: string | null }> = ({ value }) => {
   const [ok, setOk] = useState(false);
   if (!value) return <span className="text-slate-300">—</span>;
+
   return (
     <button
       type="button"
@@ -366,15 +400,20 @@ const Copy: React.FC<{ value?: string | null }> = ({ value }) => {
       className="group inline-flex items-center gap-1.5 text-[13px] text-indigo-600 hover:text-indigo-800"
     >
       <span className="border-b border-dashed border-indigo-200 group-hover:border-indigo-500">{value}</span>
-      <span className={cx("text-[10px] font-bold", ok ? "text-emerald-500" : "text-slate-300 group-hover:text-indigo-400")}>{ok ? "✓" : "copy"}</span>
+      <span className={cx("text-[10px] font-bold", ok ? "text-emerald-500" : "text-slate-300 group-hover:text-indigo-400")}>
+        {ok ? "✓" : "copy"}
+      </span>
     </button>
   );
 };
 
-/** Stat card */
 const Stat: React.FC<{
-  label: string; value: React.ReactNode; sub?: React.ReactNode;
-  delta?: number; color: string; icon?: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  delta?: number;
+  color: string;
+  icon?: React.ReactNode;
 }> = ({ label, value, sub, delta, color, icon }) => (
   <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 p-5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300">
     <div className="absolute left-0 top-0 h-[3px] w-full rounded-t-2xl" style={{ background: color }} />
@@ -398,7 +437,6 @@ const Stat: React.FC<{
   </div>
 );
 
-/** Audience bar */
 const ABar: React.FC<{ label: string; pct: number; color: string }> = ({ label, pct, color }) => (
   <div className="flex items-center gap-3">
     <span className="w-24 shrink-0 truncate text-[12px] text-slate-600">{label}</span>
@@ -409,20 +447,24 @@ const ABar: React.FC<{ label: string; pct: number; color: string }> = ({ label, 
   </div>
 );
 
-/** Post card */
 const PostCard: React.FC<{ post: PostItem; color: string }> = ({ post, color }) => {
   const media = post.image || post.thumbnail;
   return (
     <div className="flex overflow-hidden rounded-xl border border-slate-200/80 bg-white/70 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300">
       <div className="w-20 shrink-0 sm:w-24" style={{ background: `${color}12` }}>
-        {media
-          ? <img src={media} alt="" className="h-full w-full object-cover" />
-          : <div className="flex h-full min-h-[88px] items-center justify-center"><Globe className="h-5 w-5 text-slate-200" /></div>
-        }
+        {media ? (
+          <img src={media} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full min-h-[88px] items-center justify-center">
+            <Globe className="h-5 w-5 text-slate-200" />
+          </div>
+        )}
       </div>
       <div className="min-w-0 flex-1 p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">{post.type || "post"}</span>
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-500">
+            {post.type || "post"}
+          </span>
           <span className="text-[10px] text-slate-400">{fmtDate(post.created)}</span>
         </div>
         <p className="mt-1.5 text-[12px] font-medium leading-4 text-slate-700">{truncate(post.title || post.text, 90)}</p>
@@ -445,7 +487,9 @@ const PostCard: React.FC<{ post: PostItem; color: string }> = ({ post, color }) 
         {(post.hashtags?.length ?? 0) > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {post.hashtags!.slice(0, 3).map(h => (
-              <span key={h} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${color}15`, color }}># {h}</span>
+              <span key={h} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${color}15`, color }}>
+                # {h}
+              </span>
             ))}
           </div>
         )}
@@ -454,7 +498,6 @@ const PostCard: React.FC<{ post: PostItem; color: string }> = ({ post, color }) 
   );
 };
 
-/** Empty state */
 const Empty: React.FC<{ label: string; desc?: string }> = ({ label, desc }) => (
   <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white/55 py-12 text-center">
     <p className="text-sm font-semibold text-slate-500">{label}</p>
@@ -487,7 +530,12 @@ export default function AdminInfluencerView() {
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!id) { setError("Missing influencer id."); setLoading(false); return; }
+    if (!id) {
+      setError("Missing influencer id.");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     get("/admin/influencer/getById", { id })
       .then((res: InfluencerResponse | InfluencerDoc) => {
@@ -517,6 +565,7 @@ export default function AdminInfluencerView() {
     if (!influencerId) return;
     setCampaignLoading(true);
     setCampaignError(null);
+
     (post as any)("/admin/campaign/getByInfluencerId", {
       influencerId,
       page: campaignPage,
@@ -583,7 +632,11 @@ export default function AdminInfluencerView() {
       widthClassName: "min-w-[120px]",
       render: row => {
         const ps = getCPlats(row);
-        return ps.length ? <div className="flex flex-wrap gap-1">{ps.map(p => <Chip key={p} platform={p} size="xs" />)}</div> : <span className="text-[13px] text-slate-300">—</span>;
+        return ps.length ? (
+          <div className="flex flex-wrap gap-1">{ps.map(p => <Chip key={p} platform={p} size="xs" />)}</div>
+        ) : (
+          <span className="text-[13px] text-slate-300">—</span>
+        );
       },
     },
     {
@@ -612,7 +665,11 @@ export default function AdminInfluencerView() {
       header: "Budget",
       align: "right",
       widthClassName: "min-w-[100px]",
-      render: row => <span className="font-['Syne',sans-serif] text-[14px] font-bold text-slate-800">{fmtCurrency(getCBudget(row))}</span>,
+      render: row => (
+        <span className="font-['Syne',sans-serif] text-[14px] font-bold text-slate-800">
+          {fmtCurrency(getCBudget(row))}
+        </span>
+      ),
     },
   ], []);
 
@@ -622,190 +679,226 @@ export default function AdminInfluencerView() {
 
   const pageBg = "linear-gradient(180deg,#F8FAFC 0%,#F4F7FB 52%,#EEF2FF 100%)";
 
-  if (loading) return (
-    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
-      {fontImport}
-      <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6">
-        <Skeleton className="h-7 w-32 rounded-xl" />
-        <Skeleton className="h-48 rounded-2xl" />
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+        {fontImport}
+        <div className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6">
+          <Skeleton className="h-7 w-32 rounded-xl" />
+          <Skeleton className="h-48 rounded-2xl" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  if (error) return (
-    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
-      {fontImport}
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
-        <button onClick={() => router.back()} className="mb-5 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"><ChevronLeft className="h-4 w-4" /> Back</button>
-        <div className="rounded-2xl border border-rose-200 bg-white/80 p-5 text-rose-600 shadow-sm backdrop-blur-sm">{error}</div>
+  if (error) {
+    return (
+      <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+        {fontImport}
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+          <button onClick={() => router.back()} className="mb-5 flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
+            <ChevronLeft className="h-4 w-4" /> Back
+          </button>
+          <div className="rounded-2xl border border-rose-200 bg-white/80 p-5 text-rose-600 shadow-sm backdrop-blur-sm">{error}</div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   if (!data) return null;
 
   return (
-    <div style={{ minHeight: "100vh", background: pageBg, fontFamily: "'Outfit',sans-serif" }}>
+    <div style={{ minHeight: "100vh", fontFamily: "'Outfit',sans-serif" }}>
       {fontImport}
 
-      {/* ═══ HERO ═══ */}
-      <div
-        className="relative overflow-hidden border-b border-white/10"
-        style={{ background: "linear-gradient(145deg,#0B1220 0%,#111827 45%,#172554 100%)" }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
-          style={{ background: `radial-gradient(ellipse 55% 90% at 90% -10%, ${theme.accent}25 0%, transparent 65%)` }}
-        />
-        <div
-          className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
-          style={{ background: `radial-gradient(ellipse 35% 50% at -5% 100%, ${theme.accent}14 0%, transparent 60%)` }}
-        />
-
-        <div className="relative mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
-          <button
-            onClick={() => router.back()}
-            className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white/90"
+      <Tabs defaultValue="overview" className="space-y-0">
+        <div className="sticky top-0 z-40">
+          <div
+            className="relative overflow-hidden border-b border-white/10"
+            style={{ background: "linear-gradient(145deg,#0B1220 0%,#111827 45%,#172554 100%)" }}
           >
-            <ChevronLeft className="h-4 w-4" /> Back to Influencers
-          </button>
+            <div
+              className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
+              style={{ background: `radial-gradient(ellipse 55% 90% at 90% -10%, ${theme.accent}25 0%, transparent 65%)` }}
+            />
+            <div
+              className="pointer-events-none absolute inset-0 transition-all duration-700 ease-in-out"
+              style={{ background: `radial-gradient(ellipse 35% 50% at -5% 100%, ${theme.accent}14 0%, transparent 60%)` }}
+            />
 
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-              <div className="relative shrink-0 self-start">
-                {selectedProfile?.picture
-                  ? <img
-                      src={selectedProfile.picture}
-                      alt={data.name || "Influencer"}
-                      className="h-[72px] w-[72px] rounded-2xl object-cover shadow-lg sm:h-20 sm:w-20"
-                      style={{ boxShadow: `0 0 0 3px ${theme.accent}35` }}
-                    />
-                  : <div
-                      className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:h-20 sm:w-20"
-                      style={{ background: theme.gradient }}
-                    >
-                      {getInitials(data.name || data.email)}
-                    </div>
-                }
-                {selectedProfile?.isVerified && (
-                  <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full shadow-md" style={{ background: theme.accent }}>
-                    <CheckCircle2 className="h-3 w-3 text-white" />
-                  </div>
-                )}
-              </div>
+            <div className="relative mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-6">
+              <button
+                onClick={() => router.back()}
+                className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-white/60 transition hover:border-white/20 hover:bg-white/[0.08] hover:text-white/90"
+              >
+                <ChevronLeft className="h-4 w-4" /> Back to Influencers
+              </button>
 
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="syne text-2xl font-bold text-white sm:text-3xl">{data.name || "Unnamed Influencer"}</h1>
-                  {selectedProfile?.isVerified && (
-                    <span className="rounded-full border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold text-white/65">✓ Verified</span>
-                  )}
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {platformOptions.map((p, i) => {
-                    const pt = getPlatformTheme(p.provider);
-                    const isActive = normPlatform(p.provider) === normPlatform(selectedPlatform);
-                    return (
-                      <button
-                        key={`${p.provider}-${i}`}
-                        onClick={() => setSelectedPlatform(p.provider)}
-                        className={cx(
-                          "rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-200",
-                          isActive
-                            ? `${pt.chipCls} shadow-sm`
-                            : "border border-white/15 bg-white/[0.03] text-white/55 hover:border-white/30 hover:bg-white/[0.06] hover:text-white/85"
-                        )}
+              <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                  <div className="relative shrink-0 self-start">
+                    {selectedProfile?.picture ? (
+                      <img
+                        src={selectedProfile.picture}
+                        alt={data.name || "Influencer"}
+                        className="h-[72px] w-[72px] rounded-2xl object-cover shadow-lg sm:h-20 sm:w-20"
+                        style={{ boxShadow: `0 0 0 3px ${theme.accent}35` }}
+                      />
+                    ) : (
+                      <div
+                        className="flex h-[72px] w-[72px] items-center justify-center rounded-2xl text-xl font-black text-white shadow-lg sm:h-20 sm:w-20"
+                        style={{ background: theme.gradient }}
                       >
-                        {pt.label}{p.username ? ` · ${p.username}` : p.handle ? ` · ${p.handle}` : ""}
-                      </button>
-                    );
-                  })}
-                </div>
+                        {getInitials(data.name || data.email)}
+                      </div>
+                    )}
+                    {selectedProfile?.isVerified && (
+                      <div className="absolute -bottom-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full shadow-md" style={{ background: theme.accent }}>
+                        <CheckCircle2 className="h-3 w-3 text-white" />
+                      </div>
+                    )}
+                  </div>
 
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
-                  {[
-                    { icon: <Mail className="h-3 w-3" />, val: data.email },
-                    { icon: <MapPin className="h-3 w-3" />, val: data.countryName },
-                    { icon: <Calendar className="h-3 w-3" />, val: `Joined ${fmtDate(data.createdAt)}` },
-                  ].map(({ icon, val }) => val ? (
-                    <span key={String(val)} className="flex items-center gap-1.5 text-[11px] text-white/45">
-                      {icon}{val}
-                    </span>
-                  ) : null)}
-                </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h1 className="syne text-2xl font-bold text-white sm:text-3xl">{data.name || "Unnamed Influencer"}</h1>
+                      {selectedProfile?.isVerified && (
+                        <span className="rounded-full border border-white/15 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold text-white/65">
+                          ✓ Verified
+                        </span>
+                      )}
+                    </div>
 
-                {selectedProfile?.bio && (
-                  <p className="mt-3 max-w-xl text-[12px] leading-5 text-white/45">{truncate(selectedProfile.bio, 160)}</p>
-                )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {platformOptions.map((p, i) => {
+                        const pt = getPlatformTheme(p.provider);
+                        const isActive = normPlatform(p.provider) === normPlatform(selectedPlatform);
+                        const isPrimary = (p as any)?.isPrimary || i === 0;
+
+                        return (
+                          <button
+                            key={`${p.provider}-${i}`}
+                            onClick={() => setSelectedPlatform(p.provider)}
+                            className={cx(
+                              "inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold transition-all duration-200",
+                              isActive
+                                ? `${pt.chipCls} shadow-sm`
+                                : "border border-white/15 bg-white/[0.03] text-white/55 hover:border-white/30 hover:bg-white/[0.06] hover:text-white/85"
+                            )}
+                          >
+                            <span>
+                              {pt.label}
+                              {p.username ? ` · ${p.username}` : p.handle ? ` · ${p.handle}` : ""}
+                            </span>
+
+                            {isPrimary && (
+                              <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                Primary
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+                      {[
+                        { icon: <Mail className="h-3 w-3" />, val: data.email },
+                        { icon: <MapPin className="h-3 w-3" />, val: data.countryName },
+                        { icon: <Calendar className="h-3 w-3" />, val: `Joined ${fmtDate(data.createdAt)}` },
+                      ].map(({ icon, val }) => val ? (
+                        <span key={String(val)} className="flex items-center gap-1.5 text-[11px] text-white/45">
+                          {icon}{val}
+                        </span>
+                      ) : null)}
+                    </div>
+
+                    {selectedProfile?.bio && (
+                      <p className="mt-3 max-w-xl text-[12px] leading-5 text-white/45">{truncate(selectedProfile.bio, 160)}</p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
-              {[
-                { l: "Followers", v: fmtNum(selectedProfile?.followers) },
-                { l: "Eng. Rate", v: fmtPercent(selectedProfile?.engagementRate) },
-                { l: "Avg Likes", v: fmtNum(selectedProfile?.avgLikes) },
-                { l: "Campaigns", v: fmtNum(campaignMeta.totalItems) },
-              ].map(kpi => (
-                <div
-                  key={kpi.l}
-                  className="rounded-2xl border px-4 py-3 shadow-[0_6px_24px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-all duration-500"
-                  style={{ borderColor: `${theme.accent}25`, background: "rgba(255,255,255,0.06)" }}
-                >
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-white/40">{kpi.l}</p>
-                  <p className="syne mt-1.5 text-xl font-bold text-white">{kpi.v}</p>
+          <div className="border-b border-slate-200/60 bg-white/78 backdrop-blur-xl">
+            <div className="mx-auto max-w-5xl px-4 py-2 sm:px-6">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
+                <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
+                  {["overview", "profile", "campaigns", "payment"].map(v => (
+                    <TabsTrigger
+                      key={v}
+                      value={v}
+                      className="rounded-lg px-3 py-1.5 text-[11px] font-medium capitalize text-slate-400 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white"
+                    >
+                      {v}
+                    </TabsTrigger>
+                  ))}
+
+                  {selectedProfile?.url ? (
+                    <a
+                      href={selectedProfile.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-1 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-slate-400 transition hover:text-slate-700"
+                    >
+                      Open <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : null}
+                </TabsList>
+
+                <div className="flex items-center gap-2">
+                  <div
+                    className="h-2 w-2 rounded-full shadow-sm transition-all duration-500"
+                    style={{ background: theme.accent }}
+                  />
+                  <span className="text-[10px] font-medium text-slate-400">
+                    {theme.label}{selectedProfile?.username ? ` · ${selectedProfile.username}` : ""}
+                  </span>
                 </div>
-              ))}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* ═══ CONTENT ═══ */}
-      <div className="relative z-10 mx-auto -mt-3 max-w-5xl px-4 pb-8 pt-5 sm:px-6">
-        <Tabs defaultValue="overview" className="space-y-4">
-          <div className="sticky top-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white/85 px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.06)] backdrop-blur-md">
-            <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
-              {["overview", "profile", "campaigns", "posts", "audience", "payment"].map(v => (
-                <TabsTrigger
-                  key={v}
-                  value={v}
-                  className="rounded-xl px-3 py-1.5 text-[12px] font-semibold capitalize text-slate-500 transition data-[state=active]:bg-slate-900 data-[state=active]:text-white"
-                >
-                  {v}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-
-            <div className="flex items-center gap-2">
-              <div className="h-2.5 w-2.5 rounded-full shadow-sm transition-all duration-500" style={{ background: theme.accent }} />
-              <span className="text-[11px] font-semibold text-slate-500">
-                {theme.label}{selectedProfile?.username ? ` · ${selectedProfile.username}` : ""}
-              </span>
-            </div>
-          </div>
-
-          {/* ── OVERVIEW ── */}
+        <div className="relative z-0 mx-auto max-w-5xl px-4 pb-8 pt-6 sm:px-6">
           <TabsContent value="overview" className="space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Followers" value={fmtNum(selectedProfile?.followers)} delta={selectedProfile?.stats?.followers?.compared} color={theme.accent} icon={<Users className="h-4 w-4" />} />
-              <Stat label="Engagement Rate" value={fmtPercent(selectedProfile?.engagementRate)} sub={theme.label} color={theme.accent} icon={<TrendingUp className="h-4 w-4" />} />
-              <Stat label="Avg Likes" value={fmtNum(selectedProfile?.avgLikes)} delta={selectedProfile?.stats?.avgLikes?.compared} color={theme.accent} icon={<Heart className="h-4 w-4" />} />
-              <Stat label="Campaigns" value={fmtNum(campaignMeta.totalItems)} sub="All time" color={theme.accent} icon={<BriefcaseBusiness className="h-4 w-4" />} />
+              <Stat
+                label="Followers"
+                value={fmtNum(selectedProfile?.followers)}
+                delta={selectedProfile?.stats?.followers?.compared}
+                color={theme.accent}
+                icon={<Users className="h-4 w-4" />}
+              />
+              <Stat
+                label="Engagement Rate"
+                value={fmtPercent(selectedProfile?.engagementRate)}
+                sub={theme.label}
+                color={theme.accent}
+                icon={<TrendingUp className="h-4 w-4" />}
+              />
+              <Stat
+                label="Campaigns"
+                value={fmtNum(campaignMeta.totalItems)}
+                sub="All time"
+                color={theme.accent}
+                icon={<BriefcaseBusiness className="h-4 w-4" />}
+              />
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">
-              <Sect title={<><Info className="h-4 w-4" style={{ color: theme.accent }} />Influencer Info</>}>
+              <Sect title={<><Info className="h-4 w-4" style={{ color: theme.accent }} />Influencer Onboarding Info</>}>
                 <KV label="Name" value={data.name || "—"} />
                 <KV label="Email" value={<Copy value={data.email} />} />
-                <KV label="ID" value={<Copy value={data.influencerId || data._id} />} />
                 <KV label="Country" value={data.countryName || "—"} />
                 <KV label="Languages" value={compactList(data.languages?.map(l => l.name || "") || [])} />
                 <KV label="Categories" value={compactList(data.categories?.map(c => c.name || "") || [])} />
                 <KV label="Created" value={fmtDateTime(data.createdAt)} />
-                <KV label="Updated" value={fmtDateTime(data.updatedAt)} />
               </Sect>
 
               <Sect title={<><Sparkles className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} Snapshot</>}>
@@ -820,102 +913,165 @@ export default function AdminInfluencerView() {
                 <KV label="Paid Post Perf." value={fmtWt(selectedProfile?.stats?.paidPostPerformance)} />
               </Sect>
             </div>
-
-            <Sect title={<><Tag className="h-4 w-4" style={{ color: theme.accent }} />Topics & Tags</>}>
-              <div className="grid gap-5 sm:grid-cols-3">
-                {[
-                  { label: "Categories", items: selectedProfile?.categories?.map(c => ({ key: `${c.categoryName}-${c.subcategoryId}`, text: [c.categoryName, c.subcategoryName].filter(Boolean).join(" · ") })) },
-                  { label: "Hashtags", items: selectedProfile?.hashtags?.map((h, i) => ({ key: `${h.tag}-${i}`, text: `#${h.tag}` })) },
-                  { label: "Brand Affinity", items: selectedProfile?.brandAffinity?.map((b, i) => ({ key: `${b.name}-${i}`, text: b.name || "" })) },
-                ].map(({ label, items }) => (
-                  <div key={label}>
-                    <p className="mb-2.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
-                    {items?.length
-                      ? <div className="flex flex-wrap gap-1.5">{items.slice(0, 10).map(item => (
-                          <span
-                            key={item.key}
-                            className="rounded-full border px-2.5 py-0.5 text-[11px] text-slate-600"
-                            style={{ borderColor: `${theme.accent}25`, background: `${theme.accent}08` }}
-                          >
-                            {item.text}
-                          </span>
-                        ))}</div>
-                      : <p className="text-xs text-slate-400">None</p>
-                    }
-                  </div>
-                ))}
-              </div>
-            </Sect>
           </TabsContent>
 
-          {/* ── PROFILE ── */}
           <TabsContent value="profile" className="space-y-4">
             {selectedProfile ? (
               <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <Stat label="Followers" value={fmtNum(selectedProfile.followers)} delta={selectedProfile.stats?.followers?.compared} color={theme.accent} icon={<Users className="h-4 w-4" />} />
-                  <Stat label="Engagements" value={fmtNum(selectedProfile.engagements)} color={theme.accent} icon={<Zap className="h-4 w-4" />} />
-                  <Stat label="Avg Comments" value={fmtNum(selectedProfile.avgComments)} delta={selectedProfile.stats?.avgComments?.compared} color={theme.accent} icon={<MessageCircle className="h-4 w-4" />} />
-                  <Stat label="Paid Perf." value={fmtWt(selectedProfile.stats?.paidPostPerformance)} color={theme.accent} icon={<BarChart3 className="h-4 w-4" />} />
+                  <Stat
+                    label="Followers"
+                    value={fmtNum(selectedProfile.followers)}
+                    delta={selectedProfile.stats?.followers?.compared}
+                    color={theme.accent}
+                    icon={<Users className="h-4 w-4" />}
+                  />
+                  <Stat
+                    label="Avg. Like"
+                    value={fmtNum(selectedProfile.engagements)}
+                    color={theme.accent}
+                    icon={<Zap className="h-4 w-4" />}
+                  />
+                  <Stat
+                    label="Avg Comments"
+                    value={fmtNum(selectedProfile.avgComments)}
+                    delta={selectedProfile.stats?.avgComments?.compared}
+                    color={theme.accent}
+                    icon={<MessageCircle className="h-4 w-4" />}
+                  />
+                  <Stat
+                    label="Paid Perf."
+                    value={fmtWt(selectedProfile.stats?.paidPostPerformance)}
+                    color={theme.accent}
+                    icon={<BarChart3 className="h-4 w-4" />}
+                  />
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4 lg:grid-cols-1">
                   <Sect
                     title={<><Globe className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} Profile</>}
-                    action={selectedProfile.url
-                      ? <a
-                          href={selectedProfile.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-[12px] font-semibold"
-                          style={{ color: theme.accent }}
-                        >
-                          Open <ExternalLink className="h-3.5 w-3.5" />
-                        </a>
-                      : null}
+                    action={selectedProfile.url ? (
+                      <a
+                        href={selectedProfile.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[12px] font-semibold"
+                        style={{ color: theme.accent }}
+                      >
+                        Open <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    ) : null}
                   >
-                    <KV label="Username" value={selectedProfile.username ? `@${selectedProfile.username}` : "—"} />
-                    <KV label="Full Name" value={selectedProfile.fullname || "—"} />
-                    <KV label="Handle" value={selectedProfile.handle || "—"} />
-                    <KV label="Language" value={selectedProfile.language || "—"} />
-                    <KV label="Gender" value={selectedProfile.gender || "—"} />
-                    <KV label="Age Group" value={selectedProfile.ageGroup || "—"} />
-                    <KV label="Location" value={compactList([selectedProfile.city, selectedProfile.state, selectedProfile.country])} />
-                    <KV label="Acct Type" value={selectedProfile.accountType || "—"} />
-                    <KV label="Private" value={selectedProfile.isPrivate ? "Yes" : "No"} />
-                    <KV label="Verified" value={selectedProfile.isVerified ? "Yes" : "No"} />
-                    <KV label="Posts" value={fmtNum(selectedProfile.postsCount)} />
-                    <KV label="Avg Plays" value={fmtNum(selectedProfile.avgReelsPlays)} />
-                  </Sect>
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div>
+                        <KV label="Username" value={selectedProfile.username ? `@${selectedProfile.username}` : "—"} />
+                        <KV label="Full Name" value={selectedProfile.fullname || "—"} />
+                        <KV label="Handle" value={selectedProfile.handle || "—"} />
+                        <KV label="Language" value={selectedProfile.language || "—"} />
+                        <KV label="Gender" value={selectedProfile.gender || "—"} />
+                        <KV label="Age Group" value={selectedProfile.ageGroup || "—"} />
+                      </div>
 
-                  <Sect title={<><Tag className="h-4 w-4" style={{ color: theme.accent }} />Topics & Affinity</>}>
-                    <div className="space-y-4">
-                      {[
-                        { l: "Categories", items: selectedProfile.categories?.slice(0, 10).map((c, i) => ({ k: i, t: [c.categoryName, c.subcategoryName].filter(Boolean).join(" · ") })) },
-                        { l: "Hashtags", items: selectedProfile.hashtags?.slice(0, 14).map((h, i) => ({ k: i, t: `#${h.tag}` })) },
-                        { l: "Mentions", items: selectedProfile.mentions?.slice(0, 10).map((m, i) => ({ k: i, t: `@${m.tag}` })) },
-                        { l: "Brand Affinity", items: selectedProfile.brandAffinity?.slice(0, 10).map((b, i) => ({ k: i, t: b.name || "" })) },
-                      ].map(({ l, items }, gi) => (
-                        <div key={l}>
-                          {gi > 0 && <Separator className="mb-4 bg-slate-100" />}
-                          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">{l}</p>
-                          {items?.length
-                            ? <div className="flex flex-wrap gap-1.5">{items.map(item => (
-                                <span
-                                  key={item.k}
-                                  className="rounded-full border px-2.5 py-0.5 text-[11px] text-slate-600"
-                                  style={{ borderColor: `${theme.accent}25`, background: `${theme.accent}08` }}
-                                >
-                                  {item.t}
-                                </span>
-                              ))}</div>
-                            : <p className="text-xs text-slate-400">None</p>
-                          }
-                        </div>
-                      ))}
+                      <div>
+                        <KV label="Location" value={compactList([selectedProfile.city, selectedProfile.state, selectedProfile.country])} />
+                        <KV label="Acct Type" value={selectedProfile.accountType || "—"} />
+                        <KV label="Private" value={selectedProfile.isPrivate ? "Yes" : "No"} />
+                        <KV label="Verified" value={selectedProfile.isVerified ? "Yes" : "No"} />
+                        <KV label="Posts" value={fmtNum(selectedProfile.postsCount)} />
+                        <KV label="Avg Plays" value={fmtNum(selectedProfile.avgReelsPlays)} />
+                      </div>
                     </div>
                   </Sect>
                 </div>
+
+                {selectedProfile.audience && (
+                  <>
+                    <Sect title={<><Users className="h-4 w-4" style={{ color: theme.accent }} />Audience Overview</>}>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <Stat
+                          label="Credibility"
+                          value={fmtWt(selectedProfile.audience.credibility)}
+                          sub="Real audience est."
+                          color={theme.accent}
+                          icon={<Shield className="h-4 w-4" />}
+                        />
+                        <Stat
+                          label="Notable"
+                          value={fmtWt(selectedProfile.audience.notable)}
+                          sub="Known accounts"
+                          color={theme.accent}
+                          icon={<Star className="h-4 w-4" />}
+                        />
+                        <Stat
+                          label="Top Country"
+                          value={selectedProfile.audience.geoCountries?.[0]?.name || "—"}
+                          sub={fmtWt(selectedProfile.audience.geoCountries?.[0]?.weight)}
+                          color={theme.accent}
+                          icon={<Globe className="h-4 w-4" />}
+                        />
+                        <Stat
+                          label="Top Age"
+                          value={selectedProfile.audience.ages?.[0]?.code || "—"}
+                          sub={fmtWt(selectedProfile.audience.ages?.[0]?.weight)}
+                          color={theme.accent}
+                          icon={<Users className="h-4 w-4" />}
+                        />
+                      </div>
+                    </Sect>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {[
+                        {
+                          title: "Age Distribution",
+                          items: selectedProfile.audience.ages,
+                          getLabel: (item: AudienceWeightItem) => item.code || "—",
+                        },
+                        {
+                          title: "Gender Split",
+                          items: selectedProfile.audience.genders,
+                          getLabel: (item: AudienceWeightItem) => item.name || item.code || "—",
+                        },
+                        {
+                          title: "Languages",
+                          items: selectedProfile.audience.languages,
+                          getLabel: (item: AudienceWeightItem) => item.name || item.code || "—",
+                        },
+                        {
+                          title: "Countries",
+                          items: selectedProfile.audience.geoCountries,
+                          getLabel: (item: AudienceWeightItem) => item.name || item.code || "—",
+                        },
+                        {
+                          title: "Interests",
+                          items: selectedProfile.audience.interests,
+                          getLabel: (item: AudienceWeightItem) => item.name || item.code || "—",
+                        },
+                        {
+                          title: "States",
+                          items: selectedProfile.audience.geoStates,
+                          getLabel: (item: AudienceWeightItem) => item.name || item.code || "—",
+                        },
+                      ].map(({ title, items, getLabel }) => (
+                        <Sect key={title} title={title}>
+                          {items?.length ? (
+                            <div className="space-y-2.5">
+                              {items.slice(0, 8).map((item, i) => (
+                                <ABar
+                                  key={`${title}-${item.code || item.name || i}`}
+                                  label={getLabel(item)}
+                                  pct={pctVal(item.weight)}
+                                  color={theme.accent}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400">No data available.</p>
+                          )}
+                        </Sect>
+                      ))}
+                    </div>
+                  </>
+                )}
 
                 {Object.keys(selectedProfile.statsByContentType || {}).length > 0 && (
                   <Sect title={<><Layers3 className="h-4 w-4" style={{ color: theme.accent }} />Content Performance by Type</>}>
@@ -940,17 +1096,85 @@ export default function AdminInfluencerView() {
                     </div>
                   </Sect>
                 )}
+
+                <Sect title={<><Tag className="h-4 w-4" style={{ color: theme.accent }} />Topics & Affinity</>}>
+                  <div className="space-y-4">
+                    {[
+                      {
+                        l: "Categories",
+                        items: selectedProfile.categories?.slice(0, 10).map((c, i) => ({
+                          k: i,
+                          t: [c.categoryName, c.subcategoryName].filter(Boolean).join(" · "),
+                        })),
+                      },
+                      {
+                        l: "Hashtags",
+                        items: selectedProfile.hashtags?.slice(0, 14).map((h, i) => ({ k: i, t: `#${h.tag}` })),
+                      },
+                      {
+                        l: "Mentions",
+                        items: selectedProfile.mentions?.slice(0, 10).map((m, i) => ({ k: i, t: `@${m.tag}` })),
+                      },
+                      {
+                        l: "Brand Affinity",
+                        items: selectedProfile.brandAffinity?.slice(0, 10).map((b, i) => ({ k: i, t: b.name || "" })),
+                      },
+                    ].map(({ l, items }, gi) => (
+                      <div key={l}>
+                        {gi > 0 && <Separator className="mb-4 bg-slate-100" />}
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">{l}</p>
+                        {items?.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {items.map(item => (
+                              <span
+                                key={item.k}
+                                className="rounded-full border px-2.5 py-0.5 text-[11px] text-slate-600"
+                                style={{ borderColor: `${theme.accent}25`, background: `${theme.accent}08` }}
+                              >
+                                {item.t}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400">None</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </Sect>
+
+                {[
+                  { key: "recent", label: "Recent Posts", posts: selectedProfile.recentPosts, lim: 4 },
+                  { key: "popular", label: "Top Posts", posts: selectedProfile.popularPosts, lim: 4 },
+                  { key: "sponsored", label: "Sponsored Posts", posts: selectedProfile.sponsoredPosts, lim: 4 },
+                ].map(({ key, label, posts, lim }) => (
+                  <Sect key={key} title={<><Hash className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} — {label}</>}>
+                    {posts?.length ? (
+                      <div className="space-y-2">
+                        {posts.slice(0, lim).map((p, i) => (
+                          <div key={`${p.id || i}-${key}`} className="rounded-xl [&_*]:leading-tight">
+                            <PostCard post={p} color={theme.accent} />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <Empty label={`No ${label.toLowerCase()}`} desc="Not available for this platform." />
+                    )}
+                  </Sect>
+                ))}
               </>
-            ) : <Empty label="No platform profile" desc="Select a connected platform above." />}
+            ) : (
+              <Empty label="No platform profile" desc="Select a connected platform above." />
+            )}
           </TabsContent>
 
-          {/* ── CAMPAIGNS ── */}
           <TabsContent value="campaigns" className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
               <Stat label="Total" value={fmtNum(campaignMeta.totalItems)} color={theme.accent} icon={<BriefcaseBusiness className="h-4 w-4" />} />
               <Stat label="Page" value={`${campaignMeta.page}/${campaignMeta.totalPages}`} color={theme.accent} icon={<Activity className="h-4 w-4" />} />
               <Stat label="Per Page" value={`${campaignMeta.limit}`} color={theme.accent} icon={<Hash className="h-4 w-4" />} />
             </div>
+
             <Sect title={<><BriefcaseBusiness className="h-4 w-4" style={{ color: theme.accent }} />Campaign History</>}>
               <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white/70">
                 <AdminTable<CampaignItem>
@@ -995,90 +1219,18 @@ export default function AdminInfluencerView() {
             </Sect>
           </TabsContent>
 
-          {/* ── POSTS ── */}
-          <TabsContent value="posts" className="space-y-4">
-            {selectedProfile ? (
-              <>
-                {[
-                  { key: "recent", label: "Recent Posts", posts: selectedProfile.recentPosts, lim: 6 },
-                  { key: "popular", label: "Top Posts", posts: selectedProfile.popularPosts, lim: 4 },
-                  { key: "sponsored", label: "Sponsored Posts", posts: selectedProfile.sponsoredPosts, lim: 4 },
-                ].map(({ key, label, posts, lim }) => (
-                  <Sect key={key} title={<><Hash className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} — {label}</>}>
-                    {posts?.length
-                      ? <div className="grid gap-3 sm:grid-cols-2">{posts.slice(0, lim).map((p, i) => <PostCard key={`${p.id || i}-${key}`} post={p} color={theme.accent} />)}</div>
-                      : <Empty label={`No ${label.toLowerCase()}`} desc="Not available for this platform." />
-                    }
-                  </Sect>
-                ))}
-              </>
-            ) : <Empty label="No platform profile" desc="Select a platform to view posts." />}
-          </TabsContent>
-
-          {/* ── AUDIENCE ── */}
-          <TabsContent value="audience" className="space-y-4">
-            {selectedProfile?.audience ? (
-              <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <Stat label="Credibility" value={fmtWt(selectedProfile.audience.credibility)} sub="Real audience est." color={theme.accent} icon={<Shield className="h-4 w-4" />} />
-                  <Stat label="Notable" value={fmtWt(selectedProfile.audience.notable)} sub="Known accounts" color={theme.accent} icon={<Star className="h-4 w-4" />} />
-                  <Stat label="Top Country" value={selectedProfile.audience.geoCountries?.[0]?.name || "—"} sub={fmtWt(selectedProfile.audience.geoCountries?.[0]?.weight)} color={theme.accent} icon={<Globe className="h-4 w-4" />} />
-                  <Stat label="Top Age" value={selectedProfile.audience.ages?.[0]?.code || "—"} sub={fmtWt(selectedProfile.audience.ages?.[0]?.weight)} color={theme.accent} icon={<Users className="h-4 w-4" />} />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {[
-                    { title: "Languages", items: selectedProfile.audience.languages },
-                    { title: "Interests", items: selectedProfile.audience.interests },
-                    { title: "Countries", items: selectedProfile.audience.geoCountries },
-                    { title: "Gender Split", items: selectedProfile.audience.genders },
-                  ].map(({ title, items }) => (
-                    <Sect key={title} title={title}>
-                      {items?.length
-                        ? <div className="space-y-2.5">{items.slice(0, 8).map((item, i) => (
-                            <ABar key={`${item.name || i}`} label={item.name || item.code || "—"} pct={pctVal(item.weight)} color={theme.accent} />
-                          ))}</div>
-                        : <p className="text-xs text-slate-400">No data available.</p>
-                      }
-                    </Sect>
-                  ))}
-                </div>
-
-                {(selectedProfile.audience.notableUsers?.length ?? 0) > 0 && (
-                  <Sect title={<><Users className="h-4 w-4" style={{ color: theme.accent }} />Notable Audience</>}>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {selectedProfile.audience.notableUsers!.slice(0, 9).map((user, i) => (
-                        <div key={user.userId || user.username || i} className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/70 p-3">
-                          {user.picture
-                            ? <img src={user.picture} alt="" className="h-10 w-10 rounded-xl object-cover" />
-                            : <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-xs font-bold text-white" style={{ background: theme.gradient }}>
-                                {getInitials(user.fullname || user.username)}
-                              </div>
-                          }
-                          <div className="min-w-0">
-                            <p className="truncate text-[13px] font-semibold text-slate-700">{user.fullname || user.username || "—"}</p>
-                            <p className="text-[11px] text-slate-400">{user.username ? `@${user.username}` : "—"}</p>
-                            <p className="text-[10px] text-slate-400">{fmtNum(user.followers)} followers</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Sect>
-                )}
-              </>
-            ) : <Empty label="No audience data" desc="Not available for this platform." />}
-          </TabsContent>
-
-          {/* ── PAYMENT ── */}
           <TabsContent value="payment" className="space-y-4">
             <div className="grid grid-cols-3 gap-3">
               <Stat label="Methods" value={paymentDetails.length} color={theme.accent} icon={<Wallet className="h-4 w-4" />} />
               <Stat label="Bank Accounts" value={paymentDetails.filter(d => d.type === 1).length} color={theme.accent} icon={<Building2 className="h-4 w-4" />} />
               <Stat label="PayPal" value={paymentDetails.filter(d => d.type === 0).length} color={theme.accent} icon={<CreditCard className="h-4 w-4" />} />
             </div>
+
             <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Payment Methods</>}>
               {paymentLoading ? (
-                <div className="grid gap-3 sm:grid-cols-2">{[0, 1].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}</div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {[0, 1].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}
+                </div>
               ) : paymentDetails.length ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   {paymentDetails.map((pm, i) => (
@@ -1090,7 +1242,9 @@ export default function AdminInfluencerView() {
                           <p className="text-[11px] text-slate-400">{pm.type === 0 ? "PayPal" : "Bank Transfer"}</p>
                         </div>
                         {pm.isDefault && (
-                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">Default</span>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600">
+                            Default
+                          </span>
                         )}
                       </div>
                       <Separator className="mb-3 bg-slate-100" />
@@ -1113,11 +1267,13 @@ export default function AdminInfluencerView() {
                     </div>
                   ))}
                 </div>
-              ) : <Empty label="No payment methods" desc="No saved payment details found." />}
+              ) : (
+                <Empty label="No payment methods" desc="No saved payment details found." />
+              )}
             </Sect>
           </TabsContent>
-        </Tabs>
-      </div>
+        </div>
+      </Tabs>
     </div>
   );
 }
