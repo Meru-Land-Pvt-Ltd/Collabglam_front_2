@@ -19,9 +19,14 @@ import {
   canonicalizeModuleKey,
   getAdminModule,
 } from "@/app/admin/components/admin-access";
+import AdminTable, {
+  type AdminTableColumn,
+} from "@/app/admin/components/table";
 
 type AdminStatus = "pending" | "active" | "inactive" | "suspended";
 type PermissionLevel = "none" | "read" | "write";
+type SortOrder = "asc" | "desc";
+type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme" | "sdr";
 
 type AdminAccess = {
   key: string;
@@ -52,6 +57,8 @@ type AdminRow = {
   access?: AdminAccess[];
   permissions?: AdminAccess[];
   parentAdmin?: string | AdminMini | null;
+  rootAdmin?: string | AdminMini | null;
+  createdBy?: string | AdminMini | null;
 };
 
 type MeResponse = {
@@ -63,16 +70,21 @@ type MeResponse = {
   status?: AdminStatus;
   permissions?: AdminAccess[];
   access?: AdminAccess[];
+  parentAdmin?: string | AdminMini | null;
+  rootAdmin?: string | AdminMini | null;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/";
 
-const DEFAULT_ROLE_OPTIONS = [
-  "super_admin",
-  "revenue_head",
-  "ime",
-  "bme",
+const ROLE_OPTIONS: Array<{ value: AdminRole; label: string }> = [
+  { value: "super_admin", label: "Super Admin" },
+  { value: "revenue_head", label: "Revenue Head" },
+  { value: "ime", label: "IME" },
+  { value: "bme", label: "BME" },
+  { value: "sdr", label: "SDR" },
 ];
+
+const DEFAULT_ROLE_OPTIONS = ROLE_OPTIONS.map((item) => item.value);
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -127,6 +139,7 @@ function getRoleLabel(role?: string) {
   if (value === "revenue_head") return "Revenue Head";
   if (value === "ime") return "IME";
   if (value === "bme") return "BME";
+  if (value === "sdr") return "SDR";
   return role || "—";
 }
 
@@ -191,6 +204,44 @@ function getPermissionLevel(
 
   if (!found) return "none";
   return found.isEdit ? "write" : "read";
+}
+
+function compareText(a?: string, b?: string) {
+  return String(a || "").localeCompare(String(b || ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function getParentName(parent?: string | AdminMini | null) {
+  if (!parent) return "—";
+  if (typeof parent === "string") return "Assigned";
+  return parent.name || parent.email || "Assigned";
+}
+
+function getAllowedInviteRoles(currentRole?: string): AdminRole[] {
+  const role = String(currentRole || "").toLowerCase();
+
+  if (role === "super_admin") {
+    return ["revenue_head", "ime", "bme", "sdr"];
+  }
+
+  if (role === "revenue_head") {
+    return ["ime", "bme", "sdr"];
+  }
+
+  return [];
+}
+
+function roleCanInvite(currentRole?: string) {
+  return getAllowedInviteRoles(currentRole).length > 0;
+}
+
+function needsParentRevenueHead(inviterRole?: string, targetRole?: string) {
+  return (
+    String(inviterRole || "").toLowerCase() === "super_admin" &&
+    ["ime", "bme", "sdr"].includes(String(targetRole || "").toLowerCase())
+  );
 }
 
 function PermissionSwitch({
@@ -269,7 +320,7 @@ function AccessBadges({
   labelMap: Map<string, string>;
 }) {
   const items = canonicalizeAccessList(Array.isArray(access) ? access : []);
-  const visible = items.slice(0, 2);
+  const visible = items.slice(0, 3);
   const remaining = Math.max(0, items.length - visible.length);
 
   if (!items.length) {
@@ -325,9 +376,24 @@ export default function EmployeesPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [editErr, setEditErr] = useState<string | null>(null);
 
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteProxyEmail, setInviteProxyEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<AdminRole | "">("");
+  const [inviteParentAdmin, setInviteParentAdmin] = useState("");
+  const [inviteAccess, setInviteAccess] = useState<AdminAccess[]>([]);
+  const [inviting, setInviting] = useState(false);
+  const [inviteErr, setInviteErr] = useState<string | null>(null);
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AdminStatus>("all");
   const [roleFilter, setRoleFilter] = useState("all");
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [sortBy, setSortBy] = useState("createdAt");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   const currentRole = String(me?.role || "").toLowerCase();
 
@@ -347,6 +413,8 @@ export default function EmployeesPage() {
     currentRole === "super_admin" ||
     currentRole === "revenue_head" ||
     employeesPermission === "write";
+
+  const canInviteEmployees = roleCanInvite(currentRole) && canViewEmployees;
 
   const permissionSections = useMemo(() => {
     return ROLE_PERMISSION_SECTIONS.map((section) => ({
@@ -377,6 +445,30 @@ export default function EmployeesPage() {
     return Array.from(new Set([...DEFAULT_ROLE_OPTIONS, ...fromRows]));
   }, [rows]);
 
+  const inviteRoleOptions = useMemo(() => {
+    const allowed = getAllowedInviteRoles(currentRole);
+    return ROLE_OPTIONS.filter((item) => allowed.includes(item.value));
+  }, [currentRole]);
+
+  const editRoleOptions = useMemo(() => {
+    const allowed = getAllowedInviteRoles(currentRole);
+    const base = ROLE_OPTIONS.filter((item) => allowed.includes(item.value));
+    const current = String(
+      rows.find((row) => row._id === selectedId)?.role || ""
+    ).toLowerCase() as AdminRole;
+
+    if (!current) return base;
+    if (base.some((item) => item.value === current)) return base;
+
+    return [{ value: current, label: getRoleLabel(current) }, ...base];
+  }, [currentRole, rows, selectedId]);
+
+  const revenueHeadOptions = useMemo(() => {
+    return rows.filter(
+      (row) => String(row.role || "").toLowerCase() === "revenue_head"
+    );
+  }, [rows]);
+
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
 
@@ -400,10 +492,47 @@ export default function EmployeesPage() {
     });
   }, [rows, search, statusFilter, roleFilter]);
 
-  const selectedEmployee = useMemo(
-    () => rows.find((r) => r._id === selectedId) || null,
-    [rows, selectedId]
-  );
+  const sortedRows = useMemo(() => {
+    const next = [...filteredRows];
+    const dir = sortOrder === "asc" ? 1 : -1;
+
+    next.sort((a, b) => {
+      let result = 0;
+
+      switch (sortBy) {
+        case "name":
+          result = compareText(a.name, b.name) || compareText(a.email, b.email);
+          break;
+        case "role":
+          result = compareText(a.role, b.role);
+          break;
+        case "proxyEmail":
+          result = compareText(a.proxyEmail, b.proxyEmail);
+          break;
+        case "parentAdmin":
+          result = compareText(getParentName(a.parentAdmin), getParentName(b.parentAdmin));
+          break;
+        case "status":
+          result = compareText(a.status, b.status);
+          break;
+        case "lastLoginAt":
+          result =
+            new Date(a.lastLoginAt || 0).getTime() -
+            new Date(b.lastLoginAt || 0).getTime();
+          break;
+        default:
+          result =
+            new Date(a.createdAt || 0).getTime() -
+            new Date(b.createdAt || 0).getTime();
+          break;
+      }
+
+      if (result !== 0) return result * dir;
+      return compareText(a.email, b.email);
+    });
+
+    return next;
+  }, [filteredRows, sortBy, sortOrder]);
 
   const totalEmployees = filteredRows.length;
   const activeStaff = filteredRows.filter(
@@ -420,6 +549,127 @@ export default function EmployeesPage() {
   const utilization = totalEmployees
     ? `${((activeStaff / totalEmployees) * 100).toFixed(1)}% utilization`
     : "0% utilization";
+
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / limit));
+  const pagedRows = useMemo(() => {
+    const start = (page - 1) * limit;
+    return sortedRows.slice(start, start + limit);
+  }, [sortedRows, page, limit]);
+
+  const selectedEmployee = useMemo(
+    () => rows.find((r) => r._id === selectedId) || null,
+    [rows, selectedId]
+  );
+
+  const tableColumns = useMemo<AdminTableColumn<AdminRow>[]>(() => {
+    return [
+      {
+        id: "name",
+        header: "Employee",
+        sortable: true,
+        sortField: "name",
+        render: (row) => (
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-sm font-bold text-black">
+              {getInitials(row.name, row.email)}
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-black">
+                {row.name || "Unnamed Employee"}
+              </div>
+              <div className="mt-1 text-xs text-black/45">{row.email}</div>
+              <div className="mt-1 text-xs text-black/35">
+                {getDisplayId(row)}
+              </div>
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "role",
+        header: "Role",
+        sortable: true,
+        sortField: "role",
+        render: (row) => (
+          <span className="inline-flex rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-sm font-semibold text-black">
+            {getRoleLabel(row.role)}
+          </span>
+        ),
+      },
+      {
+        id: "proxyEmail",
+        header: "Proxy Email",
+        sortable: true,
+        sortField: "proxyEmail",
+        render: (row) => (
+          <div className="inline-flex rounded-xl border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/60">
+            {row.proxyEmail || "—"}
+          </div>
+        ),
+      },
+      {
+        id: "parentAdmin",
+        header: "Reports To",
+        sortable: true,
+        sortField: "parentAdmin",
+        render: (row) => (
+          <span className="text-sm text-black/65">
+            {getParentName(row.parentAdmin)}
+          </span>
+        ),
+      },
+      {
+        id: "permissions",
+        header: "Assigned Permissions",
+        render: (row) => {
+          const rowAccess = Array.isArray(row.access)
+            ? row.access
+            : Array.isArray(row.permissions)
+              ? row.permissions
+              : [];
+
+          return (
+            <AccessBadges
+              access={rowAccess}
+              labelMap={permissionLabelMap}
+            />
+          );
+        },
+      },
+      {
+        id: "lastLoginAt",
+        header: "Last Active",
+        sortable: true,
+        sortField: "lastLoginAt",
+        render: (row) => (
+          <div className="flex items-center gap-2 text-sm text-black/55">
+            <Clock3 className="h-4 w-4" />
+            {formatRelativeTime(row.lastLoginAt)}
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        sortField: "status",
+        render: (row) => {
+          const st = (row.status || "pending") as AdminStatus;
+
+          return (
+            <span
+              className={cn(
+                "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                statusTone(st)
+              )}
+            >
+              {getStatusLabel(st)}
+            </span>
+          );
+        },
+      },
+    ];
+  }, [permissionLabelMap]);
 
   function hydrateEditor(admin: AdminRow | null) {
     if (!admin) {
@@ -449,10 +699,11 @@ export default function EmployeesPage() {
   }
 
   function setModuleLevel(
+    setter: React.Dispatch<React.SetStateAction<AdminAccess[]>>,
     moduleKey: string,
     level: PermissionLevel
   ) {
-    setEditAccess((prev) => {
+    setter((prev) => {
       const canonicalKey = canonicalizeModuleKey(moduleKey);
       const next = canonicalizeAccessList(prev);
       const index = next.findIndex((item) => item.key === canonicalKey);
@@ -476,6 +727,16 @@ export default function EmployeesPage() {
         next.map((item, i) => (i === index ? { ...item, ...nextValue } : item))
       );
     });
+  }
+
+  function handleSort(field: string) {
+    if (sortBy === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setSortBy(field);
+    setSortOrder("asc");
   }
 
   async function fetchMe() {
@@ -617,6 +878,74 @@ export default function EmployeesPage() {
     }
   }
 
+  async function onInvite() {
+    setInviteErr(null);
+
+    const email = inviteEmail.trim().toLowerCase();
+    const role = String(inviteRole || "").trim().toLowerCase() as AdminRole;
+    const proxyEmail = inviteProxyEmail.trim();
+
+    if (!email) {
+      setInviteErr("Email is required");
+      return;
+    }
+
+    if (!role) {
+      setInviteErr("Role is required");
+      return;
+    }
+
+    if (needsParentRevenueHead(currentRole, role) && !inviteParentAdmin.trim()) {
+      setInviteErr("Please select a Revenue Head");
+      return;
+    }
+
+    setInviting(true);
+
+    try {
+      const payload: Record<string, any> = {
+        email,
+        name: inviteName.trim() || undefined,
+        role,
+        access: canonicalizeAccessList(inviteAccess),
+        proxyEmail: proxyEmail || undefined,
+      };
+
+      if (needsParentRevenueHead(currentRole, role)) {
+        payload.parentAdmin = inviteParentAdmin;
+      }
+
+      const res = await fetch(toApiUrl("admins/invite"), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Invite failed");
+      }
+
+      setInviteOpen(false);
+      setInviteEmail("");
+      setInviteName("");
+      setInviteProxyEmail("");
+      setInviteRole("");
+      setInviteParentAdmin("");
+      setInviteAccess([]);
+      setRowMsg(data?.message || "Invite sent successfully");
+
+      await fetchEmployees();
+    } catch (e: any) {
+      setInviteErr(e?.message || "Invite failed");
+    } finally {
+      setInviting(false);
+      setTimeout(() => setRowMsg(null), 2500);
+    }
+  }
+
   function exportCsv() {
     const headers = [
       "Employee Name",
@@ -624,11 +953,12 @@ export default function EmployeesPage() {
       "Proxy Email",
       "Role",
       "Status",
+      "Reports To",
       "Last Login",
       "Modules",
     ];
 
-    const lines = filteredRows.map((row) => {
+    const lines = sortedRows.map((row) => {
       const rowAccess = canonicalizeAccessList(
         Array.isArray(row.access)
           ? row.access
@@ -643,6 +973,7 @@ export default function EmployeesPage() {
         `"${row.proxyEmail || ""}"`,
         `"${row.role || ""}"`,
         `"${row.status || "pending"}"`,
+        `"${getParentName(row.parentAdmin)}"`,
         `"${formatDT(row.lastLoginAt)}"`,
         `"${rowAccess
           .map((a) => permissionLabelMap.get(a.key) || a.name || a.key)
@@ -665,6 +996,16 @@ export default function EmployeesPage() {
   useEffect(() => {
     refreshAll();
   }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, roleFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
   useEffect(() => {
     if (!filteredRows.length) {
@@ -690,7 +1031,7 @@ export default function EmployeesPage() {
 
   return (
     <div className="min-h-screen bg-white px-4 py-6 md:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
+      <div className="mx-auto max-w-fu;;">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard
             title="Total Employees"
@@ -723,9 +1064,6 @@ export default function EmployeesPage() {
             <h1 className="text-3xl font-semibold tracking-[-0.03em] text-black">
               Manage Workforce
             </h1>
-            <p className="mt-1 text-sm text-black/50">
-              Employees and permission modules are synced with shared admin access.
-            </p>
 
             {!loadingMe && me ? (
               <div className="mt-2 inline-flex items-center gap-2 rounded-full bg-black/5 px-3 py-1 text-xs font-medium text-black/70">
@@ -754,6 +1092,26 @@ export default function EmployeesPage() {
               <Download className="h-4 w-4" />
               Bulk Export
             </button>
+
+            {canInviteEmployees ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setInviteOpen(true);
+                  setInviteErr(null);
+                  setInviteEmail("");
+                  setInviteName("");
+                  setInviteProxyEmail("");
+                  setInviteRole("");
+                  setInviteParentAdmin("");
+                  setInviteAccess([]);
+                }}
+                className="inline-flex items-center gap-2 rounded-2xl bg-black px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              >
+                <Mail className="h-4 w-4" />
+                Invite Employee
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -807,176 +1165,254 @@ export default function EmployeesPage() {
         ) : null}
 
         <div className="mt-5 overflow-hidden rounded-[26px] border border-black/10 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full border-separate border-spacing-0">
-              <thead>
-                <tr className="bg-black/[0.03] text-left">
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Employee
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Role
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Proxy Email
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Assigned Permissions
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Last Active
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Status
-                  </th>
-                  <th className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-black/50">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
+          <AdminTable
+            data={pagedRows}
+            columns={tableColumns}
+            rowKey={(row) => row._id}
+            loading={loading}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            onSort={handleSort}
+            emptyTitle="No employees found"
+            emptyDescription="Try adjusting the filters or refreshing the list."
+            actions={{
+              header: "Actions",
+              align: "right",
+              render: (row) => {
+                const st = (row.status || "pending") as AdminStatus;
+                const isActive = st === "active";
+                const isPending = st === "pending";
+                const isUpdating = updatingId === row._id;
 
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-5 py-12 text-center text-sm text-black/50"
+                return (
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        hydrateEditor(row);
+                        setManageOpen(true);
+                      }}
+                      className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-black/[0.03]"
                     >
-                      Loading employees...
-                    </td>
-                  </tr>
-                ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="px-5 py-12 text-center text-sm text-black/50"
-                    >
-                      No employees found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRows.map((row) => {
-                    const st = (row.status || "pending") as AdminStatus;
-                    const isActive = st === "active";
-                    const isPending = st === "pending";
-                    const isUpdating = updatingId === row._id;
+                      Manage
+                    </button>
 
-                    const rowAccess = Array.isArray(row.access)
-                      ? row.access
-                      : Array.isArray(row.permissions)
-                        ? row.permissions
-                        : [];
-
-                    return (
-                      <tr key={row._id} className="hover:bg-black/[0.015]">
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-sm font-bold text-black">
-                              {getInitials(row.name, row.email)}
-                            </div>
-                            <div>
-                              <div className="text-lg font-semibold leading-6 text-black">
-                                {row.name || "Unnamed Employee"}
-                              </div>
-                              <div className="mt-1 text-sm text-black/45">
-                                ID: {getDisplayId(row)}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <span className="inline-flex rounded-full border border-black/10 bg-black/[0.03] px-3 py-1 text-sm font-semibold text-black">
-                            {getRoleLabel(row.role)}
-                          </span>
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <div className="inline-flex rounded-xl border border-black/10 bg-black/[0.03] px-3 py-2 text-sm text-black/60">
-                            {row.proxyEmail || "—"}
-                          </div>
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <AccessBadges
-                            access={rowAccess}
-                            labelMap={permissionLabelMap}
-                          />
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <div className="flex items-center gap-2 text-sm text-black/55">
-                            <Clock3 className="h-4 w-4" />
-                            {formatRelativeTime(row.lastLoginAt)}
-                          </div>
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          {isActive ? (
-                            <button
-                              type="button"
-                              disabled={isUpdating || !canEditEmployees}
-                              onClick={() => updateStatus(row._id, "inactive")}
-                              className={cn(
-                                "relative inline-flex h-7 w-12 items-center rounded-full transition",
-                                isUpdating || !canEditEmployees ? "opacity-50" : "",
-                                "bg-black"
-                              )}
-                            >
-                              <span className="absolute right-1 h-5 w-5 rounded-full bg-white shadow" />
-                            </button>
-                          ) : (
-                            <span
-                              className={cn(
-                                "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
-                                statusTone(st)
-                              )}
-                            >
-                              {getStatusLabel(st)}
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="border-b border-black/10 px-5 py-5 align-middle">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                hydrateEditor(row);
-                                setManageOpen(true);
-                              }}
-                              className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-black hover:bg-black/[0.03]"
-                            >
-                              Manage
-                            </button>
-
-                            {!isPending ? (
-                              <button
-                                type="button"
-                                disabled={isUpdating || !canEditEmployees}
-                                onClick={() =>
-                                  updateStatus(row._id, isActive ? "inactive" : "active")
-                                }
-                                className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-black/70 hover:bg-black/[0.03] disabled:opacity-50"
-                              >
-                                {isActive ? "Disable" : "Enable"}
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="mt-8 rounded-[22px] border border-black/10 bg-white px-6 py-5 text-center text-sm leading-7 text-black/55">
-          Invited employees must accept the secure link sent to their email and complete setup before receiving full access to campaigns and tools.
+                    {!isPending ? (
+                      <button
+                        type="button"
+                        disabled={isUpdating || !canEditEmployees}
+                        onClick={() =>
+                          updateStatus(row._id, isActive ? "inactive" : "active")
+                        }
+                        className="rounded-xl border border-black/10 bg-white px-3 py-2 text-sm font-medium text-black/70 hover:bg-black/[0.03] disabled:opacity-50"
+                      >
+                        {isActive ? "Disable" : "Enable"}
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              },
+            }}
+            pagination={{
+              page,
+              totalPages,
+              totalItems: sortedRows.length,
+              limit,
+              onPageChange: setPage,
+              onLimitChange: (next) => {
+                setLimit(next);
+                setPage(1);
+              },
+              rowOptions: [10, 20, 50, 100] as const,
+              showRowsSelector: true,
+              showSummary: true,
+            }}
+          />
         </div>
       </div>
+
+      {inviteOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] border border-black/10 bg-[#f7f7f7] shadow-2xl">
+            <div className="shrink-0 flex items-center justify-between border-b border-black/10 px-6 py-5">
+              <div>
+                <div className="text-xl font-semibold text-black">
+                  Invite Employee
+                </div>
+                <div className="mt-1 text-sm text-black/55">
+                  Send invite and assign role, hierarchy and access from here.
+                </div>
+              </div>
+
+              <button
+                className="rounded-xl border border-black/10 px-3 py-2 text-sm text-black/60 hover:bg-black/5 hover:text-black"
+                onClick={() => setInviteOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex-1 space-y-5 overflow-y-auto p-6">
+              {inviteErr ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {inviteErr}
+                </div>
+              ) : null}
+
+              <div className="rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-black/70">
+                <span className="font-semibold text-black">Allowed roles:</span>{" "}
+                {inviteRoleOptions.map((role) => role.label).join(", ") || "None"}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-black/45">
+                    Email
+                  </label>
+                  <input
+                    className="h-12 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/30"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="name@domain.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-black/45">
+                    Full Name
+                  </label>
+                  <input
+                    className="h-12 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/30"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                    placeholder="Jane Doe"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-black/45">
+                    Proxy Email Prefix
+                  </label>
+                  <input
+                    className="h-12 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/30"
+                    value={inviteProxyEmail}
+                    onChange={(e) => setInviteProxyEmail(e.target.value)}
+                    placeholder="jane.doe or jane"
+                  />
+                  <p className="mt-2 text-xs text-black/50">
+                    Final suffix will be fixed as @team.collabglam.com
+                  </p>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-black/45">
+                    Role
+                  </label>
+                  <select
+                    className="h-12 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/30"
+                    value={inviteRole}
+                    onChange={(e) => {
+                      setInviteRole(e.target.value as AdminRole | "");
+                      setInviteParentAdmin("");
+                    }}
+                  >
+                    <option value="">Select role</option>
+                    {inviteRoleOptions.map((role) => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {needsParentRevenueHead(currentRole, inviteRole) ? (
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.18em] text-black/45">
+                    Assign Revenue Head
+                  </label>
+                  <select
+                    className="h-12 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm outline-none focus:border-black/30"
+                    value={inviteParentAdmin}
+                    onChange={(e) => setInviteParentAdmin(e.target.value)}
+                  >
+                    <option value="">Select Revenue Head</option>
+                    {revenueHeadOptions.map((admin) => (
+                      <option key={admin._id} value={admin._id}>
+                        {(admin.name || admin.email) +
+                          " · " +
+                          getRoleLabel(admin.role)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <div className="overflow-hidden rounded-[24px] border border-black/10 bg-white">
+                {permissionSections.map((section) => {
+                  const SectionIcon = section.icon;
+
+                  return (
+                    <div
+                      key={section.key}
+                      className="border-b border-black/10 last:border-b-0"
+                    >
+                      <div className="flex items-center gap-2 bg-black/[0.03] px-4 py-3">
+                        <SectionIcon className="h-4 w-4 text-black" />
+                        <span className="text-xs font-extrabold uppercase tracking-[0.18em] text-black/55">
+                          {section.title}
+                        </span>
+                      </div>
+
+                      {section.items.map((itemKey) => {
+                        const module = getAdminModule(itemKey);
+                        if (!module) return null;
+
+                        return (
+                          <div
+                            key={module.key}
+                            className="flex flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between"
+                          >
+                            <div className="text-base font-medium text-black">
+                              {module.label}
+                            </div>
+
+                            <PermissionSwitch
+                              value={getPermissionLevel(inviteAccess, module.key)}
+                              onChange={(next) =>
+                                setModuleLevel(setInviteAccess, module.key, next)
+                              }
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="shrink-0 flex justify-end gap-2 border-t border-black/10 bg-[#f7f7f7] px-6 py-5">
+              <button
+                type="button"
+                onClick={() => setInviteOpen(false)}
+                className="rounded-2xl border border-black/10 px-5 py-3 text-sm font-medium hover:bg-black/5"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={onInvite}
+                disabled={inviting || !inviteEmail.trim() || !inviteRole.trim()}
+                className="rounded-2xl bg-black px-5 py-3 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {inviting ? "Sending..." : "Send Invite"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {manageOpen && selectedEmployee ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -1032,9 +1468,9 @@ export default function EmployeesPage() {
                     className="h-14 w-full rounded-2xl border border-black/10 bg-white px-5 text-base text-black outline-none focus:border-black/20 disabled:opacity-60"
                   >
                     <option value="">Select role</option>
-                    {roleOptions.map((role) => (
-                      <option key={role} value={role}>
-                        {getRoleLabel(role)}
+                    {editRoleOptions.map((role) => (
+                      <option key={role.value} value={role.value}>
+                        {role.label}
                       </option>
                     ))}
                   </select>
@@ -1059,7 +1495,7 @@ export default function EmployeesPage() {
               </div>
 
               <div className="mt-5 rounded-[22px] border border-black/10 bg-white p-5">
-                <div className="grid gap-4 grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="min-w-0">
                     <div className="text-xs font-bold uppercase tracking-[0.16em] text-black/40">
                       Email
@@ -1080,19 +1516,19 @@ export default function EmployeesPage() {
 
                   <div className="min-w-0">
                     <div className="text-xs font-bold uppercase tracking-[0.16em] text-black/40">
-                      Last Login
+                      Reports To
                     </div>
                     <div className="mt-1 text-sm font-medium text-black break-words">
-                      {formatDT(selectedEmployee.lastLoginAt)}
+                      {getParentName(selectedEmployee.parentAdmin)}
                     </div>
                   </div>
 
                   <div className="min-w-0">
                     <div className="text-xs font-bold uppercase tracking-[0.16em] text-black/40">
-                      Current ID
+                      Last Login
                     </div>
-                    <div className="mt-1 text-sm font-medium text-black">
-                      {getDisplayId(selectedEmployee)}
+                    <div className="mt-1 text-sm font-medium text-black break-words">
+                      {formatDT(selectedEmployee.lastLoginAt)}
                     </div>
                   </div>
                 </div>
@@ -1130,7 +1566,9 @@ export default function EmployeesPage() {
                             <PermissionSwitch
                               value={getPermissionLevel(editAccess, module.key)}
                               disabled={!canEditEmployees}
-                              onChange={(next) => setModuleLevel(module.key, next)}
+                              onChange={(next) =>
+                                setModuleLevel(setEditAccess, module.key, next)
+                              }
                             />
                           </div>
                         );
