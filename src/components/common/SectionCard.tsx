@@ -19,7 +19,7 @@ export function SectionCard({
           ) : null}
           <h2 className="text-[15px] font-semibold text-[#1f1f1f]">{title}</h2>
         </div>
-        {action}
+        {/* {action} */}
       </div>
       {children}
     </section>

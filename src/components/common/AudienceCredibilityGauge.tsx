@@ -11,7 +11,9 @@ export function AudienceCredibilityGauge({ score }: { score: number }) {
       >
         <div className="grid h-24 w-24 place-items-center rounded-full bg-white text-center">
           <div>
-            <div className="text-[28px] font-bold text-[#1f1f1f]">{safeScore}%</div>
+            <div className="text-[28px] font-bold text-[#1f1f1f]">
+              {safeScore === 0 ? "-" : `${safeScore}%`}
+            </div>
             <div className="text-xs text-[#8a8175]">
               {safeScore >= 70 ? "Excellent" : safeScore >= 50 ? "Good" : "Fair"}
             </div>

@@ -76,7 +76,7 @@ export function CreatorHeader({
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[#7d7569]">
             <span>@{displayProfile?.username || "creator_handle"}</span>
-            <span>ID: {displayProfile?.modashId || displayProfile?._id || "—"}</span>
+            {/* <span>ID: {displayProfile?.modashId || displayProfile?._id || "—"}</span> */}
             <span>{mediaKit?.country || displayProfile?.country || "Philippines"}</span>
             <span>{accountType || displayProfile?.accountType || "Business"}</span>
             {(postsCount ?? displayProfile?.postsCount) ? (
@@ -127,7 +127,7 @@ export function CreatorHeader({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-[#efe8dd] bg-[#fffdfa] px-5 py-4 text-right">
+      {/* <div className="rounded-2xl border border-[#efe8dd] bg-[#fffdfa] px-5 py-4 text-right">
         <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ab9f8e]">
           System status
         </div>
@@ -137,7 +137,7 @@ export function CreatorHeader({
         <div className="mt-1 text-xs text-[#7f786d]">
           Visibility mapped to {PLAN_DISPLAY_NAME[activePlan]} plan
         </div>
-      </div>
+      </div> */}
     </div>
   );
 }

@@ -17,6 +17,7 @@ export function AudienceIntelligenceCard({
   credibilityScore: number;
   topLanguages: Array<{ label: string; value: number }>;
 }) {
+  console.log("credibilityScore",credibilityScore)
   const pieSeries = genderData.length
     ? genderData.map((item, index) => ({
         id: item.label,

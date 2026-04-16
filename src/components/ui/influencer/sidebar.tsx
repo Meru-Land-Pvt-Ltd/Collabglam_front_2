@@ -12,16 +12,15 @@ import {
 import type { Transition, Variants } from "framer-motion";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import HelpDialog, { type SupportMenuKey } from "@/components/common/HelpDialog";
 
 import {
   CardsThree,
   DotsThree,
   EnvelopeSimpleIcon,
-  Gear,
   ImageIcon,
   PaperPlaneTilt,
   Question,
-  RocketLaunchIcon,
   SignOut,
   SuitcaseIcon,
   UserIcon,
@@ -422,7 +421,15 @@ export default function Sidebar({
   const [drawerOpenInternal, setDrawerOpenInternal] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
+  const [helpDialogOpen, setHelpDialogOpen] = useState(false);
+  const [helpDialogPosition, setHelpDialogPosition] = useState({
+    top: 0,
+    left: 0,
+  });
+
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const helpAnchorRef = useRef<HTMLDivElement | null>(null);
+  const helpDialogRef = useRef<HTMLDivElement | null>(null);
 
   const drawerOpen = drawerOpenProp ?? drawerOpenInternal;
 
@@ -483,6 +490,35 @@ export default function Sidebar({
     loadProfile();
   }, [influencerId, token]);
 
+  useEffect(() => {
+    if (!helpDialogOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setHelpDialogOpen(false);
+    };
+
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+
+      const dialogEl = helpDialogRef.current;
+      const anchorEl = helpAnchorRef.current;
+
+      if (dialogEl?.contains(target)) return;
+      if (anchorEl?.contains(target)) return;
+
+      setHelpDialogOpen(false);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onPointerDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [helpDialogOpen]);
+
   const items = useMemo<Item[]>(
     () => [
       {
@@ -542,13 +578,6 @@ export default function Sidebar({
         section: "main",
         href: "/influencer/media-kit",
       },
-      // {
-      //   key: "profile",
-      //   label: "Profile",
-      //   icon: UserIcon,
-      //   section: "main",
-      //   href: "/influencer/profile",
-      // },
       {
         key: "support",
         label: "Help",
@@ -560,10 +589,21 @@ export default function Sidebar({
     [campaignBadge, appliedBadge, messagesBadge]
   );
 
+  const helpMenuItems = useMemo<Array<{ key: SupportMenuKey; label: string }>>(
+    () => [
+      { key: "dispute", label: "Dispute" },
+      { key: "report_issue", label: "Report an Issue" },
+      { key: "help_center", label: "Help Center" },
+      { key: "privacy_policy", label: "Privacy Policy" },
+    ],
+    []
+  );
+
   const mainItems = useMemo(
     () => items.filter((i) => i.section === "main"),
     [items]
   );
+
   const footerItems = useMemo(
     () => items.filter((i) => i.section === "footer"),
     [items]
@@ -629,6 +669,57 @@ export default function Sidebar({
     [items, router, isDesktop, setDrawerOpen]
   );
 
+  const openHelpDialog = useCallback(() => {
+    const rect = helpAnchorRef.current?.getBoundingClientRect();
+
+    if (rect) {
+      const DIALOG_HEIGHT = 340;
+      const GAP = 12;
+      const VIEWPORT_PADDING = 16;
+
+      let top = rect.top;
+
+      if (top + DIALOG_HEIGHT > window.innerHeight - VIEWPORT_PADDING) {
+        top = window.innerHeight - VIEWPORT_PADDING - DIALOG_HEIGHT;
+      }
+
+      top = Math.max(VIEWPORT_PADDING, top);
+
+      setHelpDialogPosition({
+        top,
+        left: rect.right + GAP,
+      });
+    }
+
+    setHelpDialogOpen((prev) => !prev);
+  }, []);
+
+  const handleHelpMenuSelect = useCallback(
+    (key: SupportMenuKey) => {
+      setHelpDialogOpen(false);
+
+      switch (key) {
+        case "dispute":
+          router.push("/influencer/disputes");
+          break;
+        case "report_issue":
+          router.push("/influencer/report-issue");
+          break;
+        case "help_center":
+          router.push("/influencer/support-centre");
+          break;
+        case "privacy_policy":
+          router.push("/privacy-policy");
+          break;
+        default:
+          break;
+      }
+
+      if (!isDesktop) setDrawerOpen(false);
+    },
+    [router, isDesktop, setDrawerOpen]
+  );
+
   const beginOpenDesktop = useCallback(() => {
     setCollapsed(false);
     setIsClosing(false);
@@ -639,6 +730,7 @@ export default function Sidebar({
     setIsClosing(true);
     setWidthCollapsed(true);
     setProfileMenuOpen(false);
+    setHelpDialogOpen(false);
   }, []);
 
   const handleLogout = useCallback(() => {
@@ -669,6 +761,22 @@ export default function Sidebar({
       const isWalletItem = i.key === "wallet-payments";
 
       if (isDesktop && collapsed) {
+        if (i.key === "support") {
+          return (
+            <div key={i.key} ref={helpAnchorRef}>
+              <RailIconButton
+                label={i.label}
+                tight={tight}
+                active={helpDialogOpen}
+                hasIndicator={Boolean(i.right)}
+                onClick={openHelpDialog}
+              >
+                <Icon size={20} weight="regular" className="text-current" />
+              </RailIconButton>
+            </div>
+          );
+        }
+
         return (
           <RailIconButton
             key={i.key}
@@ -683,6 +791,22 @@ export default function Sidebar({
         );
       }
 
+      if (i.key === "support") {
+        return (
+          <div key={i.key} ref={helpAnchorRef}>
+            <RowButton
+              icon={i.icon}
+              label={i.label}
+              right={i.right}
+              active={helpDialogOpen}
+              hideLabel={isDesktop ? isClosing : false}
+              tight={tight}
+              onClick={openHelpDialog}
+            />
+          </div>
+        );
+      }
+
       if (isWalletItem) {
         return (
           <div key={i.key} className="w-full">
@@ -694,6 +818,10 @@ export default function Sidebar({
               hideLabel={isDesktop ? isClosing : false}
               tight={tight}
               onClick={() => handleSetActive(i.key)}
+            />
+            <WalletSummary
+              summary={payoutSummary}
+              hideLabel={isDesktop ? isClosing : false}
             />
           </div>
         );
@@ -712,7 +840,17 @@ export default function Sidebar({
         />
       );
     },
-    [active, collapsed, handleSetActive, isClosing, isDesktop, tight]
+    [
+      active,
+      collapsed,
+      handleSetActive,
+      helpDialogOpen,
+      isClosing,
+      isDesktop,
+      openHelpDialog,
+      payoutSummary,
+      tight,
+    ]
   );
 
   const BottomProfileSection = (
@@ -1014,7 +1152,18 @@ export default function Sidebar({
   return (
     <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
-        {isDesktop ? DesktopAside : MobileDrawer}
+        <>
+          {isDesktop ? DesktopAside : MobileDrawer}
+
+          <HelpDialog
+            open={helpDialogOpen}
+            dialogRef={helpDialogRef}
+            position={helpDialogPosition}
+            items={helpMenuItems}
+            onSelect={handleHelpMenuSelect}
+            focusRingClassName={FOCUS_RING}
+          />
+        </>
       </MotionConfig>
     </LazyMotion>
   );

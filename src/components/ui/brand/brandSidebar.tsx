@@ -18,7 +18,7 @@ import {
   apiGetBrandWallet,
 } from "@/app/brand/services/brandApi";
 import NotificationCard from "./notificationCard";
-
+import HelpDialog, { type SupportMenuKey } from "@/components/common/HelpDialog";
 import {
   Bell,
   CaretDown,
@@ -84,11 +84,6 @@ type Workspace = {
   logoSrc?: string;
 };
 
-type SupportMenuKey =
-  | "dispute"
-  | "report_issue"
-  | "help_center"
-  | "privacy_policy";
 
 type BrandLiteFeature = {
   key?: string | null;
@@ -273,28 +268,6 @@ function PanelCaretGlyph({
   );
 }
 
-function SupportMenuIcon({
-  kind,
-  className,
-}: {
-  kind: SupportMenuKey;
-  className?: string;
-}) {
-  if (kind === "dispute") {
-    return <GavelIcon />;
-  }
-
-  if (kind === "report_issue") {
-    return <LinkIcon />;
-  }
-
-  if (kind === "help_center") {
-    return <QuestionIcon />;
-  }
-
-  return <FilesIcon />;
-}
-
 function getWalletAmount(res: unknown) {
   const data = res as Record<string, any> | null | undefined;
 
@@ -354,9 +327,9 @@ const RowButton = React.memo(function RowButton({
         collapsed
           ? cn("mx-auto justify-center", tight ? "h-11 w-11" : "h-12 w-12")
           : cn(
-              "w-full justify-start",
-              tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
-            )
+            "w-full justify-start",
+            tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
+          )
       )}
       style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
     >
@@ -712,8 +685,8 @@ export default function BrandSidebar({
 
   const footerPlanLabel = titleCasePlan(
     brandLite?.subscriptionDetails?.brandPlanName ||
-      brandLite?.subscriptionDetails?.plan ||
-      planName
+    brandLite?.subscriptionDetails?.plan ||
+    planName
   );
 
   const helpMenuItems = useMemo<Array<{ key: SupportMenuKey; label: string }>>(
@@ -747,7 +720,7 @@ export default function BrandSidebar({
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -801,7 +774,7 @@ export default function BrandSidebar({
           if (latestName)
             window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch {}
+        } catch { }
       } catch {
         // keep cached values on failure
       }
@@ -823,7 +796,7 @@ export default function BrandSidebar({
         try {
           const stored = window.localStorage.getItem("sidebar-collapsed");
           if (stored !== null) initialCollapsed = stored === "true";
-        } catch {}
+        } catch { }
         setCollapsed(initialCollapsed);
         setWidthCollapsed(initialCollapsed);
         hasInitializedCollapsed.current = true;
@@ -867,7 +840,7 @@ export default function BrandSidebar({
     const nextKey =
       match?.key ??
       (currentPath === CAMPAIGN_PREFIX ||
-      currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
+        currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
         ? "campaigns"
         : null);
 
@@ -1083,7 +1056,7 @@ export default function BrandSidebar({
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch {}
+    } catch { }
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -1094,7 +1067,7 @@ export default function BrandSidebar({
     setWidthCollapsed(true);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch {}
+    } catch { }
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -1117,7 +1090,7 @@ export default function BrandSidebar({
         "brandPlanId",
         "brandPlanName",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch {}
+    } catch { }
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
@@ -1929,65 +1902,15 @@ export default function BrandSidebar({
   );
 
   // FIX 3: Restored missing closing tags for HelpDialog AnimatePresence
-  const HelpDialog = (
-    <AnimatePresence>
-      {helpDialogOpen ? (
-        <m.div
-          ref={helpDialogRef}
-          key="help-support-dialog"
-          role="dialog"
-          aria-modal="false"
-          aria-labelledby="help-support-dialog-title"
-          variants={fadeScale}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          transition={motionTransitions.content}
-          className="fixed z-[140] w-full max-w-[320px]"
-          style={{
-            top: helpDialogPosition.top,
-            left: helpDialogPosition.left,
-          }}
-        >
-          <div className="rounded-[18px] border border-neutral-200 bg-white px-3 py-4 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
-            <div className="mb-2 flex items-center justify-between gap-3 px-1">
-              <div>
-                <h2
-                  id="help-support-dialog-title"
-                  className="text-[16px] font-semibold text-[#1a1a1a]"
-                >
-                  Help & Support
-                </h2>
-                <p className="mt-1 text-[12px] text-neutral-500">
-                  Choose where you want to go next.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-col gap-1">
-              {helpMenuItems.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => handleHelpMenuSelect(item.key)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-[#1a1a1a] transition hover:bg-[#F8F8F8]",
-                    FOCUS_RING
-                  )}
-                >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center text-[#1a1a1a]">
-                    <SupportMenuIcon kind={item.key} className="h-5 w-5" />
-                  </span>
-                  <span className="text-[16px] font-medium leading-6">
-                    {item.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </m.div>
-      ) : null}
-    </AnimatePresence>
+  const HelpDialogModal = (
+    <HelpDialog
+      open={helpDialogOpen}
+      dialogRef={helpDialogRef}
+      position={helpDialogPosition}
+      items={helpMenuItems}
+      onSelect={handleHelpMenuSelect}
+      focusRingClassName={FOCUS_RING}
+    />
   );
 
   const NotificationModal = (
@@ -2052,7 +1975,7 @@ export default function BrandSidebar({
       <MotionConfig reducedMotion={reduceMotion ? "always" : "never"}>
         <>
           {isDesktop ? DesktopAside : MobileDrawer}
-          {HelpDialog}
+          {HelpDialogModal}
           {NotificationModal}
         </>
       </MotionConfig>

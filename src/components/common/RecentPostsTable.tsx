@@ -11,7 +11,7 @@ export function RecentPostsTable({ posts }: { posts: SocialPost[] }) {
     if (!url) return;
     window.open(url, "_blank", "noopener,noreferrer");
   };
-
+  console.log("POSTS",posts)
   return (
     <SectionCard
       title="Recent Posts Performance"

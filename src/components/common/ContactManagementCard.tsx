@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Copy,
   Download,
@@ -10,7 +12,23 @@ import {
 } from "lucide-react";
 import { TiktokLogoIcon } from "@phosphor-icons/react";
 import { SectionCard } from "./SectionCard";
-import type { ContactManagementCardProps, InfluencerReport } from "./viewModashShared";
+import type { InfluencerReport, MediaKit, SupportedPlatform } from "./ViewModashClient";
+
+interface ContactManagementCardProps {
+  primaryReport: InfluencerReport | null;
+  mediaKit: MediaKit | null;
+  onCopy: () => void;
+  connectedProfiles?: InfluencerReport[];
+  activePlatform?: SupportedPlatform | null;
+  onPlatformSelect?: (profile: InfluencerReport) => void;
+}
+
+function normalisePlatform(raw?: string | null): SupportedPlatform {
+  const value = String(raw ?? "").toLowerCase();
+  if (value.includes("tiktok")) return "tiktok";
+  if (value.includes("youtube")) return "youtube";
+  return "instagram";
+}
 
 function getPlatformMeta(provider?: string) {
   const normalized = provider?.toLowerCase();
@@ -30,16 +48,46 @@ function getPlatformMeta(provider?: string) {
   return { label: provider || "Other", Icon: Globe };
 }
 
+function getDisplayHandle(profile?: InfluencerReport | null) {
+  if (!profile) return "—";
+  if (profile.handle) {
+    return profile.handle.startsWith("@") ? profile.handle : `@${profile.handle}`;
+  }
+  if (profile.username) return `@${profile.username}`;
+  return "—";
+}
+
 export function ContactManagementCard({
   primaryReport,
   mediaKit,
   onCopy,
+  connectedProfiles,
+  activePlatform,
+  onPlatformSelect,
 }: ContactManagementCardProps) {
-  const socialProfiles = [
+  const activeProvider = primaryReport?.provider ?? mediaKit?.primaryPlatform ?? "instagram";
+  const activePlatformMeta = getPlatformMeta(activeProvider);
+
+  const rawPlatformProfiles: InfluencerReport[] =
+    connectedProfiles?.length
+      ? connectedProfiles
+      : mediaKit?.influencerReports?.length
+      ? mediaKit.influencerReports
+      : mediaKit?.socialProfiles || [];
+
+  const uniqueConnectedPlatforms = Array.from(
+    new Map(
+      rawPlatformProfiles
+        .filter((item) => item?.provider)
+        .map((item) => [normalisePlatform(item.provider), item])
+    ).values()
+  );
+
+  const socialRows = [
     {
-      label: "Instagram",
-      value: primaryReport?.username ? `@${primaryReport.username}` : "—",
-      icon: Instagram,
+      label: activePlatformMeta.label,
+      value: getDisplayHandle(primaryReport),
+      icon: activePlatformMeta.Icon,
     },
     {
       label: "Email",
@@ -53,34 +101,17 @@ export function ContactManagementCard({
     },
     {
       label: "Location",
-      value: mediaKit?.country || primaryReport?.country || "Philippines",
+      value: primaryReport?.country || mediaKit?.country || "—",
       icon: MapPin,
     },
   ];
 
-  const rawPlatformProfiles: InfluencerReport[] =
-    mediaKit?.influencerReports?.length
-      ? mediaKit.influencerReports
-      : mediaKit?.socialProfiles || [];
-
-  const connectedPlatforms = Array.from(
-    new Map(
-      rawPlatformProfiles
-        .filter((item) => item?.provider)
-        .map((item) => [item.provider!.toLowerCase(), item])
-    ).values()
-  );
-
-  const openProfile = (url?: string) => {
-    if (!url) return;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
   return (
     <SectionCard title="Contact & Management" eyebrow="Profile access">
       <div className="space-y-4">
-        {socialProfiles.map((item) => {
+        {socialRows.map((item) => {
           const Icon = item.icon;
+
           return (
             <div key={item.label} className="flex items-start gap-3">
               <div className="mt-0.5 rounded-full bg-[#fff4df] p-2 text-[#d39305]">
@@ -102,24 +133,36 @@ export function ContactManagementCard({
             Connected platforms
           </div>
 
-          {connectedPlatforms.length ? (
+          {uniqueConnectedPlatforms.length ? (
             <div className="mt-3 flex flex-wrap gap-2 text-[#7d7569]">
-              {connectedPlatforms.map((profile, index) => {
+              {uniqueConnectedPlatforms.map((profile, index) => {
                 const { Icon, label } = getPlatformMeta(profile.provider);
+                const profilePlatform = normalisePlatform(profile.provider);
+                const isActive = activePlatform
+                  ? profilePlatform === activePlatform
+                  : profilePlatform === normalisePlatform(primaryReport?.provider);
 
                 return (
                   <button
-                    key={`${profile.provider || "platform"}-${index}`}
+                    key={`${profile.provider || "platform"}-${profile.modashId || profile._id || profile.username || index}`}
                     type="button"
-                    onClick={() => openProfile(profile.url)}
-                    className={`inline-flex items-center gap-2 rounded-full border border-[#e8e0d5] bg-white px-3 py-2 text-xs text-[#5e584f] transition ${
-                      profile.url ? "cursor-pointer hover:bg-[#fff9f1]" : "cursor-default"
+                    onClick={() => onPlatformSelect?.(profile)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs transition ${
+                      isActive
+                        ? "border-[#d9a441] bg-[#fff4df] text-[#1f1f1f]"
+                        : "border-[#e8e0d5] bg-white text-[#5e584f] hover:bg-[#fff9f1]"
                     }`}
                   >
                     <Icon className="h-4 w-4" />
                     <span className="font-medium">{label}</span>
                     {profile.username ? (
                       <span className="text-[#9a9287]">@{profile.username}</span>
+                    ) : profile.handle ? (
+                      <span className="text-[#9a9287]">
+                        {profile.handle.startsWith("@")
+                          ? profile.handle
+                          : `@${profile.handle}`}
+                      </span>
                     ) : null}
                   </button>
                 );
