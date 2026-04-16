@@ -39,9 +39,9 @@ import {
     apiRevokeDispute,
     BrandLiteResponse,
 } from "@/app/brand/services/brandApi";
-import { DisputeFormDialog } from "@/app/brand/(protected)/disputes/disputeDialog";
+import { DisputeFormDialog } from "@/components/common/disputes/DisputeFormDialog";
 import Swal from "sweetalert2";
-import ConfirmRevokeModal from "@/app/brand/(protected)/disputes/confirmRevokeModal";
+import ConfirmActionModal from "@/components/common/disputes/ConfirmActionModal";
 
 /* -------------------------------------------------------------------------- */
 /*                                    Types                                   */
@@ -1384,12 +1384,26 @@ export default function BrandDisputeDetailPage() {
                 }}
             />
 
-            <ConfirmRevokeModal
+            <ConfirmActionModal
                 open={isRevokeModalOpen}
                 onClose={handleCloseRevokeModal}
                 onConfirm={handleConfirmRevoke}
                 isSubmitting={isRevoking}
                 error={revokeError}
+                title="Withdraw Dispute"
+                description={
+                    <>
+                        You are about to{" "}
+                        <span className="font-semibold text-[#1a1a1a]">
+                            withdraw this dispute
+                        </span>{" "}
+                        request. Once withdrawn, the dispute will be closed and cannot be
+                        reopened.
+                    </>
+                }
+                confirmLabel="Withdraw"
+                confirmLoadingLabel="Withdrawing..."
+                cancelLabel="Cancel"
             />
 
             {lightbox && (

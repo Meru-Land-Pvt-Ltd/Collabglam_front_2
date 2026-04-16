@@ -356,12 +356,7 @@ function dedupeAndSortPosts(posts: SocialPost[]): SocialPost[] {
     const key =
       post.url ||
       [
-        post.createdAt ??
-        post.publishedAt ??
-        post.postedAt ??
-        post.date ??
-        post.created ??
-        "no-date",
+        post.createdAt ?? post.publishedAt ?? post.postedAt ?? post.date ?? post.created ?? "no-date",
         post.text ?? "",
         post.image ?? post.thumbnail ?? "",
       ].join("__");
@@ -385,14 +380,17 @@ function resolveRecentPostsForTable(params: {
 }): SocialPost[] {
   const { displayedReport, primaryReport, data, raw, connectedProfiles } = params;
 
+  const reportProfile = ((data?.profile as any) ?? {}) as Record<string, any>;
+  const nestedReportProfile = ((reportProfile?.profile as any) ?? {}) as Record<string, any>;
+
   const directRecent = dedupeAndSortPosts([
     ...(displayedReport?.recentPosts ?? []),
     ...(primaryReport?.recentPosts ?? []),
 
-    ...toNormalizedPosts(data?.profile?.recentPosts),
-    ...toNormalizedPosts(data?.profile?.profile?.recentPosts),
-    ...toNormalizedPosts((data as any)?.profile?.posts),
-    ...toNormalizedPosts((data as any)?.profile?.profile?.posts),
+    ...toNormalizedPosts(reportProfile?.recentPosts),
+    ...toNormalizedPosts(nestedReportProfile?.recentPosts),
+    ...toNormalizedPosts(reportProfile?.posts),
+    ...toNormalizedPosts(nestedReportProfile?.posts),
 
     ...toNormalizedPosts(raw?.recentPosts),
     ...toNormalizedPosts(raw?.posts),
@@ -430,9 +428,13 @@ function resolveRecentPostsForTable(params: {
     ...(displayedReport?.sponsoredPosts ?? []),
     ...(primaryReport?.sponsoredPosts ?? []),
 
-    ...toNormalizedPosts(data?.profile?.popularPosts),
-    ...toNormalizedPosts(data?.profile?.sponsoredPosts),
-    ...toNormalizedPosts((data as any)?.profile?.posts),
+    ...toNormalizedPosts(reportProfile?.popularPosts),
+    ...toNormalizedPosts(reportProfile?.sponsoredPosts),
+    ...toNormalizedPosts(reportProfile?.posts),
+
+    ...toNormalizedPosts(nestedReportProfile?.popularPosts),
+    ...toNormalizedPosts(nestedReportProfile?.sponsoredPosts),
+    ...toNormalizedPosts(nestedReportProfile?.posts),
 
     ...toNormalizedPosts(raw?.popularPosts),
     ...toNormalizedPosts(raw?.sponsoredPosts),
@@ -1297,7 +1299,7 @@ export default function InfluencerDetailFullPage({
   }
 
   return (
-    <div className="min-h-screen bg-[#fbf8f3] text-[#1f1f1f]">
+    <div className="min-h-screen  text-[#1f1f1f]">
       {/* <div className="sticky top-0 z-20 border-b border-[#ebe4d8] bg-[#fbf8f3]/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-3 px-4 py-3 lg:px-6 xl:px-8">
           <button

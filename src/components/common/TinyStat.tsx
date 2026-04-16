@@ -4,7 +4,7 @@ type TinyStatProps = Omit<DashboardMetric, "key">;
 
 export function TinyStat({ label, value, delta }: TinyStatProps) {
   return (
-    <div className="rounded-2xl border border-[#efe8dd] bg-[#fffdfa] p-4">
+    <div className="rounded-xl border border-[#efe8dd] bg-[#fffdfa] p-4">
       <div className="flex items-start justify-between gap-2">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ab9f8e]">
           {label}

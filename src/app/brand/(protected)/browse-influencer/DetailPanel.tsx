@@ -1,31 +1,31 @@
-"use client";
+'use client';
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   AlertCircle,
   BarChart3,
   Send,
   MessageSquare,
-} from "lucide-react";
-import Swal from "sweetalert2";
-import type { ReportResponse, Platform } from "./types";
-import { post, post2 } from "@/lib/api";
+} from 'lucide-react';
+import Swal from 'sweetalert2';
+import type { ReportResponse, Platform } from './types';
+import { post, post2 } from '@/lib/api';
 
-import { AuditTrailTable } from "@/components/common/AuditTrailTable";
-import { AudienceIntelligenceCard } from "@/components/common/AudienceIntelligenceCard";
-import { CampaignHighlightsCard } from "@/components/common/CampaignHighlightsCard";
-import { ContactManagementCard } from "@/components/common/ContactManagementCard";
-import { CreatorHeader } from "@/components/common/CreatorHeader";
-import { FeatureLockedCard } from "@/components/common/FeatureLockedCard";
-import { LookalikeCreatorsPanel } from "@/components/common/LookalikeCreatorsPanel";
-import { MetricsGrid } from "@/components/common/MetricsGrid";
-import { PastCollaborationsTable } from "@/components/common/PastCollaborations";
-import { PerformanceTrendCard } from "@/components/common/PerformanceTrendCard";
-import { PopularContentPanel } from "@/components/common/PopularContentPanel";
-import { RecentPostsTable } from "@/components/common/RecentPostsTable";
-import { RiskComplianceCard } from "@/components/common/RiskComplienceCard";
+import { AuditTrailTable } from '@/components/common/AuditTrailTable';
+import { AudienceIntelligenceCard } from '@/components/common/AudienceIntelligenceCard';
+import { CampaignHighlightsCard } from '@/components/common/CampaignHighlightsCard';
+import { ContactManagementCard } from '@/components/common/ContactManagementCard';
+import { CreatorHeader } from '@/components/common/CreatorHeader';
+import { FeatureLockedCard } from '@/components/common/FeatureLockedCard';
+import { LookalikeCreatorsPanel } from '@/components/common/LookalikeCreatorsPanel';
+import { MetricsGrid } from '@/components/common/MetricsGrid';
+import { PastCollaborationsTable } from '@/components/common/PastCollaborations';
+import { PerformanceTrendCard } from '@/components/common/PerformanceTrendCard';
+import { PopularContentPanel } from '@/components/common/PopularContentPanel';
+import { RecentPostsTable } from '@/components/common/RecentPostsTable';
+import { RiskComplianceCard } from '@/components/common/RiskComplienceCard';
 
 import {
   type AuditItem,
@@ -49,7 +49,7 @@ import {
   normaliseTrend,
   pickPostImage,
   toNumber,
-} from "@/components/common/ViewModashClient";
+} from '@/components/common/ViewModashClient';
 
 interface DetailPanelProps {
   open: boolean;
@@ -60,7 +60,7 @@ interface DetailPanelProps {
   raw: any;
   platform: Platform | null;
   emailExists?: boolean | null;
-  onChangeCalc: (calc: "median" | "average") => void;
+  onChangeCalc: (calc: 'median' | 'average') => void;
   brandId: string;
   handle: string | null;
   lastFetchedAt?: string | null;
@@ -69,50 +69,50 @@ interface DetailPanelProps {
 
 type EmailStatusResponse =
   | {
-    status: 0 | 1;
-    email?: string;
-    handle?: string;
-    platform?: Platform;
-  }
-  | { status: "error"; message?: string };
+      status: 0 | 1;
+      email?: string;
+      handle?: string;
+      platform?: Platform;
+    }
+  | { status: 'error'; message?: string };
 
 type InvitationResponse =
   | {
-    status: "success";
-    message: string;
-    isExistingInfluencer: true;
-    influencerId: string;
-    influencerName: string;
-    brandName: string;
-    emailSent: boolean;
-    emailMeta?: {
-      recipientEmail: string;
-      threadId: string;
-      messageId: string;
-      subject: string;
-      campaignId: string | null;
-    };
-  }
+      status: 'success';
+      message: string;
+      isExistingInfluencer: true;
+      influencerId: string;
+      influencerName: string;
+      brandName: string;
+      emailSent: boolean;
+      emailMeta?: {
+        recipientEmail: string;
+        threadId: string;
+        messageId: string;
+        subject: string;
+        campaignId: string | null;
+      };
+    }
   | {
-    status: "success";
-    message: string;
-    isExistingInfluencer: false;
-    brandName: string;
-    invitationId: string;
-    emailSent: boolean;
-    emailMeta?: {
-      recipientEmail: string;
-      threadId: string;
-      messageId: string;
-      subject: string;
-      campaignId: string | null;
-    };
-    isNewInvitation?: boolean;
-  }
+      status: 'success';
+      message: string;
+      isExistingInfluencer: false;
+      brandName: string;
+      invitationId: string;
+      emailSent: boolean;
+      emailMeta?: {
+        recipientEmail: string;
+        threadId: string;
+        messageId: string;
+        subject: string;
+        campaignId: string | null;
+      };
+      isNewInvitation?: boolean;
+    }
   | {
-    status: "error";
-    message: string;
-  };
+      status: 'error';
+      message: string;
+    };
 
 type AdminCheckStatusResponse = {
   status: 0 | 1;
@@ -123,14 +123,14 @@ type AdminCheckStatusResponse = {
 };
 
 type InvitationCreateResp = {
-  status: "saved" | "exists";
+  status: 'saved' | 'exists';
   data?: {
     invitationId: string;
     handle: string;
-    platform: "youtube" | "instagram" | "tiktok";
+    platform: 'youtube' | 'instagram' | 'tiktok';
     brandId: string;
     campaignId?: string | null;
-    status: "invited" | "available";
+    status: 'invited' | 'available';
     createdAt: string;
     updatedAt: string;
   };
@@ -138,11 +138,11 @@ type InvitationCreateResp = {
 };
 
 type CreateMissingResp = {
-  status: "saved" | "exists";
+  status: 'saved' | 'exists';
   data: {
     missingId: string;
     handle: string;
-    platform: "youtube" | "instagram" | "tiktok";
+    platform: 'youtube' | 'instagram' | 'tiktok';
     brandId: string;
     note: string | null;
     createdAt: string;
@@ -150,26 +150,13 @@ type CreateMissingResp = {
   message?: string;
 };
 
-const monthLabels = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
+const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function normalizePlatform(platform: Platform | null): "instagram" | "tiktok" | "youtube" {
-  const value = String(platform ?? "").toLowerCase();
-  if (value.includes("tiktok")) return "tiktok";
-  if (value.includes("youtube")) return "youtube";
-  return "instagram";
+function normalizePlatform(platform: Platform | null): 'instagram' | 'tiktok' | 'youtube' {
+  const value = String(platform ?? '').toLowerCase();
+  if (value.includes('tiktok')) return 'tiktok';
+  if (value.includes('youtube')) return 'youtube';
+  return 'instagram';
 }
 
 function mapReportPost(post: Record<string, any>): SocialPost {
@@ -187,8 +174,8 @@ function mapReportPost(post: Record<string, any>): SocialPost {
     comments: post?.comments,
     sponsors: Array.isArray(post?.sponsors)
       ? post.sponsors.map((s: Record<string, any>) => ({
-        name: s?.name ?? s?.username,
-      }))
+          name: s?.name ?? s?.username,
+        }))
       : [],
     createdAt: post?.created ?? post?.createdAt ?? post?.publishedAt,
     publishedAt: post?.publishedAt ?? post?.created ?? post?.createdAt,
@@ -200,7 +187,7 @@ function mapReportPost(post: Record<string, any>): SocialPost {
 
 function parseMonthLabel(value: string, index: number): string {
   if (!value) return monthLabels[index % 12];
-  const parts = value.split("-");
+  const parts = value.split('-');
   if (parts.length >= 2) {
     const year = parts[0];
     const month = Number(parts[1]);
@@ -247,7 +234,7 @@ function buildPrimaryReport(
     profileRoot?.handle ??
     source?.username ??
     source?.handle ??
-    (handle ? handle.replace(/^@/, "") : undefined);
+    (handle ? handle.replace(/^@/, '') : undefined);
 
   const mapPosts = (items: any[] | undefined) =>
     Array.isArray(items) ? items.map(mapReportPost) : [];
@@ -270,12 +257,12 @@ function buildPrimaryReport(
     picture: profileRoot?.picture ?? source?.picture,
     bio: source?.bio,
     username,
-    handle: username ? `@${String(username).replace(/^@/, "")}` : undefined,
+    handle: username ? `@${String(username).replace(/^@/, '')}` : undefined,
     followers: profileRoot?.followers ?? source?.followers ?? source?.subscribers,
     engagementRate: profileRoot?.engagementRate ?? source?.engagementRate,
     country: source?.country,
     language:
-      typeof source?.language === "string"
+      typeof source?.language === 'string'
         ? { name: source.language }
         : source?.language?.name
           ? { name: source.language.name }
@@ -322,33 +309,33 @@ function buildPrimaryReport(
     audience: {
       geoCountries: Array.isArray(audience?.geoCountries)
         ? audience.geoCountries.map((item: Record<string, any>) => ({
-          name: item?.name ?? "",
-          weight: item?.weight ?? 0,
-        }))
+            name: item?.name ?? '',
+            weight: item?.weight ?? 0,
+          }))
         : [],
       ages: Array.isArray(audience?.ages)
         ? audience.ages.map((item: Record<string, any>) => ({
-          code: item?.code ?? "",
-          weight: item?.weight ?? 0,
-        }))
+            code: item?.code ?? '',
+            weight: item?.weight ?? 0,
+          }))
         : [],
       genders: Array.isArray(audience?.genders)
         ? audience.genders.map((item: Record<string, any>) => ({
-          code: item?.code ?? "",
-          weight: item?.weight ?? 0,
-        }))
+            code: item?.code ?? '',
+            weight: item?.weight ?? 0,
+          }))
         : [],
       languages: Array.isArray(audience?.languages)
         ? audience.languages.map((item: Record<string, any>) => ({
-          code: item?.name ?? item?.code ?? "",
-          weight: item?.weight ?? 0,
-        }))
+            code: item?.name ?? item?.code ?? '',
+            weight: item?.weight ?? 0,
+          }))
         : [],
       interests: Array.isArray(audience?.interests)
         ? audience.interests.map((item: Record<string, any>) => ({
-          name: item?.name ?? "",
-          weight: item?.weight ?? 0,
-        }))
+            name: item?.name ?? '',
+            weight: item?.weight ?? 0,
+          }))
         : [],
       credibility: audience?.credibility,
     },
@@ -383,7 +370,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
   }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const campaignId = searchParams?.get("campaignId") || "";
+    const campaignId = searchParams?.get('campaignId') || '';
 
     const [sendingInvite, setSendingInvite] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -392,14 +379,15 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     );
     const [hasAnyEmail, setHasAnyEmail] = useState<boolean | null>(null);
     const [checkingEmail, setCheckingEmail] = useState(false);
-    const [plan, setPlan] = useState<SubscriptionPlan>("pro");
-    const [role, setRole] = useState<UserRole>("viewer");
+    const [plan, setPlan] = useState<SubscriptionPlan>('pro');
+    const [role, setRole] = useState<UserRole>('viewer');
     const shouldLockFields = false;
 
     const hasSectionAccess = (_section: SectionKey) => {
       if (!shouldLockFields) return true;
       return canAccessSection(role, plan, _section);
     };
+
     useEffect(() => {
       setPlan(getSubscriptionPlan());
       setRole(getUserRole());
@@ -411,7 +399,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const formattedLastUpdated = lastUpdatedAt
       ? new Date(lastUpdatedAt).toLocaleString()
-      : "Not fetched yet";
+      : 'Not fetched yet';
 
     const primaryReport = useMemo(
       () => buildPrimaryReport(data, raw, platform, handle),
@@ -429,28 +417,48 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       };
     }, [primaryReport]);
 
-    const recentPosts = useMemo(() => {
-      if (Array.isArray(raw?.profile?.recentPosts) && raw.profile.recentPosts.length) {
-        return raw.profile.recentPosts.map(mapReportPost);
-      }
-      if (Array.isArray(raw?.profile?.posts) && raw.profile.posts.length) {
-        return raw.profile.posts.map(mapReportPost);
-      }
-      return primaryReport?.recentPosts ?? [];
-    }, [raw, primaryReport]);
-
     const popularPosts = useMemo(() => {
-      if (Array.isArray(raw?.profile?.popularPosts) && raw.profile.popularPosts.length) {
-        return raw.profile.popularPosts.map(mapReportPost);
-      }
-      return primaryReport?.popularPosts ?? [];
+      const base =
+        Array.isArray(raw?.profile?.popularPosts) && raw.profile.popularPosts.length
+          ? raw.profile.popularPosts.map(mapReportPost)
+          : primaryReport?.popularPosts ?? [];
+
+      return enrichPostImages(base, [
+        ...(primaryReport?.recentPosts ?? []),
+        ...(primaryReport?.sponsoredPosts ?? []),
+      ]);
     }, [raw, primaryReport]);
 
     const sponsoredPosts = useMemo(() => {
-      if (Array.isArray(raw?.profile?.sponsoredPosts) && raw.profile.sponsoredPosts.length) {
-        return raw.profile.sponsoredPosts.map(mapReportPost);
-      }
-      return primaryReport?.sponsoredPosts ?? [];
+      const base =
+        Array.isArray(raw?.profile?.sponsoredPosts) && raw.profile.sponsoredPosts.length
+          ? raw.profile.sponsoredPosts.map(mapReportPost)
+          : primaryReport?.sponsoredPosts ?? [];
+
+      return enrichPostImages(base, [
+        ...(primaryReport?.recentPosts ?? []),
+        ...(primaryReport?.popularPosts ?? []),
+      ]);
+    }, [raw, primaryReport]);
+
+    const recentPosts = useMemo(() => {
+      const base =
+        Array.isArray(raw?.profile?.recentPosts) && raw.profile.recentPosts.length
+          ? raw.profile.recentPosts.map(mapReportPost)
+          : Array.isArray(raw?.profile?.posts) && raw.profile.posts.length
+            ? raw.profile.posts.map(mapReportPost)
+            : primaryReport?.recentPosts ?? [];
+
+      return enrichPostImages(base, [
+        ...(Array.isArray(raw?.profile?.popularPosts)
+          ? raw.profile.popularPosts.map(mapReportPost)
+          : []),
+        ...(Array.isArray(raw?.profile?.sponsoredPosts)
+          ? raw.profile.sponsoredPosts.map(mapReportPost)
+          : []),
+        ...(primaryReport?.popularPosts ?? []),
+        ...(primaryReport?.sponsoredPosts ?? []),
+      ]);
     }, [raw, primaryReport]);
 
     const statHistorySource = useMemo(() => {
@@ -465,7 +473,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const { organicTrend, sponsoredTrend, trendLabels } = useMemo(() => {
       if (statHistorySource.length) {
         const labels = statHistorySource.map((item: Record<string, any>, index: number) =>
-          parseMonthLabel(String(item?.month ?? ""), index)
+          parseMonthLabel(String(item?.month ?? ''), index)
         );
 
         const organic = normaliseTrend(
@@ -494,15 +502,15 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const avgLikes = toNumber(
       (data?.profile as any)?.avgLikes ??
-      primaryReport?.stats?.avgLikes?.value ??
-      primaryReport?.avgLikes
+        primaryReport?.stats?.avgLikes?.value ??
+        primaryReport?.avgLikes
     );
 
     const avgViews = toNumber(
       (data?.profile as any)?.profile?.averageViews ??
-      (data?.profile as any)?.avgReelsPlays ??
-      primaryReport?.stats?.avgViews?.value ??
-      average(recentPosts.map((p) => toNumber(p.views ?? p.likes)))
+        (data?.profile as any)?.avgReelsPlays ??
+        primaryReport?.stats?.avgViews?.value ??
+        average(recentPosts.map((p) => toNumber(p.views ?? p.likes)))
     );
 
     const engagementRate = toNumber(
@@ -524,33 +532,33 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const metricCards = useMemo<DashboardMetric[]>(() => {
       return [
         {
-          key: "followers",
-          label: "Followers",
+          key: 'followers',
+          label: 'Followers',
           value: formatCompactNumber(primaryReport?.followers),
         },
         {
-          key: "engagement",
-          label: "Avg. engagement rate",
+          key: 'engagement',
+          label: 'Avg. engagement rate',
           value: formatPercent(primaryReport?.engagementRate, true),
         },
         {
-          key: "likes",
-          label: "Average likes",
+          key: 'likes',
+          label: 'Average likes',
           value: formatCompactNumber(avgLikes),
         },
         {
-          key: "views",
-          label: "Avg. views",
+          key: 'views',
+          label: 'Avg. views',
           value: formatCompactNumber(avgViews),
         },
         {
-          key: "posts",
-          label: "Total posts",
+          key: 'posts',
+          label: 'Total posts',
           value: formatCompactNumber(primaryReport?.postsCount ?? recentPosts.length),
         },
         {
-          key: "reach",
-          label: "Estimated reach",
+          key: 'reach',
+          label: 'Estimated reach',
           value: formatCompactNumber(primaryReport?.followers),
         },
       ];
@@ -563,27 +571,27 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
       return [
         {
-          label: sponsoredPosts.length ? "Sponsored median likes" : "Top post likes",
+          label: sponsoredPosts.length ? 'Sponsored median likes' : 'Top post likes',
           value: formatCompactNumber(sponsoredPosts.length ? sponsoredAvgLikes : topPostLikes),
           meta: sponsoredPosts.length
             ? `Across ${sponsoredPosts.length} sponsored posts`
             : `Best result from ${popularPosts.length} popular posts`,
-          tone: "accent",
+          tone: 'accent',
         },
         {
-          label: "Organic median likes",
+          label: 'Organic median likes',
           value: formatCompactNumber(organicAvgLikes),
           meta: `Across ${recentPosts.length} recent posts`,
         },
         {
-          label: "Total posts",
+          label: 'Total posts',
           value: formatCompactNumber(primaryReport?.postsCount ?? recentPosts.length),
-          meta: "Current creator activity volume",
+          meta: 'Current creator activity volume',
         },
         {
-          label: "Audience credibility",
+          label: 'Audience credibility',
           value: `${credibilityScore}%`,
-          meta: "Estimated quality score",
+          meta: 'Estimated quality score',
         },
       ];
     }, [sponsoredPosts, recentPosts, popularPosts, primaryReport, credibilityScore]);
@@ -595,10 +603,10 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const audienceGender = (primaryReport?.audience?.genders ?? []).map((item) => ({
       label:
-        item.code === "MALE"
-          ? "Male"
-          : item.code === "FEMALE"
-            ? "Female"
+        item.code === 'MALE'
+          ? 'Male'
+          : item.code === 'FEMALE'
+            ? 'Female'
             : item.code,
       value: Number((item.weight || 0) * 100),
     }));
@@ -627,18 +635,18 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const auditItems = useMemo<AuditItem[]>(
       () => [
         {
-          id: "1",
+          id: '1',
           date: formattedLastUpdated,
-          action: "Creator profile detail opened",
-          actor: "Brand user",
-          status: "Success",
+          action: 'Creator profile detail opened',
+          actor: 'Brand user',
+          status: 'Success',
         },
         {
-          id: "2",
+          id: '2',
           date: formattedLastUpdated,
-          action: "Latest report sync",
-          actor: "System",
-          status: loading ? "Running" : "Success",
+          action: 'Latest report sync',
+          actor: 'System',
+          status: loading ? 'Running' : 'Success',
         },
       ],
       [formattedLastUpdated, loading]
@@ -650,12 +658,12 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         : [];
       return source.map((item: Record<string, any>) => ({
         _id: item?._id,
-        company: item?.company ?? item?.brandName ?? "—",
-        brief: item?.brief ?? item?.campaignTitle ?? "—",
-        rate: item?.rate ?? item?.budget ?? "—",
-        status: item?.status ?? "—",
-        payout: item?.payout ?? item?.paymentType ?? "—",
-        category: item?.category ?? "Lifestyle",
+        company: item?.company ?? item?.brandName ?? '—',
+        brief: item?.brief ?? item?.campaignTitle ?? '—',
+        rate: item?.rate ?? item?.budget ?? '—',
+        status: item?.status ?? '—',
+        payout: item?.payout ?? item?.paymentType ?? '—',
+        category: item?.category ?? 'Lifestyle',
         raw: item,
       }));
     }, [data]);
@@ -668,19 +676,19 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       handle?: string;
       platform?: Platform;
     } => {
-      return typeof (resp as any)?.status === "number";
+      return typeof (resp as any)?.status === 'number';
     };
 
     const resolveCreatorEmail = async (
       safeHandle: string,
       normalizedPlatform: Platform
-    ): Promise<{ email: string | null; source: "status" | "admin" | "both" | "none" }> => {
+    ): Promise<{ email: string | null; source: 'status' | 'admin' | 'both' | 'none' }> => {
       const [statusResult, adminResult] = await Promise.allSettled([
-        post2<EmailStatusResponse>("/email/status", {
+        post2<EmailStatusResponse>('/email/status', {
           handle: safeHandle,
           platform: normalizedPlatform,
         }),
-        post<AdminCheckStatusResponse>("/admin/checkstatus", {
+        post<AdminCheckStatusResponse>('/admin/checkstatus', {
           handle: safeHandle,
           platform: normalizedPlatform,
         }),
@@ -689,7 +697,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       let emailFromStatus: string | null = null;
       let emailFromAdmin: string | null = null;
 
-      if (statusResult.status === "fulfilled") {
+      if (statusResult.status === 'fulfilled') {
         const statusResp = statusResult.value;
         if (
           isEmailStatusSuccess(statusResp) &&
@@ -699,28 +707,28 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           emailFromStatus = statusResp.email;
         }
       } else {
-        console.error("Error calling /email/status:", statusResult.reason);
+        console.error('Error calling /email/status:', statusResult.reason);
       }
 
-      if (adminResult.status === "fulfilled") {
+      if (adminResult.status === 'fulfilled') {
         const adminResp = adminResult.value;
         if (
-          typeof adminResp.status === "number" &&
+          typeof adminResp.status === 'number' &&
           adminResp.status === 1 &&
           adminResp.email
         ) {
           emailFromAdmin = adminResp.email;
         }
       } else {
-        console.error("Error calling /admin/checkstatus:", adminResult.reason);
+        console.error('Error calling /admin/checkstatus:', adminResult.reason);
       }
 
       if (emailFromStatus && emailFromAdmin && emailFromStatus === emailFromAdmin) {
-        return { email: emailFromStatus, source: "both" };
+        return { email: emailFromStatus, source: 'both' };
       }
-      if (emailFromStatus) return { email: emailFromStatus, source: "status" };
-      if (emailFromAdmin) return { email: emailFromAdmin, source: "admin" };
-      return { email: null, source: "none" };
+      if (emailFromStatus) return { email: emailFromStatus, source: 'status' };
+      if (emailFromAdmin) return { email: emailFromAdmin, source: 'admin' };
+      return { email: null, source: 'none' };
     };
 
     useEffect(() => {
@@ -729,21 +737,18 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
-      const normalizedPlatform = (platform ?? "").toLowerCase() as Platform;
-      if (
-        !normalizedPlatform ||
-        !["youtube", "instagram", "tiktok"].includes(normalizedPlatform)
-      ) {
+      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
+      if (!normalizedPlatform || !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)) {
         setHasAnyEmail(null);
         return;
       }
 
-      const rawHandle = handle ? String(handle).trim() : "";
+      const rawHandle = handle ? String(handle).trim() : '';
       const safeHandle = rawHandle
-        ? "@" + rawHandle.replace(/^@/, "").trim().toLowerCase()
-        : "";
+        ? '@' + rawHandle.replace(/^@/, '').trim().toLowerCase()
+        : '';
 
-      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ""))) {
+      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ''))) {
         setHasAnyEmail(null);
         return;
       }
@@ -756,7 +761,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           const { email } = await resolveCreatorEmail(safeHandle, normalizedPlatform);
           if (!cancelled) setHasAnyEmail(!!email);
         } catch (err) {
-          console.error("Failed to pre-check email status", err);
+          console.error('Failed to pre-check email status', err);
           if (!cancelled) setHasAnyEmail(null);
         } finally {
           if (!cancelled) setCheckingEmail(false);
@@ -776,21 +781,21 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const ctaTitle = hasUserId
       ? effectiveHasEmail
-        ? "Message this creator"
-        : "Send invitation to collect email"
-      : "Profile not ready";
+        ? 'Message this creator'
+        : 'Send invitation to collect email'
+      : 'Profile not ready';
 
     const displayName =
       primaryReport?.name ??
       primaryReport?.fullname ??
       primaryReport?.username ??
       handle ??
-      "Creator profile";
+      'Creator profile';
 
     const displayHandle =
       primaryReport?.handle ??
-      (handle && (handle.startsWith("@") ? handle : `@${handle}`)) ??
-      "";
+      (handle && (handle.startsWith('@') ? handle : `@${handle}`)) ??
+      '';
 
     const handleRefreshData = async (e: React.MouseEvent) => {
       e.preventDefault();
@@ -802,9 +807,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       } catch (err: any) {
         console.error(err);
         await Swal.fire(
-          "Refresh failed",
-          err?.message || "Failed to refresh data",
-          "error"
+          'Refresh failed',
+          err?.message || 'Failed to refresh data',
+          'error'
         );
       } finally {
         setRefreshing(false);
@@ -817,36 +822,29 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
       if (!brandId) {
         await Swal.fire(
-          "Missing brand",
-          "Missing brandId. Please provide brandId to DetailPanel.",
-          "warning"
+          'Missing brand',
+          'Missing brandId. Please provide brandId to DetailPanel.',
+          'warning'
         );
         return;
       }
 
-      const normalizedPlatform = (platform ?? "").toLowerCase() as Platform;
-      if (
-        !normalizedPlatform ||
-        !["youtube", "instagram", "tiktok"].includes(normalizedPlatform)
-      ) {
-        await Swal.fire(
-          "Unsupported platform",
-          "Unsupported or missing platform.",
-          "warning"
-        );
+      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
+      if (!normalizedPlatform || !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)) {
+        await Swal.fire('Unsupported platform', 'Unsupported or missing platform.', 'warning');
         return;
       }
 
-      const rawHandle = handle ? String(handle).trim() : "";
+      const rawHandle = handle ? String(handle).trim() : '';
       const safeHandle = rawHandle
-        ? "@" + rawHandle.replace(/^@/, "").trim().toLowerCase()
-        : "";
+        ? '@' + rawHandle.replace(/^@/, '').trim().toLowerCase()
+        : '';
 
-      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ""))) {
+      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ''))) {
         await Swal.fire(
-          "Invalid handle",
-          "Invalid or missing handle to lookup contact email.",
-          "warning"
+          'Invalid handle',
+          'Invalid or missing handle to lookup contact email.',
+          'warning'
         );
         return;
       }
@@ -861,14 +859,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
         if (!creatorEmail) {
           await Swal.fire(
-            "No email found",
-            "We could not find a contact email for this creator. Try sending an invitation or adding the email manually.",
-            "warning"
+            'No email found',
+            'We could not find a contact email for this creator. Try sending an invitation or adding the email manually.',
+            'warning'
           );
           return;
         }
 
-        const resp = await post<InvitationResponse>("/emails/invitation", {
+        const resp = await post<InvitationResponse>('/emails/invitation', {
           email: creatorEmail,
           brandId,
           campaignId: campaignId || undefined,
@@ -878,35 +876,33 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
         if (!resp) {
           await Swal.fire(
-            "Error",
-            "No response from server while sending invitation.",
-            "error"
+            'Error',
+            'No response from server while sending invitation.',
+            'error'
           );
           return;
         }
 
-        if (resp.status === "error") {
-          await Swal.fire("Error", resp.message || "Failed to send email.", "error");
+        if (resp.status === 'error') {
+          await Swal.fire('Error', resp.message || 'Failed to send email.', 'error');
           return;
         }
 
-        const successTitle = resp.isExistingInfluencer
-          ? "Message sent"
-          : "Invitation sent";
+        const successTitle = resp.isExistingInfluencer ? 'Message sent' : 'Invitation sent';
 
         const successText = resp.isExistingInfluencer
-          ? "We’ve emailed this creator. They can reply directly and continue the conversation with your brand."
-          : "We’ve sent your invitation to this creator. They’ll see it and can reply soon if they’re interested.";
+          ? 'We’ve emailed this creator. They can reply directly and continue the conversation with your brand.'
+          : 'We’ve sent your invitation to this creator. They’ll see it and can reply soon if they’re interested.';
 
-        await Swal.fire(successTitle, successText, "success");
+        await Swal.fire(successTitle, successText, 'success');
       } catch (err: any) {
         console.error(err);
         await Swal.fire(
-          "Error",
+          'Error',
           err?.response?.data?.message ||
-          err?.message ||
-          "Failed to send invitation email. Please try again.",
-          "error"
+            err?.message ||
+            'Failed to send invitation email. Please try again.',
+          'error'
         );
       } finally {
         setSendingInvite(false);
@@ -917,40 +913,33 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       e.preventDefault();
       if (!canAct || sendingInvite) return;
 
-      const rawHandle = handle ? String(handle).trim() : "";
+      const rawHandle = handle ? String(handle).trim() : '';
       const safeHandle = rawHandle
-        ? rawHandle.startsWith("@")
+        ? rawHandle.startsWith('@')
           ? rawHandle
           : `@${rawHandle}`
-        : "";
+        : '';
 
       if (!brandId) {
         await Swal.fire(
-          "Missing brand",
-          "Missing brandId. Please provide brandId to DetailPanel.",
-          "warning"
+          'Missing brand',
+          'Missing brandId. Please provide brandId to DetailPanel.',
+          'warning'
         );
         return;
       }
 
-      const normalizedPlatform = (platform ?? "").toLowerCase() as Platform;
-      if (
-        !normalizedPlatform ||
-        !["youtube", "instagram", "tiktok"].includes(normalizedPlatform)
-      ) {
-        await Swal.fire(
-          "Unsupported platform",
-          "Unsupported or missing platform.",
-          "warning"
-        );
+      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
+      if (!normalizedPlatform || !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)) {
+        await Swal.fire('Unsupported platform', 'Unsupported or missing platform.', 'warning');
         return;
       }
 
-      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ""))) {
+      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ''))) {
         await Swal.fire(
-          "Invalid handle",
-          "Invalid or missing handle to send invitation.",
-          "warning"
+          'Invalid handle',
+          'Invalid or missing handle to send invitation.',
+          'warning'
         );
         return;
       }
@@ -962,13 +951,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           handle: string;
           platform: Platform;
           brandId: string;
-          status: "invited" | "available";
+          status: 'invited' | 'available';
           campaignId?: string;
         } = {
           handle: safeHandle,
           platform: normalizedPlatform,
           brandId,
-          status: "invited",
+          status: 'invited',
         };
 
         if (campaignId) {
@@ -976,60 +965,60 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         }
 
         const [missingResult, invitationResult] = await Promise.allSettled([
-          post2<CreateMissingResp>("/missing/create", {
+          post2<CreateMissingResp>('/missing/create', {
             handle: safeHandle,
             platform: normalizedPlatform,
             brandId,
           }),
-          post<InvitationCreateResp>("/newinvitations/create", invitationPayload),
+          post<InvitationCreateResp>('/newinvitations/create', invitationPayload),
         ]);
 
-        if (missingResult.status !== "fulfilled") {
-          console.error("Missing/create failed", missingResult.reason);
+        if (missingResult.status !== 'fulfilled') {
+          console.error('Missing/create failed', missingResult.reason);
         }
 
-        let invitationStatus: InvitationCreateResp["status"] | "error" = "error";
+        let invitationStatus: InvitationCreateResp['status'] | 'error' = 'error';
 
-        if (invitationResult.status === "fulfilled") {
+        if (invitationResult.status === 'fulfilled') {
           const resp = invitationResult.value;
-          if (resp?.status === "saved" || resp?.status === "exists") {
+          if (resp?.status === 'saved' || resp?.status === 'exists') {
             invitationStatus = resp.status;
           }
         } else {
-          console.error("Invitation/create failed", invitationResult.reason);
+          console.error('Invitation/create failed', invitationResult.reason);
         }
 
-        if (invitationStatus === "error") {
+        if (invitationStatus === 'error') {
           await Swal.fire(
-            "Something went wrong",
-            "We couldn’t send the invitation. Please try again in a moment.",
-            "error"
+            'Something went wrong',
+            'We couldn’t send the invitation. Please try again in a moment.',
+            'error'
           );
           return;
         }
 
-        if (invitationStatus === "saved") {
+        if (invitationStatus === 'saved') {
           await Swal.fire(
-            "Invitation sent",
-            "We’ve sent an invitation to this creator. They’ll see it and can reply soon.",
-            "success"
+            'Invitation sent',
+            'We’ve sent an invitation to this creator. They’ll see it and can reply soon.',
+            'success'
           );
         } else {
           await Swal.fire(
-            "Already invited",
-            "You’ve already sent an invitation to this creator. They’ll be able to reply once they see it.",
-            "info"
+            'Already invited',
+            'You’ve already sent an invitation to this creator. They’ll be able to reply once they see it.',
+            'info'
           );
         }
 
-        router.push("/brand/invited");
+        router.push('/brand/invited');
       } catch (err: any) {
         const msg =
           err?.response?.data?.message ||
           err?.message ||
-          "Failed to send invitation";
+          'Failed to send invitation';
         console.error(err);
-        await Swal.fire("Error", msg, "error");
+        await Swal.fire('Error', msg, 'error');
       } finally {
         setSendingInvite(false);
       }
@@ -1042,18 +1031,18 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           `${window.location.origin}${window.location.pathname}${window.location.search}`;
         await navigator.clipboard.writeText(urlToCopy);
         await Swal.fire({
-          icon: "success",
-          title: "Copied",
-          text: "Creator profile link copied to clipboard.",
+          icon: 'success',
+          title: 'Copied',
+          text: 'Creator profile link copied to clipboard.',
           timer: 1600,
           showConfirmButton: false,
         });
       } catch (copyError) {
-        console.error("Failed to copy profile link:", copyError);
+        console.error('Failed to copy profile link:', copyError);
         await Swal.fire({
-          icon: "error",
-          title: "Copy failed",
-          text: "Unable to copy the profile link.",
+          icon: 'error',
+          title: 'Copy failed',
+          text: 'Unable to copy the profile link.',
         });
       }
     };
@@ -1116,9 +1105,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       className="inline-flex items-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                     >
                       <BarChart3
-                        className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`}
+                        className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`}
                       />
-                      {refreshing ? "Refreshing…" : "Refresh data"}
+                      {refreshing ? 'Refreshing…' : 'Refresh data'}
                     </button>
                   ) : null}
                 </div>
@@ -1129,10 +1118,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       onClick={handleMessageNow}
                       disabled={!canAct}
                       title={ctaTitle}
-                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-opacity ${canAct
-                        ? "bg-gradient-to-r from-[#FFA135] to-[#FF7236] hover:opacity-90"
-                        : "cursor-not-allowed bg-gray-300 opacity-70"
-                        }`}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-opacity ${
+                        canAct
+                          ? 'bg-gradient-to-r from-[#FFA135] to-[#FF7236] hover:opacity-90'
+                          : 'cursor-not-allowed bg-gray-300 opacity-70'
+                      }`}
                     >
                       {sendingInvite ? (
                         <>
@@ -1151,10 +1141,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       onClick={handleSendInvitation}
                       disabled={!canAct}
                       title={ctaTitle}
-                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-opacity ${canAct
-                        ? "bg-gradient-to-r from-[#FFA135] to-[#FF7236] hover:opacity-90"
-                        : "cursor-not-allowed bg-gray-300 opacity-70"
-                        }`}
+                      className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium text-white shadow-sm transition-opacity ${
+                        canAct
+                          ? 'bg-gradient-to-r from-[#FFA135] to-[#FF7236] hover:opacity-90'
+                          : 'cursor-not-allowed bg-gray-300 opacity-70'
+                      }`}
                     >
                       {sendingInvite ? (
                         <>
@@ -1197,7 +1188,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
                 <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
                   <div className="space-y-6">
-                    {hasSectionAccess("contactManagement") ? (
+                    {hasSectionAccess('contactManagement') ? (
                       <ContactManagementCard
                         primaryReport={primaryReport}
                         mediaKit={panelMediaKit}
@@ -1205,7 +1196,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       />
                     ) : null}
 
-                    {hasSectionAccess("riskCompliance") ? (
+                    {hasSectionAccess('riskCompliance') ? (
                       <RiskComplianceCard
                         credibilityScore={credibilityScore}
                         isPrivate={primaryReport.isPrivate}
@@ -1219,11 +1210,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                   </div>
 
                   <div className="space-y-6">
-                    {hasSectionAccess("metricGrid") ? (
+                    {hasSectionAccess('metricGrid') ? (
                       <MetricsGrid metrics={metricCards} />
                     ) : null}
 
-                    {hasSectionAccess("performanceTrend") ? (
+                    {hasSectionAccess('performanceTrend') ? (
                       <PerformanceTrendCard
                         organicTrend={organicTrend}
                         sponsoredTrend={sponsoredTrend}
@@ -1236,7 +1227,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                 </div>
 
                 <div className="space-y-6">
-                  {hasSectionAccess("campaignHighlights") ? (
+                  {hasSectionAccess('campaignHighlights') ? (
                     <CampaignHighlightsCard items={campaignHighlights} />
                   ) : (
                     <FeatureLockedCard
@@ -1245,7 +1236,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                     />
                   )}
 
-                  {hasSectionAccess("audienceIntelligence") ? (
+                  {hasSectionAccess('audienceIntelligence') ? (
                     <AudienceIntelligenceCard
                       ageData={audienceAge}
                       genderData={audienceGender}
@@ -1258,7 +1249,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                   )}
 
                   <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_420px]">
-                    {hasSectionAccess("recentPosts") ? (
+                    {hasSectionAccess('recentPosts') ? (
                       <RecentPostsTable posts={recentPosts.slice(0, 4)} />
                     ) : (
                       <FeatureLockedCard
@@ -1267,7 +1258,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       />
                     )}
 
-                    {hasSectionAccess("popularContent") ? (
+                    {hasSectionAccess('popularContent') ? (
                       <PopularContentPanel posts={popularPosts.slice(0, 2)} />
                     ) : (
                       <FeatureLockedCard title="Popular Content" plan="starter" />
@@ -1278,13 +1269,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                     <PastCollaborationsTable items={contractedCampaigns} />
                   ) : null}
 
-                  {hasSectionAccess("lookalikeCreators") ? (
+                  {hasSectionAccess('lookalikeCreators') ? (
                     <LookalikeCreatorsPanel items={lookalikeCreators} />
                   ) : (
                     <FeatureLockedCard title="Lookalike Creators" plan="pro" />
                   )}
 
-                  {hasSectionAccess("auditTrail") ? (
+                  {hasSectionAccess('auditTrail') ? (
                     <AuditTrailTable items={auditItems} />
                   ) : (
                     <FeatureLockedCard title="Audit Trail" plan="enterprise" />
@@ -1299,7 +1290,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
   }
 );
 
-DetailPanel.displayName = "DetailPanel";
+DetailPanel.displayName = 'DetailPanel';
 
 const LoadingState: React.FC = () => (
   <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-gray-600">
