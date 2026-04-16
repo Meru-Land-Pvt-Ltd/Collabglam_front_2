@@ -2,8 +2,8 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { post } from "@/lib/api";
-import { DisputeTable } from "./disputesTable";
-import DisputeFilters from "./disputeFilter";
+import { DisputeTable } from "@/components/common/disputes/disputesTable";
+import DisputeFilters from "@/components/common/disputes/disputeFilter";
 
 export type DisputeStatus =
   | "open"
@@ -224,6 +224,7 @@ const BrandDisputesPage: React.FC = () => {
     <div className="w-full mx-auto">
       <Suspense fallback={<div>Loading filters...</div>}>
         <DisputeFilters
+          mode="brand"
           search={search}
           onSearchChange={setSearch}
           status={status}

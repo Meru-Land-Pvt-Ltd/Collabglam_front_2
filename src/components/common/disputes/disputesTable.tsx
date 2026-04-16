@@ -1,8 +1,8 @@
 "use client";
+
 import {
     Link2,
     ExternalLink,
-    ShieldAlert,
     MessageSquareText,
     Undo2,
 } from "lucide-react";
@@ -26,12 +26,111 @@ import {
 import { DotsThreeIcon, GavelIcon } from "@phosphor-icons/react";
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 import { Button } from "@/components/ui/buttonComp";
-import type { Dispute } from "./page";
 import Swal from "sweetalert2";
-import { apiRevokeDispute } from "../../services/brandApi";
-import ConfirmRevokeModal from "./confirmRevokeModal";
+import { apiRevokeDispute } from "@/app/brand/services/brandApi";
+import ConfirmActionModal from "@/components/common/disputes/ConfirmActionModal";
 
-// ─── Status display helpers ────────────────────────────────────────────────────
+/* -------------------------------------------------------------------------- */
+/*                                   Types                                    */
+/* -------------------------------------------------------------------------- */
+
+type DisputeStatus =
+    | "open"
+    | "in_review"
+    | "awaiting_user"
+    | "evidence_submitted"
+    | "in_negotiation"
+    | "resolution_proposed"
+    | "resolved"
+    | "rejected"
+    | "revoked";
+
+type Role = "Admin" | "Brand" | "Influencer";
+
+type DisputeParty = {
+    role: "Brand" | "Influencer";
+    id: string;
+    name?: string | null;
+    handle?: string | null;
+    provider?: string | null;
+};
+
+type Attachment = {
+    url: string;
+    originalName?: string | null;
+    mimeType?: string | null;
+    size?: number | null;
+};
+
+type Comment = {
+    commentId: string;
+    authorRole: Role;
+    authorId: string;
+    text: string;
+    createdAt: string;
+    attachments?: Attachment[];
+};
+
+type AssignedAdmin = {
+    adminId?: string | null;
+    name?: string | null;
+};
+
+export type Dispute = {
+    disputeId: string;
+    subject: string;
+    description: string;
+    status: DisputeStatus;
+    priority?: string;
+    campaignId?: string | null;
+    campaignName?: string | null;
+    brandId: string;
+    influencerId: string;
+    issueType?: string[];
+    assignedTo?: AssignedAdmin | null;
+    comments: Comment[];
+    attachments?: Attachment[];
+    createdAt: string;
+    updatedAt: string;
+    raisedByRole?: string | null;
+    raisedById?: string | null;
+    raisedBy?: DisputeParty | null;
+    raisedAgainst?: DisputeParty | null;
+    viewerIsRaiser?: boolean;
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                    Props                                   */
+/* -------------------------------------------------------------------------- */
+
+type DisputeThreeDotMenuProps = {
+    status: string;
+    onCopyDisputeLink?: () => void;
+    onOpenInNewTab?: () => void;
+    onRequestEscalation?: () => void;
+    onAddCommentNote?: () => void;
+    onRevokeDispute?: () => void;
+};
+
+export type DisputeTableProps = {
+    rows: Dispute[];
+    loading: boolean;
+    error: string | null;
+    onRetry: () => void;
+    brandId?: string | null;
+    page: number;
+    totalPages: number;
+    total: number;
+    pageSize: number;
+    pageNumbers: number[];
+    onPageChange: (p: number) => void;
+    viewBasePath?: string;
+    onRevokeDispute?: (disputeId: string) => Promise<void>;
+};
+
+/* -------------------------------------------------------------------------- */
+/*                          Status display helpers                            */
+/* -------------------------------------------------------------------------- */
 
 const STATUS_LABEL: Record<string, string> = {
     open: "Open",
@@ -57,26 +156,22 @@ const STATUS_COLORS: Record<string, string> = {
     revoked: "bg-gray-100 text-gray-700 border border-gray-200",
 };
 
-// ─── Header carets ─────────────────────────────────────────────────────────────
-
 function HeaderCarets() {
     const cls = "h-3 w-3 text-[#343330]";
     return (
-        <span className="flex flex-col items-center leading-none ml-1">
+        <span className="ml-1 flex flex-col items-center leading-none">
             <ChevronUp className={cls} strokeWidth={3} />
             <ChevronDown className={cls} strokeWidth={3} />
         </span>
     );
 }
 
-// ─── Dispute Image Thumbnail ───────────────────────────────────────────────────
-
 function DisputeImage({ src }: { src?: string | null }) {
     const [failed, setFailed] = useState(false);
 
     if (!src || failed) {
         return (
-            <div className="w-10 h-10 rounded-lg bg-gray-100 border border-[#E6E6E6] flex items-center justify-center flex-shrink-0">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-[#E6E6E6] bg-gray-100">
                 <ImageOff className="size-4 text-gray-300" />
             </div>
         );
@@ -87,36 +182,11 @@ function DisputeImage({ src }: { src?: string | null }) {
             src={src}
             alt="Dispute"
             onError={() => setFailed(true)}
-            className="w-10 h-10 rounded-lg object-cover border border-[#E6E6E6] flex-shrink-0"
+            className="h-10 w-10 flex-shrink-0 rounded-lg border border-[#E6E6E6] object-cover"
         />
     );
 }
 
-// ─── Props ─────────────────────────────────────────────────────────────────────
-type DisputeThreeDotMenuProps = {
-    status: string;
-    onCopyDisputeLink?: () => void;
-    onOpenInNewTab?: () => void;
-    onRequestEscalation?: () => void;
-    onAddCommentNote?: () => void;
-    onRevokeDispute?: () => void;
-};
-export type DisputeTableProps = {
-    rows: Dispute[];
-    loading: boolean;
-    error: string | null;
-    onRetry: () => void;
-    brandId: string | null;
-    // Pagination
-    page: number;
-    totalPages: number;
-    total: number;
-    pageSize: number;
-    pageNumbers: number[];
-    onPageChange: (p: number) => void;
-};
-
-// ─── DisputeTable ──────────────────────────────────────────────────────────────
 const slugify = (value = "") =>
     String(value)
         .toLowerCase()
@@ -125,13 +195,19 @@ const slugify = (value = "") =>
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-")
         .replace(/^-|-$/g, "");
+
 const formatHandle = (handle?: string | null) => {
     if (!handle) return null;
     return handle.startsWith("@") ? handle : `@${handle}`;
 };
+
 const getDisputeImageUrl = (row: Dispute) => {
-    return row.attachments?.find((file) => file?.mimeType?.startsWith("image/"))?.url ?? null;
+    return (
+        row.attachments?.find((file) => file?.mimeType?.startsWith("image/"))?.url ??
+        null
+    );
 };
+
 export function DisputeTable({
     rows,
     loading,
@@ -144,30 +220,37 @@ export function DisputeTable({
     pageSize,
     pageNumbers,
     onPageChange,
+    viewBasePath = "/brand/disputes",
+    onRevokeDispute,
 }: DisputeTableProps) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
 
-    // ── Revoke modal state ──────────────────────────────────────────────────────
     const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
     const [isRevoking, setIsRevoking] = useState(false);
     const [revokeError, setRevokeError] = useState<string | null>(null);
 
     const handleRevokeConfirm = async () => {
         if (!revokeTarget) return;
+
         setIsRevoking(true);
         setRevokeError(null);
 
         try {
-            console.log(
-                "brandId and disputeId being sent to apiRevokeDispute:",
-                brandId,
-                revokeTarget
-            )
-            await apiRevokeDispute({ disputeId: revokeTarget, brandId });
+            if (onRevokeDispute) {
+                await onRevokeDispute(revokeTarget);
+            } else {
+                await apiRevokeDispute({
+                    disputeId: revokeTarget,
+                    brandId: brandId ?? null,
+                });
+            }
+
             setRevokeTarget(null);
             onRetry();
         } catch {
-            setRevokeError("Something went wrong while revoking the dispute. Please try again.");
+            setRevokeError(
+                "Something went wrong while revoking the dispute. Please try again."
+            );
         } finally {
             setIsRevoking(false);
         }
@@ -179,8 +262,8 @@ export function DisputeTable({
         setRevokeError(null);
     };
 
-    // ── Existing selection logic ────────────────────────────────────────────────
-    const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.disputeId));
+    const allSelected =
+        rows.length > 0 && rows.every((r) => selected.has(r.disputeId));
 
     const toggleAll = () =>
         setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.disputeId)));
@@ -188,7 +271,8 @@ export function DisputeTable({
     const toggleOne = (id: string) =>
         setSelected((prev) => {
             const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
             return next;
         });
 
@@ -203,25 +287,38 @@ export function DisputeTable({
         action: "min-w-[9rem] flex-[1_1_0%]",
     };
 
-    const headerCell = "flex items-center justify-between w-full text-sm font-semibold text-[#1A1A1A]";
+    const headerCell =
+        "flex w-full items-center justify-between text-sm font-semibold text-[#1A1A1A]";
     const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
     const to = Math.min(page * pageSize, total);
 
     return (
         <>
-            {/* ── Revoke confirmation modal ─────────────────────────────────────── */}
-            <ConfirmRevokeModal
+            <ConfirmActionModal
                 open={revokeTarget !== null}
                 onClose={handleRevokeClose}
                 onConfirm={handleRevokeConfirm}
                 isSubmitting={isRevoking}
                 error={revokeError}
+                title="Withdraw Dispute"
+                description={
+                    <>
+                        You are about to{" "}
+                        <span className="font-semibold text-[#1a1a1a]">
+                            withdraw this dispute
+                        </span>{" "}
+                        request. Once withdrawn, the dispute will be closed and cannot be
+                        reopened.
+                    </>
+                }
+                confirmLabel="Delete"
+                confirmLoadingLabel="Deleting..."
+                cancelLabel="Cancel"
             />
 
             <div className="w-full overflow-x-auto">
-                <div className="min-w-full w-max mt-[1.5rem] px-[2rem] pb-[2.5rem]">
-                    {/* ── Header row ──────────────────────────────────────────────── */}
-                    <div className="flex items-center h-12 bg-[#E6E6E6] rounded-lg px-4">
+                <div className="mt-[1.5rem] min-w-full w-max px-[2rem] pb-[2.5rem]">
+                    <div className="flex h-12 items-center rounded-lg bg-[#E6E6E6] px-4">
                         <div className={col.checkbox}>
                             <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
                         </div>
@@ -266,23 +363,21 @@ export function DisputeTable({
                         </div>
                     </div>
 
-                    {/* ── Body ────────────────────────────────────────────────────── */}
-                    <div className="flex flex-col mt-3 gap-[0.75rem] mt-[2rem]">
-                        {/* Loading skeletons */}
+                    <div className="mt-[2rem] mt-3 flex flex-col gap-[0.75rem]">
                         {loading &&
                             Array.from({ length: 5 }).map((_, i) => (
                                 <div
                                     key={i}
-                                    className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white animate-pulse"
+                                    className="flex h-[5rem] items-center rounded-lg border border-[#D6D6D6] bg-white px-4 animate-pulse"
                                 >
                                     <div className={col.checkbox}>
                                         <div className="h-4 w-4 rounded bg-gray-200" />
                                     </div>
-                                    <div className={`${col.title} px-2 space-y-2`}>
+                                    <div className={`${col.title} space-y-2 px-2`}>
                                         <div className="h-3.5 w-3/4 rounded bg-gray-200" />
                                         <div className="h-3 w-1/2 rounded bg-gray-100" />
                                     </div>
-                                    <div className={`${col.image} px-2 flex items-center justify-center`}>
+                                    <div className={`${col.image} flex items-center justify-center px-2`}>
                                         <div className="h-10 w-10 rounded-lg bg-gray-200" />
                                     </div>
                                     <div className={`${col.campaign} pl-5 pr-2`}>
@@ -297,30 +392,28 @@ export function DisputeTable({
                                     <div className={`${col.date} px-2`}>
                                         <div className="h-3.5 w-24 rounded bg-gray-200" />
                                     </div>
-                                    <div className={`${col.action} px-2 flex gap-2`}>
+                                    <div className={`${col.action} flex gap-2 px-2`}>
                                         <div className="h-8 w-16 rounded-xl bg-gray-200" />
                                         <div className="h-8 w-8 rounded-xl bg-gray-100" />
                                     </div>
                                 </div>
                             ))}
 
-                        {/* Error state */}
                         {!loading && error && (
-                            <div className="flex flex-col items-center justify-center py-20 gap-3 text-red-500">
+                            <div className="flex flex-col items-center justify-center gap-3 py-20 text-red-500">
                                 <AlertCircle className="size-8" />
                                 <p className="text-sm font-medium">{error}</p>
                                 <button
                                     onClick={onRetry}
-                                    className="text-xs underline text-[#1a1a1a] hover:opacity-70"
+                                    className="text-xs text-[#1a1a1a] underline hover:opacity-70"
                                 >
                                     Try again
                                 </button>
                             </div>
                         )}
 
-                        {/* Empty state */}
                         {!loading && !error && rows.length === 0 && (
-                            <div className="flex flex-col items-center justify-center py-20 gap-3 text-[#888]">
+                            <div className="flex flex-col items-center justify-center gap-3 py-20 text-[#888]">
                                 <GavelIcon size={36} />
                                 <p className="text-sm font-medium">No disputes found</p>
                                 <p className="text-xs text-[#bbb]">
@@ -329,13 +422,12 @@ export function DisputeTable({
                             </div>
                         )}
 
-                        {/* Data rows */}
                         {!loading &&
                             !error &&
                             rows.map((row) => (
                                 <div
                                     key={row.disputeId}
-                                    className="flex items-center h-[5rem] border border-[#D6D6D6] rounded-lg px-4 bg-white hover:bg-[#fafafa] transition-colors"
+                                    className="flex h-[5rem] items-center rounded-lg border border-[#D6D6D6] bg-white px-4 transition-colors hover:bg-[#fafafa]"
                                 >
                                     <div className={col.checkbox}>
                                         <Checkbox
@@ -345,27 +437,29 @@ export function DisputeTable({
                                     </div>
 
                                     <div className={`${col.title} px-2`}>
-                                        <div className="font-medium truncate">{row.subject}</div>
-                                        <div className="text-xs text-gray-400 mt-0.5 truncate">
+                                        <div className="truncate font-medium">{row.subject}</div>
+                                        <div className="mt-0.5 truncate text-xs text-gray-400">
                                             #{row.disputeId}
                                         </div>
                                     </div>
 
-                                    <div className={`${col.image} px-2 flex items-center justify-center`}>
+                                    <div className={`${col.image} flex items-center justify-center px-2`}>
                                         <DisputeImage src={getDisputeImageUrl(row)} />
                                     </div>
 
                                     <div className={`${col.campaign} pl-5 pr-2`}>
                                         <span className="truncate text-sm text-gray-700">
                                             {row.campaignName ?? (
-                                                <span className="text-gray-400 italic text-xs">No campaign</span>
+                                                <span className="text-xs italic text-gray-400">
+                                                    No campaign
+                                                </span>
                                             )}
                                         </span>
                                     </div>
 
                                     <div className={`${col.status} px-2`}>
                                         <span
-                                            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${STATUS_COLORS[row.status] ?? "bg-gray-100 text-gray-600"
+                                            className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[row.status] ?? "bg-gray-100 text-gray-600"
                                                 }`}
                                         >
                                             {STATUS_LABEL[row.status] ?? row.status}
@@ -387,7 +481,7 @@ export function DisputeTable({
                                         </div>
                                     </div>
 
-                                    <div className={`${col.date} px-2 text-sm text-gray-500 whitespace-nowrap`}>
+                                    <div className={`${col.date} whitespace-nowrap px-2 text-sm text-gray-500`}>
                                         {new Date(row.createdAt).toLocaleDateString("en-GB", {
                                             day: "2-digit",
                                             month: "2-digit",
@@ -397,9 +491,9 @@ export function DisputeTable({
 
                                     <div className={`${col.action} flex items-center gap-2`}>
                                         <Button
-                                            className="!w-[7rem] !h-[2.0625rem] !px-[0.5rem] !rounded-[0.5rem] text-xs font-medium"
+                                            className="!h-[2.0625rem] !w-[7rem] !rounded-[0.5rem] !px-[0.5rem] text-xs font-medium"
                                             onClick={() => {
-                                                window.location.href = `/brand/disputes/${row.disputeId}`;
+                                                window.location.href = `${viewBasePath}/${row.disputeId}`;
                                             }}
                                         >
                                             View
@@ -420,7 +514,9 @@ export function DisputeTable({
 
                                                 const disputeName = row?.subject || "untitled-dispute";
                                                 const disputeSlug = slugify(disputeName);
-                                                const disputePath = `/public/dispute/${encodeURIComponent(row.disputeId)}-${disputeSlug}`;
+                                                const disputePath = `/public/dispute/${encodeURIComponent(
+                                                    row.disputeId
+                                                )}-${disputeSlug}`;
                                                 const disputeUrl = `${window.location.origin}${disputePath}`;
 
                                                 try {
@@ -445,6 +541,7 @@ export function DisputeTable({
                                                         const copied = document.execCommand("copy");
                                                         document.body.removeChild(textArea);
                                                         if (!copied) throw new Error("Fallback copy failed");
+
                                                         await Swal.fire({
                                                             icon: "success",
                                                             title: "Copied",
@@ -464,20 +561,16 @@ export function DisputeTable({
                                             onOpenInNewTab={() => {
                                                 if (!row?.disputeId) return;
                                                 window.open(
-                                                    `/brand/disputes/${encodeURIComponent(row.disputeId)}`,
+                                                    `${viewBasePath}/${encodeURIComponent(row.disputeId)}`,
                                                     "_blank",
                                                     "noopener,noreferrer"
                                                 );
                                             }}
-                                            onRequestEscalation={() => {
-                                                // escalation logic
-                                            }}
-                                            onAddCommentNote={() => {
-                                                // add note logic
-                                            }}
+                                            onRequestEscalation={() => { }}
+                                            onAddCommentNote={() => { }}
                                             onRevokeDispute={() => {
                                                 setRevokeError(null);
-                                                setRevokeTarget(row.disputeId); // ← opens modal
+                                                setRevokeTarget(row.disputeId);
                                             }}
                                         />
                                     </div>
@@ -485,12 +578,13 @@ export function DisputeTable({
                             ))}
                     </div>
 
-                    {/* ── Pagination ───────────────────────────────────────────────── */}
                     {!loading && !error && totalPages > 1 && (
-                        <div className="flex items-center justify-between mt-6 px-1">
+                        <div className="mt-6 flex items-center justify-between px-1">
                             <p className="text-sm text-gray-500">
                                 Showing{" "}
-                                <span className="font-medium text-[#1a1a1a]">{from}–{to}</span>{" "}
+                                <span className="font-medium text-[#1a1a1a]">
+                                    {from}–{to}
+                                </span>{" "}
                                 of{" "}
                                 <span className="font-medium text-[#1a1a1a]">{total}</span>
                             </p>
@@ -499,7 +593,7 @@ export function DisputeTable({
                                 <button
                                     disabled={page <= 1}
                                     onClick={() => onPageChange(page - 1)}
-                                    className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    className="flex size-8 items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] transition-colors hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <ChevronLeft className="size-4" />
                                 </button>
@@ -508,8 +602,8 @@ export function DisputeTable({
                                     <button
                                         key={p}
                                         onClick={() => onPageChange(p)}
-                                        className={`size-8 flex items-center justify-center rounded-lg text-sm transition-colors ${p === page
-                                            ? "bg-[#1a1a1a] text-white font-semibold"
+                                        className={`flex size-8 items-center justify-center rounded-lg text-sm transition-colors ${p === page
+                                            ? "bg-[#1a1a1a] font-semibold text-white"
                                             : "border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5]"
                                             }`}
                                     >
@@ -520,7 +614,7 @@ export function DisputeTable({
                                 <button
                                     disabled={page >= totalPages}
                                     onClick={() => onPageChange(page + 1)}
-                                    className="size-8 flex items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] hover:bg-[#f5f5f5] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    className="flex size-8 items-center justify-center rounded-lg border border-[#e2e2e2] text-[#1a1a1a] transition-colors hover:bg-[#f5f5f5] disabled:cursor-not-allowed disabled:opacity-40"
                                 >
                                     <ChevronRight className="size-4" />
                                 </button>
@@ -532,9 +626,6 @@ export function DisputeTable({
         </>
     );
 }
-
-
-
 
 export function DisputeThreeDotMenu({
     status,
@@ -577,7 +668,7 @@ export function DisputeThreeDotMenu({
             <ComboboxTrigger
                 hideIcon
                 aria-label="Dispute actions"
-                className="!bg-white !h-[2.2rem] !w-[2.5rem] !px-[0.5rem] !rounded-[0.75rem] !border !border-[#E5E5E5] !shadow-none inline-flex items-center justify-center hover:!bg-[#FAFAFA]"
+                className="inline-flex items-center justify-center !h-[2.2rem] !w-[2.5rem] !rounded-[0.75rem] !border !border-[#E5E5E5] !bg-white !px-[0.5rem] !shadow-none hover:!bg-[#FAFAFA]"
             >
                 <DotsThreeIcon size={18} weight="bold" color="#1A1A1A" />
             </ComboboxTrigger>
@@ -610,17 +701,6 @@ export function DisputeThreeDotMenu({
                         </span>
                     </ComboboxItem>
 
-                    {/* <ComboboxItem
-                        value="request_escalation"
-                        showIndicator={false}
-                        className="h-12 rounded-[0.75rem] px-3 data-[highlighted]:bg-[#F5F5F5] data-[selected]:bg-[#F5F5F5]"
-                    >
-                        <ShieldAlert className="size-[1.1rem] text-[#1A1A1A]" />
-                        <span className="text-[1rem] font-normal text-[#1A1A1A]">
-                            Request Escalation
-                        </span>
-                    </ComboboxItem> */}
-
                     <ComboboxItem
                         value="add_comment_note"
                         showIndicator={false}
@@ -634,20 +714,16 @@ export function DisputeThreeDotMenu({
 
                     <ComboboxSeparator className="my-2 bg-[#E9E9E9]" />
 
-                    {status !== "revoked" && (        // ← guard
-                        <>
-                            <ComboboxItem
-                                value="revoke_dispute"
-                                showIndicator={false}
-                                className="h-12 rounded-[0.75rem] px-3 text-[#FF4D3A] data-[highlighted]:bg-[#FFF5F4] data-[highlighted]:text-[#FF4D3A] data-[selected]:bg-[#FFF5F4] data-[selected]:text-[#FF4D3A]"
-                            >
-                                <Undo2 className="size-[1.1rem] text-[#FF4D3A]" />
-                                <span className="text-[1rem] font-normal">
-                                    Revoke Dispute
-                                </span>
-                            </ComboboxItem>
-                        </>
-                    )}
+                    {status !== "revoked" ? (
+                        <ComboboxItem
+                            value="revoke_dispute"
+                            showIndicator={false}
+                            className="h-12 rounded-[0.75rem] px-3 text-[#FF4D3A] data-[highlighted]:bg-[#FFF5F4] data-[highlighted]:text-[#FF4D3A] data-[selected]:bg-[#FFF5F4] data-[selected]:text-[#FF4D3A]"
+                        >
+                            <Undo2 className="size-[1.1rem] text-[#FF4D3A]" />
+                            <span className="text-[1rem] font-normal">Revoke Dispute</span>
+                        </ComboboxItem>
+                    ) : null}
                 </ComboboxList>
             </ComboboxContent>
         </Combobox>

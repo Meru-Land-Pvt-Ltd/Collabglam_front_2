@@ -1,13 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-    Applicant,
-    Campaign,
-    getCampaignId,
-    getCampaignLabel,
-} from "./disputeFilter";
 import { get, post } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FloatingInput } from "@/components/ui/floatingInput";
 import { ProductCardUpload } from "@/components/ui/productCard-Image";
@@ -22,14 +17,30 @@ import {
     SearchIcon,
     FileIcon,
 } from "lucide-react";
-import { cn } from "../create-campaign/create-campaign.utils";
-import { X } from "@phosphor-icons/react";
 
-/* -------------------------------------------------------------------------- */
-/*                                   Types                                    */
-/* -------------------------------------------------------------------------- */
+export type Campaign = {
+    _id?: string;
+    campaignsId?: string;
+    campaignTitle?: string;
+    productOrServiceName?: string;
+    status?: string;
+    hasApplied?: number;
+};
 
-/** Mirrors the Attachment shape returned by the API. */
+export type Applicant = {
+    influencerId: string;
+    name?: string;
+    handle?: string | null;
+};
+
+export function getCampaignId(c: Campaign): string {
+    return c.campaignsId || c._id || "";
+}
+
+export function getCampaignLabel(c: Campaign): string {
+    return c.campaignTitle || c.productOrServiceName || getCampaignId(c);
+}
+
 export interface ExistingAttachment {
     url: string;
     originalName?: string | null;
@@ -37,14 +48,51 @@ export interface ExistingAttachment {
     size?: number | null;
 }
 
-type DisputeFormValues = {
+export type DisputeFormValues = {
     campaignId: string;
     influencerId: string;
     subject: string;
     description: string;
     issueType: string[];
-    /** Newly selected local files to upload. */
     attachments: File[];
+};
+
+type ViewerMode = "brand" | "influencer";
+
+type InfluencerCampaignListResponse = {
+    success?: boolean;
+    data?: {
+        items?: Campaign[];
+        pagination?: {
+            total?: number;
+            page?: number;
+            limit?: number;
+            totalPages?: number;
+        };
+    };
+    requestId?: string;
+};
+
+type CampaignBrandResponse = {
+    message?: string;
+    brand?: {
+        _id?: string;
+        brandId?: string;
+        brandName?: string;
+        name?: string;
+        email?: string;
+        proxyEmail?: string;
+        industry?: string;
+        companySize?: string;
+        profilePic?: string;
+        createdAt?: string;
+        updatedAt?: string;
+    };
+};
+
+type SelectedBrand = {
+    brandId: string;
+    brandName: string;
 };
 
 type DisputeFormDialogProps = {
@@ -59,23 +107,15 @@ type DisputeFormDialogProps = {
     disableInfluencer?: boolean;
     influencerDisplayName?: string;
     initialValues?: Partial<DisputeFormValues>;
-    /**
-     * Already-persisted attachments fetched from the server.
-     * Rendered below the uploader so the user can review and optionally remove
-     * them before saving.
-     */
     existingAttachments?: ExistingAttachment[];
+    mode?: ViewerMode;
     onSubmit: (payload: {
-        brandId: string;
+        brandId?: string;
+        influencerId?: string;
         values: DisputeFormValues;
-        /** URLs of existing attachments the user explicitly removed. */
         removedExistingUrls: string[];
     }) => Promise<void>;
 };
-
-/* -------------------------------------------------------------------------- */
-/*                                 Constants                                  */
-/* -------------------------------------------------------------------------- */
 
 const DEFAULT_DISPUTE_FORM_VALUES: DisputeFormValues = {
     campaignId: "",
@@ -96,10 +136,6 @@ const DISPUTE_CATEGORIES = [
     { value: "no_response", label: "No Response" },
     { value: "other", label: "Other" },
 ];
-
-/* -------------------------------------------------------------------------- */
-/*                                 Utilities                                  */
-/* -------------------------------------------------------------------------- */
 
 function buildDisputeFormValues(
     initialValues?: Partial<DisputeFormValues>,
@@ -134,9 +170,18 @@ function formatBytes(bytes?: number | null): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/* -------------------------------------------------------------------------- */
-/*                        ExistingAttachmentsList                             */
-/* -------------------------------------------------------------------------- */
+function normalizeInfluencerCampaignsResponse(
+    response: InfluencerCampaignListResponse | Campaign[] | undefined | null
+): Campaign[] {
+    if (!response) return [];
+
+    if (Array.isArray(response)) {
+        return response.filter((item) => Boolean(getCampaignId(item)));
+    }
+
+    const items = Array.isArray(response.data?.items) ? response.data.items : [];
+    return items.filter((item) => Boolean(getCampaignId(item)));
+}
 
 function ExistingAttachmentsList({
     attachments,
@@ -163,10 +208,11 @@ function ExistingAttachmentsList({
                                 key={img.url}
                                 className={cn(
                                     "relative h-16 w-20 shrink-0 overflow-visible rounded-lg border bg-[#f5f5f5] transition-all",
-                                    removed ? "border-red-300 opacity-40 grayscale" : "border-[#e8e8e8]"
+                                    removed
+                                        ? "border-red-300 opacity-40 grayscale"
+                                        : "border-[#e8e8e8]"
                                 )}
                             >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                     src={img.url}
                                     alt={img.originalName ?? "attachment"}
@@ -177,20 +223,18 @@ function ExistingAttachmentsList({
                                     type="button"
                                     onClick={() => onToggleRemove(img.url)}
                                     title={removed ? "Restore" : "Remove"}
-                                    className={cn(
-                                        "absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full text-black !bg-white shadow-md",
-                                    )}
+                                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full text-black !bg-white shadow-md"
                                 >
                                     <XIcon className="size-3" />
                                 </button>
 
-                                {removed && (
+                                {removed ? (
                                     <div className="absolute inset-0 flex items-center justify-center rounded-lg">
                                         <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
                                             Removed
                                         </span>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                         );
                     })}
@@ -206,7 +250,9 @@ function ExistingAttachmentsList({
                                 key={file.url}
                                 className={cn(
                                     "flex items-center justify-between gap-2 rounded-lg border px-3 py-2 transition-all",
-                                    removed ? "border-red-200 bg-red-50 opacity-60" : "border-[#e8e8e8] bg-[#fafafa]"
+                                    removed
+                                        ? "border-red-200 bg-red-50 opacity-60"
+                                        : "border-[#e8e8e8] bg-[#fafafa]"
                                 )}
                             >
                                 <div className="flex min-w-0 items-center gap-2">
@@ -214,20 +260,18 @@ function ExistingAttachmentsList({
                                     <span className="truncate text-xs text-[#555]">
                                         {file.originalName ?? "File"}
                                     </span>
-                                    {file.size && (
+                                    {file.size ? (
                                         <span className="shrink-0 text-[10px] text-[#bbb]">
                                             {formatBytes(file.size)}
                                         </span>
-                                    )}
+                                    ) : null}
                                 </div>
 
                                 <button
                                     type="button"
                                     onClick={() => onToggleRemove(file.url)}
                                     title={removed ? "Restore" : "Remove"}
-                                    className={cn(
-                                        "flex size-5 shrink-0 items-center justify-center rounded-full text-white transition-colors"
-                                    )}
+                                    className="flex size-5 shrink-0 items-center justify-center rounded-full text-white transition-colors"
                                 >
                                     <XIcon className="size-3" />
                                 </button>
@@ -239,10 +283,6 @@ function ExistingAttachmentsList({
         </div>
     );
 }
-
-/* -------------------------------------------------------------------------- */
-/*                            DisputeFormDialog                               */
-/* -------------------------------------------------------------------------- */
 
 export function DisputeFormDialog({
     open,
@@ -257,20 +297,22 @@ export function DisputeFormDialog({
     influencerDisplayName,
     initialValues,
     existingAttachments = [],
+    mode = "brand",
     onSubmit,
 }: DisputeFormDialogProps) {
     const [brandId, setBrandId] = useState<string | null>(null);
+    const [viewerInfluencerId, setViewerInfluencerId] = useState<string | null>(
+        null
+    );
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [applicants, setApplicants] = useState<Applicant[]>([]);
+    const [selectedBrand, setSelectedBrand] = useState<SelectedBrand | null>(null);
     const [loadingCampaigns, setLoadingCampaigns] = useState(false);
     const [loadingApplicants, setLoadingApplicants] = useState(false);
+    const [loadingBrandDetails, setLoadingBrandDetails] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    /**
-     * URLs of existing (server-side) attachments the user has marked for
-     * removal. Toggling the × button on an already-removed item restores it.
-     */
     const [removedExistingUrls, setRemovedExistingUrls] = useState<Set<string>>(
         new Set()
     );
@@ -280,54 +322,95 @@ export function DisputeFormDialog({
         [initialValues, lockedCampaignId]
     );
 
-    const [values, setValues] =
-        useState<DisputeFormValues>(normalizedInitialValues);
+    const [values, setValues] = useState<DisputeFormValues>(
+        normalizedInitialValues
+    );
 
     const isCampaignLocked = Boolean(lockedCampaignId) || disableCampaign;
+    const isInfluencerMode = mode === "influencer";
 
     useEffect(() => {
         if (typeof window === "undefined") return;
+
         setBrandId(localStorage.getItem("brandId"));
+        setViewerInfluencerId(localStorage.getItem("influencerId"));
     }, []);
 
-    // Reset form state every time the dialog opens.
     useEffect(() => {
         if (!open) return;
-        setValues(buildDisputeFormValues(initialValues, lockedCampaignId));
+
+        const next = buildDisputeFormValues(initialValues, lockedCampaignId);
+
+        if (isInfluencerMode && viewerInfluencerId && !next.influencerId) {
+            next.influencerId = viewerInfluencerId;
+        }
+
+        setValues(next);
         setRemovedExistingUrls(new Set());
         setApplicants([]);
+        setSelectedBrand(null);
         setError(null);
-    }, [open, initialValues, lockedCampaignId]);
+    }, [open, initialValues, lockedCampaignId, isInfluencerMode, viewerInfluencerId]);
 
-    // Load active campaigns.
     useEffect(() => {
-        if (!brandId || !open) return;
+        if (!open) return;
 
         let cancelled = false;
         setLoadingCampaigns(true);
 
-        get<{ data: Campaign[] }>("/campaign/active", {
-            brandId,
-            page: 1,
-            limit: 1000,
-        })
-            .then((res) => {
-                if (!cancelled) setCampaigns(res?.data ?? []);
-            })
-            .catch(() => {
+        const loadCampaigns = async () => {
+            try {
+                if (isInfluencerMode) {
+                    const res = await post<InfluencerCampaignListResponse>(
+                        "/campaign/influencer/get-all-active",
+                        {
+                            influencerId: viewerInfluencerId,
+                            page: 1,
+                            limit: 1000,
+                        }
+                    );
+
+                    if (!cancelled) {
+                        setCampaigns(normalizeInfluencerCampaignsResponse(res));
+                    }
+
+                    return;
+                }
+
+                if (!brandId) {
+                    if (!cancelled) setCampaigns([]);
+                    return;
+                }
+
+                const res = await get<{ data: Campaign[] }>("/campaign/active", {
+                    brandId,
+                    page: 1,
+                    limit: 1000,
+                });
+
+                if (!cancelled) {
+                    setCampaigns(Array.isArray(res?.data) ? res.data : []);
+                }
+            } catch {
                 if (!cancelled) setCampaigns([]);
-            })
-            .finally(() => {
+            } finally {
                 if (!cancelled) setLoadingCampaigns(false);
-            });
+            }
+        };
+
+        void loadCampaigns();
 
         return () => {
             cancelled = true;
         };
-    }, [brandId, open]);
+    }, [open, isInfluencerMode, brandId]);
 
-    // Load applicants whenever the selected campaign changes.
     useEffect(() => {
+        if (isInfluencerMode) {
+            setApplicants([]);
+            return;
+        }
+
         if (!values.campaignId) {
             setApplicants([]);
             return;
@@ -354,10 +437,62 @@ export function DisputeFormDialog({
         return () => {
             cancelled = true;
         };
-    }, [values.campaignId]);
+    }, [values.campaignId, isInfluencerMode]);
+
+    useEffect(() => {
+        if (!open || !isInfluencerMode) {
+            setSelectedBrand(null);
+            return;
+        }
+
+        if (!values.campaignId || !viewerInfluencerId) {
+            setSelectedBrand(null);
+            return;
+        }
+
+        let cancelled = false;
+        setLoadingBrandDetails(true);
+
+        const loadBrandDetails = async () => {
+            try {
+                const res = await get<CampaignBrandResponse>("/campaign/brand-list", {
+                    campaignId: values.campaignId,
+                    influencerId: viewerInfluencerId,
+                });
+
+                if (cancelled) return;
+
+                const nextBrandId = res?.brand?.brandId || res?.brand?._id || "";
+                const nextBrandName = res?.brand?.brandName || res?.brand?.name || "";
+
+                setSelectedBrand(
+                    nextBrandId || nextBrandName
+                        ? {
+                            brandId: nextBrandId,
+                            brandName: nextBrandName,
+                        }
+                        : null
+                );
+            } catch {
+                if (!cancelled) {
+                    setSelectedBrand(null);
+                }
+            } finally {
+                if (!cancelled) {
+                    setLoadingBrandDetails(false);
+                }
+            }
+        };
+
+        void loadBrandDetails();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [open, isInfluencerMode, values.campaignId, viewerInfluencerId]);
 
     const campaignOptions = useMemo(
-        () => campaigns.filter((c) => getCampaignId(c)),
+        () => campaigns.filter((c) => Boolean(getCampaignId(c))),
         [campaigns]
     );
 
@@ -373,43 +508,64 @@ export function DisputeFormDialog({
         <K extends keyof DisputeFormValues>(key: K, value: DisputeFormValues[K]) => {
             setValues((prev) => {
                 const next = { ...prev, [key]: value };
-                if (key === "campaignId" && prev.campaignId !== value) {
+
+                if (
+                    key === "campaignId" &&
+                    prev.campaignId !== value &&
+                    !isInfluencerMode
+                ) {
                     next.influencerId = "";
                 }
+
                 return next;
             });
         },
-        []
+        [isInfluencerMode]
     );
 
     const handleToggleRemoveExisting = useCallback((url: string) => {
         setRemovedExistingUrls((prev) => {
             const next = new Set(prev);
-            if (next.has(url)) {
-                next.delete(url);
-            } else {
-                next.add(url);
-            }
+            if (next.has(url)) next.delete(url);
+            else next.add(url);
             return next;
         });
     }, []);
 
     const resetAndClose = useCallback(() => {
-        setValues(buildDisputeFormValues(initialValues, lockedCampaignId));
+        const next = buildDisputeFormValues(initialValues, lockedCampaignId);
+
+        if (isInfluencerMode && viewerInfluencerId && !next.influencerId) {
+            next.influencerId = viewerInfluencerId;
+        }
+
+        setValues(next);
         setRemovedExistingUrls(new Set());
         setApplicants([]);
+        setSelectedBrand(null);
         setError(null);
         onOpenChange(false);
-    }, [initialValues, lockedCampaignId, onOpenChange]);
+    }, [initialValues, lockedCampaignId, onOpenChange, isInfluencerMode, viewerInfluencerId]);
 
     const validate = useCallback((): string | null => {
-        if (!brandId) return "Missing brand ID — please log in again.";
+        if (isInfluencerMode) {
+            if (!viewerInfluencerId && !values.influencerId) {
+                return "Missing influencer ID — please log in again.";
+            }
+        } else {
+            if (!brandId) return "Missing brand ID — please log in again.";
+        }
+
         if (!values.subject.trim()) return "Dispute title is required.";
         if (!values.campaignId) return "Campaign name is required.";
-        if (!values.influencerId) return "Influencer name is required.";
         if (!values.issueType.length) return "Issue type is required.";
+
+        if (!isInfluencerMode && !values.influencerId) {
+            return "Influencer name is required.";
+        }
+
         return null;
-    }, [brandId, values]);
+    }, [brandId, values, isInfluencerMode, viewerInfluencerId]);
 
     const handleSubmit = useCallback(async () => {
         const validationError = validate();
@@ -417,8 +573,6 @@ export function DisputeFormDialog({
             setError(validationError);
             return;
         }
-
-        if (!brandId) return;
 
         const normalizedValues: DisputeFormValues = {
             ...values,
@@ -431,7 +585,12 @@ export function DisputeFormDialog({
 
         try {
             await onSubmit({
-                brandId,
+                brandId: isInfluencerMode
+                    ? selectedBrand?.brandId || undefined
+                    : brandId ?? undefined,
+                influencerId: isInfluencerMode
+                    ? viewerInfluencerId ?? values.influencerId
+                    : values.influencerId,
                 values: normalizedValues,
                 removedExistingUrls: Array.from(removedExistingUrls),
             });
@@ -439,20 +598,21 @@ export function DisputeFormDialog({
             resetAndClose();
             onSuccess?.();
         } catch (e: unknown) {
-            setError(
-                e instanceof Error ? e.message : "Failed to submit dispute."
-            );
+            setError(e instanceof Error ? e.message : "Failed to submit dispute.");
         } finally {
             setSubmitting(false);
         }
     }, [
-        brandId,
-        onSubmit,
-        onSuccess,
-        removedExistingUrls,
-        resetAndClose,
         validate,
         values,
+        onSubmit,
+        isInfluencerMode,
+        brandId,
+        viewerInfluencerId,
+        selectedBrand,
+        removedExistingUrls,
+        resetAndClose,
+        onSuccess,
     ]);
 
     return (
@@ -468,7 +628,6 @@ export function DisputeFormDialog({
                 className="!flex !flex-col w-[calc(100vw-1rem)] sm:w-[calc(100vw-2rem)] md:w-full !max-w-[43.0625rem] max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] md:max-h-[min(54.25rem,calc(100dvh-3rem))] overflow-hidden rounded-xl sm:rounded-2xl p-0 gap-0"
                 style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}
             >
-                {/* Header */}
                 <div className="flex shrink-0 items-center justify-between">
                     <DialogTitle className="text-[1.15rem] font-semibold tracking-tight text-[#1a1a1a]">
                         {title}
@@ -485,14 +644,13 @@ export function DisputeFormDialog({
 
                 <hr />
 
-                {/* Scrollable body */}
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                    {error && (
+                    {error ? (
                         <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
                             <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
                             <span>{error}</span>
                         </div>
-                    )}
+                    ) : null}
 
                     <div className="grid grid-cols-2 gap-4">
                         <FloatingInput
@@ -503,9 +661,7 @@ export function DisputeFormDialog({
                         />
 
                         <FloatingSelect
-                            label={
-                                loadingCampaigns ? "Loading campaigns…" : "Campaign name"
-                            }
+                            label={loadingCampaigns ? "Loading campaigns…" : "Campaign name"}
                             value={values.campaignId}
                             onValueChange={(v) => updateField("campaignId", v)}
                             disabled={isCampaignLocked || loadingCampaigns}
@@ -536,44 +692,78 @@ export function DisputeFormDialog({
                     </div>
 
                     <div className="mt-4 flex flex-col gap-4">
-                        <FloatingSelect
-                            label={
-                                !values.campaignId
-                                    ? "Select a campaign first"
-                                    : loadingApplicants
-                                        ? "Loading influencers…"
-                                        : "Influencer name"
-                            }
-                            required
-                            value={values.influencerId}
-                            onValueChange={(v) => updateField("influencerId", v)}
-                            disabled={
-                                !values.campaignId || loadingApplicants || disableInfluencer
-                            }
-                            searchable={applicants.length > 5}
-                            searchPlaceholder="Search influencers…"
-                            safeBottom={80}
-                            icon={Boolean(values.influencerId)}
-                        >
-                            {!selectedApplicantExists && values.influencerId ? (
-                                <SelectItem value={values.influencerId}>
-                                    {influencerDisplayName ?? values.influencerId}
-                                </SelectItem>
-                            ) : null}
-
-                            {applicants.length > 0 ? (
-                                applicants.map((a) => (
-                                    <SelectItem key={a.influencerId} value={a.influencerId}>
-                                        {a.name ?? a.influencerId}
-                                        {a.handle ? ` (${a.handle})` : ""}
+                        {isInfluencerMode ? (
+                            <FloatingSelect
+                                label={
+                                    !values.campaignId
+                                        ? "Select a campaign first"
+                                        : loadingBrandDetails
+                                            ? "Loading brand…"
+                                            : "Brand name"
+                                }
+                                value={selectedBrand?.brandId || ""}
+                                onValueChange={(v) => {
+                                    if (!selectedBrand) return;
+                                    setSelectedBrand({ ...selectedBrand, brandId: v });
+                                }}
+                                disabled={!values.campaignId || loadingBrandDetails}
+                                searchable={false}
+                                safeBottom={80}
+                                icon={Boolean(selectedBrand?.brandId)}
+                                required
+                            >
+                                {selectedBrand?.brandId ? (
+                                    <SelectItem value={selectedBrand.brandId}>
+                                        {selectedBrand.brandName || "Brand"}
                                     </SelectItem>
-                                ))
-                            ) : (
-                                <SelectItem value="__empty__" disabled>
-                                    No influencers in this campaign
-                                </SelectItem>
-                            )}
-                        </FloatingSelect>
+                                ) : (
+                                    <SelectItem value="__empty__" disabled>
+                                        {!values.campaignId
+                                            ? "Select a campaign first"
+                                            : loadingBrandDetails
+                                                ? "Loading brand…"
+                                                : "No brand found for this campaign"}
+                                    </SelectItem>
+                                )}
+                            </FloatingSelect>
+                        ) : (
+                            <FloatingSelect
+                                label={
+                                    !values.campaignId
+                                        ? "Select a campaign first"
+                                        : loadingApplicants
+                                            ? "Loading influencers…"
+                                            : "Influencer name"
+                                }
+                                required
+                                value={values.influencerId}
+                                onValueChange={(v) => updateField("influencerId", v)}
+                                disabled={!values.campaignId || loadingApplicants || disableInfluencer}
+                                searchable={applicants.length > 5}
+                                searchPlaceholder="Search influencers…"
+                                safeBottom={80}
+                                icon={Boolean(values.influencerId)}
+                            >
+                                {!selectedApplicantExists && values.influencerId ? (
+                                    <SelectItem value={values.influencerId}>
+                                        {influencerDisplayName ?? values.influencerId}
+                                    </SelectItem>
+                                ) : null}
+
+                                {applicants.length > 0 ? (
+                                    applicants.map((a) => (
+                                        <SelectItem key={a.influencerId} value={a.influencerId}>
+                                            {a.name ?? a.influencerId}
+                                            {a.handle ? ` (${a.handle})` : ""}
+                                        </SelectItem>
+                                    ))
+                                ) : (
+                                    <SelectItem value="__empty__" disabled>
+                                        No influencers in this campaign
+                                    </SelectItem>
+                                )}
+                            </FloatingSelect>
+                        )}
 
                         <LabeledTextarea
                             label="Description"
@@ -590,7 +780,6 @@ export function DisputeFormDialog({
                             onChange={(v) => updateField("issueType", v)}
                         />
 
-                        {/* Upload new files */}
                         <ProductCardUpload
                             showLabel={false}
                             files={values.attachments}
@@ -599,7 +788,6 @@ export function DisputeFormDialog({
                             helperTypes="SVG, PNG, JPG or PDF (max 5 MB each)"
                         />
 
-                        {/* Existing server attachments — shown only when editing */}
                         <ExistingAttachmentsList
                             attachments={existingAttachments}
                             removedUrls={removedExistingUrls}
@@ -608,7 +796,6 @@ export function DisputeFormDialog({
                     </div>
                 </div>
 
-                {/* Footer */}
                 <div className="mt-auto flex shrink-0 items-center justify-end gap-3 bg-white">
                     <Button
                         onClick={resetAndClose}
@@ -623,7 +810,7 @@ export function DisputeFormDialog({
                         disabled={submitting}
                         className="flex h-9 items-center gap-2 rounded-lg bg-[#1a1a1a] px-5 text-sm font-semibold text-white transition-colors hover:bg-[#333] disabled:opacity-50"
                     >
-                        {submitting && <Loader2 className="size-3.5 animate-spin" />}
+                        {submitting ? <Loader2 className="size-3.5 animate-spin" /> : null}
                         {submitting ? "Saving…" : submitLabel}
                     </Button>
                 </div>
@@ -631,10 +818,6 @@ export function DisputeFormDialog({
         </Dialog>
     );
 }
-
-/* -------------------------------------------------------------------------- */
-/*                           IssueTypeSelect                                  */
-/* -------------------------------------------------------------------------- */
 
 function IssueTypeSelect({
     value,
@@ -653,19 +836,19 @@ function IssueTypeSelect({
             if (
                 triggerRef.current?.contains(e.target as Node) ||
                 dropdownRef.current?.contains(e.target as Node)
-            )
+            ) {
                 return;
+            }
             setOpen(false);
             setSearch("");
         };
+
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
     }, []);
 
     const toggle = (val: string) => {
-        onChange(
-            value.includes(val) ? value.filter((v) => v !== val) : [...value, val]
-        );
+        onChange(value.includes(val) ? value.filter((v) => v !== val) : [...value, val]);
     };
 
     const filtered = DISPUTE_CATEGORIES.filter((c) =>
@@ -712,7 +895,7 @@ function IssueTypeSelect({
                 />
             </button>
 
-            {open && (
+            {open ? (
                 <div
                     ref={dropdownRef}
                     className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-lg border border-[#e5e7eb] bg-white shadow-lg"
@@ -727,7 +910,7 @@ function IssueTypeSelect({
                             onClick={(e) => e.stopPropagation()}
                             className="flex-1 bg-transparent text-sm text-[#1a1a1a] outline-none placeholder:text-[#9ca3af]"
                         />
-                        {search && (
+                        {search ? (
                             <button
                                 type="button"
                                 onClick={() => setSearch("")}
@@ -735,7 +918,7 @@ function IssueTypeSelect({
                             >
                                 <XIcon className="size-3.5" />
                             </button>
-                        )}
+                        ) : null}
                     </div>
 
                     <div className="max-h-56 overflow-y-auto py-2">
@@ -760,7 +943,7 @@ function IssueTypeSelect({
                                                     : "border-[#d1d5db] bg-white"
                                             )}
                                         >
-                                            {checked && (
+                                            {checked ? (
                                                 <svg
                                                     className="h-3 w-3 text-white"
                                                     fill="currentColor"
@@ -772,7 +955,7 @@ function IssueTypeSelect({
                                                         d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
                                                     />
                                                 </svg>
-                                            )}
+                                            ) : null}
                                         </div>
                                         <span className="text-sm text-[#1f2937]">{cat.label}</span>
                                     </button>
@@ -785,11 +968,9 @@ function IssueTypeSelect({
                         )}
                     </div>
 
-                    {value.length > 0 && (
+                    {value.length > 0 ? (
                         <div className="flex items-center justify-between border-t border-[#f1f1f1] bg-[#fafafa] px-4 py-2">
-                            <span className="text-xs text-[#6b7280]">
-                                {value.length} selected
-                            </span>
+                            <span className="text-xs text-[#6b7280]">{value.length} selected</span>
                             <button
                                 type="button"
                                 onClick={() => onChange([])}
@@ -798,9 +979,9 @@ function IssueTypeSelect({
                                 Clear all
                             </button>
                         </div>
-                    )}
+                    ) : null}
                 </div>
-            )}
+            ) : null}
         </div>
     );
 }

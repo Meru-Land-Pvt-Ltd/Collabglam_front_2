@@ -44,10 +44,13 @@ import {
   apiRevokeDispute,
   type BrandLiteResponse,
 } from "@/app/brand/services/brandApi";
-import { DisputeFormDialog, ExistingAttachment } from "../disputeDialog";
+import {
+  DisputeFormDialog,
+  type ExistingAttachment,
+} from "@/components/common/disputes/DisputeFormDialog";
 import { toast } from "@/components/ui/toast";
 import Swal from "sweetalert2";
-import ConfirmRevokeModal from "../confirmRevokeModal";
+import ConfirmActionModal from "@/components/common/disputes/ConfirmActionModal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1364,9 +1367,12 @@ function EditDisputeDialog({
         issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
       }}
       influencerDisplayName={dispute.influencerName ?? undefined}
-      // ── NEW: pass server-side attachments so the dialog renders them ──────
       existingAttachments={dispute.existingAttachments}
       onSubmit={async ({ brandId, values, removedExistingUrls }) => {
+        if (!brandId) {
+          throw new Error("Missing brand ID — please log in again.");
+        }
+
         await apiEditDispute({
           disputeId: dispute.disputeId,
           brandId,
@@ -1374,7 +1380,6 @@ function EditDisputeDialog({
           description: values.description,
           issueType: values.issueType,
           attachments: values.attachments,
-          // Forward removed URLs so the API can delete them server-side.
           removedAttachmentUrls: removedExistingUrls,
         });
       }}
@@ -1919,12 +1924,26 @@ export default function BrandDisputeDetailPage() {
         }}
       />
 
-      <ConfirmRevokeModal
+      <ConfirmActionModal
         open={isRevokeModalOpen}
         onClose={handleCloseRevokeModal}
         onConfirm={handleConfirmRevoke}
         isSubmitting={isRevoking}
         error={revokeError}
+        title="Withdraw Dispute"
+        description={
+          <>
+            You are about to{" "}
+            <span className="font-semibold text-[#1a1a1a]">
+              withdraw this dispute
+            </span>{" "}
+            request. Once withdrawn, the dispute will be closed and cannot be
+            reopened.
+          </>
+        }
+        confirmLabel="Withdraw"
+        confirmLoadingLabel="Withdrawing..."
+        cancelLabel="Cancel"
       />
 
       {lightbox && (

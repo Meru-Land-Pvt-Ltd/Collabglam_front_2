@@ -1,20 +1,34 @@
-import { Button } from "@/components/ui/buttonComp";
-import { X } from "@phosphor-icons/react";
-import { useEffect } from "react";
+"use client";
 
-export default function ConfirmRevokeModal({
+import { useEffect } from "react";
+import { X } from "@phosphor-icons/react";
+import { Button } from "@/components/ui/buttonComp";
+
+type ConfirmActionModalProps = {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<void> | void;
+  isSubmitting: boolean;
+  error?: string | null;
+  title: string;
+  description: React.ReactNode;
+  confirmLabel?: string;
+  confirmLoadingLabel?: string;
+  cancelLabel?: string;
+};
+
+export default function ConfirmActionModal({
   open,
   onClose,
   onConfirm,
   isSubmitting,
   error,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: () => Promise<void>;
-  isSubmitting: boolean;
-  error: string | null;
-}) {
+  title,
+  description,
+  confirmLabel = "Confirm",
+  confirmLoadingLabel = "Saving...",
+  cancelLabel = "Cancel",
+}: ConfirmActionModalProps) {
   useEffect(() => {
     if (!open) return;
 
@@ -43,7 +57,7 @@ export default function ConfirmRevokeModal({
       >
         <div className="flex items-center justify-between border-b border-[#e8e8e8] px-5 py-3.5">
           <h3 className="text-[1.0625rem] font-semibold leading-6 text-[#1a1a1a]">
-            Withdraw Dispute
+            {title}
           </h3>
 
           <Button
@@ -59,18 +73,13 @@ export default function ConfirmRevokeModal({
         </div>
 
         <div className="border-b border-[#e8e8e8] px-5 py-6">
-          <p className="text-[0.9375rem] leading-7 text-[#8a8a8a]">
-            You are about to{" "}
-            <span className="font-semibold text-[#1a1a1a]">
-              withdraw this dispute
-            </span>{" "}
-            request. Once withdrawn, the dispute will be closed and cannot be
-            reopened.
-          </p>
+          <div className="text-[0.9375rem] leading-7 text-[#8a8a8a]">
+            {description}
+          </div>
 
-          {error && (
+          {error ? (
             <p className="mt-3 text-sm font-medium text-red-600">{error}</p>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center justify-end gap-3 px-5 py-3">
@@ -81,7 +90,7 @@ export default function ConfirmRevokeModal({
             disabled={isSubmitting}
             className="text-[0.75rem] !border-none !shadow-none font-medium text-[#1a1a1a] transition hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Cancel
+            {cancelLabel}
           </Button>
 
           <Button
@@ -90,7 +99,7 @@ export default function ConfirmRevokeModal({
             disabled={isSubmitting}
             className="inline-flex h-10 min-w-[82px] items-center justify-center rounded-[0.625rem] bg-[#111111] px-5 text-[0.75rem] font-medium text-white transition hover:bg-[#222222] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? "Deleting..." : "Delete"}
+            {isSubmitting ? confirmLoadingLabel : confirmLabel}
           </Button>
         </div>
       </div>
