@@ -12,6 +12,7 @@ import { VggCardStack } from "@/components/ui/brand/VggAnimatedCard";
 
 import { apiSignInBrand, getApiErrorMessage } from "../../services/brandApi";
 import { toast, ToastStyles } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 
 type ErrorKind =
   | "EMAIL_NOT_REGISTERED"
@@ -71,10 +72,10 @@ function prettifyRateLimitMessage(msg: string) {
       unitRaw === "second"
         ? "seconds"
         : unitRaw === "minute"
-        ? "minutes"
-        : unitRaw === "hour"
-        ? "hours"
-        : unitRaw;
+          ? "minutes"
+          : unitRaw === "hour"
+            ? "hours"
+            : unitRaw;
 
     return `Too many failed login attempts. Please try again in ${n} ${unit}.`;
   }
@@ -249,7 +250,7 @@ function BrandLoginContent() {
       <ToastStyles />
 
       {/* Header */}
-      <header className="w-full bg-white border-y border-[color:var(--Border-Primary,#B3B3B3)]">
+      <header className="w-full bg-white border-b border-bd-primary">
         <div
           className="
             mx-auto flex flex-wrap items-center justify-between content-center
@@ -275,12 +276,15 @@ function BrandLoginContent() {
             </span>
           </Link>
 
-          <Button
-            onClick={() => router.push("/influencer/login")}
-            variant="outline"
+          <Link
+            href="/influencer/login"
+            className={cn(
+              buttonVariants({ variant: "outline", size: "sm" }),
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
+            )}
           >
             Join as a Creator
-          </Button>
+          </Link>
         </div>
       </header>
 
