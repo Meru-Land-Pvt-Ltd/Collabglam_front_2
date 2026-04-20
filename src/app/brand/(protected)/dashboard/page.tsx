@@ -303,7 +303,7 @@ export default function BrandDashboardHome() {
             {!isFullyManaged && (
               <StatCard
                 icon={<HiOutlineUsers className="text-[#4f46e5]" size={32} />}
-                label="Hired Influencers"
+                label="Hired Creators"
                 value={totalHiredInfluencers.toLocaleString()}
                 accentFrom={accentFrom}
               />

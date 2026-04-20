@@ -8,7 +8,7 @@ import { CaretLeft } from "@phosphor-icons/react";
 
 import { FloatingInput } from "@/components/ui/floatingInput";
 import { PasswordInput } from "@/components/ui/password";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/buttonComp";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { CountdownTicker } from "@/components/ui/countdown-ticker";
 import { toast, ToastStyles } from "@/components/ui/toast";
@@ -332,7 +332,7 @@ export default function ForgotPassword() {
                                 CollabGlam
                             </span>
                             <span className="block text-[10px] leading-[12px] text-tx-tertiary -mt-[2px]">
-                                For Influencers
+                                For Creators
                             </span>
                         </span>
                     </Link>
@@ -386,7 +386,9 @@ export default function ForgotPassword() {
                                 />
 
                                 <Button
-                                    className="w-full h-[52px] rounded-[12px] bg-neutral-900 text-white hover:bg-neutral-900/90 mt-4"
+                                    className={cn(
+                                        "w-full h-[52px] rounded-[12px] bg-neutral-900 text-white hover:bg-neutral-900/90 mt-2",
+                                    )}
                                     onClick={onContinue}
                                     disabled={sendingOtp}
                                 >
