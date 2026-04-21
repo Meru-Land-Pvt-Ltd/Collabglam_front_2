@@ -5,14 +5,14 @@ import Link from "next/link";
 import { post } from "@/lib/api";
 import AdminTable, { type AdminTableColumn } from "../../components/table";
 import {
+  Check,
   CheckCircle2,
   Clock3,
-  Link2,
-  MoreHorizontal,
+  Copy,
+  ExternalLink,
   RefreshCw,
   Search,
   Sparkles,
-  UserCog,
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,15 +24,9 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 
 type StatusFilter = 0 | 1 | 2;
-type QuickFilter = "all" | "ai" | "admin" | "fully_managed";
+type QuickFilter = "all" | "standard_campaign" | "fully_managed";
 type DatePreset =
   | "all_time"
   | "today"
@@ -96,6 +90,10 @@ interface SummaryStats {
 
 const MAX_NAME_LENGTH = 72;
 const PAGE_LIMIT = 10;
+const FILTER_FETCH_LIMIT = 500;
+
+const MAIN_ADMIN_USER_ID = "69b007bb8e53408b168a8371";
+const MAIN_ADMIN_EMAIL = "admincollabglam@gmail.com";
 
 const statusOptions = [
   { label: "All Status", value: 0 },
@@ -105,9 +103,8 @@ const statusOptions = [
 
 const quickFilterOptions: Array<{ label: string; value: QuickFilter }> = [
   { label: "All", value: "all" },
-  { label: "By AI", value: "ai" },
-  { label: "By Admin", value: "admin" },
-  { label: "Fully Managed", value: "fully_managed" },
+  { label: "Standard Campaign", value: "standard_campaign" },
+  { label: "Fully Managed Campaign", value: "fully_managed" },
 ];
 
 const datePresetOptions: Array<{ label: string; value: DatePreset }> = [
@@ -141,22 +138,25 @@ function formatDate(iso?: string | null) {
 
 function formatCurrency(value?: number) {
   const amount = Number(value || 0);
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
+  const formatted = new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 0,
-  }).format(amount);
-}
+  }).format(Math.abs(amount));
 
-function formatPlanLabel(plan?: string) {
-  if (!plan) return "Free";
-  return plan
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+  return amount < 0 ? `-$${formatted}` : `$${formatted}`;
 }
 
 function isFullyManagedCampaign(campaign: Campaign) {
-  return String(campaign.brandPlanName || "").toLowerCase() === "fully_managed";
+  const admin = campaign.createdByAdmin;
+  if (!admin) return false;
+
+  return (
+    admin.userId === MAIN_ADMIN_USER_ID ||
+    admin.email?.toLowerCase() === MAIN_ADMIN_EMAIL.toLowerCase()
+  );
+}
+
+function isStandardCampaign(campaign: Campaign) {
+  return !isFullyManagedCampaign(campaign);
 }
 
 function getStatusMeta(campaign: Campaign) {
@@ -184,94 +184,40 @@ function getStatusMeta(campaign: Campaign) {
 }
 
 function getCreatorMeta(campaign: Campaign) {
-  if (campaign.createdByAdmin) {
+  if (isFullyManagedCampaign(campaign)) {
     return {
-      title: campaign.byAi === 1 ? "Created by Admin via AI" : "Created by Admin",
+      title: campaign.byAi === 1 ? "Fully Managed • AI Assisted" : "Fully Managed",
       subtitle:
-        campaign.createdByAdmin.name ||
-        campaign.createdByAdmin.email ||
-        campaign.createdByAdmin.label ||
-        "Admin",
-      email: campaign.createdByAdmin.email || "",
-      role: campaign.createdByAdmin.adminRole || "",
-    };
-  }
-
-  if (campaign.byAi === 1) {
-    return {
-      title: "AI Generated",
-      subtitle: "Admin details unavailable",
-      email: "",
-      role: "",
+        campaign.createdByAdmin?.name ||
+        campaign.createdByAdmin?.label ||
+        campaign.createdByAdmin?.email ||
+        "Main Admin",
+      role: campaign.createdByAdmin?.adminRole || "",
     };
   }
 
   return {
     title: "Standard Campaign",
-    subtitle: "",
-    email: "",
+    subtitle: campaign.brandName || "—",
     role: "",
   };
 }
 
-function isCampaignInDatePreset(
-  campaignDateValue: string | null | undefined,
-  preset: DatePreset
-) {
-  if (preset === "all_time") return true;
-  if (!campaignDateValue) return false;
-
-  const campaignDate = new Date(campaignDateValue);
-  if (Number.isNaN(campaignDate.getTime())) return false;
-
-  const now = new Date();
-
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-
-  const yesterdayStart = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() - 1
-  );
-  const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  const campaignTime = campaignDate.getTime();
-
-  if (preset === "today") {
-    return campaignTime >= todayStart.getTime() && campaignTime < todayEnd.getTime();
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
   }
 
-  if (preset === "yesterday") {
-    return (
-      campaignTime >= yesterdayStart.getTime() &&
-      campaignTime < todayStart.getTime()
-    );
-  }
-
-  if (preset === "last_7_days") {
-    const start = new Date(todayStart);
-    start.setDate(start.getDate() - 6);
-    return campaignTime >= start.getTime() && campaignTime < todayEnd.getTime();
-  }
-
-  if (preset === "last_15_days") {
-    const start = new Date(todayStart);
-    start.setDate(start.getDate() - 14);
-    return campaignTime >= start.getTime() && campaignTime < todayEnd.getTime();
-  }
-
-  if (preset === "last_30_days") {
-    const start = new Date(todayStart);
-    start.setDate(start.getDate() - 29);
-    return campaignTime >= start.getTime() && campaignTime < todayEnd.getTime();
-  }
-
-  if (preset === "this_month") {
-    return campaignTime >= thisMonthStart.getTime() && campaignTime < todayEnd.getTime();
-  }
-
-  return true;
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
 }
 
 export default function AdminCampaignsPage() {
@@ -286,6 +232,7 @@ export default function AdminCampaignsPage() {
     totalThisMonth: 0,
     totalFullyManaged: 0,
   });
+  const [copiedCampaignId, setCopiedCampaignId] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(0);
@@ -299,16 +246,16 @@ export default function AdminCampaignsPage() {
     setLoading(true);
 
     try {
+      const requestPage = quickFilter === "all" ? page : 1;
+      const requestLimit = quickFilter === "all" ? PAGE_LIMIT : FILTER_FETCH_LIMIT;
+
       const payload = {
-        page,
-        limit: PAGE_LIMIT,
+        page: requestPage,
+        limit: requestLimit,
         search,
         sortBy: sortKey,
         sortOrder: sortAsc ? "asc" : "desc",
         type: statusFilter,
-        byAi: quickFilter === "ai" ? 1 : undefined,
-        byAdmin: quickFilter === "admin" ? 1 : undefined,
-        brandPlanName: quickFilter === "fully_managed" ? "fully_managed" : undefined,
         dateFilter: datePreset !== "all_time" ? datePreset : undefined,
       };
 
@@ -317,7 +264,7 @@ export default function AdminCampaignsPage() {
       setCampaigns(data?.campaigns || []);
       setTotal(data?.total || 0);
       setTotalPages(data?.totalPages || 1);
-      setPage(data?.page || 1);
+      setPage(requestPage);
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Failed to load campaigns.");
@@ -339,7 +286,7 @@ export default function AdminCampaignsPage() {
         type: 0,
       };
 
-      const [allCampaignsRes, thisMonthRes, fullyManagedRes] = await Promise.allSettled([
+      const [allCampaignsRes, thisMonthRes, fullListRes] = await Promise.allSettled([
         post<ListResponse>("/admin/campaign/lite", basePayload),
         post<ListResponse>("/admin/campaign/lite", {
           ...basePayload,
@@ -347,19 +294,22 @@ export default function AdminCampaignsPage() {
         }),
         post<ListResponse>("/admin/campaign/lite", {
           ...basePayload,
-          brandPlanName: "fully_managed",
+          page: 1,
+          limit: FILTER_FETCH_LIMIT,
         }),
       ]);
+
+      const fullyManagedCount =
+        fullListRes.status === "fulfilled"
+          ? (fullListRes.value?.campaigns || []).filter(isFullyManagedCampaign).length
+          : 0;
 
       setSummaryStats({
         totalCampaigns:
           allCampaignsRes.status === "fulfilled" ? allCampaignsRes.value?.total || 0 : 0,
         totalThisMonth:
           thisMonthRes.status === "fulfilled" ? thisMonthRes.value?.total || 0 : 0,
-        totalFullyManaged:
-          fullyManagedRes.status === "fulfilled"
-            ? fullyManagedRes.value?.total || 0
-            : 0,
+        totalFullyManaged: fullyManagedCount,
       });
     } finally {
       setSummaryLoading(false);
@@ -374,26 +324,47 @@ export default function AdminCampaignsPage() {
     fetchSummaryStats();
   }, [fetchSummaryStats]);
 
+  const getPublicShareUrl = useCallback(async (campaign: Campaign) => {
+    const response = await post<any>("/admin/campaign/share/enable", {
+      campaignId: campaign.campaignId,
+      brandId: campaign.brandId,
+    });
+
+    const shareUrl =
+      response?.shareUrl ||
+      response?.data?.shareUrl ||
+      response?.result?.shareUrl ||
+      "";
+
+    if (!shareUrl) {
+      throw new Error("Public link not received");
+    }
+
+    return shareUrl;
+  }, []);
+
   const handleOpenPublicLink = async (campaign: Campaign) => {
     try {
-      const response = await post<any>("/admin/campaign/share/enable", {
-        campaignId: campaign.campaignId,
-        brandId: campaign.brandId,
-      });
-
-      const shareUrl =
-        response?.shareUrl ||
-        response?.data?.shareUrl ||
-        response?.result?.shareUrl ||
-        "";
-
-      if (!shareUrl) {
-        throw new Error("Public link not received");
-      }
-
+      const shareUrl = await getPublicShareUrl(campaign);
       window.open(shareUrl, "_blank", "noopener,noreferrer");
     } catch (err: any) {
       window.alert(err?.message || "Failed to open public link");
+    }
+  };
+
+  const handleCopyPublicLink = async (campaign: Campaign) => {
+    try {
+      const shareUrl = await getPublicShareUrl(campaign);
+      await copyTextToClipboard(shareUrl);
+      setCopiedCampaignId(campaign.campaignId);
+
+      window.setTimeout(() => {
+        setCopiedCampaignId((prev) =>
+          prev === campaign.campaignId ? null : prev
+        );
+      }, 1800);
+    } catch (err: any) {
+      window.alert(err?.message || "Failed to copy public link");
     }
   };
 
@@ -422,35 +393,60 @@ export default function AdminCampaignsPage() {
     }
   };
 
-  const hasExtraFilters = quickFilter !== "all" || datePreset !== "all_time";
+  const hasActiveFilters =
+    search.trim() !== "" ||
+    statusFilter !== 0 ||
+    quickFilter !== "all" ||
+    datePreset !== "all_time";
 
-  const visibleCampaigns = useMemo(() => {
-    return campaigns.filter((campaign) => {
-      if (quickFilter === "ai" && campaign.byAi !== 1) return false;
-      if (quickFilter === "admin" && !campaign.createdByAdmin) return false;
-      if (quickFilter === "fully_managed" && !isFullyManagedCampaign(campaign)) {
-        return false;
-      }
-
-      if (!isCampaignInDatePreset(campaign.startDate, datePreset)) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [campaigns, quickFilter, datePreset]);
-
-  const clearExtraFilters = () => {
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter(0);
     setQuickFilter("all");
     setDatePreset("all_time");
     setPage(1);
   };
 
   const forcedControlClass =
-    "border-slate-200 bg-white text-slate-700 hover:!bg-[#EDEDED] hover:!text-slate-900 active:!bg-[#EDEDED] data-[state=open]:!bg-[#EDEDED] focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
+    "border-slate-200 bg-white text-slate-700 hover:!bg-slate-50 hover:!text-slate-900 active:!bg-slate-50 data-[state=open]:!bg-slate-50 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
 
   const inputControlClass =
     "border-slate-200 bg-white text-slate-700 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
+
+  const filterLabelClass =
+    "text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400";
+
+  const filterButtonBaseClass =
+    "h-11 rounded-[10px] border px-4 text-sm font-medium shadow-sm transition focus-visible:!ring-0 focus-visible:!ring-offset-0";
+
+  const filterButtonActiveClass =
+    "border-black bg-black text-white hover:!bg-black/90 hover:!text-white";
+
+  const filterButtonInactiveClass =
+    "border-slate-300 bg-white text-slate-700 hover:!bg-slate-50 hover:!text-slate-900";
+
+  const tableButtonBaseClass =
+    "h-9 rounded-[10px] border px-3 text-sm font-medium shadow-sm transition focus-visible:!ring-0 focus-visible:!ring-offset-0";
+
+  const manageButtonClass =
+    "border-black bg-black text-white hover:!bg-black/90 hover:!text-white";
+
+  const subtleButtonClass =
+    "border-slate-300 bg-white text-slate-700 hover:!bg-slate-50 hover:!text-slate-900";
+
+  const visibleCampaigns = useMemo(() => {
+    if (quickFilter === "fully_managed") {
+      return campaigns.filter(isFullyManagedCampaign);
+    }
+
+    if (quickFilter === "standard_campaign") {
+      return campaigns.filter(isStandardCampaign);
+    }
+
+    return campaigns;
+  }, [campaigns, quickFilter]);
+
+  const shownCount = quickFilter === "all" ? total : visibleCampaigns.length;
 
   const summaryCards = useMemo(
     () => [
@@ -460,34 +456,30 @@ export default function AdminCampaignsPage() {
         value: summaryStats.totalCampaigns,
         subtitle: "All campaigns across the platform",
         icon: CheckCircle2,
-        cardClassName:
-          "border border-slate-200 bg-white shadow-sm",
-        iconWrapClassName:
-          "bg-slate-100 text-slate-700",
+        cardClassName: "border border-slate-200 bg-white shadow-sm",
+        iconWrapClassName: "bg-slate-100 text-slate-700",
         valueClassName: "text-slate-900",
       },
       {
         id: "month",
         title: "This Month",
         value: summaryStats.totalThisMonth,
-        subtitle: "Campaigns created for this month",
+        subtitle: "Campaigns created in this month",
         icon: Clock3,
         cardClassName:
           "border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-white shadow-sm",
-        iconWrapClassName:
-          "bg-sky-100 text-sky-700",
+        iconWrapClassName: "bg-sky-100 text-sky-700",
         valueClassName: "text-slate-900",
       },
       {
         id: "fully_managed",
         title: "Fully Managed",
         value: summaryStats.totalFullyManaged,
-        subtitle: "Highlighted premium campaigns",
+        subtitle: "Campaigns by Main Admin",
         icon: Sparkles,
         cardClassName:
           "border border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-sm ring-1 ring-amber-200/70",
-        iconWrapClassName:
-          "bg-amber-100 text-amber-700",
+        iconWrapClassName: "bg-amber-100 text-amber-700",
         valueClassName: "text-amber-700",
       },
     ],
@@ -519,13 +511,6 @@ export default function AdminCampaignsPage() {
                 </span>
               ) : null}
 
-              {campaign.createdByAdmin ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                  <UserCog className="h-3.5 w-3.5" />
-                  By Admin
-                </span>
-              ) : null}
-
               {isFullyManagedCampaign(campaign) ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-gradient-to-r from-yellow-100 via-amber-100 to-yellow-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800 shadow-sm">
                   <Sparkles className="h-3.5 w-3.5" />
@@ -547,31 +532,17 @@ export default function AdminCampaignsPage() {
         id: "brand",
         header: "Brand",
         widthClassName: "min-w-[210px]",
-        render: (campaign) => {
-          const fullyManaged = isFullyManagedCampaign(campaign);
-
-          return (
-            <div>
-              <p className="text-sm font-semibold text-slate-900">
-                {campaign.brandName || "—"}
-              </p>
-
-              <span
-                className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  fullyManaged
-                    ? "border border-amber-300 bg-gradient-to-r from-yellow-100 via-amber-100 to-yellow-50 text-amber-800 shadow-sm"
-                    : "border border-slate-200 bg-slate-50 text-slate-600"
-                }`}
-              >
-                {formatPlanLabel(campaign.brandPlanName)}
-              </span>
-            </div>
-          );
-        },
+        render: (campaign) => (
+          <div>
+            <p className="text-sm font-semibold text-slate-900">
+              {campaign.brandName || "—"}
+            </p>
+          </div>
+        ),
       },
       {
         id: "createdBy",
-        header: "Created By",
+        header: "Managed By",
         widthClassName: "min-w-[250px]",
         render: (campaign) => {
           const creatorMeta = getCreatorMeta(campaign);
@@ -585,12 +556,6 @@ export default function AdminCampaignsPage() {
                 {creatorMeta.subtitle || "—"}
               </p>
 
-              {creatorMeta.email ? (
-                <p className="mt-1 break-all text-xs text-slate-500">
-                  {creatorMeta.email}
-                </p>
-              ) : null}
-
               {creatorMeta.role ? (
                 <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-600">
                   {creatorMeta.role.replace(/_/g, " ")}
@@ -602,7 +567,7 @@ export default function AdminCampaignsPage() {
       },
       {
         id: "startDate",
-        header: "Start",
+        header: "Start Date",
         sortable: true,
         sortField: "startDate",
         widthClassName: "min-w-[120px]",
@@ -612,7 +577,7 @@ export default function AdminCampaignsPage() {
       },
       {
         id: "endDate",
-        header: "End",
+        header: "End Date",
         sortable: true,
         sortField: "endDate",
         widthClassName: "min-w-[120px]",
@@ -665,7 +630,7 @@ export default function AdminCampaignsPage() {
         },
       },
     ],
-    []
+    [copiedCampaignId]
   );
 
   return (
@@ -677,8 +642,8 @@ export default function AdminCampaignsPage() {
               Admin Campaign Management
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Review campaigns, filter by AI, Admin, fully managed access, and
-              recent date range, then open each campaign to manage it.
+              Review campaigns, separate standard campaigns from fully managed campaigns,
+              and manage them from one clean dashboard.
             </p>
           </div>
 
@@ -719,124 +684,125 @@ export default function AdminCampaignsPage() {
         </div>
 
         <div className="mb-4 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="px-4 py-4 md:px-5">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">Campaign Filters</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Filters are separated from the table for a cleaner management view.
-                  </p>
-                </div>
+          <div className="border-b border-slate-200 px-5 py-5">
+            <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">
+              Filters
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Affects the campaign table below only
+            </p>
+          </div>
 
-                {hasExtraFilters && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={clearExtraFilters}
-                    className={`h-9 rounded-xl px-3 ${forcedControlClass}`}
-                  >
-                    Clear Filters
-                  </Button>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-center">
-                  <div className="relative w-full max-w-[240px]">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <Input
-                      placeholder="Search campaign..."
-                      value={search}
-                      onChange={(e) => {
-                        setSearch(e.target.value);
-                        setPage(1);
-                      }}
-                      className={`h-10 rounded-xl pl-9 ${inputControlClass}`}
-                    />
-                  </div>
-
-                  <Select
-                    value={statusFilter.toString()}
-                    onValueChange={(val) => {
-                      setStatusFilter(Number(val) as StatusFilter);
+          <div className="px-5 py-6">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,1.5fr)_520px_220px_220px_auto] xl:items-end">
+              <div className="space-y-2">
+                <p className={filterLabelClass}>Search</p>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Search .."
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
                       setPage(1);
                     }}
-                  >
-                    <SelectTrigger
-                      className={`h-10 w-full rounded-xl sm:w-[170px] ${forcedControlClass}`}
-                    >
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      {statusOptions.map((opt) => (
-                        <SelectItem
-                          key={opt.value}
-                          value={opt.value.toString()}
-                          className="data-[highlighted]:!bg-[#EDEDED] data-[highlighted]:!text-slate-900 focus:!bg-[#EDEDED]"
-                        >
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select
-                    value={datePreset}
-                    onValueChange={(val) => {
-                      setDatePreset(val as DatePreset);
-                      setPage(1);
-                    }}
-                  >
-                    <SelectTrigger
-                      className={`h-10 w-full rounded-xl sm:w-[170px] ${forcedControlClass}`}
-                    >
-                      <SelectValue placeholder="Date Filter" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      {datePresetOptions.map((opt) => (
-                        <SelectItem
-                          key={opt.value}
-                          value={opt.value}
-                          className="data-[highlighted]:!bg-[#EDEDED] data-[highlighted]:!text-slate-900 focus:!bg-[#EDEDED]"
-                        >
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    className={`h-11 rounded-[10px] pl-9 ${inputControlClass}`}
+                  />
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                {quickFilterOptions.map((option) => {
-                  const active = quickFilter === option.value;
-                  const fullyManagedActive =
-                    active && option.value === "fully_managed";
+              <div className="space-y-2">
+                <p className={filterLabelClass}>Campaign Type</p>
+                <div className="flex flex-wrap gap-2">
+                  {quickFilterOptions.map((option) => {
+                    const active = quickFilter === option.value;
 
-                  return (
-                    <Button
-                      key={option.value}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setQuickFilter(option.value);
-                        setPage(1);
-                      }}
-                      className={`h-9 rounded-xl px-3 focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
-                        fullyManagedActive
-                          ? "border-amber-300 bg-gradient-to-r from-yellow-100 via-amber-100 to-yellow-50 text-amber-800 hover:!bg-yellow-100"
-                          : active
-                          ? "border-slate-300 bg-[#EDEDED] text-slate-900 hover:!bg-[#EDEDED]"
-                          : forcedControlClass
-                      }`}
-                    >
-                      {option.label}
-                    </Button>
-                  );
-                })}
+                    return (
+                      <Button
+                        key={option.value}
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setQuickFilter(option.value);
+                          setPage(1);
+                        }}
+                        className={`${filterButtonBaseClass} ${
+                          active ? filterButtonActiveClass : filterButtonInactiveClass
+                        }`}
+                      >
+                        {option.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className={filterLabelClass}>Date Range</p>
+                <Select
+                  value={datePreset}
+                  onValueChange={(val) => {
+                    setDatePreset(val as DatePreset);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger
+                    className={`h-11 w-full rounded-[10px] ${forcedControlClass}`}
+                  >
+                    <SelectValue placeholder="All Time" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    {datePresetOptions.map((opt) => (
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value}
+                        className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
+                      >
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <p className={filterLabelClass}>Status</p>
+                <Select
+                  value={statusFilter.toString()}
+                  onValueChange={(val) => {
+                    setStatusFilter(Number(val) as StatusFilter);
+                    setPage(1);
+                  }}
+                >
+                  <SelectTrigger
+                    className={`h-11 w-full rounded-[10px] ${forcedControlClass}`}
+                  >
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    {statusOptions.map((opt) => (
+                      <SelectItem
+                        key={opt.value}
+                        value={opt.value.toString()}
+                        className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
+                      >
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex xl:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetFilters}
+                  disabled={!hasActiveFilters}
+                  className={`${filterButtonBaseClass} ${filterButtonInactiveClass} disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none`}
+                >
+                  Reset
+                </Button>
               </div>
             </div>
           </div>
@@ -848,16 +814,13 @@ export default function AdminCampaignsPage() {
               <div>
                 <p className="text-sm font-semibold text-slate-900">Campaign Table</p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Browse, sort, and manage campaigns without filter controls attached to
-                  the table.
+                  Browse, sort, and manage campaigns with filters separated above.
                 </p>
               </div>
 
               <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-600">
                 Showing:
-                <span className="ml-2 font-semibold text-slate-900">
-                  {hasExtraFilters ? visibleCampaigns.length : total}
-                </span>
+                <span className="ml-2 font-semibold text-slate-900">{shownCount}</span>
               </div>
             </div>
           </div>
@@ -878,14 +841,13 @@ export default function AdminCampaignsPage() {
               actions={{
                 header: "Actions",
                 align: "right",
-                cellClassName: "min-w-[310px]",
+                cellClassName: "min-w-[340px]",
                 render: (campaign) => (
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <Button
                       asChild
                       type="button"
-                      variant="outline"
-                      className={`h-9 rounded-xl px-3 ${forcedControlClass}`}
+                      className={`${tableButtonBaseClass} ${manageButtonClass}`}
                     >
                       <Link
                         href={`/admin/campaigns/view?id=${campaign.campaignId}`}
@@ -897,46 +859,34 @@ export default function AdminCampaignsPage() {
 
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={() => handleOpenPublicLink(campaign)}
-                      className={`h-9 rounded-xl px-3 ${forcedControlClass}`}
+                      variant="ghost"
+                      onClick={() => handleCopyPublicLink(campaign)}
+                      aria-label="Copy Public Link"
+                      title="Copy Public Link"
+                      className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
+                        copiedCampaignId === campaign.campaignId
+                          ? "border-0 bg-transparent text-emerald-600 hover:!bg-transparent hover:!text-emerald-700"
+                          : "border-0 bg-transparent text-blue-600 hover:!bg-transparent hover:!text-blue-700"
+                      }`}
                     >
-                      <Link2 className="mr-2 h-4 w-4" />
-                      Public Link
+                      {copiedCampaignId === campaign.campaignId ? (
+                        <>
+                          <Check className="mr-2 h-4.5 w-4.5" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="mr-2 h-4.5 w-4.5" />
+                          Copy Link
+                        </>
+                      )}
                     </Button>
-
-                    {campaign.createdByAdmin ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            aria-label="More Actions"
-                            className={`h-9 w-9 rounded-xl ${forcedControlClass}`}
-                          >
-                            <MoreHorizontal className="h-4.5 w-4.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-
-                        <DropdownMenuContent align="end" className="w-48 bg-white">
-                          <DropdownMenuItem
-                            asChild
-                            className="cursor-pointer data-[highlighted]:!bg-[#EDEDED] data-[highlighted]:!text-slate-900 focus:!bg-[#EDEDED]"
-                          >
-                            <Link href={`/admin/youtube?id=${campaign.campaignId}`}>
-                              Youtube Data
-                            </Link>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : null}
                   </div>
                 ),
               }}
               pagination={
-                hasExtraFilters
-                  ? undefined
-                  : {
+                quickFilter === "all"
+                  ? {
                       page,
                       totalPages,
                       totalItems: total,
@@ -946,6 +896,7 @@ export default function AdminCampaignsPage() {
                       showRowsSelector: false,
                       showSummary: true,
                     }
+                  : undefined
               }
               className="py-2"
               tableClassName="min-w-[1500px]"
