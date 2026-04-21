@@ -340,6 +340,8 @@ const PRIMARY_BUTTON =
 const SECONDARY_BUTTON =
   "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50";
 
+const DELIVERABLES_PER_PAGE = 10;
+
 const formatDate = (iso?: string | null) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -476,38 +478,41 @@ function PaginationBar({
   showingTo: number;
   totalItems: number;
 }) {
-  if (totalPages <= 1 || totalItems <= 0) return null;
+  if (totalItems <= 0) return null;
 
-  const pages = getVisiblePageNumbers(currentPage, totalPages);
+  const safeTotalPages = Math.max(1, totalPages);
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), safeTotalPages);
+  const pages = getVisiblePageNumbers(safeCurrentPage, safeTotalPages);
 
   return (
-    <div className="flex flex-col gap-3 border-t border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 border-t border-stone-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm font-semibold text-slate-600">
-        Showing {showingFrom}–{showingTo} of {totalItems}
+        Showing {showingFrom}-{showingTo} of {totalItems}
       </p>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 self-end sm:self-auto">
         <button
           type="button"
-          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
-          disabled={currentPage <= 1}
+          onClick={() => onPageChange(Math.max(1, safeCurrentPage - 1))}
+          disabled={safeCurrentPage <= 1}
           className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-stone-200 bg-white text-stone-500 shadow-sm transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
 
         {pages.map((page) => {
-          const isActive = page === currentPage;
+          const isActive = page === safeCurrentPage;
 
           return (
             <button
               key={page}
               type="button"
               onClick={() => onPageChange(page)}
-              className={`inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold transition ${isActive
-                  ? "bg-[#0f172a] text-white shadow-sm"
-                  : "border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-                }`}
+              className={`inline-flex h-9 w-9 items-center justify-center text-sm font-semibold shadow-sm transition ${
+                isActive
+                  ? "rounded-full bg-[#0f172a] text-white"
+                  : "rounded-full border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+              }`}
             >
               {page}
             </button>
@@ -516,8 +521,10 @@ function PaginationBar({
 
         <button
           type="button"
-          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-          disabled={currentPage >= totalPages}
+          onClick={() =>
+            onPageChange(Math.min(safeTotalPages, safeCurrentPage + 1))
+          }
+          disabled={safeCurrentPage >= safeTotalPages}
           className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-stone-200 bg-white text-stone-700 shadow-sm transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4 rotate-180" />
@@ -590,21 +597,21 @@ function mapDeliverables(items: DeliverableApi[]): DeliverableRow[] {
   for (const item of items || []) {
     const deliverableId = String(
       item.delieverableApprovalId ||
-      item.deliverableApprovalId ||
-      item._id ||
-      item.id ||
-      ""
+        item.deliverableApprovalId ||
+        item._id ||
+        item.id ||
+        ""
     );
 
     if (!deliverableId) continue;
 
     const influencerName = String(
       item.influencerName ||
-      item.influencer?.fullName ||
-      item.influencer?.name ||
-      item.username ||
-      item.influencerHandle ||
-      "—"
+        item.influencer?.fullName ||
+        item.influencer?.name ||
+        item.username ||
+        item.influencerHandle ||
+        "—"
     );
 
     const urls = Array.isArray(item.url) ? item.url : [];
@@ -820,10 +827,10 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
   const influencer = item?.influencer || item?.influencerDetails || item?.user || {};
   const rawStatus = String(
     item?.status ||
-    item?.invitationStatus ||
-    item?.lifecycleStatus ||
-    item?.state ||
-    ""
+      item?.invitationStatus ||
+      item?.lifecycleStatus ||
+      item?.state ||
+      ""
   ).toLowerCase();
 
   const defaultInvited =
@@ -843,10 +850,10 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
   return {
     influencerId: String(
       item?.influencerId ||
-      influencer?._id ||
-      influencer?.influencerId ||
-      influencer?.id ||
-      ""
+        influencer?._id ||
+        influencer?.influencerId ||
+        influencer?.id ||
+        ""
     ),
     name:
       item?.name ||
@@ -880,17 +887,17 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
     categoryIds: item?.categoryIds || influencer?.categoryIds || [],
     audienceSize: Number(
       item?.audienceSize ??
-      item?.followers ??
-      influencer?.audienceSize ??
-      influencer?.followers ??
-      0
+        item?.followers ??
+        influencer?.audienceSize ??
+        influencer?.followers ??
+        0
     ),
     engagementRate: Number(
       item?.engagementRate ??
-      item?.er ??
-      influencer?.engagementRate ??
-      influencer?.er ??
-      0
+        item?.er ??
+        influencer?.engagementRate ??
+        influencer?.er ??
+        0
     ),
     influencerTierResolved:
       item?.influencerTierResolved ||
@@ -960,8 +967,9 @@ const Tab = ({
     {label}
     {count !== undefined && (
       <span
-        className={`rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums ${active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500"
-          }`}
+        className={`rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums ${
+          active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500"
+        }`}
       >
         {count}
       </span>
@@ -1006,8 +1014,9 @@ const Pill = ({
   className?: string;
 }) => (
   <span
-    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className || "bg-stone-100 text-stone-600 ring-stone-200"
-      }`}
+    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
+      className || "bg-stone-100 text-stone-600 ring-stone-200"
+    }`}
   >
     {children}
   </span>
@@ -1110,7 +1119,6 @@ export default function ViewCampaignPage() {
   const [deliverableStatusFilter, setDeliverableStatusFilter] = useState<"all" | ReviewStatus>("all");
   const [deliverableInfluencerFilter, setDeliverableInfluencerFilter] = useState("all");
   const [deliverablePage, setDeliverablePage] = useState(1);
-  const DELIVERABLES_PER_PAGE = 10;
 
   const [openMilestoneKey, setOpenMilestoneKey] = useState<string | null>(null);
   const [milestoneLoadingKey, setMilestoneLoadingKey] = useState<string | null>(null);
@@ -1133,12 +1141,12 @@ export default function ViewCampaignPage() {
       setCanEditCampaigns(
         Array.isArray(permissions)
           ? permissions.some(
-            (item: any) =>
-              String(item?.key || "")
-                .toLowerCase()
-                .replace(/[\s_-]+/g, "") === "campaigns" &&
-              item?.isEdit === true
-          )
+              (item: any) =>
+                String(item?.key || "")
+                  .toLowerCase()
+                  .replace(/[\s_-]+/g, "") === "campaigns" &&
+                item?.isEdit === true
+            )
           : false
       );
     } catch {
@@ -1167,6 +1175,10 @@ export default function ViewCampaignPage() {
   useEffect(() => {
     setApplicantPage(1);
   }, [applicantStatusFilter, platformFilter, audienceRangeFilter]);
+
+  useEffect(() => {
+    setDeliverablePage(1);
+  }, [deliverableSearch, deliverableStatusFilter, deliverableInfluencerFilter]);
 
   const loadCampaign = useCallback(async () => {
     if (!id) {
@@ -1551,8 +1563,8 @@ export default function ViewCampaignPage() {
       console.error(err);
       window.alert(
         err?.response?.data?.message ||
-        err?.message ||
-        "Failed to create milestone."
+          err?.message ||
+          "Failed to create milestone."
       );
     } finally {
       setIsSavingMilestone(false);
@@ -1684,6 +1696,34 @@ export default function ViewCampaignPage() {
     deliverableSearch,
   ]);
 
+  const deliverableTotalItems = filteredDeliverables.length;
+  const deliverableTotalPages = Math.max(
+    1,
+    Math.ceil(deliverableTotalItems / DELIVERABLES_PER_PAGE)
+  );
+  const safeDeliverablePage = Math.min(deliverablePage, deliverableTotalPages);
+
+  useEffect(() => {
+    if (deliverablePage !== safeDeliverablePage) {
+      setDeliverablePage(safeDeliverablePage);
+    }
+  }, [deliverablePage, safeDeliverablePage]);
+
+  const paginatedDeliverables = useMemo(() => {
+    const start = (safeDeliverablePage - 1) * DELIVERABLES_PER_PAGE;
+    return filteredDeliverables.slice(start, start + DELIVERABLES_PER_PAGE);
+  }, [filteredDeliverables, safeDeliverablePage]);
+
+  const deliverableShowingFrom =
+    deliverableTotalItems === 0
+      ? 0
+      : (safeDeliverablePage - 1) * DELIVERABLES_PER_PAGE + 1;
+
+  const deliverableShowingTo =
+    deliverableTotalItems === 0
+      ? 0
+      : Math.min(safeDeliverablePage * DELIVERABLES_PER_PAGE, deliverableTotalItems);
+
   const baseApplicants = useMemo(() => {
     return isAdminCreatedCampaign ? applicants : applicants.filter(isApplicantActive);
   }, [applicants, isAdminCreatedCampaign]);
@@ -1714,6 +1754,29 @@ export default function ViewCampaignPage() {
     });
   }, [baseApplicants, platformFilter, audienceRangeFilter]);
 
+  const applicantPlatformOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        baseApplicants
+          .map((inf) => normalizePlatform(inf.primaryPlatform || inf.platform || ""))
+          .filter(Boolean)
+      )
+    ).sort();
+  }, [baseApplicants]);
+
+  const applicantTotalItems = Number(applicantMeta?.total ?? visibleApplicants.length ?? 0);
+  const applicantCurrentPage = Number(applicantMeta?.page || applicantPage || 1);
+  const applicantTotalPages = Number(applicantMeta?.totalPages || 1);
+  const applicantPageSize = Number(applicantMeta?.limit || applicantLimit || 10);
+
+  const applicantShowingFrom =
+    applicantTotalItems === 0 ? 0 : (applicantCurrentPage - 1) * applicantPageSize + 1;
+
+  const applicantShowingTo =
+    applicantTotalItems === 0
+      ? 0
+      : Math.min(applicantCurrentPage * applicantPageSize, applicantTotalItems);
+
   const durationDays = useMemo(() => {
     if (!campaign?.startAt || !campaign?.endAt) return null;
     const start = new Date(campaign.startAt).getTime();
@@ -1722,16 +1785,6 @@ export default function ViewCampaignPage() {
     if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
     return Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
   }, [campaign?.startAt, campaign?.endAt]);
-
-  const applicantPlatformOptions = useMemo(() => {
-    return Array.from(
-      new Set(
-        baseApplicants
-          .map((inf) => prettify(inf.primaryPlatform || inf.platform || ""))
-          .filter(Boolean)
-      )
-    ).sort();
-  }, [baseApplicants]);
 
   if (loading) {
     return (
@@ -2176,9 +2229,11 @@ export default function ViewCampaignPage() {
                           className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                         >
                           <option value="all">All Platforms</option>
-                          <option value="youtube">Youtube</option>
-                          <option value="instagram">Instagram</option>
-                          <option value="tiktok">Tiktok</option>
+                          {applicantPlatformOptions.map((platform) => (
+                            <option key={platform} value={platform}>
+                              {prettify(platform)}
+                            </option>
+                          ))}
                         </select>
                       </div>
 
@@ -2399,8 +2454,9 @@ export default function ViewCampaignPage() {
                                     <button
                                       type="button"
                                       onClick={() => fetchMilestonesForApplicant(inf)}
-                                      className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
-                                        }`}
+                                      className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${
+                                        isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
+                                      }`}
                                     >
                                       View Milestones
                                       {isMilestoneOpen ? (
@@ -2502,39 +2558,14 @@ export default function ViewCampaignPage() {
                   </Table>
                 </div>
 
-                {(applicantMeta?.totalPages || 0) > 1 ? (
-                  <div className="flex items-center justify-between border-t border-stone-100 px-5 py-3">
-                    <p className="text-xs text-stone-400">
-                      Page {applicantMeta?.page || applicantPage} of{" "}
-                      {applicantMeta?.totalPages || 1}
-                    </p>
-
-                    <div className="flex gap-1.5">
-                      {["Prev", "Next"].map((label) => (
-                        <button
-                          type="button"
-                          key={label}
-                          disabled={
-                            label === "Prev"
-                              ? applicantPage <= 1 || applicantsLoading
-                              : applicantsLoading ||
-                              applicantPage >= Number(applicantMeta?.totalPages || 1)
-                          }
-                          onClick={() =>
-                            setApplicantPage((p) =>
-                              label === "Prev"
-                                ? Math.max(1, p - 1)
-                                : Math.min(Number(applicantMeta?.totalPages || 1), p + 1)
-                            )
-                          }
-                          className={`h-7 rounded-lg px-3 text-xs font-medium transition-colors ${SECONDARY_BUTTON} disabled:cursor-not-allowed disabled:opacity-40`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+                <PaginationBar
+                  currentPage={applicantCurrentPage}
+                  totalPages={applicantTotalPages}
+                  onPageChange={setApplicantPage}
+                  showingFrom={applicantShowingFrom}
+                  showingTo={applicantShowingTo}
+                  totalItems={applicantTotalItems}
+                />
               </div>
             </div>
           )}
@@ -2677,7 +2708,7 @@ export default function ViewCampaignPage() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredDeliverables.map((row) => (
+                        paginatedDeliverables.map((row) => (
                           <TableRow
                             key={row.rowKey}
                             className="border-stone-100 hover:bg-stone-50/60"
@@ -2736,6 +2767,15 @@ export default function ViewCampaignPage() {
                     </TableBody>
                   </Table>
                 </div>
+
+                <PaginationBar
+                  currentPage={safeDeliverablePage}
+                  totalPages={deliverableTotalPages}
+                  onPageChange={setDeliverablePage}
+                  showingFrom={deliverableShowingFrom}
+                  showingTo={deliverableShowingTo}
+                  totalItems={deliverableTotalItems}
+                />
               </div>
             </div>
           )}

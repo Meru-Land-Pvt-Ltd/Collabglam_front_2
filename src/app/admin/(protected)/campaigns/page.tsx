@@ -463,7 +463,7 @@ export default function AdminCampaignsPage() {
       {
         id: "month",
         title: "This Month",
-        value: summaryStats.totalThisMonth,
+        value: `+${summaryStats.totalThisMonth}`,
         subtitle: "Campaigns created in this month",
         icon: Clock3,
         cardClassName:
@@ -474,7 +474,7 @@ export default function AdminCampaignsPage() {
       {
         id: "fully_managed",
         title: "Fully Managed",
-        value: summaryStats.totalFullyManaged,
+        value: `+${summaryStats.totalFullyManaged}`,
         subtitle: "Campaigns by Main Admin",
         icon: Sparkles,
         cardClassName:
@@ -726,9 +726,8 @@ export default function AdminCampaignsPage() {
                           setQuickFilter(option.value);
                           setPage(1);
                         }}
-                        className={`${filterButtonBaseClass} ${
-                          active ? filterButtonActiveClass : filterButtonInactiveClass
-                        }`}
+                        className={`${filterButtonBaseClass} ${active ? filterButtonActiveClass : filterButtonInactiveClass
+                          }`}
                       >
                         {option.label}
                       </Button>
@@ -863,11 +862,10 @@ export default function AdminCampaignsPage() {
                       onClick={() => handleCopyPublicLink(campaign)}
                       aria-label="Copy Public Link"
                       title="Copy Public Link"
-                      className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
-                        copiedCampaignId === campaign.campaignId
+                      className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${copiedCampaignId === campaign.campaignId
                           ? "border-0 bg-transparent text-emerald-600 hover:!bg-transparent hover:!text-emerald-700"
                           : "border-0 bg-transparent text-blue-600 hover:!bg-transparent hover:!text-blue-700"
-                      }`}
+                        }`}
                     >
                       {copiedCampaignId === campaign.campaignId ? (
                         <>
@@ -887,15 +885,15 @@ export default function AdminCampaignsPage() {
               pagination={
                 quickFilter === "all"
                   ? {
-                      page,
-                      totalPages,
-                      totalItems: total,
-                      limit: PAGE_LIMIT,
-                      onPageChange: setPage,
-                      loading,
-                      showRowsSelector: false,
-                      showSummary: true,
-                    }
+                    page,
+                    totalPages,
+                    totalItems: total,
+                    limit: PAGE_LIMIT,
+                    onPageChange: setPage,
+                    loading,
+                    showRowsSelector: false,
+                    showSummary: true,
+                  }
                   : undefined
               }
               className="py-2"
