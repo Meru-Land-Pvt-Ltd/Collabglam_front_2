@@ -13,7 +13,7 @@ type SidebarItem = {
 const sidebarItems: SidebarItem[] = [
   {
     label: "Dashboard",
-    href: "/admin/admin/instantly-crm",
+    href: "/admin/instantly-crm",
     icon: (
       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8">
         <path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-12h6V4h-6v4Z" />
@@ -134,8 +134,8 @@ export default function InstantlySidebar() {
 
           <div className="mt-3 flex items-center justify-between rounded-2xl bg-emerald-50 px-3 py-2">
             <div>
-              <p className="text-sm font-semibold text-emerald-700">API Connected</p>
-              <p className="text-xs text-emerald-700/80">Instantly workspace reachable</p>
+              <p className="text-sm font-semibold text-emerald-700">Instantly Connected</p>
+              <p className="text-xs text-emerald-700/80">Outreach infrastructure reachable</p>
             </div>
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
           </div>
@@ -186,7 +186,7 @@ export default function InstantlySidebar() {
         <div className="rounded-[20px] bg-black px-4 py-4 text-white">
           <p className="text-sm font-semibold">Workflow Rule</p>
           <p className="mt-2 text-xs leading-6 text-white/75">
-            SDR sends outreach, RH reviews replies, and BME owns the relationship after handoff.
+            Replies page shows conversations only. Review Queue shows RH review only. RH assigns qualified replies to BME from Review Queue.
           </p>
         </div>
       </div>
