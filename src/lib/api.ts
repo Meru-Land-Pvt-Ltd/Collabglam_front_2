@@ -9,10 +9,8 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.coll
 export const API_BASE_URL2 = process.env.NEXT_PUBLIC_API_URL2 || 'https://api.sharemitra.com'
 export const ADMIN_API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
 
-// ---- Single token key ----
 export const TOKEN_KEY = 'token'
 
-/** -------------------- HELPERS -------------------- */
 const isFormData = (data: any): boolean =>
   typeof FormData !== 'undefined' && data instanceof FormData
 
@@ -85,15 +83,6 @@ export const forceLogout = () => {
   }
 }
 
-/** -------------------- AXIOS INSTANCES -------------------- */
-/**
- * IMPORTANT:
- * Do NOT set a global "Content-Type" on the instance.
- * If you set "application/json" here, it can break FormData uploads by preventing the
- * browser/axios from adding the required multipart boundary.
- */
-
-// Primary API (BASE_URL)
 const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true,
@@ -101,7 +90,6 @@ const api = axios.create({
   timeout: 40000,
 })
 
-// Secondary API (BASE_URL2)
 const api2 = axios.create({
   baseURL: API_BASE_URL2,
   withCredentials: true,
@@ -109,7 +97,6 @@ const api2 = axios.create({
   timeout: 40000,
 })
 
-// Admin API
 const adminApi = axios.create({
   baseURL: ADMIN_API_BASE_URL,
   withCredentials: true,
@@ -117,9 +104,6 @@ const adminApi = axios.create({
   timeout: 40000,
 })
 
-/** ---- Interceptors ---- */
-
-/** PRIMARY + ADMIN: must have token if present */
 const attachAuthPrimary = (
   config: InternalAxiosRequestConfig
 ): InternalAxiosRequestConfig => {
@@ -139,7 +123,6 @@ const attachAuthPrimary = (
   return config
 }
 
-/** SECONDARY: attach token if present; never logout if missing */
 const attachAuthSecondary = (
   config: InternalAxiosRequestConfig
 ): InternalAxiosRequestConfig => {
@@ -163,7 +146,6 @@ api.interceptors.request.use(attachAuthPrimary)
 api2.interceptors.request.use(attachAuthSecondary)
 adminApi.interceptors.request.use(attachAuthPrimary)
 
-/** 401 / 403 handling */
 const onResponseErrorPrimary = (err: any) => {
   const status = err?.response?.status
   if (shouldForceLogout(status)) {
@@ -186,7 +168,6 @@ api.interceptors.response.use((r) => r, onResponseErrorPrimary)
 api2.interceptors.response.use((r) => r, onResponseErrorSecondary)
 adminApi.interceptors.response.use((r) => r, onResponseErrorAdmin)
 
-// (Optional) warn about mixed-content when page is HTTPS but API is HTTP
 if (typeof window !== 'undefined') {
   try {
     const pageIsHTTPS = window.location.protocol === 'https:'
@@ -199,15 +180,11 @@ if (typeof window !== 'undefined') {
   } catch {}
 }
 
-/** -------------------- REQUEST HELPERS -------------------- */
-
-/** GET (BASE_URL) */
 export const get = async <T = any>(url: string, params?: any): Promise<T> => {
   const res = await api.get<T>(url, { params })
   return res.data
 }
 
-/** POST (BASE_URL) */
 export const post = async <T = any>(
   url: string,
   data?: any,
@@ -223,7 +200,6 @@ export const post = async <T = any>(
   return res.data
 }
 
-/** Explicit helper for FormData (BASE_URL) */
 export const postFormData = async <T = any>(
   url: string,
   formData: FormData,
@@ -235,13 +211,11 @@ export const postFormData = async <T = any>(
   return res.data
 }
 
-/** GET (BASE_URL2) */
 export const get2 = async <T = any>(url: string, params?: any): Promise<T> => {
   const res = await api2.get<T>(url, { params })
   return res.data
 }
 
-/** POST (BASE_URL2) */
 export const post2 = async <T = any>(
   url: string,
   data?: any,
@@ -257,7 +231,6 @@ export const post2 = async <T = any>(
   return res.data
 }
 
-/** Explicit helper for FormData (BASE_URL2) */
 export const postFormData2 = async <T = any>(
   url: string,
   formData: FormData,
@@ -269,15 +242,11 @@ export const postFormData2 = async <T = any>(
   return res.data
 }
 
-/** -------------------- ADMIN APIs -------------------- */
-
-/** GET (ADMIN_API_BASE_URL) */
 export const adminGet = async <T = any>(url: string, params?: any): Promise<T> => {
   const res = await adminApi.get<T>(url, { params })
   return res.data
 }
 
-/** POST (ADMIN_API_BASE_URL) */
 export const adminPost = async <T = any>(
   url: string,
   data?: any,
@@ -293,7 +262,6 @@ export const adminPost = async <T = any>(
   return res.data
 }
 
-/** PUT (ADMIN_API_BASE_URL) */
 export const adminPut = async <T = any>(
   url: string,
   data?: any,
@@ -309,7 +277,6 @@ export const adminPut = async <T = any>(
   return res.data
 }
 
-/** PATCH (ADMIN_API_BASE_URL) */
 export const adminPatch = async <T = any>(
   url: string,
   data?: any,
@@ -325,7 +292,6 @@ export const adminPatch = async <T = any>(
   return res.data
 }
 
-/** DELETE (ADMIN_API_BASE_URL) */
 export const adminDelete = async <T = any>(
   url: string,
   data?: any,
@@ -341,7 +307,6 @@ export const adminDelete = async <T = any>(
   return res.data
 }
 
-/** Explicit helper for Admin FormData */
 export const adminPostFormData = async <T = any>(
   url: string,
   formData: FormData,
@@ -353,9 +318,9 @@ export const adminPostFormData = async <T = any>(
   return res.data
 }
 
-/** -------------------- DOWNLOAD HELPERS -------------------- */
+// alias for clearer upload usage in pages
+export const adminUpload = adminPostFormData
 
-/** Download blob (BASE_URL) */
 export const downloadBlob = async (
   url: string,
   data?: any,
@@ -371,7 +336,6 @@ export const downloadBlob = async (
   return response.data
 }
 
-/** Download blob (BASE_URL2) */
 export const downloadBlob2 = async (
   url: string,
   data?: any,
@@ -387,7 +351,6 @@ export const downloadBlob2 = async (
   return response.data
 }
 
-/** Download blob (ADMIN_API_BASE_URL) */
 export const adminDownloadBlob = async (
   url: string,
   data?: any,
@@ -403,7 +366,6 @@ export const adminDownloadBlob = async (
   return response.data
 }
 
-/** Optional token helpers */
 export const setToken = (token: string) => {
   if (typeof window === 'undefined') return
   try {
