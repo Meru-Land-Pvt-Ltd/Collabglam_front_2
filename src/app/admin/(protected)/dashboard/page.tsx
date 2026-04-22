@@ -23,7 +23,9 @@ import {
   Users,
 } from "lucide-react";
 
-type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme";
+type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme" | "sdr";
+
+
 
 type AdminMeResponse = {
   _id: string;
@@ -149,7 +151,7 @@ const API = {
   managedBrands: "/admins/fully-managed-brand-list",
 };
 
-const VALID_ROLES: AdminRole[] = ["super_admin", "revenue_head", "ime", "bme"];
+const VALID_ROLES: AdminRole[] = ["super_admin", "revenue_head", "ime", "bme", "sdr"];
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -196,7 +198,9 @@ function getDashboardTitle(role?: AdminRole) {
   if (role === "super_admin") return "Super Admin Dashboard";
   if (role === "revenue_head") return "Revenue Head Dashboard";
   if (role === "bme") return "BME Dashboard";
-  return "IME Dashboard";
+  if (role === "ime") return "IME Dashboard";
+  if (role === "sdr") return "SDR Dashboard";
+  return "Admin Dashboard";
 }
 
 function getDashboardSubtitle(role?: AdminRole) {

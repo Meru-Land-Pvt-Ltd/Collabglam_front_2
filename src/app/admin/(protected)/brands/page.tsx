@@ -1055,7 +1055,7 @@ const AdminBrandPage: NextPage = () => {
     }
   }, []);
 
-  useEffect(() => {
+  useEffect(() => {123456
     fetchBrands();
   }, [fetchBrands]);
 

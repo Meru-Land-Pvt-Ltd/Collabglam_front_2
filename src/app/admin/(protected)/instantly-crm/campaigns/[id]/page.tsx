@@ -3,10 +3,68 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Select from "react-select";
-import { adminGet, adminPatch, adminPost, adminPostFormData } from "@/lib/api";
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  CalendarDays,
+  CalendarClock,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  CircleAlert,
+  Copy,
+  Eye,
+  Filter,
+  LayoutTemplate,
+  Mail,
+  MousePointerClick,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Reply,
+  Search,
+  Settings,
+  Share2,
+  Sparkles,
+  Target,
+  Trash2,
+  Type,
+  Upload,
+  Users,
+  Variable,
+  Wand2,
+  Wrench,
+  X,
+  Zap,
+  Link2,
+  Braces,
+  CheckSquare,
+} from "lucide-react";
+import {
+  adminDelete,
+  adminGet,
+  adminPatch,
+  adminPost,
+  adminPostFormData,
+  getApiErrorMessage,
+} from "@/lib/api";
 import AdminTable, { AdminTableColumn } from "../../../../components/table";
 
 type CampaignFlowType = "standard_brand" | "ime_influencer";
+type CampaignStatus = "draft" | "ready" | "launched" | "paused" | "completed" | "error";
+type TabKey = "analytics" | "leads" | "sequences" | "schedule" | "options" | "subsequences";
+type AnalyticsSubTab = "step_analytics" | "activity";
+type RangeKey = "last_7_days" | "last_4_weeks" | "last_3_months";
+type MetricKey =
+  | "sequence_started"
+  | "open_rate"
+  | "click_rate"
+  | "reply_rate"
+  | "positive_reply_rate"
+  | "opportunities"
+  | "conversions";
 
 type CampaignScheduleWindow = {
   name: string;
@@ -62,11 +120,32 @@ type CampaignConfiguration = {
   lastSyncedAt?: string;
 };
 
+type CsvColumnType =
+  | "ignore"
+  | "first_name"
+  | "last_name"
+  | "full_name"
+  | "email"
+  | "company_name"
+  | "job_title"
+  | "website"
+  | "phone"
+  | "linkedin_url"
+  | "custom";
+
+type CsvPreviewColumn = {
+  header: string;
+  variableKey: string;
+  inferredType: CsvColumnType;
+  selectedType: CsvColumnType;
+  samples: string[];
+};
+
 type CampaignDetail = {
   _id: string;
   name: string;
   flowType: CampaignFlowType;
-  status: "draft" | "ready" | "launched" | "paused" | "completed";
+  status: CampaignStatus;
   sdrId: any;
   RHId: any;
   IMEId: any;
@@ -75,6 +154,7 @@ type CampaignDetail = {
     accountEmails?: string[];
     campaignId?: string;
     leadListId?: string;
+    shareLink?: string;
   };
   teamMailboxes?: {
     RHEmail?: string;
@@ -83,9 +163,28 @@ type CampaignDetail = {
   configuration: CampaignConfiguration;
   stats?: {
     totalProspects?: number;
+    totalSent?: number;
+    totalOpened?: number;
+    totalClicked?: number;
     totalReplies?: number;
+    totalOpportunities?: number;
     totalQualified?: number;
     totalAssigned?: number;
+    progressPercent?: number;
+  };
+  sync?: {
+    providerStatus?: "idle" | "syncing" | "synced" | "error";
+    lastErrorCode?: string;
+    lastErrorMessage?: string;
+    lastSyncedAt?: string;
+    lastAnalyticsSyncedAt?: string;
+  };
+  templateVariables?: string[];
+  csvSchema?: {
+    fileName?: string;
+    totalRows?: number;
+    columns?: CsvPreviewColumn[];
+    updatedAt?: string;
   };
   createdAt?: string;
   launchedAt?: string;
@@ -100,6 +199,37 @@ type ContactRow = {
   };
   stage?: string;
   launchedAt?: string;
+  instantly?: {
+    leadId?: string;
+    threadId?: string;
+  };
+};
+
+type AnalyticsOverview = {
+  totalProspects: number;
+  totalSent: number;
+  totalOpened: number;
+  totalClicked: number;
+  totalReplies: number;
+  totalOpportunities: number;
+  totalQualified: number;
+  totalAssigned: number;
+  progressPercent: number;
+  sequenceStartedAt?: string;
+  openRate?: number | null;
+  clickRate?: number | null;
+};
+
+type StepAnalyticsRow = {
+  stepOrder: number;
+  label: string;
+  type: string;
+  subject?: string;
+  sent: number;
+  opened: number | null;
+  replied: number;
+  clicked: number;
+  opportunities: number;
 };
 
 type ApiState = {
@@ -120,7 +250,27 @@ type TimezoneOption = {
   nowLocal?: string | null;
 };
 
-type TabKey = "overview" | "sequence" | "contacts" | "schedule" | "settings";
+type MetricDefinition = {
+  key: MetricKey;
+  label: string;
+  value: string | number;
+  subValue?: string | number;
+  icon: ReactNode;
+};
+
+type SequenceTemplate = {
+  id: string;
+  category: string;
+  title: string;
+  subject: string;
+  body: string;
+};
+
+type SequenceTemplateGroup = {
+  category: string;
+  title: string;
+  templates: SequenceTemplate[];
+};
 
 const weekdayLabels = [
   { key: "1", label: "Mon", full: "Monday" },
@@ -132,23 +282,323 @@ const weekdayLabels = [
   { key: "0", label: "Sun", full: "Sunday" },
 ];
 
-const pageTabs: Array<{ key: TabKey; label: string; icon: string }> = [
-  { key: "overview", label: "Overview", icon: "📊" },
-  { key: "contacts", label: "Contacts", icon: "👥" },
-  { key: "sequence", label: "Sequences", icon: "🔁" },
-  { key: "schedule", label: "Schedule", icon: "🗓️" },
-  { key: "settings", label: "Options", icon: "⚙️" },
+const pageTabs: Array<{ key: TabKey; label: string }> = [
+  { key: "analytics", label: "Analytics" },
+  { key: "leads", label: "Leads" },
+  { key: "sequences", label: "Sequences" },
+  { key: "schedule", label: "Schedule" },
+  { key: "options", label: "Options" },
+  { key: "subsequences", label: "Subsequences" },
+];
+
+const rangeOptions: Array<{ value: RangeKey; label: string }> = [
+  { value: "last_7_days", label: "Last 7 days" },
+  { value: "last_4_weeks", label: "Last 4 weeks" },
+  { value: "last_3_months", label: "Last 3 months" },
+];
+
+const csvTypeOptions: Array<{ value: CsvColumnType; label: string }> = [
+  { value: "ignore", label: "Ignore" },
+  { value: "first_name", label: "First Name" },
+  { value: "last_name", label: "Last Name" },
+  { value: "full_name", label: "Full Name" },
+  { value: "email", label: "Email" },
+  { value: "company_name", label: "Company Name" },
+  { value: "job_title", label: "Job Title" },
+  { value: "website", label: "Website" },
+  { value: "phone", label: "Phone" },
+  { value: "linkedin_url", label: "LinkedIn URL" },
+  { value: "custom", label: "Custom Variable" },
+];
+
+const stageOptions = [
+  { value: "new", label: "New" },
+  { value: "queued", label: "Queued" },
+  { value: "in_sequence", label: "In Sequence" },
+  { value: "replied_pending_review", label: "Replied Pending Review" },
+  { value: "assigned_to_bme", label: "Assigned to BME" },
+  { value: "assigned_to_ime", label: "Assigned to IME" },
+  { value: "unqualified", label: "Unqualified" },
+  { value: "blocked", label: "Blocked" },
+  { value: "closed", label: "Closed" },
+];
+
+const defaultVisibleMetrics: Record<MetricKey, boolean> = {
+  sequence_started: true,
+  open_rate: true,
+  click_rate: true,
+  reply_rate: true,
+  positive_reply_rate: true,
+  opportunities: true,
+  conversions: true,
+};
+
+const sequenceTemplateGroups: SequenceTemplateGroup[] = [
+  {
+    category: "custom_templates",
+    title: "Custom Templates",
+    templates: [],
+  },
+  {
+    category: "lead_generation",
+    title: "Lead Generation",
+    templates: [
+      {
+        id: "lead_generation_quick_question",
+        category: "lead_generation",
+        title: "Quick question",
+        subject: "{{firstName}} - quick question",
+        body: `Hey {{firstName}},
+
+Your LinkedIn was impressive and I wanted to reach out directly :)
+
+So we’re helping {{companyName}} from {{location}} to fill their cal with 5-12 calls with their ideal customer daily. If you let me have a call with you about how we can do the same for you, I will send you a burger with UberEats :D
+
+Are you free any time this week for a quick chat?
+
+Cheers,
+NAME
+
+Reply “No thanks” if you wish to no longer receive messages from me.`,
+      },
+      {
+        id: "lead_generation_soft_intro",
+        category: "lead_generation",
+        title: "Soft intro",
+        subject: "A quick idea for {{companyName}}",
+        body: `Hi {{firstName}},
+
+I came across {{companyName}} and wanted to share a quick idea.
+
+We help brands improve outreach performance with better targeting, messaging, and follow-up systems.
+
+Would you be open to a short conversation this week?
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "leadgen_agency",
+    title: "LeadGen Agency",
+    templates: [
+      {
+        id: "leadgen_agency_offer",
+        category: "leadgen_agency",
+        title: "Agency offer",
+        subject: "Can we help {{companyName}} book more calls?",
+        body: `Hi {{firstName}},
+
+Wanted to reach out because we help agencies generate more qualified meetings without increasing ad spend.
+
+I think there may be a fit for {{companyName}} here.
+
+Open to a quick discussion this week?
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "video_production",
+    title: "Video Production",
+    templates: [
+      {
+        id: "video_production_pitch",
+        category: "video_production",
+        title: "Video collaboration pitch",
+        subject: "Video content idea for {{companyName}}",
+        body: `Hi {{firstName}},
+
+We noticed {{companyName}} and had a few creative ideas around short-form video content that could help improve visibility and conversions.
+
+Would you be open to seeing a few concepts?
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "marketing_advertising",
+    title: "Marketing & Advertising",
+    templates: [
+      {
+        id: "marketing_advertising_growth",
+        category: "marketing_advertising",
+        title: "Growth idea",
+        subject: "Marketing growth idea for {{companyName}}",
+        body: `Hello {{firstName}},
+
+I wanted to share a quick growth angle we think could work well for {{companyName}}.
+
+We help brands tighten their messaging, improve outreach, and build more predictable acquisition systems.
+
+Would it be worth a 10-minute chat?
+
+Regards,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "coaching",
+    title: "Coaching",
+    templates: [
+      {
+        id: "coaching_outreach",
+        category: "coaching",
+        title: "Coaching intro",
+        subject: "A quick thought for your coaching offer",
+        body: `Hi {{firstName}},
+
+I took a look at your offer and thought there may be a simple way to improve reply rates and lead quality.
+
+Happy to share what we noticed if useful.
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "appointment_setting",
+    title: "Appointment Setting Agency",
+    templates: [
+      {
+        id: "appointment_setting_intro",
+        category: "appointment_setting",
+        title: "Appointment setting pitch",
+        subject: "Help booking more qualified meetings",
+        body: `Hi {{firstName}},
+
+We help businesses increase qualified meetings through smarter outbound systems and cleaner follow-up flows.
+
+Would you be interested in seeing how this could work for {{companyName}}?
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "influencer_marketing",
+    title: "Influencer Marketing",
+    templates: [
+      {
+        id: "influencer_marketing_collab",
+        category: "influencer_marketing",
+        title: "Collab intro",
+        subject: "Potential collaboration with {{companyName}}",
+        body: `Hi {{firstName}},
+
+We’re exploring creator/brand partnerships and thought there may be a fit with {{companyName}}.
+
+Would you be open to discussing a possible collaboration?
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "growth_agency",
+    title: "Growth Agency",
+    templates: [
+      {
+        id: "growth_agency_audit",
+        category: "growth_agency",
+        title: "Quick audit offer",
+        subject: "Quick audit idea for {{companyName}}",
+        body: `Hi {{firstName}},
+
+We reviewed part of your current outbound/growth setup and noticed a few improvements that could help.
+
+Happy to send over a quick breakdown if you’d like.
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "follow_ups",
+    title: "Follow-Ups",
+    templates: [
+      {
+        id: "follow_up_gentle",
+        category: "follow_ups",
+        title: "Gentle follow-up",
+        subject: "",
+        body: `Hey {{firstName}},
+
+Just wanted to follow up on my previous note in case it got buried.
+
+Would love to know if this is relevant for {{companyName}}.
+
+Best,
+NAME`,
+      },
+    ],
+  },
+  {
+    category: "tiktok_agency",
+    title: "TikTok Agency",
+    templates: [
+      {
+        id: "tiktok_agency_pitch",
+        category: "tiktok_agency",
+        title: "TikTok growth pitch",
+        subject: "TikTok idea for {{companyName}}",
+        body: `Hi {{firstName}},
+
+We had a couple of TikTok content ideas that could help {{companyName}} increase reach and engagement.
+
+Would you be open to a quick discussion?
+
+Best,
+NAME`,
+      },
+    ],
+  },
 ];
 
 const inputClassName =
-  "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+  "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+function toSafeNumber(...values: any[]) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function toSafeNullableNumber(...values: any[]) {
+  for (const value of values) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function getArrayPayload(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  if (Array.isArray(payload?.results)) return payload.results;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
 function formatDate(value?: string) {
-  if (!value) return "No end date";
+  if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("en-IN", {
@@ -183,12 +633,14 @@ function getStatusPillClasses(status?: string) {
   if (status === "launched") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (status === "paused") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
   if (status === "completed") return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  if (status === "error") return "bg-orange-500 text-white";
   return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
 }
 
-function getFlowPillClasses(flowType?: CampaignFlowType) {
-  if (flowType === "ime_influencer") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
-  return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+function getFlowClasses(flowType?: CampaignFlowType) {
+  return flowType === "ime_influencer"
+    ? "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200"
+    : "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
 }
 
 function getFlowLabel(flowType?: CampaignFlowType) {
@@ -197,13 +649,11 @@ function getFlowLabel(flowType?: CampaignFlowType) {
 
 function getStagePillClasses(stage?: string) {
   const value = (stage || "").toLowerCase();
-
   if (value.includes("assigned_to_ime")) return "bg-fuchsia-50 text-fuchsia-700";
   if (value.includes("assigned_to_bme")) return "bg-violet-50 text-violet-700";
   if (value.includes("qualified")) return "bg-emerald-50 text-emerald-700";
   if (value.includes("reply")) return "bg-blue-50 text-blue-700";
   if (value.includes("unqualified")) return "bg-rose-50 text-rose-700";
-
   return "bg-slate-100 text-slate-600";
 }
 
@@ -243,15 +693,6 @@ function createDefaultBody(flowType: CampaignFlowType) {
   ].join("\n");
 }
 
-function createNewScheduleWindow(index: number): CampaignScheduleWindow {
-  return {
-    name: `Schedule ${index + 1}`,
-    from: "09:00",
-    to: "18:00",
-    days: createDefaultDays(),
-  };
-}
-
 function getDefaultConfiguration(flowType: CampaignFlowType = "standard_brand"): CampaignConfiguration {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -273,7 +714,7 @@ function getDefaultConfiguration(flowType: CampaignFlowType = "standard_brand"):
       {
         stepOrder: 1,
         type: "email",
-        delay: 1,
+        delay: 0,
         delayUnit: "days",
         preDelay: 0,
         preDelayUnit: "days",
@@ -318,38 +759,38 @@ function normalizeConfiguration(input: any, flowType: CampaignFlowType): Campaig
       windows:
         Array.isArray(input?.schedule?.windows) && input.schedule.windows.length
           ? input.schedule.windows.map((item: any, index: number) => ({
-              name: item?.name || `Schedule ${index + 1}`,
-              from: item?.from || "10:00",
-              to: item?.to || "18:00",
-              days: {
-                "0": Boolean(item?.days?.[0] ?? item?.days?.["0"]),
-                "1": Boolean(item?.days?.[1] ?? item?.days?.["1"]),
-                "2": Boolean(item?.days?.[2] ?? item?.days?.["2"]),
-                "3": Boolean(item?.days?.[3] ?? item?.days?.["3"]),
-                "4": Boolean(item?.days?.[4] ?? item?.days?.["4"]),
-                "5": Boolean(item?.days?.[5] ?? item?.days?.["5"]),
-                "6": Boolean(item?.days?.[6] ?? item?.days?.["6"]),
-              },
-            }))
+            name: item?.name || `Schedule ${index + 1}`,
+            from: item?.from || "10:00",
+            to: item?.to || "18:00",
+            days: {
+              "0": Boolean(item?.days?.[0] ?? item?.days?.["0"]),
+              "1": Boolean(item?.days?.[1] ?? item?.days?.["1"]),
+              "2": Boolean(item?.days?.[2] ?? item?.days?.["2"]),
+              "3": Boolean(item?.days?.[3] ?? item?.days?.["3"]),
+              "4": Boolean(item?.days?.[4] ?? item?.days?.["4"]),
+              "5": Boolean(item?.days?.[5] ?? item?.days?.["5"]),
+              "6": Boolean(item?.days?.[6] ?? item?.days?.["6"]),
+            },
+          }))
           : fallback.schedule.windows,
     },
     sequences:
       Array.isArray(input?.sequences) && input.sequences.length
         ? input.sequences.map((step: any, index: number) => ({
-            stepOrder: Number(step?.stepOrder || index + 1),
-            type: "email",
-            delay: Number(step?.delay || 0),
-            delayUnit: step?.delayUnit || "days",
-            preDelay: Number(step?.preDelay || 0),
-            preDelayUnit: step?.preDelayUnit || "days",
-            variants:
-              Array.isArray(step?.variants) && step.variants.length
-                ? step.variants.map((variant: any) => ({
-                    subject: variant?.subject || "",
-                    body: variant?.body || "",
-                  }))
-                : [{ subject: "", body: "" }],
-          }))
+          stepOrder: Number(step?.stepOrder || index + 1),
+          type: "email",
+          delay: Number(step?.delay || 0),
+          delayUnit: step?.delayUnit || "days",
+          preDelay: Number(step?.preDelay || 0),
+          preDelayUnit: step?.preDelayUnit || "days",
+          variants:
+            Array.isArray(step?.variants) && step.variants.length
+              ? step.variants.map((variant: any) => ({
+                subject: variant?.subject || "",
+                body: variant?.body || "",
+              }))
+              : [{ subject: "", body: "" }],
+        }))
         : fallback.sequences,
     sendingOptions: {
       ...fallback.sendingOptions,
@@ -378,61 +819,118 @@ function parseCampaign(payload: any): CampaignDetail | null {
     teamMailboxes: row.teamMailboxes || {},
     configuration: normalizeConfiguration(row.configuration || {}, flowType),
     stats: row.stats || {},
+    sync: row.sync || {},
+    templateVariables: Array.isArray(row.templateVariables) ? row.templateVariables : [],
+    csvSchema: row.csvSchema || {},
     createdAt: row.createdAt || "",
     launchedAt: row.launchedAt || "",
   };
 }
 
 function parseContacts(payload: any): ContactRow[] {
-  const rows = Array.isArray(payload?.data) ? payload.data : [];
-  return rows.map((row: any) => ({
+  return getArrayPayload(payload).map((row: any) => ({
     _id: String(row?._id || ""),
     companyName: row?.companyName || "",
     primaryContact: row?.primaryContact || {},
     stage: row?.stage || "",
     launchedAt: row?.launchedAt || "",
+    instantly: row?.instantly || {},
   }));
 }
 
-function MetricCard({
-  icon,
-  label,
-  value,
-  sub,
-  tone = "blue",
-}: {
-  icon: string;
-  label: string;
-  value: string | number;
-  sub?: string;
-  tone?: "blue" | "green" | "violet" | "amber" | "fuchsia";
-}) {
-  const tones = {
-    blue: { bg: "bg-blue-50", icon: "text-blue-600" },
-    green: { bg: "bg-emerald-50", icon: "text-emerald-600" },
-    violet: { bg: "bg-violet-50", icon: "text-violet-600" },
-    amber: { bg: "bg-amber-50", icon: "text-amber-600" },
-    fuchsia: { bg: "bg-fuchsia-50", icon: "text-fuchsia-600" },
-  }[tone];
+function parseOverview(payload: any, campaign: CampaignDetail | null, contacts: ContactRow[]): AnalyticsOverview {
+  const root = payload?.data || payload || {};
 
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 transition hover:shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <span className={cx("inline-flex h-10 w-10 items-center justify-center rounded-lg text-lg", tones.bg, tones.icon)}>
-          {icon}
-        </span>
-      </div>
-      <div className="mt-4">
-        <p className="text-2xl font-bold text-slate-900">{value}</p>
-        <p className="mt-1 text-sm text-slate-500">{label}</p>
-        {sub ? <p className="mt-1 text-xs text-slate-400">{sub}</p> : null}
-      </div>
-    </div>
+  const totalProspects = toSafeNumber(
+    root?.totalProspects,
+    root?.total_prospects,
+    root?.total_leads,
+    campaign?.stats?.totalProspects,
+    contacts.length
   );
+
+  const totalSent = toSafeNumber(root?.totalSent, root?.total_sent, campaign?.stats?.totalSent);
+  const totalOpened = toSafeNumber(root?.totalOpened, root?.total_opened, campaign?.stats?.totalOpened);
+  const totalClicked = toSafeNumber(root?.totalClicked, root?.total_clicked, campaign?.stats?.totalClicked);
+  const totalReplies = toSafeNumber(root?.totalReplies, root?.total_replies, root?.total_replied, campaign?.stats?.totalReplies);
+  const totalOpportunities = toSafeNumber(root?.totalOpportunities, root?.total_opportunities, campaign?.stats?.totalOpportunities);
+  const totalQualified = toSafeNumber(root?.totalQualified, root?.total_conversions, campaign?.stats?.totalQualified);
+  const totalAssigned = toSafeNumber(root?.totalAssigned, campaign?.stats?.totalAssigned);
+
+  const progressPercent =
+    totalProspects > 0 ? Math.min(100, Math.round((totalSent / totalProspects) * 100)) : 0;
+
+  return {
+    totalProspects,
+    totalSent,
+    totalOpened,
+    totalClicked,
+    totalReplies,
+    totalOpportunities,
+    totalQualified,
+    totalAssigned,
+    progressPercent,
+    sequenceStartedAt: root?.sequenceStartedAt || root?.sequence_started_at || campaign?.launchedAt,
+    openRate: toSafeNullableNumber(root?.openRate, root?.open_rate),
+    clickRate: toSafeNullableNumber(root?.clickRate, root?.click_rate),
+  };
 }
 
-function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx("rounded-xl border border-slate-200 bg-white p-5", className)}>{children}</div>;
+function parseStepAnalytics(payload: any, campaign: CampaignDetail | null): StepAnalyticsRow[] {
+  const rows = getArrayPayload(payload);
+
+  if (rows.length) {
+    return rows.map((row: any, index: number) => ({
+      stepOrder: toSafeNumber(row?.stepOrder, row?.step_order, row?.step, index + 1),
+      label: row?.label || row?.name || row?.step_name || `Step ${index + 1}`,
+      type: row?.type || "email",
+      subject: row?.subject || row?.email_subject || "",
+      sent: toSafeNumber(row?.sent, row?.total_sent),
+      opened: toSafeNullableNumber(row?.opened, row?.total_opened),
+      replied: toSafeNumber(row?.replied, row?.total_replied),
+      clicked: toSafeNumber(row?.clicked, row?.total_clicked),
+      opportunities: toSafeNumber(row?.opportunities, row?.total_opportunities),
+    }));
+  }
+
+  return (campaign?.configuration?.sequences || []).map((step, index) => ({
+    stepOrder: step.stepOrder || index + 1,
+    label: `Step ${step.stepOrder || index + 1}`,
+    type: step.type || "email",
+    subject: step.variants?.[0]?.subject || "",
+    sent: index === 0 ? toSafeNumber(campaign?.stats?.totalSent) : 0,
+    opened: index === 0 ? toSafeNumber(campaign?.stats?.totalOpened) : 0,
+    replied: index === 0 ? toSafeNumber(campaign?.stats?.totalReplies) : 0,
+    clicked: index === 0 ? toSafeNumber(campaign?.stats?.totalClicked) : 0,
+    opportunities: index === 0 ? toSafeNumber(campaign?.stats?.totalOpportunities) : 0,
+  }));
+}
+
+function getWindowDaySummary(days?: Record<string, boolean>) {
+  const activeDays = weekdayLabels.filter((day) => days?.[day.key]).map((day) => day.label);
+  return activeDays.length ? activeDays.join(", ") : "No days selected";
+}
+
+function ShellCard({
+  children,
+  className,
+  soft = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  soft?: boolean;
+}) {
+  return (
+    <div
+      className={cx(
+        "rounded-3xl border bg-white",
+        soft ? "border-slate-100 shadow-sm" : "border-slate-200 shadow-[0_8px_30px_rgba(15,23,42,0.04)]",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
 }
 
 function SectionHeader({
@@ -448,7 +946,7 @@ function SectionHeader({
     <div className="mb-5 flex items-start justify-between gap-4">
       <div>
         <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-        {description ? <p className="mt-0.5 text-sm text-slate-500">{description}</p> : null}
+        {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
       </div>
       {action}
     </div>
@@ -467,83 +965,153 @@ function Toggle({
   onChange: (value: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 transition hover:bg-slate-50">
+    <label className="flex cursor-pointer items-start justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 transition hover:bg-slate-50">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-slate-800">{label}</p>
-        {description ? <p className="mt-0.5 text-xs text-slate-500">{description}</p> : null}
+        {description ? <p className="mt-1 text-xs text-slate-500">{description}</p> : null}
       </div>
-      <div className={cx("relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors", checked ? "bg-blue-500" : "bg-slate-200")}>
-        <span className={cx("inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform", checked ? "translate-x-4" : "translate-x-1")} />
-        <input type="checkbox" className="sr-only" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <div
+        className={cx(
+          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
+          checked ? "bg-blue-500" : "bg-slate-200"
+        )}
+      >
+        <span
+          className={cx(
+            "inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+            checked ? "translate-x-4" : "translate-x-1"
+          )}
+        />
+        <input
+          type="checkbox"
+          className="sr-only"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
       </div>
     </label>
   );
 }
 
-function getWindowDaySummary(days?: Record<string, boolean>) {
-  const activeDays = weekdayLabels.filter((day) => days?.[day.key]).map((day) => day.label);
-  return activeDays.length ? activeDays.join(", ") : "No days selected";
-}
+function KpiCard({
+  label,
+  value,
+  subValue,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  subValue?: string | number;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_6px_24px_rgba(15,23,42,0.03)] transition hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.08)]">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-500">{label}</p>
+        </div>
+        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-50 text-slate-500 transition group-hover:bg-blue-50 group-hover:text-blue-600">
+          {icon}
+        </div>
+      </div>
 
-function getFlowCopy(flowType: CampaignFlowType) {
-  if (flowType === "ime_influencer") {
-    return {
-      entityLabel: "Influencer",
-      entityPluralLabel: "Influencers",
-      contactLabel: "Creator Contact",
-      contactsTabDescription: "Import influencers and creator contact details for direct IME outreach.",
-      campaignDescription: "Direct outreach flow owned by IME with no RH review handoff.",
-      ownerPrimaryLabel: "IME",
-      ownerSecondaryLabel: "IME Mailbox",
-      ownerSecondaryValueKey: "IMEEmail" as const,
-      sequenceDescription: "Configure the outreach sequence for IME-owned influencer conversations.",
-      replyMetricLabel: "Replies",
-      pipelineMetricLabel: "In Conversation",
-      pipelineTone: "fuchsia" as const,
-    };
-  }
-
-  return {
-    entityLabel: "Brand",
-    entityPluralLabel: "Brands",
-    contactLabel: "Brand Contact",
-    contactsTabDescription: "Import brand contacts for SDR outreach and RH/BME handoff.",
-    campaignDescription: "Standard SDR → RH → BME qualification and handoff flow.",
-    ownerPrimaryLabel: "Revenue Head",
-    ownerSecondaryLabel: "RH Mailbox",
-    ownerSecondaryValueKey: "RHEmail" as const,
-    sequenceDescription: "Configure the outreach sequence for SDR campaigns and RH/BME handoff.",
-    replyMetricLabel: "Replies",
-    pipelineMetricLabel: "Assigned to BME",
-    pipelineTone: "violet" as const,
-  };
+      <div className="mt-6 flex items-end gap-3">
+        <p className="text-4xl font-bold tracking-tight text-slate-900">{value}</p>
+        {subValue !== undefined ? (
+          <p className="pb-1 text-2xl font-semibold text-slate-400">| {subValue}</p>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export default function CampaignDetailPage() {
   const params = useParams();
   const campaignId = String(params?.id || "");
 
-  const [activeTab, setActiveTab] = useState<TabKey>("overview");
+  const [activeTab, setActiveTab] = useState<TabKey>("analytics");
+  const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>("step_analytics");
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<ApiState>(null);
+
   const [campaign, setCampaign] = useState<CampaignDetail | null>(null);
   const [contacts, setContacts] = useState<ContactRow[]>([]);
+  const [overview, setOverview] = useState<AnalyticsOverview>({
+    totalProspects: 0,
+    totalSent: 0,
+    totalOpened: 0,
+    totalClicked: 0,
+    totalReplies: 0,
+    totalOpportunities: 0,
+    totalQualified: 0,
+    totalAssigned: 0,
+    progressPercent: 0,
+  });
+  const [stepAnalytics, setStepAnalytics] = useState<StepAnalyticsRow[]>([]);
   const [configuration, setConfiguration] = useState<CampaignConfiguration>(getDefaultConfiguration());
+
   const [selectedScheduleIndex, setSelectedScheduleIndex] = useState(0);
   const [scheduleTimezoneOptions, setScheduleTimezoneOptions] = useState<TimezoneOption[]>([
     { value: "Asia/Kolkata", label: "Asia/Kolkata" },
   ]);
+
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvPreviewColumns, setCsvPreviewColumns] = useState<CsvPreviewColumn[]>([]);
+  const [csvPreviewFileName, setCsvPreviewFileName] = useState("");
+  const [csvPreviewTotalRows, setCsvPreviewTotalRows] = useState(0);
+
   const [manualForm, setManualForm] = useState<ManualForm>({
     entityName: "",
     contactName: "",
     contactEmail: "",
   });
   const [sheetUrl, setSheetUrl] = useState("");
+  const [leadSearch, setLeadSearch] = useState("");
+
+  const [templateVariables, setTemplateVariables] = useState<string[]>([]);
   const [submittingKey, setSubmittingKey] = useState("");
+  const [timeRange, setTimeRange] = useState<RangeKey>("last_4_weeks");
+
+  const [removeLeadOpen, setRemoveLeadOpen] = useState(false);
+  const [removeLead, setRemoveLead] = useState<ContactRow | null>(null);
+
+  const [metricMenuOpen, setMetricMenuOpen] = useState(false);
+  const [metricSearch, setMetricSearch] = useState("");
+  const [includeAutoReplies, setIncludeAutoReplies] = useState(true);
+  const [visibleMetrics, setVisibleMetrics] =
+    useState<Record<MetricKey, boolean>>(defaultVisibleMetrics);
+
+  const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [expandedTemplateGroups, setExpandedTemplateGroups] = useState<Record<string, boolean>>({
+    custom_templates: true,
+    lead_generation: true,
+    leadgen_agency: false,
+    video_production: false,
+    marketing_advertising: false,
+    coaching: false,
+    appointment_setting: false,
+    influencer_marketing: false,
+    growth_agency: false,
+    follow_ups: false,
+    tiktok_agency: false,
+  });
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("lead_generation_quick_question");
+
+  const [sequenceInsertTarget, setSequenceInsertTarget] = useState<{
+    stepIndex: number;
+    field: "subject" | "body";
+  } | null>(null);
 
   const flowType: CampaignFlowType = campaign?.flowType || "standard_brand";
-  const flowCopy = getFlowCopy(flowType);
+  const [isVariablesMenuOpen, setIsVariablesMenuOpen] = useState(false);
+
+  async function showApiError(error: unknown, fallback: string) {
+    setMessage({
+      type: "error",
+      text: await getApiErrorMessage(error, fallback),
+    });
+  }
 
   async function loadTimezoneOptions(preferredTimezone?: string) {
     const fallbackTimezone = preferredTimezone || configuration.schedule.timezone || "UTC";
@@ -560,81 +1128,98 @@ export default function CampaignDetailPage() {
         .map((item: any) => {
           const value = item?.timezone || item?.value || item?.name || "";
           if (!value) return null;
-          const label = item?.label || item?.displayName || `${value}${item?.offsetLabel ? ` (${item.offsetLabel})` : ""}`;
           return {
             value,
-            label,
+            label:
+              item?.label ||
+              item?.displayName ||
+              `${value}${item?.offsetLabel ? ` (${item.offsetLabel})` : ""}`,
             offsetLabel: item?.offsetLabel,
             nowLocal: item?.nowLocal || null,
           };
         })
         .filter(Boolean) as TimezoneOption[];
 
-      const uniqueOptions = Array.from(new Map(mappedOptions.map((item) => [item.value, item])).values());
+      const uniqueOptions = Array.from(
+        new Map(mappedOptions.map((item) => [item.value, item])).values()
+      );
+
       const hasFallback = uniqueOptions.some((item) => item.value === fallbackTimezone);
 
       setScheduleTimezoneOptions(
         hasFallback
           ? uniqueOptions
-          : [
-              ...uniqueOptions,
-              {
-                value: fallbackTimezone,
-                label: fallbackTimezone,
-              },
-            ]
+          : [...uniqueOptions, { value: fallbackTimezone, label: fallbackTimezone }]
       );
     } catch {
-      setScheduleTimezoneOptions([
-        {
-          value: fallbackTimezone,
-          label: fallbackTimezone,
-        },
-      ]);
+      setScheduleTimezoneOptions([{ value: fallbackTimezone, label: fallbackTimezone }]);
     }
   }
 
   async function loadPage(showLoader = true) {
     try {
       if (showLoader) setLoading(true);
-      setMessage(null);
 
-      const [campaignPayload, contactsPayload] = await Promise.all([
-        adminGet(`/outreach/campaigns/${campaignId}`),
-        adminGet(`/outreach/campaigns/${campaignId}/contacts`),
-      ]);
+      const [campaignPayload, contactsPayload, overviewPayload, stepsPayload, templateVarsPayload] =
+        await Promise.all([
+          adminGet(`/outreach/campaigns/${campaignId}`),
+          adminGet(`/outreach/campaigns/${campaignId}/contacts`),
+          adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange }).catch(() => null),
+          adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange }).catch(() => null),
+          adminGet(`/outreach/campaigns/${campaignId}/template-variables`).catch(() => null),
+        ]);
 
       const nextCampaign = parseCampaign(campaignPayload);
+      const nextContacts = parseContacts(contactsPayload);
+
       setCampaign(nextCampaign);
-      setContacts(parseContacts(contactsPayload));
+      setContacts(nextContacts);
 
       if (nextCampaign) {
         setConfiguration(nextCampaign.configuration);
         setSelectedScheduleIndex(0);
         await loadTimezoneOptions(nextCampaign.configuration.schedule.timezone);
       }
+
+      setOverview(parseOverview(overviewPayload, nextCampaign, nextContacts));
+      setStepAnalytics(parseStepAnalytics(stepsPayload, nextCampaign));
+
+      const varsFromApi = Array.isArray(templateVarsPayload?.data?.templateVariables)
+        ? templateVarsPayload.data.templateVariables
+        : [];
+
+      const varsFromCampaign = Array.isArray(nextCampaign?.templateVariables)
+        ? nextCampaign.templateVariables
+        : [];
+
+      setTemplateVariables(varsFromApi.length ? varsFromApi : varsFromCampaign);
+
+      if (Array.isArray(nextCampaign?.csvSchema?.columns) && nextCampaign.csvSchema.columns.length) {
+        setCsvPreviewColumns(nextCampaign.csvSchema.columns);
+        setCsvPreviewFileName(nextCampaign.csvSchema.fileName || "");
+        setCsvPreviewTotalRows(nextCampaign.csvSchema.totalRows || 0);
+      }
     } catch (error) {
-      setMessage({
-        type: "error",
-        text: error instanceof Error ? error.message : "Failed to load campaign",
-      });
+      await showApiError(error, "Failed to load campaign");
     } finally {
       if (showLoader) setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (campaignId) {
-      void loadPage(true);
-    }
-  }, [campaignId]);
+    if (campaignId) void loadPage(true);
+  }, [campaignId, timeRange]);
 
   useEffect(() => {
-    const total = configuration.schedule.windows.length;
-    if (selectedScheduleIndex > total - 1) {
-      setSelectedScheduleIndex(Math.max(0, total - 1));
-    }
-  }, [configuration.schedule.windows.length, selectedScheduleIndex]);
+    const timer = setTimeout(() => setMessage(null), 3500);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  function updateCsvPreviewColumn(header: string, patch: Partial<CsvPreviewColumn>) {
+    setCsvPreviewColumns((prev) =>
+      prev.map((col) => (col.header === header ? { ...col, ...patch } : col))
+    );
+  }
 
   function updateStep(stepIndex: number, patch: Partial<CampaignSequenceStep>) {
     setConfiguration((prev) => ({
@@ -651,40 +1236,13 @@ export default function CampaignDetailPage() {
       sequences: prev.sequences.map((step, index) =>
         index === stepIndex
           ? {
-              ...step,
-              variants: step.variants.map((variant, variantIndex) =>
-                variantIndex === 0 ? { ...variant, ...patch } : variant
-              ),
-            }
+            ...step,
+            variants: step.variants.map((variant, variantIndex) =>
+              variantIndex === 0 ? { ...variant, ...patch } : variant
+            ),
+          }
           : step
       ),
-    }));
-  }
-
-  function addSequenceStep() {
-    setConfiguration((prev) => ({
-      ...prev,
-      sequences: [
-        ...prev.sequences,
-        {
-          stepOrder: prev.sequences.length + 1,
-          type: "email",
-          delay: 2,
-          delayUnit: "days",
-          preDelay: 0,
-          preDelayUnit: "days",
-          variants: [{ subject: "", body: "" }],
-        },
-      ],
-    }));
-  }
-
-  function removeSequenceStep(stepIndex: number) {
-    setConfiguration((prev) => ({
-      ...prev,
-      sequences: prev.sequences
-        .filter((_, index) => index !== stepIndex)
-        .map((step, index) => ({ ...step, stepOrder: index + 1 })),
     }));
   }
 
@@ -714,34 +1272,27 @@ export default function CampaignDetailPage() {
     updateScheduleWindow(selectedScheduleIndex, patch);
   }
 
-  function toggleScheduleDay(index: number, dayKey: string) {
+  function toggleActiveScheduleDay(dayKey: string) {
     setConfiguration((prev) => ({
       ...prev,
       schedule: {
         ...prev.schedule,
         windows: prev.schedule.windows.map((windowItem, itemIndex) =>
-          itemIndex === index
+          itemIndex === selectedScheduleIndex
             ? {
-                ...windowItem,
-                days: {
-                  ...windowItem.days,
-                  [dayKey]: !windowItem.days?.[dayKey],
-                },
-              }
+              ...windowItem,
+              days: {
+                ...windowItem.days,
+                [dayKey]: !windowItem.days?.[dayKey],
+              },
+            }
             : windowItem
         ),
       },
     }));
   }
 
-  function toggleActiveScheduleDay(dayKey: string) {
-    toggleScheduleDay(selectedScheduleIndex, dayKey);
-  }
-
   function addScheduleWindow() {
-    const nextIndex = configuration.schedule.windows.length;
-    const baseWindow = configuration.schedule.windows[0] || createNewScheduleWindow(0);
-
     setConfiguration((prev) => ({
       ...prev,
       schedule: {
@@ -750,15 +1301,14 @@ export default function CampaignDetailPage() {
           ...prev.schedule.windows,
           {
             name: `Schedule ${prev.schedule.windows.length + 1}`,
-            from: baseWindow.from || "09:00",
-            to: baseWindow.to || "18:00",
-            days: { ...(baseWindow.days || createDefaultDays()) },
+            from: "09:00",
+            to: "18:00",
+            days: createDefaultDays(),
           },
         ],
       },
     }));
-
-    setSelectedScheduleIndex(nextIndex);
+    setSelectedScheduleIndex(configuration.schedule.windows.length);
   }
 
   function removeActiveScheduleWindow() {
@@ -778,7 +1328,6 @@ export default function CampaignDetailPage() {
   async function handleSaveConfiguration(syncNow = false) {
     try {
       setSubmittingKey(syncNow ? "save-sync" : "save-config");
-      setMessage(null);
 
       const payload: any = await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
         configuration,
@@ -791,22 +1340,12 @@ export default function CampaignDetailPage() {
 
       setMessage({
         type: "success",
-        text:
-          payload?.message ||
-          (syncNow
-            ? "Campaign configuration saved and synced successfully"
-            : "Campaign configuration saved successfully"),
+        text: payload?.message || "Campaign configuration saved successfully",
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text:
-          error?.response?.data?.message ||
-          error?.message ||
-          "Failed to save campaign configuration",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to save campaign configuration");
     } finally {
       setSubmittingKey("");
     }
@@ -815,9 +1354,8 @@ export default function CampaignDetailPage() {
   async function handleDirectSync() {
     try {
       setSubmittingKey("sync");
-      setMessage(null);
-
       const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/sync`);
+
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to sync campaign");
       }
@@ -828,46 +1366,78 @@ export default function CampaignDetailPage() {
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text: error?.response?.data?.message || error?.message || "Failed to sync campaign",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to sync campaign");
     } finally {
       setSubmittingKey("");
     }
   }
 
-  async function handleCsvUpload() {
+  async function handlePreviewCsv(file: File) {
+    try {
+      setSubmittingKey("csv-preview");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const payload: any = await adminPostFormData(
+        `/outreach/campaigns/${campaignId}/contacts/csv/preview`,
+        formData
+      );
+
+      const preview = payload?.data;
+      setCsvFile(file);
+      setCsvPreviewColumns(Array.isArray(preview?.columns) ? preview.columns : []);
+      setCsvPreviewFileName(preview?.fileName || file.name);
+      setCsvPreviewTotalRows(preview?.totalRows || 0);
+      setTemplateVariables(Array.isArray(preview?.templateVariables) ? preview.templateVariables : []);
+
+      setMessage({
+        type: "success",
+        text: "CSV processed successfully",
+      });
+    } catch (error) {
+      await showApiError(error, "Failed to preview CSV");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleConfirmCsvImport() {
     try {
       if (!csvFile) {
         throw new Error("Please select a CSV file");
       }
 
-      setSubmittingKey("csv");
-      setMessage(null);
+      setSubmittingKey("csv-import");
 
       const formData = new FormData();
       formData.append("file", csvFile);
+      formData.append("columns", JSON.stringify(csvPreviewColumns));
 
-      const payload: any = await adminPostFormData(`/outreach/campaigns/${campaignId}/contacts/csv`, formData);
+      const payload: any = await adminPostFormData(
+        `/outreach/campaigns/${campaignId}/contacts/csv`,
+        formData
+      );
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to upload CSV");
       }
+
+      setTemplateVariables(
+        Array.isArray(payload?.data?.templateVariables)
+          ? payload.data.templateVariables
+          : templateVariables
+      );
 
       setMessage({
         type: "success",
         text: payload?.message || "CSV uploaded successfully",
       });
 
-      setCsvFile(null);
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text: error?.response?.data?.message || error?.message || "Failed to upload CSV",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to upload CSV");
     } finally {
       setSubmittingKey("");
     }
@@ -875,16 +1445,10 @@ export default function CampaignDetailPage() {
 
   async function handleManualAdd() {
     try {
-      if (!manualForm.entityName.trim()) {
-        throw new Error(`${flowCopy.entityLabel} name is required`);
-      }
-
-      if (!manualForm.contactEmail.trim()) {
-        throw new Error("Contact email is required");
-      }
+      if (!manualForm.entityName.trim()) throw new Error("Brand/Influencer name is required");
+      if (!manualForm.contactEmail.trim()) throw new Error("Contact email is required");
 
       setSubmittingKey("manual");
-      setMessage(null);
 
       const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/contacts/manual`, {
         companyName: manualForm.entityName.trim(),
@@ -893,7 +1457,7 @@ export default function CampaignDetailPage() {
       });
 
       if (payload?.success === false) {
-        throw new Error(payload?.message || "Failed to add manual contact");
+        throw new Error(payload?.message || "Failed to add manual lead");
       }
 
       setManualForm({
@@ -904,16 +1468,12 @@ export default function CampaignDetailPage() {
 
       setMessage({
         type: "success",
-        text: payload?.message || "Manual contact added successfully",
+        text: payload?.message || "Lead added successfully",
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text:
-          error?.response?.data?.message || error?.message || "Failed to add manual contact",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to add manual lead");
     } finally {
       setSubmittingKey("");
     }
@@ -921,16 +1481,14 @@ export default function CampaignDetailPage() {
 
   async function handleGoogleSheetImport() {
     try {
-      if (!sheetUrl.trim()) {
-        throw new Error("Google Sheets URL is required");
-      }
+      if (!sheetUrl.trim()) throw new Error("Google Sheets URL is required");
 
       setSubmittingKey("sheet");
-      setMessage(null);
 
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/contacts/google-sheet`, {
-        sheetUrl: sheetUrl.trim(),
-      });
+      const payload: any = await adminPost(
+        `/outreach/campaigns/${campaignId}/contacts/google-sheet`,
+        { sheetUrl: sheetUrl.trim() }
+      );
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to import Google Sheet");
@@ -943,12 +1501,8 @@ export default function CampaignDetailPage() {
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text:
-          error?.response?.data?.message || error?.message || "Failed to import Google Sheet",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to import Google Sheet");
     } finally {
       setSubmittingKey("");
     }
@@ -957,9 +1511,9 @@ export default function CampaignDetailPage() {
   async function handleLaunch() {
     try {
       setSubmittingKey("launch");
-      setMessage(null);
 
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/launch`);
+      const route = campaign?.status === "paused" ? "activate" : "launch";
+      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/${route}`);
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to launch campaign");
@@ -971,12 +1525,8 @@ export default function CampaignDetailPage() {
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text:
-          error?.response?.data?.message || error?.message || "Failed to launch campaign",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to update campaign");
     } finally {
       setSubmittingKey("");
     }
@@ -985,7 +1535,6 @@ export default function CampaignDetailPage() {
   async function handlePause() {
     try {
       setSubmittingKey("pause");
-      setMessage(null);
 
       const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/pause`);
 
@@ -999,26 +1548,144 @@ export default function CampaignDetailPage() {
       });
 
       await loadPage(false);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text: error?.response?.data?.message || error?.message || "Failed to pause campaign",
-      });
+    } catch (error) {
+      await showApiError(error, "Failed to pause campaign");
     } finally {
       setSubmittingKey("");
     }
   }
 
+  async function handleShare() {
+    try {
+      setSubmittingKey("share");
+
+      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/share`);
+      const shareLink =
+        payload?.data?.shareLink ||
+        campaign?.instantly?.shareLink ||
+        "";
+
+      if (!shareLink || !/^https?:\/\//i.test(String(shareLink))) {
+        setMessage({
+          type: "info",
+          text: payload?.message || "Campaign shared, but no share link was returned",
+        });
+        return;
+      }
+
+      await navigator.clipboard.writeText(String(shareLink));
+
+      setMessage({
+        type: "success",
+        text: "Share link copied to clipboard",
+      });
+    } catch (error) {
+      await showApiError(error, "Failed to share campaign");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleLeadStageChange(prospectId: string, stage: string) {
+    try {
+      setSubmittingKey(`stage-${prospectId}`);
+
+      const payload: any = await adminPatch(
+        `/outreach/campaigns/${campaignId}/contacts/${prospectId}/stage`,
+        { stage }
+      );
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to update lead stage");
+      }
+
+      setContacts((prev) =>
+        prev.map((item) => (item._id === prospectId ? { ...item, stage } : item))
+      );
+
+      setMessage({
+        type: "success",
+        text: payload?.message || "Lead stage updated successfully",
+      });
+    } catch (error) {
+      await showApiError(error, "Failed to update lead stage");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  function openRemoveLead(row: ContactRow) {
+    setRemoveLead(row);
+    setRemoveLeadOpen(true);
+  }
+
+  async function handleRemoveLead() {
+    if (!removeLead) return;
+
+    try {
+      setSubmittingKey(`remove-${removeLead._id}`);
+
+      const payload: any = await adminDelete(
+        `/outreach/campaigns/${campaignId}/contacts/${removeLead._id}`
+      );
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to remove lead");
+      }
+
+      setRemoveLeadOpen(false);
+      setRemoveLead(null);
+
+      setMessage({
+        type: "success",
+        text: payload?.message || "Lead removed successfully",
+      });
+
+      await loadPage(false);
+    } catch (error) {
+      await showApiError(error, "Failed to remove lead");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  function copyTemplateVariable(variable: string) {
+    navigator.clipboard.writeText(variable);
+    setMessage({
+      type: "success",
+      text: `${variable} copied`,
+    });
+  }
+
+  const filteredContacts = useMemo(() => {
+    const query = leadSearch.trim().toLowerCase();
+    if (!query) return contacts;
+
+    return contacts.filter((row) => {
+      const haystack = [
+        row.companyName,
+        row.primaryContact?.name,
+        row.primaryContact?.email,
+        row.stage,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [contacts, leadSearch]);
+
+
   const contactColumns: AdminTableColumn<ContactRow>[] = useMemo(
     () => [
       {
         id: "companyName",
-        header: flowCopy.entityLabel,
+        header: "Lead",
         sortable: true,
         render: (row) => (
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-              {(row.companyName || "C").charAt(0).toUpperCase()}
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+              {(row.companyName || "L").charAt(0).toUpperCase()}
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-900">{row.companyName || "—"}</p>
@@ -1029,902 +1696,1678 @@ export default function CampaignDetailPage() {
       },
       {
         id: "contactName",
-        header: flowCopy.contactLabel,
+        header: "Contact",
         render: (row) => (
           <div>
-            <p className="text-sm font-medium text-slate-800">{row.primaryContact?.name || "—"}</p>
-            <p className="mt-1 text-xs text-slate-500">{row.primaryContact?.email || "—"}</p>
+            <p className="text-sm font-medium text-slate-800">
+              {row.primaryContact?.name || "—"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {row.primaryContact?.email || "—"}
+            </p>
           </div>
         ),
       },
       {
         id: "stage",
         header: "Stage",
-        sortable: true,
         render: (row) => (
-          <span className={cx("inline-flex rounded-md px-2.5 py-1 text-xs font-semibold", getStagePillClasses(row.stage))}>
-            {row.stage || "—"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={cx(
+                "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                getStagePillClasses(row.stage)
+              )}
+            >
+              {row.stage || "—"}
+            </span>
+            <select
+              value={row.stage || "new"}
+              onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
+              disabled={submittingKey === `stage-${row._id}`}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+            >
+              {stageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         ),
       },
       {
         id: "launchedAt",
         header: "Launched",
-        render: (row) => <span className="text-sm text-slate-600">{formatDate(row.launchedAt)}</span>,
+        render: (row) => (
+          <span className="text-sm text-slate-600">{formatDate(row.launchedAt)}</span>
+        ),
+      },
+      {
+        id: "actions",
+        header: "Actions",
+        render: (row) => (
+          <button
+            type="button"
+            onClick={() => openRemoveLead(row)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        ),
       },
     ],
-    [flowCopy.contactLabel, flowCopy.entityLabel]
+    [submittingKey]
   );
 
-  const scheduleWindows = configuration.schedule.windows.length
-    ? configuration.schedule.windows
-    : getDefaultConfiguration(flowType).schedule.windows;
   const activeScheduleWindow =
-    scheduleWindows[Math.min(selectedScheduleIndex, scheduleWindows.length - 1)] || scheduleWindows[0];
+    configuration.schedule.windows[Math.min(selectedScheduleIndex, configuration.schedule.windows.length - 1)] ||
+    configuration.schedule.windows[0];
 
-  const totalProspects = campaign?.stats?.totalProspects || contacts.length || 0;
-  const totalReplies = campaign?.stats?.totalReplies || 0;
-  const totalQualified = campaign?.stats?.totalQualified || 0;
-  const totalAssigned = campaign?.stats?.totalAssigned || 0;
-  const replyRate = totalProspects > 0 ? ((totalReplies / totalProspects) * 100).toFixed(1) : "0.0";
+  const totalLeads = overview.totalProspects || campaign?.stats?.totalProspects || contacts.length || 0;
+  const totalSent = overview.totalSent || campaign?.stats?.totalSent || 0;
+  const totalOpened = overview.totalOpened || campaign?.stats?.totalOpened || 0;
+  const totalClicked = overview.totalClicked || campaign?.stats?.totalClicked || 0;
+  const totalReplies = overview.totalReplies || campaign?.stats?.totalReplies || 0;
+  const totalOpportunities = overview.totalOpportunities || campaign?.stats?.totalOpportunities || 0;
+  const totalQualified = overview.totalQualified || campaign?.stats?.totalQualified || 0;
+  const totalAssigned = overview.totalAssigned || campaign?.stats?.totalAssigned || 0;
+  const progressPercent = overview.progressPercent || campaign?.stats?.progressPercent || 0;
 
-  const stageCounts = useMemo(() => {
+  const clickRate =
+    overview.clickRate !== null && overview.clickRate !== undefined
+      ? `${overview.clickRate}%`
+      : totalSent > 0
+        ? `${Math.round((totalClicked / totalSent) * 100)}%`
+        : "0%";
+
+  const openRateText =
+    configuration.sendingOptions.openTracking === false
+      ? "Disabled"
+      : overview.openRate !== null && overview.openRate !== undefined
+        ? `${overview.openRate}%`
+        : totalSent > 0 && totalOpened > 0
+          ? `${Math.round((totalOpened / totalSent) * 100)}%`
+          : "Enabled";
+
+  const replyRate =
+    totalSent > 0 ? `${Math.round((totalReplies / totalSent) * 100)}%` : "0%";
+
+  const positiveReplyRate =
+    totalReplies > 0 ? `${Math.round((totalQualified / totalReplies) * 100)}%` : "0%";
+
+  const topActionIsPause = campaign?.status === "launched";
+  const topActionLabel =
+    campaign?.status === "paused"
+      ? "Resume campaign"
+      : campaign?.status === "launched"
+        ? "Pause campaign"
+        : "Launch campaign";
+
+  const metricDefinitions: MetricDefinition[] = [
+    {
+      key: "sequence_started",
+      label: "Sequence started",
+      value: overview.sequenceStartedAt ? formatDate(overview.sequenceStartedAt) : "-",
+      icon: <CalendarDays className="h-4 w-4" />,
+    },
+    {
+      key: "open_rate",
+      label: "Open rate",
+      value: openRateText,
+      icon: <Mail className="h-4 w-4" />,
+    },
+    {
+      key: "click_rate",
+      label: "Click rate",
+      value: clickRate,
+      subValue: "-",
+      icon: <MousePointerClick className="h-4 w-4" />,
+    },
+    {
+      key: "reply_rate",
+      label: "Reply rate",
+      value: replyRate,
+      subValue: "-",
+      icon: <Reply className="h-4 w-4" />,
+    },
+    {
+      key: "positive_reply_rate",
+      label: "Positive Reply Rate",
+      value: positiveReplyRate,
+      subValue: "-",
+      icon: <Sparkles className="h-4 w-4" />,
+    },
+    {
+      key: "opportunities",
+      label: "Opportunities",
+      value: totalOpportunities,
+      subValue: "$0",
+      icon: <Target className="h-4 w-4" />,
+    },
+    {
+      key: "conversions",
+      label: "Conversions",
+      value: totalQualified,
+      subValue: "$0",
+      icon: <CheckCircle2 className="h-4 w-4" />,
+    },
+  ];
+
+  const visibleMetricCards = metricDefinitions.filter((metric) => visibleMetrics[metric.key]);
+  const filteredMetricList = metricDefinitions.filter((metric) =>
+    metric.label.toLowerCase().includes(metricSearch.trim().toLowerCase())
+  );
+
+  const stageStats = useMemo(() => {
     return contacts.reduce(
-      (acc, row) => {
-        const key = (row.stage || "new").toLowerCase();
-
-        if (key.includes("assigned_to_ime")) acc.assignedToIme += 1;
-        else if (key.includes("assigned_to_bme")) acc.assignedToBme += 1;
-        else if (key.includes("qualified")) acc.qualified += 1;
-        else if (key.includes("reply")) acc.replied += 1;
-        else if (key.includes("unqualified")) acc.unqualified += 1;
-        else acc.new += 1;
-
+      (acc, item) => {
+        const stage = (item.stage || "new").toLowerCase();
+        if (stage.includes("reply")) acc.replied += 1;
+        if (stage.includes("assigned_to_bme")) acc.assignedToBme += 1;
+        if (stage.includes("assigned_to_ime")) acc.assignedToIme += 1;
+        if (stage.includes("qualified")) acc.qualified += 1;
         return acc;
       },
       {
-        new: 0,
         replied: 0,
-        qualified: 0,
         assignedToBme: 0,
         assignedToIme: 0,
-        unqualified: 0,
+        qualified: 0,
       }
     );
   }, [contacts]);
 
-  const selectedTimezoneOption =
-    scheduleTimezoneOptions.find((option) => option.value === configuration.schedule.timezone) || null;
+  const [selectedSequenceStepIndex, setSelectedSequenceStepIndex] = useState(0);
 
-  const senderLabel =
-    campaign?.instantly?.senderAccountEmail ||
-    campaign?.instantly?.accountEmails?.[0] ||
-    "—";
+  const selectedSequenceStep =
+    configuration.sequences[selectedSequenceStepIndex] || configuration.sequences[0];
 
-  const pipelineValue =
-    flowType === "ime_influencer" ? stageCounts.assignedToIme : totalAssigned;
+  const selectedSequenceVariant =
+    selectedSequenceStep?.variants?.[0] || { subject: "", body: "" };
+
+  function updateSelectedStep(patch: Partial<CampaignSequenceStep>) {
+    updateStep(selectedSequenceStepIndex, patch);
+  }
+
+  function updateSelectedVariant(patch: Partial<CampaignSequenceVariant>) {
+    updateVariant(selectedSequenceStepIndex, patch);
+  }
+
+  function handleAddSequenceStepInstantlyStyle() {
+    setConfiguration((prev): CampaignConfiguration => {
+      const nextStep: CampaignSequenceStep = {
+        stepOrder: prev.sequences.length + 1,
+        type: "email",
+        delay: prev.sequences.length === 0 ? 0 : 1,
+        delayUnit: "days",
+        preDelay: 0,
+        preDelayUnit: "days",
+        variants: [{ subject: "", body: "" }],
+      };
+
+      const nextSequences: CampaignSequenceStep[] = [
+        ...prev.sequences,
+        nextStep,
+      ];
+
+      return {
+        ...prev,
+        sequences: nextSequences,
+      };
+    });
+
+    setTimeout(() => {
+      setSelectedSequenceStepIndex(configuration.sequences.length);
+    }, 0);
+  }
+
+  function handleRemoveSequenceStepInstantlyStyle(index: number) {
+    if (configuration.sequences.length <= 1) return;
+
+    setConfiguration((prev) => ({
+      ...prev,
+      sequences: prev.sequences
+        .filter((_, stepIndex) => stepIndex !== index)
+        .map((step, stepIndex) => ({
+          ...step,
+          stepOrder: stepIndex + 1,
+        })),
+    }));
+
+    setSelectedSequenceStepIndex((current) => {
+      if (current > index) return current - 1;
+      if (current === index) return Math.max(0, index - 1);
+      return current;
+    });
+  }
+
+  function getInstantlySequenceCardSubject(step: CampaignSequenceStep, index: number) {
+    const subject = step?.variants?.[0]?.subject?.trim();
+    if (subject) return subject;
+    if (index === 0) return "<Empty subject>";
+    return "<Previous email's subject>";
+  }
+
+  function getInstantlyStepDelayLabel(step: CampaignSequenceStep, index: number) {
+    if (index === 0) return "Sends on campaign launch";
+    return `Send next message in ${step.delay} ${step.delayUnit}`;
+  }
+
+  type SequenceVariableOption = {
+    label: string;
+    value: string;
+  };
+
+  function formatSequenceVariableLabel(variable: string) {
+    const cleaned = variable.replace(/[{}]/g, "").trim();
+
+    const spaced = cleaned
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return spaced
+      .split(" ")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  }
+
+  const sequenceVariableOptions = useMemo<SequenceVariableOption[]>(() => {
+    const uniqueValues = Array.from(new Set(templateVariables || []));
+
+    return uniqueValues.map((variable) => ({
+      label: formatSequenceVariableLabel(variable),
+      value: variable,
+    }));
+  }, [templateVariables]);
+
+  function handleInsertSequenceVariable(variable: string) {
+    const target = sequenceInsertTarget || {
+      stepIndex: selectedSequenceStepIndex,
+      field: "body" as const,
+    };
+
+    setConfiguration((prev) => ({
+      ...prev,
+      sequences: prev.sequences.map((step, index) => {
+        if (index !== target.stepIndex) return step;
+
+        return {
+          ...step,
+          variants: step.variants.map((variant, variantIndex) => {
+            if (variantIndex !== 0) return variant;
+
+            if (target.field === "subject") {
+              return {
+                ...variant,
+                subject: `${variant.subject || ""}${variable}`,
+              };
+            }
+
+            return {
+              ...variant,
+              body: `${variant.body || ""}${variable}`,
+            };
+          }),
+        };
+      }),
+    }));
+
+    setIsVariablesMenuOpen(false);
+
+    setMessage({
+      type: "success",
+      text: `${variable} inserted`,
+    });
+  }
+
+  const filteredTemplateGroups = useMemo(() => {
+    const query = templateSearch.trim().toLowerCase();
+
+    return sequenceTemplateGroups.map((group) => {
+      if (!query) return group;
+
+      return {
+        ...group,
+        templates: group.templates.filter((template) => {
+          const haystack = [
+            template.title,
+            template.subject,
+            template.body,
+            group.title,
+          ]
+            .join(" ")
+            .toLowerCase();
+
+          return haystack.includes(query);
+        }),
+      };
+    });
+  }, [templateSearch]);
+
+  const flatFilteredTemplates = useMemo(() => {
+    return filteredTemplateGroups.flatMap((group) => group.templates);
+  }, [filteredTemplateGroups]);
+
+  const selectedTemplate =
+    flatFilteredTemplates.find((template) => template.id === selectedTemplateId) ||
+    sequenceTemplateGroups.flatMap((group) => group.templates).find((template) => template.id === selectedTemplateId) ||
+    null;
+
+  useEffect(() => {
+    if (!selectedTemplate && flatFilteredTemplates.length) {
+      setSelectedTemplateId(flatFilteredTemplates[0].id);
+    }
+  }, [selectedTemplate, flatFilteredTemplates]);
+
+  function toggleTemplateGroup(category: string) {
+    setExpandedTemplateGroups((prev) => ({
+      ...prev,
+      [category]: !prev[category],
+    }));
+  }
+
+  function handleUseTemplate() {
+    if (!selectedTemplate) return;
+
+    setConfiguration((prev) => ({
+      ...prev,
+      sequences: prev.sequences.map((step, index) => {
+        if (index !== selectedSequenceStepIndex) return step;
+
+        return {
+          ...step,
+          variants: step.variants.map((variant, variantIndex) => {
+            if (variantIndex !== 0) return variant;
+
+            return {
+              ...variant,
+              subject: selectedTemplate.subject || variant.subject || "",
+              body: selectedTemplate.body || variant.body || "",
+            };
+          }),
+        };
+      }),
+    }));
+
+    setIsTemplatesModalOpen(false);
+    setMessage({
+      type: "success",
+      text: `Template "${selectedTemplate.title}" applied`,
+    });
+  }
+
+  async function handleCopyTemplate() {
+    if (!selectedTemplate) return;
+
+    const copyText = `Subject: ${selectedTemplate.subject}\n\n${selectedTemplate.body}`;
+    await navigator.clipboard.writeText(copyText);
+
+    setMessage({
+      type: "success",
+      text: `Template "${selectedTemplate.title}" copied`,
+    });
+  }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fb] font-sans">
+    <div className="min-h-screen bg-[#f7f8fc] text-slate-900">
       {message && (
         <div
           className={cx(
-            "fixed right-4 top-4 z-50 rounded-xl px-4 py-3 text-sm font-medium shadow-lg",
+            "fixed right-5 top-5 z-50 rounded-2xl px-4 py-3 text-sm font-medium shadow-lg",
             message.type === "success" && "bg-emerald-600 text-white",
             message.type === "error" && "bg-red-600 text-white",
-            message.type === "info" && "bg-blue-600 text-white"
+            message.type === "info" && "bg-slate-900 text-white"
           )}
         >
           {message.text}
         </div>
       )}
 
-      <div className="sticky top-0 z-30 border-b border-slate-200 bg-white">
-        <div className="flex items-center justify-between gap-4 px-6 py-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-slate-400">Campaigns</span>
-              <span className="text-slate-300">/</span>
-              <span className="truncate font-semibold text-slate-800">{campaign?.name || "Campaign"}</span>
-              <span className={cx("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize", getStatusPillClasses(campaign?.status))}>
-                {campaign?.status || "draft"}
-              </span>
-              <span className={cx("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", getFlowPillClasses(flowType))}>
-                {getFlowLabel(flowType)}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-slate-400">
-              Sender: {senderLabel}
-            </p>
-          </div>
+      <div className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur">
+        <div className="px-6 pb-4 pt-5">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span
+                  className={cx(
+                    "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                    getStatusPillClasses(campaign?.status)
+                  )}
+                >
+                  {campaign?.status ? campaign.status.toUpperCase() : "DRAFT"}
+                </span>
 
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => handleSaveConfiguration(false)}
-              disabled={submittingKey !== ""}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-            >
-              {submittingKey === "save-config" ? "Saving…" : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={handleDirectSync}
-              disabled={submittingKey !== ""}
-              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-            >
-              {submittingKey === "sync" ? "Syncing…" : "Sync Now"}
-            </button>
-            {campaign?.status === "launched" ? (
+                <span
+                  className={cx(
+                    "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                    getFlowClasses(flowType)
+                  )}
+                >
+                  {getFlowLabel(flowType)}
+                </span>
+
+                {campaign?.sync?.lastErrorMessage ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    Sync issue
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                    <Check className="h-3.5 w-3.5" />
+                    Healthy
+                  </span>
+                )}
+              </div>
+
+              <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
+                {campaign?.name || "Campaign"}
+              </h1>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
+                <span>Sender: {campaign?.instantly?.senderAccountEmail || "—"}</span>
+                <span>Owner: {getAdminLabel(flowType === "ime_influencer" ? campaign?.IMEId : campaign?.sdrId)}</span>
+                <span>Instantly ID: {campaign?.instantly?.campaignId || "Not launched yet"}</span>
+                <span>Last analytics sync: {formatDateTime(campaign?.sync?.lastAnalyticsSyncedAt)}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={handlePause}
+                onClick={topActionIsPause ? handlePause : handleLaunch}
                 disabled={submittingKey !== ""}
-                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                className={cx(
+                  "inline-flex h-11 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition disabled:opacity-50",
+                  topActionIsPause
+                    ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                    : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
+                )}
               >
-                {submittingKey === "pause" ? "Pausing…" : "⏸ Pause campaign"}
+                {topActionIsPause ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4 text-emerald-500" />
+                )}
+                {submittingKey === "launch" || submittingKey === "pause"
+                  ? "Please wait..."
+                  : topActionLabel}
               </button>
-            ) : (
+
               <button
                 type="button"
-                onClick={handleLaunch}
+                onClick={handleDirectSync}
                 disabled={submittingKey !== ""}
-                className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
-                {submittingKey === "launch"
-                  ? "Launching…"
-                  : campaign?.status === "paused"
-                    ? "▶ Resume"
-                    : "▶ Launch"}
+                <RefreshCw className={cx("h-4 w-4", submittingKey === "sync" && "animate-spin")} />
+                Sync
               </button>
-            )}
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-1 overflow-x-auto px-6">
+        <div className="flex items-center gap-8 overflow-x-auto px-6">
           {pageTabs.map((tab) => (
             <button
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key)}
               className={cx(
-                "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-all",
+                "whitespace-nowrap border-b-2 pb-4 pt-1 text-[15px] font-medium transition",
                 activeTab === tab.key
-                  ? "border-blue-600 text-blue-700"
-                  : "border-transparent text-slate-500 hover:border-slate-200 hover:text-slate-700"
+                  ? "border-blue-600 text-blue-600"
+                  : "border-transparent text-slate-500 hover:text-slate-800"
               )}
             >
-              <span className="text-base">{tab.icon}</span>
               {tab.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1700px] px-6 py-6">
-        {activeTab === "overview" && (
+      <div className="mx-auto max-w-[1800px] px-6 py-8">
+        {activeTab === "analytics" && (
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-              <MetricCard
-                icon="📤"
-                label={`Total ${flowCopy.entityPluralLabel}`}
-                value={totalProspects.toLocaleString()}
-                sub="Campaign contact volume"
-                tone="blue"
-              />
-              <MetricCard
-                icon="💬"
-                label={flowCopy.replyMetricLabel}
-                value={totalReplies}
-                sub={`${replyRate}% reply rate`}
-                tone="green"
-              />
-              {flowType === "ime_influencer" ? (
-                <MetricCard
-                  icon="🧵"
-                  label={flowCopy.pipelineMetricLabel}
-                  value={pipelineValue}
-                  sub="Owned directly by IME"
-                  tone={flowCopy.pipelineTone}
-                />
-              ) : (
-                <MetricCard
-                  icon="✅"
-                  label="Qualified"
-                  value={totalQualified}
-                  sub="Approved in standard flow"
-                  tone="violet"
-                />
-              )}
-              <MetricCard
-                icon="📌"
-                label={flowType === "ime_influencer" ? "Active Flow Owner" : "Assigned to BME"}
-                value={flowType === "ime_influencer" ? getAdminLabel(campaign?.IMEId) : totalAssigned}
-                sub={flowType === "ime_influencer" ? "Direct IME ownership" : "Routed after RH review"}
-                tone={flowType === "ime_influencer" ? "fuchsia" : "amber"}
-              />
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <Card>
-                <SectionHeader title="Campaign Details" description={flowCopy.campaignDescription} />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {flowType === "ime_influencer" ? (
-                    <>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">IME</p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-800">{getAdminLabel(campaign?.IMEId)}</p>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">IME Mailbox</p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-800">{campaign?.teamMailboxes?.IMEEmail || "—"}</p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">SDR</p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-800">{getAdminLabel(campaign?.sdrId)}</p>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Revenue Head</p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-800">{getAdminLabel(campaign?.RHId)}</p>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">RH Mailbox</p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-800">{campaign?.teamMailboxes?.RHEmail || "—"}</p>
-                      </div>
-                    </>
-                  )}
-
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Primary Sender</p>
-                    <p className="mt-1 break-all text-sm font-medium text-slate-800">{senderLabel}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Created</p>
-                    <p className="mt-1 break-all text-sm font-medium text-slate-800">{formatDate(campaign?.createdAt)}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Launched</p>
-                    <p className="mt-1 break-all text-sm font-medium text-slate-800">{formatDate(campaign?.launchedAt)}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Instantly Campaign ID</p>
-                    <p className="mt-1 break-all text-sm font-medium text-slate-800">{campaign?.instantly?.campaignId || "—"}</p>
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Last Synced</p>
-                    <p className="mt-1 break-all text-sm font-medium text-slate-800">{formatDateTime(configuration.lastSyncedAt)}</p>
-                  </div>
-                </div>
-              </Card>
-
-              <Card>
-                <SectionHeader title="Flow Snapshot" description="Based on loaded campaign contacts" />
-                <div className="space-y-3">
-                  {[
-                    { label: "New", value: stageCounts.new, color: "bg-slate-400" },
-                    { label: "Replied", value: stageCounts.replied, color: "bg-blue-500" },
-                    flowType === "ime_influencer"
-                      ? { label: "Assigned to IME", value: stageCounts.assignedToIme, color: "bg-fuchsia-500" }
-                      : { label: "Qualified", value: stageCounts.qualified, color: "bg-emerald-500" },
-                    flowType === "ime_influencer"
-                      ? { label: "Unqualified", value: stageCounts.unqualified, color: "bg-rose-500" }
-                      : { label: "Assigned to BME", value: stageCounts.assignedToBme || totalAssigned, color: "bg-violet-500" },
-                  ].map((item) => (
-                    <div key={item.label}>
-                      <div className="mb-1 flex items-center justify-between text-sm">
-                        <span className="text-slate-600">{item.label}</span>
-                        <span className="font-semibold text-slate-900">{item.value}</span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+            <ShellCard className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="inline-flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5">
+                    <span className="text-sm text-slate-500">Status:</span>
+                    <span
+                      className={cx(
+                        "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                        getStatusPillClasses(campaign?.status)
+                      )}
+                    >
+                      {campaign?.status ? campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1) : "Draft"}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-semibold text-slate-900">{progressPercent}%</span>
+                      <div className="h-1.5 w-[90px] overflow-hidden rounded-full bg-slate-200">
                         <div
-                          className={cx("h-full rounded-full", item.color)}
-                          style={{ width: `${contacts.length ? (item.value / contacts.length) * 100 : 0}%` }}
+                          className="h-full rounded-full bg-blue-600"
+                          style={{ width: `${progressPercent}%` }}
                         />
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </Card>
-            </div>
-          </div>
-        )}
 
-        {activeTab === "contacts" && (
-          <div className="space-y-6">
-            <div className="grid gap-5 xl:grid-cols-3">
-              <Card>
-                <SectionHeader title="Upload CSV" description={`Bulk import ${flowCopy.entityPluralLabel.toLowerCase()} from a structured file`} />
-                <div className="space-y-3">
-                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 p-6 transition hover:border-blue-300 hover:bg-blue-50">
-                    <span className="text-2xl">📁</span>
-                    <span className="text-sm font-medium text-slate-600">{csvFile ? csvFile.name : "Click to choose a CSV"}</span>
-                    <span className="text-xs text-slate-400">Supports .csv files</span>
-                    <input type="file" accept=".csv" className="sr-only" onChange={(e) => setCsvFile(e.target.files?.[0] || null)} />
-                  </label>
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={handleCsvUpload}
-                    disabled={submittingKey !== "" || !csvFile}
-                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-40"
+                    onClick={() =>
+                      setMessage({
+                        type: campaign?.sync?.lastErrorMessage ? "error" : "info",
+                        text:
+                          campaign?.sync?.lastErrorMessage ||
+                          "Campaign looks healthy.",
+                      })
+                    }
+                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
                   >
-                    {submittingKey === "csv" ? "Uploading…" : "Upload CSV"}
+                    <Wrench className="h-4 w-4" />
+                    Diagnose
                   </button>
-                </div>
-              </Card>
 
-              <Card>
-                <SectionHeader title="Manual Entry" description={flowCopy.contactsTabDescription} />
-                <div className="space-y-3">
-                  <input
-                    value={manualForm.entityName}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, entityName: e.target.value }))}
-                    placeholder={`${flowCopy.entityLabel} name`}
-                    className={inputClassName}
-                  />
-                  <input
-                    value={manualForm.contactName}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, contactName: e.target.value }))}
-                    placeholder={`${flowCopy.contactLabel} name`}
-                    className={inputClassName}
-                  />
-                  <input
-                    value={manualForm.contactEmail}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, contactEmail: e.target.value }))}
-                    placeholder={`${flowCopy.contactLabel} email`}
-                    className={inputClassName}
-                  />
                   <button
                     type="button"
-                    onClick={handleManualAdd}
-                    disabled={submittingKey !== ""}
-                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                    onClick={handleShare}
+                    disabled={submittingKey === "share"}
+                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                   >
-                    {submittingKey === "manual" ? "Adding…" : `Add ${flowCopy.entityLabel}`}
+                    <Share2 className="h-4 w-4" />
+                    {submittingKey === "share" ? "Sharing..." : "Share"}
                   </button>
-                </div>
-              </Card>
 
-              <Card>
-                <SectionHeader title="Google Sheets" description={`Paste a sheet URL to import ${flowCopy.entityPluralLabel.toLowerCase()}`} />
-                <div className="space-y-3">
-                  <textarea
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                    placeholder="https://docs.google.com/spreadsheets/d/..."
-                    rows={5}
-                    className={cx(inputClassName, "resize-y")}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleGoogleSheetImport}
-                    disabled={submittingKey !== ""}
-                    className="w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {submittingKey === "sheet" ? "Importing…" : "Import Sheet"}
-                  </button>
-                </div>
-              </Card>
-            </div>
+                  <div className="relative">
+                    <select
+                      value={timeRange}
+                      onChange={(e) => setTimeRange(e.target.value as RangeKey)}
+                      className="h-11 appearance-none rounded-2xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-medium text-slate-700 outline-none"
+                    >
+                      {rangeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
 
-            <Card>
-              <SectionHeader title={`${flowCopy.entityPluralLabel} in Campaign`} description={`${contacts.length} contacts loaded`} />
-              <div className="mb-5 grid grid-cols-2 gap-4 xl:grid-cols-4">
-                <MetricCard icon="👥" label={`Loaded ${flowCopy.entityPluralLabel}`} value={contacts.length} tone="blue" />
-                <MetricCard icon="💬" label="Replied" value={stageCounts.replied} tone="green" />
-                {flowType === "ime_influencer" ? (
-                  <MetricCard icon="🧵" label="Assigned to IME" value={stageCounts.assignedToIme} tone="fuchsia" />
-                ) : (
-                  <MetricCard icon="✅" label="Qualified" value={stageCounts.qualified} tone="violet" />
-                )}
-                <MetricCard
-                  icon="📌"
-                  label={flowType === "ime_influencer" ? "Unqualified" : "Assigned to BME"}
-                  value={flowType === "ime_influencer" ? stageCounts.unqualified : stageCounts.assignedToBme || totalAssigned}
-                  tone={flowType === "ime_influencer" ? "amber" : "amber"}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setMetricMenuOpen((prev) => !prev)}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </button>
+
+                    {metricMenuOpen && (
+                      <div className="absolute right-0 top-[52px] z-20 w-[320px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+                        <div className="border-b border-slate-100 p-3">
+                          <div className="relative">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <input
+                              value={metricSearch}
+                              onChange={(e) => setMetricSearch(e.target.value)}
+                              placeholder="Search..."
+                              className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-400"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="max-h-[360px] overflow-auto py-1">
+                          <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
+                            <div className="flex items-center gap-2">
+                              <span>Include auto replies</span>
+                              <CircleAlert className="h-3.5 w-3.5 text-slate-300" />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIncludeAutoReplies((prev) => !prev)}
+                              className={cx(
+                                "flex h-6 w-6 items-center justify-center rounded-full text-white",
+                                includeAutoReplies ? "bg-emerald-500" : "bg-slate-300"
+                              )}
+                            >
+                              <Check className="h-4 w-4" />
+                            </button>
+                          </label>
+
+                          {filteredMetricList.map((metric) => (
+                            <label
+                              key={metric.key}
+                              className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50"
+                            >
+                              <span>{metric.label}</span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setVisibleMetrics((prev) => ({
+                                    ...prev,
+                                    [metric.key]: !prev[metric.key],
+                                  }))
+                                }
+                                className={cx(
+                                  "flex h-6 w-6 items-center justify-center rounded-full text-white",
+                                  visibleMetrics[metric.key] ? "bg-emerald-500" : "bg-slate-300"
+                                )}
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </ShellCard>
+
+            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-5">
+              {visibleMetricCards.map((metric) => (
+                <KpiCard
+                  key={metric.key}
+                  label={metric.label}
+                  value={metric.value}
+                  subValue={metric.subValue}
+                  icon={metric.icon}
                 />
+              ))}
+            </div>
+
+            <ShellCard className="overflow-hidden">
+              <div className="border-b border-slate-100 px-6 py-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                    <BarChart3 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900">Performance snapshot</h3>
+                    <p className="text-sm text-slate-500">
+                      Quick campaign health summary for the selected time range
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <AdminTable
-                data={contacts}
-                columns={contactColumns}
-                rowKey={(row) => row._id}
-                loading={loading}
-                emptyTitle={loading ? "Loading contacts..." : "No contacts added"}
-                emptyDescription={`Use CSV upload, manual entry, or Google Sheets import for ${flowCopy.entityPluralLabel.toLowerCase()}.`}
-              />
-            </Card>
+              <div className="grid gap-0 xl:grid-cols-5">
+                {[
+                  { label: "Leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+                  { label: "Sent", value: totalSent, icon: <Mail className="h-4 w-4" /> },
+                  { label: "Opened", value: totalOpened, icon: <Sparkles className="h-4 w-4" /> },
+                  { label: "Replies", value: totalReplies, icon: <Reply className="h-4 w-4" /> },
+                  { label: "Qualified", value: totalQualified, icon: <Target className="h-4 w-4" /> },
+                ].map((item, index) => (
+                  <div
+                    key={item.label}
+                    className={cx(
+                      "flex items-center gap-4 px-6 py-6",
+                      index !== 4 && "border-b border-slate-100 xl:border-b-0 xl:border-r"
+                    )}
+                  >
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-600">
+                      {item.icon}
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-500">{item.label}</p>
+                      <p className="mt-1 text-2xl font-bold text-slate-900">{item.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ShellCard>
+
+            <ShellCard className="overflow-hidden">
+              <div className="border-b border-slate-100 px-6 pt-5">
+                <div className="flex items-center gap-6">
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsSubTab("step_analytics")}
+                    className={cx(
+                      "border-b-2 pb-4 text-base font-semibold",
+                      analyticsSubTab === "step_analytics"
+                        ? "border-blue-600 text-blue-600"
+                        : "border-transparent text-slate-500"
+                    )}
+                  >
+                    Step Analytics
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAnalyticsSubTab("activity")}
+                    className={cx(
+                      "border-b-2 pb-4 text-base font-semibold",
+                      analyticsSubTab === "activity"
+                        ? "border-blue-600 text-blue-600"
+                        : "border-transparent text-slate-500"
+                    )}
+                  >
+                    Activity
+                  </button>
+                </div>
+              </div>
+
+              {analyticsSubTab === "step_analytics" ? (
+                stepAnalytics.length ? (
+                  <div className="px-6 py-6">
+                    <div className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      <div>Step</div>
+                      <div>Sent</div>
+                      <div>Opened</div>
+                      <div>Replied</div>
+                      <div>Clicked</div>
+                      <div>Opportunities</div>
+                    </div>
+
+                    {stepAnalytics.map((step) => (
+                      <div
+                        key={`${step.stepOrder}-${step.label}`}
+                        className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                      >
+                        <div>
+                          <p className="font-medium text-slate-900">{step.label}</p>
+                          <p className="mt-1 text-xs text-slate-400">{step.subject || step.type}</p>
+                        </div>
+                        <div>{step.sent}</div>
+                        <div>{step.opened ?? "-"}</div>
+                        <div>{step.replied}</div>
+                        <div>{step.clicked}</div>
+                        <div>{step.opportunities}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-6 py-16">
+                    <p className="text-center text-2xl font-semibold text-slate-300">
+                      No data to show for specified time
+                    </p>
+                  </div>
+                )
+              ) : filteredContacts.length ? (
+                <div className="px-6 py-6">
+                  <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <div>Lead</div>
+                    <div>Stage</div>
+                    <div>Launched</div>
+                    <div>Thread</div>
+                  </div>
+
+                  {filteredContacts.slice(0, 20).map((row) => (
+                    <div
+                      key={row._id}
+                      className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                    >
+                      <div>
+                        <p className="font-medium text-slate-900">{row.companyName || "—"}</p>
+                        <p className="mt-1 text-xs text-slate-400">{row.primaryContact?.email || "—"}</p>
+                      </div>
+                      <div>
+                        <span className={cx("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", getStagePillClasses(row.stage))}>
+                          {row.stage || "—"}
+                        </span>
+                      </div>
+                      <div>{formatDate(row.launchedAt)}</div>
+                      <div>{row.instantly?.threadId || "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-6 py-16">
+                  <p className="text-center text-2xl font-semibold text-slate-300">No activity to show</p>
+                </div>
+              )}
+            </ShellCard>
           </div>
         )}
 
-        {activeTab === "sequence" && (
+        {activeTab === "leads" && (
           <div className="space-y-6">
-            <Card>
+            <div className="grid gap-6 xl:grid-cols-[1.35fr_1fr]">
+              <ShellCard className="p-6">
+                <SectionHeader
+                  title="CSV Mapping Import"
+                  description="Preview the file, map every column, then import"
+                  action={
+                    csvPreviewFileName ? (
+                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        File processed
+                      </span>
+                    ) : null
+                  }
+                />
+
+                <div className="space-y-4">
+                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 transition hover:border-blue-300 hover:bg-blue-50">
+                    <Upload className="h-8 w-8 text-slate-400" />
+                    <span className="text-base font-semibold text-slate-700">
+                      {csvFile ? csvFile.name : "Choose a CSV file"}
+                    </span>
+                    <span className="text-sm text-slate-400">Drop a file or click to browse</span>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) await handlePreviewCsv(file);
+                      }}
+                    />
+                  </label>
+
+                  {csvPreviewColumns.length > 0 ? (
+                    <div className="overflow-hidden rounded-3xl border border-slate-200">
+                      <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{csvPreviewFileName}</p>
+                            <p className="text-xs text-slate-500">{csvPreviewTotalRows} rows detected</p>
+                          </div>
+                          <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            Variables auto-generated
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="max-h-[470px] overflow-auto">
+                        <table className="min-w-full text-left">
+                          <thead className="sticky top-0 z-10 bg-white">
+                            <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              <th className="px-5 py-3">Column</th>
+                              <th className="px-5 py-3">Type</th>
+                              <th className="px-5 py-3">Variable</th>
+                              <th className="px-5 py-3">Samples</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {csvPreviewColumns.map((column) => (
+                              <tr key={column.header} className="border-b border-slate-100 align-top last:border-b-0">
+                                <td className="px-5 py-4">
+                                  <p className="text-sm font-semibold text-slate-900">{column.header}</p>
+                                  <p className="mt-1 text-xs text-slate-400">
+                                    Auto-detected: {column.inferredType.replaceAll("_", " ")}
+                                  </p>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <select
+                                    value={column.selectedType}
+                                    onChange={(e) =>
+                                      updateCsvPreviewColumn(column.header, {
+                                        selectedType: e.target.value as CsvColumnType,
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                                  >
+                                    {csvTypeOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <input
+                                    value={column.variableKey}
+                                    onChange={(e) =>
+                                      updateCsvPreviewColumn(column.header, {
+                                        variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                                      })
+                                    }
+                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
+                                  />
+                                  <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                    {`{{${column.variableKey}}}`}
+                                  </p>
+                                </td>
+                                <td className="px-5 py-4">
+                                  <div className="space-y-1">
+                                    {column.samples.map((sample, index) => (
+                                      <p key={index} className="text-sm text-slate-600">
+                                        {sample}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="flex items-center justify-end border-t border-slate-100 px-5 py-4">
+                        <button
+                          type="button"
+                          onClick={handleConfirmCsvImport}
+                          disabled={submittingKey !== ""}
+                          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                        >
+                          <Upload className="h-4 w-4" />
+                          {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-10 text-center">
+                      <p className="text-base font-semibold text-slate-700">Upload a CSV to preview mappings</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Every header will become an available template variable.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </ShellCard>
+
+              <div className="space-y-6">
+                <ShellCard className="p-6">
+                  <SectionHeader
+                    title="Quick add lead"
+                    description="Add one lead manually"
+                  />
+                  <div className="space-y-3">
+                    <input
+                      value={manualForm.entityName}
+                      onChange={(e) =>
+                        setManualForm((prev) => ({ ...prev, entityName: e.target.value }))
+                      }
+                      placeholder="Brand / Influencer name"
+                      className={inputClassName}
+                    />
+                    <input
+                      value={manualForm.contactName}
+                      onChange={(e) =>
+                        setManualForm((prev) => ({ ...prev, contactName: e.target.value }))
+                      }
+                      placeholder="Contact name"
+                      className={inputClassName}
+                    />
+                    <input
+                      value={manualForm.contactEmail}
+                      onChange={(e) =>
+                        setManualForm((prev) => ({ ...prev, contactEmail: e.target.value }))
+                      }
+                      placeholder="Contact email"
+                      className={inputClassName}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleManualAdd}
+                      disabled={submittingKey !== ""}
+                      className="w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {submittingKey === "manual" ? "Adding..." : "Add Lead"}
+                    </button>
+                  </div>
+                </ShellCard>
+
+                <ShellCard className="p-6">
+                  <SectionHeader
+                    title="Google Sheets import"
+                    description="Import a public Google Sheet"
+                  />
+                  <div className="space-y-3">
+                    <textarea
+                      value={sheetUrl}
+                      onChange={(e) => setSheetUrl(e.target.value)}
+                      placeholder="https://docs.google.com/spreadsheets/d/..."
+                      rows={5}
+                      className={cx(inputClassName, "resize-y")}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGoogleSheetImport}
+                      disabled={submittingKey !== ""}
+                      className="w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      {submittingKey === "sheet" ? "Importing..." : "Import Sheet"}
+                    </button>
+                  </div>
+                </ShellCard>
+
+                <ShellCard className="p-6">
+                  <SectionHeader
+                    title="Lead summary"
+                    description="Campaign pipeline snapshot"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+                      { label: "Replies", value: stageStats.replied, icon: <Reply className="h-4 w-4" /> },
+                      { label: "Assigned to BME", value: stageStats.assignedToBme, icon: <Target className="h-4 w-4" /> },
+                      { label: "Assigned to IME", value: stageStats.assignedToIme, icon: <Sparkles className="h-4 w-4" /> },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-slate-500">{item.label}</p>
+                          <div className="text-slate-400">{item.icon}</div>
+                        </div>
+                        <p className="mt-3 text-2xl font-bold text-slate-900">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </ShellCard>
+              </div>
+            </div>
+
+            <ShellCard className="p-6">
               <SectionHeader
-                title="Email Sequence"
-                description={flowCopy.sequenceDescription}
+                title="Leads"
+                description={`${filteredContacts.length} visible of ${contacts.length} total`}
                 action={
-                  <button
-                    type="button"
-                    onClick={addSequenceStep}
-                    className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-600 transition hover:bg-blue-100"
-                  >
-                    + Add Step
-                  </button>
+                  <div className="relative w-full max-w-[280px]">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={leadSearch}
+                      onChange={(e) => setLeadSearch(e.target.value)}
+                      placeholder="Search leads..."
+                      className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-400"
+                    />
+                  </div>
                 }
               />
 
-              <div className="space-y-4">
-                {configuration.sequences.map((step, index) => {
-                  const firstVariant = step.variants[0] || { subject: "", body: "" };
-                  return (
-                    <div key={index} className="overflow-hidden rounded-xl border border-slate-200">
-                      <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                            {step.stepOrder}
-                          </span>
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">Step {step.stepOrder} — Email</p>
-                            <p className="text-xs text-slate-500">
-                              Delay: <span className="font-medium text-slate-700">{step.delay} {step.delayUnit}</span>
-                              {step.preDelay > 0 ? (
-                                <>
-                                  {" "}· Pre-delay: <span className="font-medium text-slate-700">{step.preDelay} {step.preDelayUnit}</span>
-                                </>
-                              ) : null}
+              <AdminTable
+                data={filteredContacts}
+                columns={contactColumns}
+                rowKey={(row) => row._id}
+                loading={loading}
+                emptyTitle={loading ? "Loading leads..." : "No leads added"}
+                emptyDescription="Use CSV mapping import, manual entry, or Google Sheets import."
+              />
+            </ShellCard>
+          </div>
+        )}
+
+        {activeTab === "sequences" && (
+          <div className="grid gap-0 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm xl:grid-cols-[288px_minmax(0,1fr)]">
+            <div className="border-r border-slate-200 bg-[#fbfbfd]">
+              <div className="p-5">
+                <div className="space-y-4">
+                  {configuration.sequences.map((step, index) => {
+                    const isSelected = selectedSequenceStepIndex === index;
+
+                    return (
+                      <div
+                        key={`${step.stepOrder}-${index}`}
+                        className={cx(
+                          "overflow-hidden rounded-2xl border bg-white transition",
+                          isSelected
+                            ? "border-blue-500 ring-1 ring-blue-500"
+                            : "border-slate-200"
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSequenceStepIndex(index)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-5">
+                            <p className="text-[15px] font-semibold text-slate-900">
+                              Step {index + 1}
                             </p>
-                          </div>
-                        </div>
 
-                        {configuration.sequences.length > 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => removeSequenceStep(index)}
-                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-500 transition hover:bg-red-100"
-                          >
-                            Remove
-                          </button>
-                        ) : null}
-                      </div>
-
-                      <div className="grid gap-5 p-5 xl:grid-cols-[300px_1fr]">
-                        <div>
-                          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Timing</p>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Delay</label>
-                              <input
-                                type="number"
-                                value={step.delay}
-                                onChange={(e) => updateStep(index, { delay: Number(e.target.value || 0) })}
-                                className={inputClassName}
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Unit</label>
-                              <select
-                                value={step.delayUnit}
-                                onChange={(e) => updateStep(index, { delayUnit: e.target.value as CampaignSequenceStep["delayUnit"] })}
-                                className={inputClassName}
+                            {configuration.sequences.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleRemoveSequenceStepInstantlyStyle(index);
+                                }}
+                                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
                               >
-                                <option value="minutes">Minutes</option>
-                                <option value="hours">Hours</option>
-                                <option value="days">Days</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Pre-Delay</label>
-                              <input
-                                type="number"
-                                value={step.preDelay}
-                                onChange={(e) => updateStep(index, { preDelay: Number(e.target.value || 0) })}
-                                className={inputClassName}
-                              />
-                            </div>
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Unit</label>
-                              <select
-                                value={step.preDelayUnit}
-                                onChange={(e) => updateStep(index, { preDelayUnit: e.target.value as CampaignSequenceStep["preDelayUnit"] })}
-                                className={inputClassName}
-                              >
-                                <option value="minutes">Minutes</option>
-                                <option value="hours">Hours</option>
-                                <option value="days">Days</option>
-                              </select>
-                            </div>
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            ) : (
+                              <span className="h-6 w-6" />
+                            )}
                           </div>
-                        </div>
 
-                        <div>
-                          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">Message</p>
-                          <div className="space-y-3">
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Subject</label>
-                              <input
-                                value={firstVariant.subject}
-                                onChange={(e) => updateVariant(index, { subject: e.target.value })}
-                                placeholder="Subject line…"
-                                className={inputClassName}
-                              />
+                          <div className="px-4 py-4">
+                            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                              <p className="truncate text-sm font-medium text-slate-700">
+                                {getInstantlySequenceCardSubject(step, index)}
+                              </p>
                             </div>
-                            <div>
-                              <label className="mb-1.5 block text-xs font-medium text-slate-600">Body</label>
-                              <textarea
-                                value={firstVariant.body}
-                                onChange={(e) => updateVariant(index, { body: e.target.value })}
-                                rows={7}
-                                placeholder="Email body…"
-                                className={cx(inputClassName, "resize-y")}
-                              />
-                            </div>
+
+                            <button
+                              type="button"
+                              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-700 transition hover:text-blue-600"
+                            >
+                              <Plus className="h-4 w-4 text-blue-600" />
+                              Add variant
+                            </button>
                           </div>
-                        </div>
+
+                          <div className="border-t border-slate-100 px-4 py-5">
+                            {index === 0 ? (
+                              <div>
+                                <p className="text-sm font-medium text-slate-700">
+                                  Sends on campaign launch
+                                </p>
+                                <p className="mt-1 text-xs text-slate-400">
+                                  Respects campaign schedule and timezone
+                                </p>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="mb-3 text-sm font-medium text-slate-700">
+                                  Send next message in
+                                </p>
+
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={step.delay}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      updateStep(index, {
+                                        delay: Number(e.target.value || 0),
+                                      })
+                                    }
+                                    className="h-8 w-[52px] rounded-lg border border-slate-200 px-2 text-sm text-slate-700 outline-none"
+                                  />
+
+                                  <select
+                                    value={step.delayUnit}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      updateStep(index, {
+                                        delayUnit: e.target.value as CampaignSequenceStep["delayUnit"],
+                                      })
+                                    }
+                                    className="h-8 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none"
+                                  >
+                                    <option value="minutes">Minutes</option>
+                                    <option value="hours">Hours</option>
+                                    <option value="days">Days</option>
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </button>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+
+                  <button
+                    type="button"
+                    onClick={handleAddSequenceStepInstantlyStyle}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <Plus className="h-4 w-4 text-blue-600" />
+                    Add step
+                  </button>
+                </div>
               </div>
-            </Card>
+            </div>
+
+            <div className="flex min-h-[760px] flex-col bg-white">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <p className="text-[15px] font-semibold text-slate-900">Subject</p>
+                    <p className="truncate text-sm text-slate-400">
+                      {selectedSequenceStepIndex === 0
+                        ? "Write the first email subject"
+                        : "Leave empty to use previous step's subject"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-blue-600 transition hover:bg-slate-50"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Preview
+                  </button>
+
+                  <button
+                    type="button"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-blue-600 transition hover:bg-slate-50"
+                  >
+                    <Zap className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-b border-slate-200 px-6 py-4">
+                <input
+                  value={selectedSequenceVariant.subject || ""}
+                  onFocus={() =>
+                    setSequenceInsertTarget({
+                      stepIndex: selectedSequenceStepIndex,
+                      field: "subject",
+                    })
+                  }
+                  onChange={(e) => updateSelectedVariant({ subject: e.target.value })}
+                  placeholder="Start typing here..."
+                  className="w-full border-0 bg-transparent px-0 py-0 text-[15px] text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+                />
+              </div>
+
+              <div className="flex-1 px-6 py-5">
+                <textarea
+                  value={selectedSequenceVariant.body || ""}
+                  onFocus={() =>
+                    setSequenceInsertTarget({
+                      stepIndex: selectedSequenceStepIndex,
+                      field: "body",
+                    })
+                  }
+                  onChange={(e) => updateSelectedVariant({ body: e.target.value })}
+                  placeholder="Start typing here..."
+                  className="min-h-[520px] w-full resize-none border-0 bg-transparent px-0 py-0 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+                />
+              </div>
+
+              <div className="relative border-t border-slate-200 px-6 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveConfiguration(false)}
+                      disabled={submittingKey !== ""}
+                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {submittingKey === "save-config" ? "Saving..." : "Save"}
+                      <ChevronDown className="h-4 w-4" />
+                    </button>
+
+                    <div className="h-6 w-px bg-slate-200" />
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <CalendarClock className="h-4 w-4" />
+                      AI Tools
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsTemplatesModalOpen(true)}
+                      className={cx(
+                        "inline-flex items-center gap-2 text-sm font-medium transition",
+                        isTemplatesModalOpen ? "text-blue-600" : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      <LayoutTemplate className="h-4 w-4" />
+                      Templates
+                    </button>
+
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsVariablesMenuOpen((prev) => !prev)}
+                        className={cx(
+                          "inline-flex items-center gap-2 text-sm font-medium transition",
+                          isVariablesMenuOpen ? "text-blue-600" : "text-slate-600 hover:text-slate-900"
+                        )}
+                      >
+                        <Variable className="h-4 w-4" />
+                        Variables
+                      </button>
+
+                      {isVariablesMenuOpen && (
+                        <div className="absolute bottom-[calc(100%+12px)] left-0 z-30 w-[320px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
+                          <div className="max-h-[320px] overflow-y-auto py-2">
+                            {sequenceVariableOptions.length ? (
+                              sequenceVariableOptions.map((item) => (
+                                <button
+                                  key={item.value}
+                                  type="button"
+                                  onClick={() => handleInsertSequenceVariable(item.value)}
+                                  className="flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-slate-50"
+                                >
+                                  <span className="text-[15px] font-semibold text-slate-800">
+                                    {item.label}
+                                  </span>
+                                  <span className="ml-4 text-sm text-slate-400">
+                                    {item.value}
+                                  </span>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-4 py-6 text-sm text-slate-500">
+                                No variables available. Import a CSV first.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <Type className="h-4 w-4" />
+                      A:
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <Wand2 className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <Link2 className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
+                    >
+                      <Braces className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="text-xs text-slate-400">
+                    {selectedSequenceStepIndex === 0
+                      ? "Step 1 sends on launch inside schedule"
+                      : getInstantlyStepDelayLabel(selectedSequenceStep, selectedSequenceStepIndex)}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
         {activeTab === "schedule" && (
-          <div className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-              <div className="space-y-4">
-                <Card className="p-4">
-                  <div className="space-y-4">
-                    <div className="rounded-lg border-b border-slate-100 pb-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Start</p>
-                      <input
-                        type="date"
-                        value={configuration.schedule.startDate || ""}
-                        onChange={(e) =>
-                          setConfiguration((prev) => ({
-                            ...prev,
-                            schedule: { ...prev.schedule, startDate: e.target.value },
-                          }))
-                        }
-                        className={cx(inputClassName, "mt-2")}
-                      />
-                    </div>
+          <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="space-y-4">
+              <ShellCard className="p-4">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Start</p>
+                    <input
+                      type="date"
+                      value={configuration.schedule.startDate || ""}
+                      onChange={(e) =>
+                        setConfiguration((prev) => ({
+                          ...prev,
+                          schedule: { ...prev.schedule, startDate: e.target.value },
+                        }))
+                      }
+                      className={cx(inputClassName, "mt-2")}
+                    />
+                  </div>
 
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">End</p>
-                      <input
-                        type="date"
-                        value={configuration.schedule.endDate || ""}
-                        onChange={(e) =>
-                          setConfiguration((prev) => ({
-                            ...prev,
-                            schedule: { ...prev.schedule, endDate: e.target.value },
-                          }))
-                        }
-                        className={cx(inputClassName, "mt-2")}
-                      />
-                      {!configuration.schedule.endDate ? (
-                        <p className="mt-2 text-xs text-blue-600">No end date</p>
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">End</p>
+                    <input
+                      type="date"
+                      value={configuration.schedule.endDate || ""}
+                      onChange={(e) =>
+                        setConfiguration((prev) => ({
+                          ...prev,
+                          schedule: { ...prev.schedule, endDate: e.target.value },
+                        }))
+                      }
+                      className={cx(inputClassName, "mt-2")}
+                    />
+                  </div>
+                </div>
+              </ShellCard>
+
+              <div className="space-y-3">
+                {configuration.schedule.windows.map((windowItem, index) => (
+                  <button
+                    key={`${windowItem.name}-${index}`}
+                    type="button"
+                    onClick={() => setSelectedScheduleIndex(index)}
+                    className={cx(
+                      "w-full rounded-3xl border px-4 py-4 text-left transition",
+                      selectedScheduleIndex === index
+                        ? "border-blue-500 bg-white shadow-sm ring-1 ring-blue-500"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {windowItem.name || `Schedule ${index + 1}`}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {windowItem.from} - {windowItem.to}
+                        </p>
+                        <p className="mt-2 text-xs text-slate-400">
+                          {getWindowDaySummary(windowItem.days)}
+                        </p>
+                      </div>
+                      {selectedScheduleIndex === index ? (
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white">
+                          <Check className="h-4 w-4" />
+                        </div>
                       ) : null}
                     </div>
-                  </div>
-                </Card>
-
-                <div className="space-y-3">
-                  {scheduleWindows.map((windowItem, index) => (
-                    <button
-                      key={`${windowItem.name}-${index}`}
-                      type="button"
-                      onClick={() => setSelectedScheduleIndex(index)}
-                      className={cx(
-                        "w-full rounded-xl border px-4 py-4 text-left transition",
-                        selectedScheduleIndex === index
-                          ? "border-blue-500 bg-white shadow-sm ring-1 ring-blue-500"
-                          : "border-slate-200 bg-white hover:border-slate-300"
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{windowItem.name || `Schedule ${index + 1}`}</p>
-                          <p className="mt-1 text-xs text-slate-500">{windowItem.from} - {windowItem.to}</p>
-                          <p className="mt-2 text-xs text-slate-400">{getWindowDaySummary(windowItem.days)}</p>
-                        </div>
-                        <span className={cx("mt-1 h-2.5 w-2.5 rounded-full", selectedScheduleIndex === index ? "bg-blue-600" : "bg-slate-200")} />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={addScheduleWindow}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-blue-600 transition hover:border-blue-300 hover:bg-blue-50"
-                >
-                  Add schedule
-                </button>
+                  </button>
+                ))}
               </div>
 
-              <div className="space-y-5">
-                <Card>
-                  <SectionHeader
-                    title="Schedule Name"
-                    description="Set a title for the selected schedule window"
-                    action={
-                      scheduleWindows.length > 1 ? (
-                        <button
-                          type="button"
-                          onClick={removeActiveScheduleWindow}
-                          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100"
-                        >
-                          Remove schedule
-                        </button>
-                      ) : null
-                    }
-                  />
-                  <input
-                    value={activeScheduleWindow?.name || ""}
-                    onChange={(e) => updateActiveScheduleWindow({ name: e.target.value })}
-                    className={inputClassName}
-                    placeholder="New schedule"
-                  />
-                </Card>
+              <button
+                type="button"
+                onClick={addScheduleWindow}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-blue-600 transition hover:border-blue-300 hover:bg-blue-50"
+              >
+                Add schedule
+              </button>
+            </div>
 
-                <Card>
-                  <SectionHeader title="Timing" description="Choose the active send window and timezone" />
-                  <div className="grid gap-4 xl:grid-cols-[220px_220px_minmax(0,1fr)]">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-500">From</label>
-                      <input
-                        type="time"
-                        value={activeScheduleWindow?.from || "09:00"}
-                        onChange={(e) => updateActiveScheduleWindow({ from: e.target.value })}
-                        className={inputClassName}
-                      />
+            <div className="space-y-5">
+              <ShellCard className="p-6">
+                <SectionHeader
+                  title="Schedule Name"
+                  description="Set a title for the selected schedule window"
+                  action={
+                    configuration.schedule.windows.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={removeActiveScheduleWindow}
+                        className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                      >
+                        Remove
+                      </button>
+                    ) : null
+                  }
+                />
+                <input
+                  value={activeScheduleWindow?.name || ""}
+                  onChange={(e) => updateActiveScheduleWindow({ name: e.target.value })}
+                  className={inputClassName}
+                  placeholder="New schedule"
+                />
+              </ShellCard>
+
+              <ShellCard className="p-6">
+                <SectionHeader
+                  title="Timing"
+                  description="Choose the active send window and timezone"
+                  action={
+                    <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs text-slate-500">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {configuration.schedule.timezone}
                     </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-500">To</label>
-                      <input
-                        type="time"
-                        value={activeScheduleWindow?.to || "18:00"}
-                        onChange={(e) => updateActiveScheduleWindow({ to: e.target.value })}
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-500">Timezone</label>
-                      <Select<TimezoneOption, false>
-                        options={scheduleTimezoneOptions}
-                        value={selectedTimezoneOption}
-                        onChange={(selectedOption) =>
-                          setConfiguration((prev) => ({
-                            ...prev,
-                            schedule: {
-                              ...prev.schedule,
-                              timezone: selectedOption?.value || "",
-                            },
-                          }))
-                        }
-                        isSearchable
-                        placeholder="Search timezone..."
-                        className="text-sm"
-                        classNamePrefix="react-select"
-                        formatOptionLabel={(option) => (
-                          <div className="py-0.5">
-                            <div className="font-medium text-slate-800">{option.label}</div>
-                            {(option.offsetLabel || option.nowLocal) && (
-                              <div className="mt-0.5 text-xs text-slate-500">
-                                {option.offsetLabel ? `UTC ${option.offsetLabel}` : ""}
-                                {option.offsetLabel && option.nowLocal ? " • " : ""}
-                                {option.nowLocal ? option.nowLocal : ""}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        styles={{
-                          control: (base, state) => ({
-                            ...base,
-                            minHeight: 44,
-                            borderRadius: 8,
-                            borderColor: state.isFocused ? "#60a5fa" : "#e2e8f0",
-                            boxShadow: state.isFocused ? "0 0 0 2px #dbeafe" : "none",
-                            "&:hover": {
-                              borderColor: state.isFocused ? "#60a5fa" : "#cbd5e1",
-                            },
-                          }),
-                          valueContainer: (base) => ({
-                            ...base,
-                            padding: "0 10px",
-                          }),
-                          input: (base) => ({
-                            ...base,
-                            color: "#0f172a",
-                          }),
-                          placeholder: (base) => ({
-                            ...base,
-                            color: "#94a3b8",
-                          }),
-                          singleValue: (base) => ({
-                            ...base,
-                            color: "#0f172a",
-                          }),
-                          menu: (base) => ({
-                            ...base,
-                            zIndex: 50,
-                            borderRadius: 12,
-                            overflow: "hidden",
-                          }),
-                          menuList: (base) => ({
-                            ...base,
-                            maxHeight: 320,
-                          }),
-                          option: (base, state) => ({
-                            ...base,
-                            backgroundColor: state.isFocused ? "#eff6ff" : "#ffffff",
-                            color: "#0f172a",
-                            cursor: "pointer",
-                          }),
-                          indicatorSeparator: () => ({
-                            display: "none",
-                          }),
-                        }}
-                      />
-                    </div>
+                  }
+                />
+                <div className="grid gap-4 xl:grid-cols-[220px_220px_minmax(0,1fr)]">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">From</label>
+                    <input
+                      type="time"
+                      value={activeScheduleWindow?.from || "09:00"}
+                      onChange={(e) => updateActiveScheduleWindow({ from: e.target.value })}
+                      className={inputClassName}
+                    />
                   </div>
-                </Card>
 
-                <Card>
-                  <SectionHeader title="Days" description="Choose the weekdays that are active for this schedule" />
-                  <div className="flex flex-wrap gap-x-8 gap-y-4">
-                    {weekdayLabels.map((day) => {
-                      const checked = Boolean(activeScheduleWindow?.days?.[day.key]);
-                      return (
-                        <label key={day.key} className="flex min-w-[130px] items-center gap-3 text-sm text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleActiveScheduleDay(day.key)}
-                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          {day.full}
-                        </label>
-                      );
-                    })}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">To</label>
+                    <input
+                      type="time"
+                      value={activeScheduleWindow?.to || "18:00"}
+                      onChange={(e) => updateActiveScheduleWindow({ to: e.target.value })}
+                      className={inputClassName}
+                    />
                   </div>
-                </Card>
 
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleSaveConfiguration(false)}
-                    disabled={submittingKey !== ""}
-                    className="rounded-lg bg-blue-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {submittingKey === "save-config" ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSaveConfiguration(true)}
-                    disabled={submittingKey !== ""}
-                    className="rounded-lg border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {submittingKey === "save-sync" ? "Saving…" : "Save & Sync"}
-                  </button>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-slate-500">Timezone</label>
+                    <Select<TimezoneOption, false>
+                      options={scheduleTimezoneOptions}
+                      value={
+                        scheduleTimezoneOptions.find((option) => option.value === configuration.schedule.timezone) ||
+                        null
+                      }
+                      onChange={(selectedOption) =>
+                        setConfiguration((prev) => ({
+                          ...prev,
+                          schedule: {
+                            ...prev.schedule,
+                            timezone: selectedOption?.value || "",
+                          },
+                        }))
+                      }
+                      isSearchable
+                      placeholder="Search timezone..."
+                      className="text-sm"
+                      classNamePrefix="react-select"
+                    />
+                  </div>
                 </div>
+              </ShellCard>
+
+              <ShellCard className="p-6">
+                <SectionHeader
+                  title="Days"
+                  description="Choose the weekdays that are active for this schedule"
+                />
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {weekdayLabels.map((day) => {
+                    const checked = Boolean(activeScheduleWindow?.days?.[day.key]);
+                    return (
+                      <label
+                        key={day.key}
+                        className={cx(
+                          "flex items-center justify-between rounded-2xl border px-4 py-3 text-sm",
+                          checked
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : "border-slate-200 bg-white text-slate-700"
+                        )}
+                      >
+                        <span>{day.full}</span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleActiveScheduleDay(day.key)}
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </ShellCard>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSaveConfiguration(false)}
+                  disabled={submittingKey !== ""}
+                  className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveConfiguration(true)}
+                  disabled={submittingKey !== ""}
+                  className="rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Save & Sync
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {activeTab === "settings" && (
+        {activeTab === "options" && (
           <div className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[1fr]">
-              <Card>
-                <SectionHeader title="Sending Limits" description="Control throughput and rate safeguards" />
-                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-                  {[
-                    ["dailyLimit", "Daily Limit"],
-                    ["dailyMaxLeads", "Daily Max Leads"],
-                    ["emailGap", "Email Gap (min)"],
-                    ["randomWaitMax", "Random Wait Max (min)"],
-                  ].map(([key, label]) => (
-                    <div key={key}>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-600">{label}</label>
-                      <input
-                        type="number"
-                        value={(configuration.sendingOptions as any)[key]}
-                        onChange={(e) => updateSendingOption(key as keyof SendingOptions, Number(e.target.value || 0))}
-                        className={inputClassName}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </div>
+            <ShellCard className="p-6">
+              <SectionHeader
+                title="Sending limits"
+                description="Control throughput and rate safeguards"
+              />
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["dailyLimit", "Daily limit"],
+                  ["dailyMaxLeads", "Daily max leads"],
+                  ["emailGap", "Email gap (min)"],
+                  ["randomWaitMax", "Random wait max (min)"],
+                ].map(([key, label]) => (
+                  <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                      {label}
+                    </label>
+                    <input
+                      type="number"
+                      value={(configuration.sendingOptions as any)[key]}
+                      onChange={(e) =>
+                        updateSendingOption(
+                          key as keyof SendingOptions,
+                          Number(e.target.value || 0)
+                        )
+                      }
+                      className={inputClassName}
+                    />
+                  </div>
+                ))}
+              </div>
+            </ShellCard>
 
-            <Card>
-              <SectionHeader title="Behavior & Tracking" description="Fine-tune delivery guardrails and tracking options" />
+            <ShellCard className="p-6">
+              <SectionHeader
+                title="Behavior & tracking"
+                description="Fine-tune delivery guardrails and tracking options"
+              />
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                <Toggle
-                  label="Stop on Reply"
-                  description="Prevent follow-ups after a contact replies"
-                  checked={configuration.sendingOptions.stopOnReply}
-                  onChange={(value) => updateSendingOption("stopOnReply", value)}
-                />
-                <Toggle
-                  label="Stop on Auto Reply"
-                  description="Pause for vacation or OOO messages"
-                  checked={configuration.sendingOptions.stopOnAutoReply}
-                  onChange={(value) => updateSendingOption("stopOnAutoReply", value)}
-                />
-                <Toggle
-                  label="Link Tracking"
-                  description="Track link clicks inside emails"
-                  checked={configuration.sendingOptions.linkTracking}
-                  onChange={(value) => updateSendingOption("linkTracking", value)}
-                />
-                <Toggle
-                  label="Open Tracking"
-                  description="Track email open events"
-                  checked={configuration.sendingOptions.openTracking}
-                  onChange={(value) => updateSendingOption("openTracking", value)}
-                />
-                <Toggle
-                  label="Text Only"
-                  description="Send plain-text emails without HTML"
-                  checked={configuration.sendingOptions.textOnly}
-                  onChange={(value) => updateSendingOption("textOnly", value)}
-                />
-                <Toggle
-                  label="First Email Text Only"
-                  description="Only the first step is sent as plain text"
-                  checked={configuration.sendingOptions.firstEmailTextOnly}
-                  onChange={(value) => updateSendingOption("firstEmailTextOnly", value)}
-                />
-                <Toggle
-                  label="Evergreen Campaign"
-                  description="Continuously accept new contacts"
-                  checked={configuration.sendingOptions.isEvergreen}
-                  onChange={(value) => updateSendingOption("isEvergreen", value)}
-                />
-                <Toggle
-                  label="Prioritize New Leads"
-                  description="Prefer newly imported contacts"
-                  checked={configuration.sendingOptions.prioritizeNewLeads}
-                  onChange={(value) => updateSendingOption("prioritizeNewLeads", value)}
-                />
-                <Toggle
-                  label="Match Lead ESP"
-                  description="Try matching sender to the lead's provider"
-                  checked={configuration.sendingOptions.matchLeadEsp}
-                  onChange={(value) => updateSendingOption("matchLeadEsp", value)}
-                />
-                <Toggle
-                  label="Stop for Company"
-                  description="Skip company after any colleague responds"
-                  checked={configuration.sendingOptions.stopForCompany}
-                  onChange={(value) => updateSendingOption("stopForCompany", value)}
-                />
-                <Toggle
-                  label="Unsubscribe Header"
-                  description="Insert list-unsubscribe metadata"
-                  checked={configuration.sendingOptions.insertUnsubscribeHeader}
-                  onChange={(value) => updateSendingOption("insertUnsubscribeHeader", value)}
-                />
-                <Toggle
-                  label="Allow Risky Contacts"
-                  description="Send to addresses flagged as higher risk"
-                  checked={configuration.sendingOptions.allowRiskyContacts}
-                  onChange={(value) => updateSendingOption("allowRiskyContacts", value)}
-                />
-                <Toggle
-                  label="Disable Bounce Protect"
-                  description="Turn off automatic bounce protection"
-                  checked={configuration.sendingOptions.disableBounceProtect}
-                  onChange={(value) => updateSendingOption("disableBounceProtect", value)}
-                />
+                <Toggle label="Stop on Reply" description="Prevent follow-ups after any reply" checked={configuration.sendingOptions.stopOnReply} onChange={(value) => updateSendingOption("stopOnReply", value)} />
+                <Toggle label="Stop on Auto Reply" description="Pause after OOO or vacation messages" checked={configuration.sendingOptions.stopOnAutoReply} onChange={(value) => updateSendingOption("stopOnAutoReply", value)} />
+                <Toggle label="Link Tracking" description="Track clicks inside emails" checked={configuration.sendingOptions.linkTracking} onChange={(value) => updateSendingOption("linkTracking", value)} />
+                <Toggle label="Open Tracking" description="Track open activity" checked={configuration.sendingOptions.openTracking} onChange={(value) => updateSendingOption("openTracking", value)} />
+                <Toggle label="Text Only" description="Use plain-text messages" checked={configuration.sendingOptions.textOnly} onChange={(value) => updateSendingOption("textOnly", value)} />
+                <Toggle label="First Email Text Only" description="Only the first step is plain text" checked={configuration.sendingOptions.firstEmailTextOnly} onChange={(value) => updateSendingOption("firstEmailTextOnly", value)} />
+                <Toggle label="Evergreen Campaign" description="Continuously accept new contacts" checked={configuration.sendingOptions.isEvergreen} onChange={(value) => updateSendingOption("isEvergreen", value)} />
+                <Toggle label="Prioritize New Leads" description="Prefer newly imported leads" checked={configuration.sendingOptions.prioritizeNewLeads} onChange={(value) => updateSendingOption("prioritizeNewLeads", value)} />
+                <Toggle label="Match Lead ESP" description="Try matching sender to provider" checked={configuration.sendingOptions.matchLeadEsp} onChange={(value) => updateSendingOption("matchLeadEsp", value)} />
+                <Toggle label="Stop for Company" description="Skip rest of company after reply" checked={configuration.sendingOptions.stopForCompany} onChange={(value) => updateSendingOption("stopForCompany", value)} />
+                <Toggle label="Unsubscribe Header" description="Insert list-unsubscribe metadata" checked={configuration.sendingOptions.insertUnsubscribeHeader} onChange={(value) => updateSendingOption("insertUnsubscribeHeader", value)} />
+                <Toggle label="Allow Risky Contacts" description="Send to addresses flagged as risky" checked={configuration.sendingOptions.allowRiskyContacts} onChange={(value) => updateSendingOption("allowRiskyContacts", value)} />
+                <Toggle label="Disable Bounce Protect" description="Turn off bounce protection" checked={configuration.sendingOptions.disableBounceProtect} onChange={(value) => updateSendingOption("disableBounceProtect", value)} />
               </div>
 
               <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-5">
@@ -1932,23 +3375,228 @@ export default function CampaignDetailPage() {
                   type="button"
                   onClick={() => handleSaveConfiguration(true)}
                   disabled={submittingKey !== ""}
-                  className="rounded-lg border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-100 disabled:opacity-50"
+                  className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-100 disabled:opacity-50"
                 >
-                  {submittingKey === "save-sync" ? "Saving…" : "Save & Sync"}
+                  Save & Sync
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSaveConfiguration(false)}
                   disabled={submittingKey !== ""}
-                  className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
                 >
-                  {submittingKey === "save-config" ? "Saving…" : "Save Options"}
+                  Save Options
                 </button>
               </div>
-            </Card>
+            </ShellCard>
           </div>
         )}
+
+        {activeTab === "subsequences" && (
+          <ShellCard className="p-10">
+            <div className="flex flex-col items-center justify-center text-center">
+              <Activity className="h-10 w-10 text-slate-300" />
+              <h3 className="mt-4 text-xl font-semibold text-slate-800">
+                Subsequences ready for next backend step
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                The page now feels much closer to Instantly. The remaining lift is provider-side subsequence move/remove wiring.
+              </p>
+            </div>
+          </ShellCard>
+        )}
       </div>
+
+      {removeLeadOpen && removeLead && (
+        <div className="fixed inset-0 z-[61] flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Lead Action
+                </p>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">Remove Lead</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  This removes the lead from this campaign only.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveLeadOpen(false);
+                  setRemoveLead(null);
+                }}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
+              <p className="text-sm font-medium text-slate-900">Lead</p>
+              <p className="mt-1 text-sm text-rose-700">{removeLead.companyName}</p>
+              <p className="mt-1 text-xs text-rose-600">{removeLead.primaryContact?.email || "—"}</p>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveLeadOpen(false);
+                  setRemoveLead(null);
+                }}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRemoveLead}
+                disabled={submittingKey === `remove-${removeLead._id}`}
+                className="rounded-2xl bg-rose-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60"
+              >
+                {submittingKey === `remove-${removeLead._id}` ? "Removing..." : "Remove Lead"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isTemplatesModalOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
+          <div className="flex h-[90vh] w-full max-w-[1220px] overflow-hidden rounded-[18px] bg-white shadow-2xl">
+            <div className="flex w-[280px] flex-col border-r border-slate-200 bg-[#fbfbfd]">
+              <div className="border-b border-slate-200 px-5 py-5">
+                <div className="flex items-center gap-2">
+                  <LayoutTemplate className="h-5 w-5 text-slate-900" />
+                  <h3 className="text-[18px] font-semibold text-slate-900">Templates</h3>
+                </div>
+              </div>
+
+              <div className="border-b border-slate-200 px-4 py-4">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={templateSearch}
+                    onChange={(e) => setTemplateSearch(e.target.value)}
+                    placeholder="Search"
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-blue-400"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-3 py-2">
+                {filteredTemplateGroups.map((group) => {
+                  const isExpanded = expandedTemplateGroups[group.category];
+                  const hasTemplates = group.templates.length > 0;
+
+                  return (
+                    <div key={group.category} className="border-b border-slate-100 py-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleTemplateGroup(group.category)}
+                        className="flex w-full items-center justify-between px-2 py-3 text-left"
+                      >
+                        <span className="text-[15px] font-semibold text-slate-500">
+                          {group.title}
+                        </span>
+                        <ChevronDown
+                          className={cx(
+                            "h-4 w-4 text-slate-400 transition",
+                            isExpanded ? "rotate-180" : ""
+                          )}
+                        />
+                      </button>
+
+                      {isExpanded && (
+                        <div className="pb-2">
+                          {hasTemplates ? (
+                            group.templates.map((template) => {
+                              const isActive = selectedTemplateId === template.id;
+
+                              return (
+                                <button
+                                  key={template.id}
+                                  type="button"
+                                  onClick={() => setSelectedTemplateId(template.id)}
+                                  className={cx(
+                                    "block w-full rounded-xl px-3 py-2 text-left text-sm transition",
+                                    isActive
+                                      ? "bg-slate-100 text-slate-900"
+                                      : "text-slate-600 hover:bg-slate-50"
+                                  )}
+                                >
+                                  {template.title}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-3 py-2 text-sm text-slate-400">
+                              No templates found
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col bg-white">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+                <div>
+                  <p className="text-[16px] font-semibold text-slate-700">
+                    Subject:{selectedTemplate?.subject || "—"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsTemplatesModalOpen(false)}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="rounded-2xl bg-slate-50 px-6 py-6">
+                  <pre className="whitespace-pre-wrap font-sans text-[15px] leading-8 text-slate-800">
+                    {selectedTemplate?.body || "Select a template to preview it here."}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 px-6 py-4">
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={handleCopyTemplate}
+                    disabled={!selectedTemplate}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-blue-600 transition hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleUseTemplate}
+                    disabled={!selectedTemplate}
+                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                    Use template
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
