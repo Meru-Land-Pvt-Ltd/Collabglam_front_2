@@ -4,12 +4,12 @@ const stats = [
   {
     title: "Connected Senders",
     value: "1",
-    hint: "Sophia Green active",
+    hint: "Instantly sender ready",
   },
   {
     title: "Live Campaigns",
     value: "3",
-    hint: "2 launched, 1 paused",
+    hint: "SDR-owned outbound campaigns",
   },
   {
     title: "Pending RH Reviews",
@@ -17,9 +17,9 @@ const stats = [
     hint: "Replies waiting for allocation",
   },
   {
-    title: "BME Active Threads",
+    title: "Assigned BME Threads",
     value: "14",
-    hint: "Post-reply relationships",
+    hint: "Relationship-owned conversations",
   },
 ];
 
@@ -30,6 +30,7 @@ const campaigns = [
     sdr: "Sophia Green",
     rh: "Revenue Head A",
     bme: "BME A",
+    sender: "sophia.green@collabglam.com",
     prospects: 120,
     replies: 9,
   },
@@ -39,6 +40,7 @@ const campaigns = [
     sdr: "Sophia Green",
     rh: "Revenue Head A",
     bme: "BME B",
+    sender: "sophia.green@collabglam.com",
     prospects: 64,
     replies: 4,
   },
@@ -48,6 +50,7 @@ const campaigns = [
     sdr: "Sophia Green",
     rh: "Revenue Head A",
     bme: "BME C",
+    sender: "sophia.green@collabglam.com",
     prospects: 88,
     replies: 0,
   },
@@ -82,11 +85,59 @@ export default function InstantlyCRMPage() {
       </div>
 
       <section className="rounded-[24px] border border-black/10 bg-white p-5 shadow-[0_8px_24px_rgba(0,0,0,0.03)]">
+        <div>
+          <h3 className="text-lg font-semibold text-black">Campaign Creation Flow</h3>
+          <p className="mt-1 text-sm text-black/55">
+            Launch cold outreach through Instantly with strict ownership from SDR to RH to BME.
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[20px] border border-black/10 bg-[#fcfcfc] p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-black/35">
+              Step 1
+            </p>
+            <p className="mt-3 text-sm font-medium leading-6 text-black">
+              SDR creates the campaign, selects Instantly sender accounts, and maps Revenue Head and
+              BME before launch.
+            </p>
+          </div>
+
+          <div className="rounded-[20px] border border-black/10 bg-[#fcfcfc] p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-black/35">
+              Step 2
+            </p>
+            <p className="mt-3 text-sm font-medium leading-6 text-black">
+              Instantly runs the outbound sequence, warmup, sending rotation, and reply tracking.
+            </p>
+          </div>
+
+          <div className="rounded-[20px] border border-black/10 bg-[#fcfcfc] p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-black/35">
+              Step 3
+            </p>
+            <p className="mt-3 text-sm font-medium leading-6 text-black">
+              When a brand replies, the lead moves to Revenue Head review and is locked away from SDR.
+            </p>
+          </div>
+
+          <div className="rounded-[20px] border border-black/10 bg-[#fcfcfc] p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-black/35">
+              Step 4
+            </p>
+            <p className="mt-3 text-sm font-medium leading-6 text-black">
+              Revenue Head assigns the brand to BME, and BME becomes the only conversation owner.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[24px] border border-black/10 bg-white p-5 shadow-[0_8px_24px_rgba(0,0,0,0.03)]">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-black">Campaign Operations</h3>
             <p className="mt-1 text-sm text-black/55">
-              Live overview of SDR campaigns and Instantly send status.
+              Live overview of sender usage, ownership mapping, and reply handoff flow.
             </p>
           </div>
           <button
@@ -104,6 +155,7 @@ export default function InstantlyCRMPage() {
                 <th className="pb-1 font-medium">Campaign</th>
                 <th className="pb-1 font-medium">Status</th>
                 <th className="pb-1 font-medium">Owners</th>
+                <th className="pb-1 font-medium">Sender</th>
                 <th className="pb-1 font-medium">Prospects</th>
                 <th className="pb-1 font-medium">Replies</th>
               </tr>
@@ -113,7 +165,7 @@ export default function InstantlyCRMPage() {
                 <tr key={row.name} className="rounded-2xl bg-[#fcfcfc]">
                   <td className="rounded-l-2xl px-4 py-4 align-top">
                     <p className="text-sm font-semibold text-black">{row.name}</p>
-                    <p className="mt-1 text-xs text-black/50">Instantly synced campaign</p>
+                    <p className="mt-1 text-xs text-black/50">Instantly synced outbound campaign</p>
                   </td>
                   <td className="px-4 py-4 align-top">
                     <span
@@ -137,6 +189,9 @@ export default function InstantlyCRMPage() {
                     </p>
                   </td>
                   <td className="px-4 py-4 align-top text-sm font-medium text-black">
+                    {row.sender}
+                  </td>
+                  <td className="px-4 py-4 align-top text-sm font-medium text-black">
                     {row.prospects}
                   </td>
                   <td className="rounded-r-2xl px-4 py-4 align-top text-sm font-medium text-black">
@@ -150,8 +205,8 @@ export default function InstantlyCRMPage() {
       </section>
 
       <div className="rounded-[24px] border border-dashed border-black/15 bg-white px-6 py-6 text-center text-sm leading-7 text-black/55 shadow-[0_8px_24px_rgba(0,0,0,0.03)]">
-        No campaigns yet? Start by connecting sender accounts, creating a lead list,
-        mapping SDR → RH → BME ownership, and then launch your first Instantly outreach campaign.
+        Start by connecting sender accounts, creating an SDR campaign, mapping RH and BME,
+        launching from Instantly, and moving every replied brand into RH review before BME handoff.
       </div>
     </div>
   );

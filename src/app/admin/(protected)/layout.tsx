@@ -66,33 +66,39 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className={`flex h-screen overflow-hidden font-sans text-slate-900 ${
+      className={`relative flex h-screen overflow-hidden font-sans text-slate-900 ${
         isInstantlyPage ? "bg-[#f6f6f7]" : "bg-slate-50"
       }`}
     >
       {showSidebar && (
-        <AdminSidebar
-          collapsed={sidebarCollapsed}
-          onCollapsedChange={setSidebarCollapsed}
-        />
+        <div className="relative z-[70] h-screen shrink-0 overflow-visible">
+          <AdminSidebar
+            collapsed={sidebarCollapsed}
+            onCollapsedChange={setSidebarCollapsed}
+          />
+        </div>
       )}
 
       <div
-        className={`flex flex-1 flex-col overflow-hidden transition-all duration-300 ${desktopSidebarOffset}`}
+        className={`relative z-0 flex h-screen min-h-0 flex-1 flex-col overflow-hidden transition-all duration-300 ${desktopSidebarOffset}`}
       >
-        <div className={showSidebar ? "pt-16 md:pt-0" : ""}>
+        <div className={showSidebar ? "shrink-0 pt-16 md:pt-0" : "shrink-0"}>
           {showTopbar && <AdminTopBar />}
         </div>
 
         <main
-          className={`flex-1 ${
-            isInstantlyPage ? "overflow-hidden bg-[#f6f6f7]" : "overflow-y-auto"
+          className={`flex-1 min-h-0 ${
+            isInstantlyPage
+              ? "overflow-hidden bg-[#f6f6f7]"
+              : "overflow-y-auto"
           }`}
         >
           {isInstantlyPage ? (
-            <div className="h-full w-full">{children}</div>
+            <div className="h-full min-h-0 w-full overflow-hidden">
+              {children}
+            </div>
           ) : (
-            <div className="mx-auto min-h-[calc(100vh-8rem)] max-w-full border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
+            <div className="mx-auto min-h-full max-w-full border border-slate-200 bg-white p-6 shadow-sm ring-1 ring-slate-900/5 sm:p-8">
               {children}
             </div>
           )}
