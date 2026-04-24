@@ -100,8 +100,8 @@ export function CreatorHeader({
                     type="button"
                     onClick={() => openProfile(primaryPlatformProfile.url)}
                     className={`inline-flex items-center gap-2 rounded-full border border-[#e8e0d5] bg-white px-3 py-2 text-xs text-[#5e584f] transition ${primaryPlatformProfile.url
-                        ? "cursor-pointer hover:bg-[#fff9f1]"
-                        : "cursor-default"
+                      ? "cursor-pointer hover:bg-[#fff9f1]"
+                      : "cursor-default"
                       }`}
                   >
                     <CheckCircleIcon size={16} weight="fill" className="text-[#d39305]" />
@@ -110,9 +110,10 @@ export function CreatorHeader({
                       {primaryPlatformProfile.provider}
                     </span>
                     <span className="text-[#9a9287]">
-                      {primaryPlatformProfile.username
-                        ? `@${primaryPlatformProfile.username}`
-                        : "—"}
+                      {primaryPlatformProfile.handle
+                        ? `${primaryPlatformProfile.handle}`
+                        : `@${primaryPlatformProfile.username}`
+                      }
                     </span>
                   </button>
                 );

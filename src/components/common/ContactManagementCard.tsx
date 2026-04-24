@@ -155,13 +155,13 @@ export function ContactManagementCard({
                   >
                     <Icon className="h-4 w-4" />
                     <span className="font-medium">{label}</span>
-                    {profile.username ? (
-                      <span className="text-[#9a9287]">@{profile.username}</span>
-                    ) : profile.handle ? (
+                    {profile.handle ? (
+                      <span className="text-[#9a9287]">{profile.handle}</span>
+                    ) : profile.username ? (
                       <span className="text-[#9a9287]">
-                        {profile.handle.startsWith("@")
-                          ? profile.handle
-                          : `@${profile.handle}`}
+                        {profile.username.startsWith("@")
+                          ? profile.username
+                          : `@${profile.username}`}
                       </span>
                     ) : null}
                   </button>

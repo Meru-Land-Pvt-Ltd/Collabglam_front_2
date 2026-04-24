@@ -326,9 +326,9 @@ const RowButton = React.memo(function RowButton({
         collapsed
           ? cn("mx-auto justify-center", tight ? "h-11 w-11" : "h-12 w-12")
           : cn(
-              "w-full justify-start",
-              tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
-            )
+            "w-full justify-start",
+            tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
+          )
       )}
       style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
     >
@@ -684,7 +684,7 @@ export default function BrandSidebar({
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -738,7 +738,7 @@ export default function BrandSidebar({
           if (latestName)
             window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch {}
+        } catch { }
       } catch {
         // keep cached values on failure
       }
@@ -760,7 +760,7 @@ export default function BrandSidebar({
         try {
           const stored = window.localStorage.getItem("sidebar-collapsed");
           if (stored !== null) initialCollapsed = stored === "true";
-        } catch {}
+        } catch { }
         setCollapsed(initialCollapsed);
         setWidthCollapsed(initialCollapsed);
         hasInitializedCollapsed.current = true;
@@ -804,7 +804,7 @@ export default function BrandSidebar({
     const nextKey =
       match?.key ??
       (currentPath === CAMPAIGN_PREFIX ||
-      currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
+        currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
         ? "campaigns"
         : null);
 
@@ -834,14 +834,19 @@ export default function BrandSidebar({
         if (cancelled) return;
 
         setBrandLite(data ?? null);
+        const proxyEmail = data?.proxyEmail?.trim() || "";
 
+        if (proxyEmail) {
+          window.localStorage.setItem("proxyEmail", proxyEmail);
+        } else {
+          window.localStorage.removeItem("proxyEmail");
+        }
         const nextSubscription =
           data?.subscriptionDetails ?? data?.subscription ?? null;
 
         const nextPlanId = nextSubscription?.brandPlanId ?? null;
         const nextPlanNameRaw =
           nextSubscription?.brandPlanName ?? nextSubscription?.plan ?? null;
-
         if (nextPlanId) setPlanId(nextPlanId);
         if (nextPlanNameRaw) setPlanName(String(nextPlanNameRaw).toLowerCase());
       } catch {
@@ -979,7 +984,7 @@ export default function BrandSidebar({
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch {}
+    } catch { }
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -990,7 +995,7 @@ export default function BrandSidebar({
     setWidthCollapsed(true);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch {}
+    } catch { }
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -1013,7 +1018,7 @@ export default function BrandSidebar({
         "brandPlanId",
         "brandPlanName",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch {}
+    } catch { }
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
