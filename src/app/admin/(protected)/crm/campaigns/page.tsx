@@ -155,7 +155,7 @@ type OpenMenuState = {
 };
 
 const OUTREACH_CAMPAIGNS_BASE = "/outreach/campaigns";
-const CAMPAIGN_DETAIL_BASE = "/admin/instantly-crm/campaigns";
+const CAMPAIGN_DETAIL_BASE = "/admin/crm/campaigns";
 
 const STATUS_OPTIONS: Array<{ label: string; value: StatusFilter }> = [
   { label: "All statuses", value: "all" },
@@ -266,6 +266,36 @@ function labelForAdmin(admin: AdminOption) {
   return admin.name || admin.email || admin._id;
 }
 
+function getAdminEntityId(
+  value: CampaignRow["sdrId"] | CampaignRow["RHId"] | CampaignRow["IMEId"]
+) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return String(value._id || "");
+}
+
+function getAdminEntityLabel(
+  value: CampaignRow["sdrId"] | CampaignRow["RHId"] | CampaignRow["IMEId"]
+) {
+  if (!value) return "—";
+  if (typeof value === "string") return value;
+  return value.name || value.email || value._id || "—";
+}
+
+function getCampaignOwnerMeta(row: CampaignRow) {
+  if (row.flowType === "ime_influencer") {
+    return {
+      label: "IME",
+      value: getAdminEntityLabel(row.IMEId),
+    };
+  }
+
+  return {
+    label: "SDR",
+    value: getAdminEntityLabel(row.sdrId),
+  };
+}
+
 function buildCampaignApiUrl(id: string, suffix = "") {
   return `${OUTREACH_CAMPAIGNS_BASE}/${id}${suffix}`;
 }
@@ -342,7 +372,7 @@ function ActionMenu({
         Download analytics CSV
       </button>
 
-      <button
+      {/* <button
         type="button"
         disabled={busy}
         onClick={onShare}
@@ -350,7 +380,7 @@ function ActionMenu({
       >
         <Share2 className="h-4 w-4 text-slate-400" />
         Share Campaign
-      </button>
+      </button> */}
     </div>
   );
 }
@@ -389,14 +419,40 @@ export default function InstantlyCampaignsPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteCampaign, setDeleteCampaign] = useState<CampaignRow | null>(null);
 
+  const normalizedRole = String(me?.role || "").toLowerCase();
+
   const canCreate = useMemo(() => {
-    return me?.role === "sdr" || me?.role === "ime" || me?.role === "super_admin";
-  }, [me]);
+    return normalizedRole === "sdr" || normalizedRole === "ime" || normalizedRole === "super_admin";
+  }, [normalizedRole]);
 
   const fixedFlowType = useMemo<CampaignFlowType>(() => {
-    if (me?.role === "ime") return "ime_influencer";
+    if (normalizedRole === "ime") return "ime_influencer";
     return "standard_brand";
-  }, [me]);
+  }, [normalizedRole]);
+
+  const isSuperAdmin = normalizedRole === "super_admin";
+  const isSdrViewer = normalizedRole === "sdr";
+  const isImeViewer = normalizedRole === "ime";
+  const isRhViewer = normalizedRole === "rh" || normalizedRole === "revenue_head";
+
+  const canViewReplyColumns = !isSdrViewer;
+  const canViewOwnerColumn = isRhViewer || isSuperAdmin;
+  const canViewRhOwnerColumn = isSuperAdmin;
+
+  const desktopGridTemplateColumns = useMemo(() => {
+    const cols = ["52px", "minmax(320px,2fr)"];
+
+    if (canViewOwnerColumn) cols.push("170px");
+    if (canViewRhOwnerColumn) cols.push("170px");
+
+    cols.push("140px", "180px", "110px", "110px");
+
+    if (canViewReplyColumns) cols.push("110px", "150px");
+
+    cols.push("96px");
+
+    return cols.join(" ");
+  }, [canViewOwnerColumn, canViewRhOwnerColumn, canViewReplyColumns]);
 
   async function showApiError(error: unknown, fallback: string) {
     setMessage({
@@ -785,23 +841,40 @@ export default function InstantlyCampaignsPage() {
 
   const filteredCampaigns = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
+    const myId = String(me?._id || "");
 
     const filtered = campaigns.filter((row) => {
       const uiStatus = getUiStatus(row);
-
       const matchesStatus = statusFilter === "all" ? true : uiStatus === statusFilter;
+
+      let matchesRole = true;
+
+      if (!isSuperAdmin) {
+        if (isSdrViewer) {
+          matchesRole = getAdminEntityId(row.sdrId) === myId;
+        } else if (isImeViewer) {
+          matchesRole = getAdminEntityId(row.IMEId) === myId;
+        } else if (isRhViewer) {
+          matchesRole =
+            getAdminEntityId(row.RHId) === myId || row.flowType === "ime_influencer";
+        }
+      }
+
+      const ownerMeta = getCampaignOwnerMeta(row);
 
       const haystack = [
         row.name,
         row.instantly?.senderAccountEmail || "",
         row.instantly?.campaignId || "",
+        ownerMeta.value,
+        getAdminEntityLabel(row.RHId),
       ]
         .join(" ")
         .toLowerCase();
 
       const matchesSearch = !term || haystack.includes(term);
 
-      return matchesStatus && matchesSearch;
+      return matchesRole && matchesStatus && matchesSearch;
     });
 
     return [...filtered].sort((a, b) => {
@@ -819,7 +892,17 @@ export default function InstantlyCampaignsPage() {
 
       return getDateValue(b.createdAt) - getDateValue(a.createdAt);
     });
-  }, [campaigns, searchTerm, sortBy, statusFilter]);
+  }, [
+    campaigns,
+    searchTerm,
+    sortBy,
+    statusFilter,
+    me?._id,
+    isSuperAdmin,
+    isSdrViewer,
+    isImeViewer,
+    isRhViewer,
+  ]);
 
   const allVisibleSelected =
     filteredCampaigns.length > 0 &&
@@ -899,52 +982,286 @@ export default function InstantlyCampaignsPage() {
         </div>
       </section>
 
-      <section className="overflow-visible rounded-[30px] border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-y-4">
-            <thead>
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                <th className="w-[52px] px-2">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedIds(filteredCampaigns.map((row) => row._id));
-                      } else {
-                        setSelectedIds([]);
-                      }
-                    }}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                </th>
-                <th className="min-w-[320px] px-4">Name</th>
-                <th className="min-w-[130px] px-4">Status</th>
-                <th className="min-w-[170px] px-4">Progress</th>
-                <th className="min-w-[120px] px-4">Sent</th>
-                <th className="min-w-[120px] px-4">Click</th>
-                <th className="min-w-[120px] px-4">Replied</th>
-                <th className="min-w-[150px] px-4">Opportunities</th>
-                <th className="w-[120px] px-4 text-right">&nbsp;</th>
-              </tr>
-            </thead>
+      <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+        <div className="px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Campaigns</h2>
+            </div>
 
-            <tbody>
+            <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+              {filteredCampaigns.length} visible
+            </div>
+          </div>
+        </div>
+
+        <div className="xl:hidden p-4 space-y-4">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={index}
+                className="animate-pulse rounded-[26px] border border-slate-200 bg-white p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-1 h-4 w-4 rounded bg-slate-200" />
+                  <div className="flex-1">
+                    <div className="h-4 w-40 rounded bg-slate-200" />
+                    <div className="mt-3 h-3 w-28 rounded bg-slate-200" />
+                  </div>
+                  <div className="h-8 w-8 rounded-full bg-slate-200" />
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  {Array.from({ length: canViewReplyColumns ? 5 : 3 }).map((__, statIndex) => (
+                    <div key={statIndex} className="rounded-2xl bg-slate-50 p-3">
+                      <div className="h-3 w-16 rounded bg-slate-200" />
+                      <div className="mt-3 h-4 w-12 rounded bg-slate-200" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))
+          ) : filteredCampaigns.length === 0 ? (
+            <div className="rounded-[26px] border border-dashed border-slate-200 bg-slate-50 px-6 py-14 text-center">
+              <h3 className="text-base font-semibold text-slate-900">No campaigns found</h3>
+              <p className="mt-2 text-sm text-slate-500">
+                Try a different search or create a new campaign.
+              </p>
+            </div>
+          ) : (
+            filteredCampaigns.map((row) => {
+              const uiStatus = getUiStatus(row);
+              const progress = getProgress(row);
+              const busy = busyActionId === row._id;
+              const errorMessage = row.sync?.lastErrorMessage || "";
+              const isLaunched = uiStatus === "launched";
+              const sent = normalizeNumber(row.stats?.totalSent);
+              const clicked = normalizeNumber(row.stats?.totalClicked);
+              const replied = normalizeNumber(row.stats?.totalReplies);
+              const opportunities = normalizeNumber(row.stats?.totalOpportunities);
+              const ownerMeta = getCampaignOwnerMeta(row);
+              return (
+                <div
+                  key={row._id}
+                  className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="pt-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(row._id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setSelectedIds((prev) =>
+                            e.target.checked
+                              ? [...new Set([...prev, row._id])]
+                              : prev.filter((id) => id !== row._id)
+                          );
+                        }}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => router.push(buildCampaignDetailUrl(row._id))}
+                          className="truncate text-left text-base font-semibold text-slate-900 hover:text-blue-600"
+                        >
+                          {row.name}
+                        </button>
+
+                        <span
+                          className={cx(
+                            "inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold",
+                            getStatusPillClasses(uiStatus)
+                          )}
+                        >
+                          {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
+                        </span>
+
+                        {errorMessage ? (
+                          <span title={errorMessage} className="text-slate-500">
+                            <CircleAlert className="h-4 w-4" />
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-2 space-y-1 text-xs text-slate-500">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span>{row.instantly?.senderAccountEmail || "No sender assigned"}</span>
+                          <span>{row.instantly?.campaignId || "Not launched yet"}</span>
+                        </div>
+
+                        {canViewOwnerColumn && (
+                          <div>
+                            <span className="font-semibold text-slate-600">{ownerMeta.label}:</span>{" "}
+                            {ownerMeta.value}
+                          </div>
+                        )}
+
+                        {canViewRhOwnerColumn && row.flowType !== "ime_influencer" && (
+                          <div>
+                            <span className="font-semibold text-slate-600">RH:</span>{" "}
+                            {getAdminEntityLabel(row.RHId)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleLaunch(row);
+                        }}
+                        className={cx(
+                          "inline-flex h-9 w-9 items-center justify-center rounded-full transition disabled:opacity-50",
+                          isLaunched
+                            ? "text-amber-600 hover:bg-amber-50"
+                            : "text-emerald-600 hover:bg-emerald-50"
+                        )}
+                        title={isLaunched ? "Pause campaign" : "Launch campaign"}
+                      >
+                        {isLaunched ? (
+                          <Pause className="h-4 w-4" />
+                        ) : (
+                          <Play className="h-4 w-4" />
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={(e) => openActionMenu(e, row)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+                        title="Campaign actions"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                      <span>Progress</span>
+                      <span className="text-sm font-semibold text-slate-900">{progress}%</span>
+                    </div>
+                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                      <div
+                        className="h-full rounded-full bg-slate-500 transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div
+                    className={cx(
+                      "mt-5 grid gap-3",
+                      canViewReplyColumns ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-3"
+                    )}
+                  >
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Sent
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-slate-900">
+                        {sent > 0 ? sent : "-"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Click
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-slate-900">{clicked}</p>
+                    </div>
+
+                    {canViewReplyColumns && (
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Replied
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900">
+                          {replied > 0 ? replied : "-"}
+                        </p>
+                      </div>
+                    )}
+
+                    {canViewReplyColumns && (
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Opportunities
+                        </p>
+                        <p className="mt-2 text-lg font-semibold text-slate-900">
+                          {opportunities}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Status
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden xl:block px-4 pb-4">
+          <div className="min-w-[1180px]">
+            <div
+              className="grid items-center px-2 pb-3 text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
+              style={{ gridTemplateColumns: desktopGridTemplateColumns }}
+            >
+              <div className="px-4">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedIds(filteredCampaigns.map((row) => row._id));
+                    } else {
+                      setSelectedIds([]);
+                    }
+                  }}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+              </div>
+
+              <div className="px-4">Name</div>
+              {canViewOwnerColumn && <div className="px-4">Owner</div>}
+              {canViewRhOwnerColumn && <div className="px-4">RH</div>}
+              <div className="px-4">Status</div>
+              <div className="px-4">Progress</div>
+              <div className="px-4">Sent</div>
+              <div className="px-4">Click</div>
+              {canViewReplyColumns && <div className="px-4">Replied</div>}
+              {canViewReplyColumns && <div className="px-4">Opportunities</div>}
+              <div className="px-4 text-right">&nbsp;</div>
+            </div>
+
+            <div className="space-y-3">
               {loading ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-14 text-center text-sm text-slate-500">
-                    Loading campaigns...
-                  </td>
-                </tr>
+                <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center text-sm text-slate-500">
+                  Loading campaigns...
+                </div>
               ) : filteredCampaigns.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-14 text-center">
-                    <h3 className="text-base font-semibold text-slate-900">No campaigns found</h3>
-                    <p className="mt-2 text-sm text-slate-500">
-                      Try a different search or create a new campaign.
-                    </p>
-                  </td>
-                </tr>
+                <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center">
+                  <h3 className="text-base font-semibold text-slate-900">No campaigns found</h3>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Try a different search or create a new campaign.
+                  </p>
+                </div>
               ) : (
                 filteredCampaigns.map((row) => {
                   const uiStatus = getUiStatus(row);
@@ -952,130 +1269,154 @@ export default function InstantlyCampaignsPage() {
                   const busy = busyActionId === row._id;
                   const errorMessage = row.sync?.lastErrorMessage || "";
                   const isLaunched = uiStatus === "launched";
+                  const sent = normalizeNumber(row.stats?.totalSent);
+                  const clicked = normalizeNumber(row.stats?.totalClicked);
+                  const replied = normalizeNumber(row.stats?.totalReplies);
+                  const opportunities = normalizeNumber(row.stats?.totalOpportunities);
+                  const ownerMeta = getCampaignOwnerMeta(row);
 
                   return (
-                    <tr key={row._id}>
-                      <td colSpan={9} className="px-0">
-                        <div className="grid grid-cols-[52px_minmax(320px,1.8fr)_130px_170px_120px_120px_120px_150px_120px] items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-slate-300 hover:shadow-sm">
-                          <div className="px-4 py-8">
-                            <input
-                              type="checkbox"
-                              checked={selectedIds.includes(row._id)}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                setSelectedIds((prev) =>
-                                  e.target.checked
-                                    ? [...new Set([...prev, row._id])]
-                                    : prev.filter((id) => id !== row._id)
-                                );
-                              }}
-                              className="h-4 w-4 rounded border-slate-300"
-                            />
-                          </div>
+                    <div
+                      key={row._id}
+                      className="grid items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-slate-300 hover:shadow-sm"
+                      style={{ gridTemplateColumns: desktopGridTemplateColumns }}
+                    >
+                      <div className="px-4 py-7">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(row._id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            setSelectedIds((prev) =>
+                              e.target.checked
+                                ? [...new Set([...prev, row._id])]
+                                : prev.filter((id) => id !== row._id)
+                            );
+                          }}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      </div>
 
-                          <button
-                            type="button"
-                            onClick={() => router.push(buildCampaignDetailUrl(row._id))}
-                            className="px-4 py-8 text-left"
+                      <button
+                        type="button"
+                        onClick={() => router.push(buildCampaignDetailUrl(row._id))}
+                        className="min-w-0 px-4 py-7 text-left"
+                      >
+                        <p className="truncate text-[1.05rem] font-semibold text-slate-900">
+                          {row.name}
+                        </p>
+                        {canViewOwnerColumn && (
+                          <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                            <p className="truncate font-semibold text-slate-900">{ownerMeta.value}</p>
+                            <p className="mt-1 text-xs text-slate-500">{ownerMeta.label} owner</p>
+                          </div>
+                        )}
+
+                        {canViewRhOwnerColumn && (
+                          <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                            <p className="truncate font-semibold text-slate-900">
+                              {row.flowType === "ime_influencer" ? "—" : getAdminEntityLabel(row.RHId)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {row.flowType === "ime_influencer" ? "Not applicable" : "Revenue head"}
+                            </p>
+                          </div>
+                        )}
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {row.instantly?.senderAccountEmail || "No sender assigned"}
+                        </p>
+                      </button>
+
+                      <div className="px-4 py-7">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={cx(
+                              "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                              getStatusPillClasses(uiStatus)
+                            )}
                           >
-                            <p className="text-[1.05rem] font-semibold text-slate-900">{row.name}</p>
-                          </button>
+                            {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
+                          </span>
 
-                          <div className="px-4 py-8">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={cx(
-                                  "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
-                                  getStatusPillClasses(uiStatus)
-                                )}
-                              >
-                                {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
-                              </span>
-
-                              {errorMessage ? (
-                                <span title={errorMessage} className="text-slate-500">
-                                  <CircleAlert className="h-4 w-4" />
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="px-4 py-8">
-                            <p className="text-[1.05rem] font-semibold text-slate-900">{progress}%</p>
-                            <div className="mt-3 h-1.5 w-[52px] overflow-hidden rounded-full bg-slate-200">
-                              <div
-                                className="h-full rounded-full bg-slate-400 transition-all"
-                                style={{ width: `${progress}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="px-4 py-8 text-[1.05rem] font-medium text-slate-900">
-                            {normalizeNumber(row.stats?.totalSent) > 0
-                              ? normalizeNumber(row.stats?.totalSent)
-                              : "-"}
-                          </div>
-
-                          <div className="px-4 py-8 text-[1.05rem] font-medium text-slate-900">
-                            {normalizeNumber(row.stats?.totalClicked) > 0
-                              ? normalizeNumber(row.stats?.totalClicked)
-                              : "-"}
-                          </div>
-
-                          <div className="px-4 py-8 text-[1.05rem] font-medium text-slate-900">
-                            {normalizeNumber(row.stats?.totalReplies) > 0
-                              ? normalizeNumber(row.stats?.totalReplies)
-                              : "-"}
-                          </div>
-
-                          <div className="px-4 py-8 text-[1.05rem] font-medium text-slate-900">
-                            {normalizeNumber(row.stats?.totalOpportunities)}
-                          </div>
-
-                          <div className="flex items-center justify-end gap-2 px-4 py-8">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleLaunch(row);
-                              }}
-                              className={cx(
-                                "inline-flex h-9 w-9 items-center justify-center rounded-full transition disabled:opacity-50",
-                                isLaunched
-                                  ? "text-amber-600 hover:bg-amber-50"
-                                  : "text-emerald-600 hover:bg-emerald-50"
-                              )}
-                              title={isLaunched ? "Pause campaign" : "Launch campaign"}
-                            >
-                              {isLaunched ? (
-                                <Pause className="h-4 w-4" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={(e) => openActionMenu(e, row)}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
-                              title="Campaign actions"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </button>
-                          </div>
+                          {errorMessage ? (
+                            <span title={errorMessage} className="text-slate-500">
+                              <CircleAlert className="h-4 w-4" />
+                            </span>
+                          ) : null}
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+
+                      <div className="px-4 py-7">
+                        <p className="text-[1.05rem] font-semibold text-slate-900">{progress}%</p>
+                        <div className="mt-3 h-1.5 w-[72px] overflow-hidden rounded-full bg-slate-200">
+                          <div
+                            className="h-full rounded-full bg-slate-500 transition-all"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                        {sent > 0 ? sent : "-"}
+                      </div>
+
+                      <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                        {clicked}
+                      </div>
+
+                      {canViewReplyColumns && (
+                        <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                          {replied > 0 ? replied : "-"}
+                        </div>
+                      )}
+
+                      {canViewReplyColumns && (
+                        <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                          {opportunities}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-2 px-4 py-7">
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleLaunch(row);
+                          }}
+                          className={cx(
+                            "inline-flex h-9 w-9 items-center justify-center rounded-full transition disabled:opacity-50",
+                            isLaunched
+                              ? "text-amber-600 hover:bg-amber-50"
+                              : "text-emerald-600 hover:bg-emerald-50"
+                          )}
+                          title={isLaunched ? "Pause campaign" : "Launch campaign"}
+                        >
+                          {isLaunched ? (
+                            <Pause className="h-4 w-4" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={(e) => openActionMenu(e, row)}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+                          title="Campaign actions"
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
                   );
                 })
               )}
-            </tbody>
-          </table>
+            </div>
+          </div>
         </div>
       </section>
-
       {openMenu && (
         <div
           ref={menuRef}

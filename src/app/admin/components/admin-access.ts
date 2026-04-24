@@ -124,9 +124,9 @@ export const ADMIN_MODULES: AdminModule[] = [
     ],
   },
   {
-    key: "instantly-crm",
-    label: "Instantly CRM",
-    href: "/admin/instantly-crm",
+    key: "crm",
+    label: "CRM",
+    href: "/admin/crm",
     icon: Activity,
     aliases: [
       "instantly",

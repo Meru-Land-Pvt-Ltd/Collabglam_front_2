@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Select from "react-select";
 import {
@@ -8,14 +8,12 @@ import {
   AlertCircle,
   BarChart3,
   CalendarDays,
-  CalendarClock,
   Check,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   Copy,
   Eye,
-  Filter,
   LayoutTemplate,
   Mail,
   MousePointerClick,
@@ -30,17 +28,17 @@ import {
   Sparkles,
   Target,
   Trash2,
-  Type,
   Upload,
   Users,
   Variable,
-  Wand2,
   Wrench,
   X,
-  Zap,
   Link2,
-  Braces,
   CheckSquare,
+  ExternalLink,
+  Pencil,
+  Unlink,
+  ArrowLeft,
 } from "lucide-react";
 import {
   adminDelete,
@@ -272,6 +270,32 @@ type SequenceTemplateGroup = {
   templates: SequenceTemplate[];
 };
 
+type CampaignSubsequenceStep = {
+  stepOrder: number;
+  type: "email";
+  delay: number;
+  delayUnit: "minutes" | "hours" | "days";
+  variants: CampaignSequenceVariant[];
+};
+
+type CampaignSubsequence = {
+  _id: string;
+  name: string;
+  status: "draft" | "launched" | "paused" | "completed";
+  trigger: {
+    statuses: string[];
+    activities: string[];
+    phrases: string[];
+  };
+  scheduleMode: "inherit" | "custom";
+  dailyLimitMode: "inherit" | "custom" | "none";
+  dailyLimit: number;
+  ignoreAccountDailyLimits: boolean;
+  sequences: CampaignSubsequenceStep[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 const weekdayLabels = [
   { key: "1", label: "Mon", full: "Monday" },
   { key: "2", label: "Tue", full: "Tuesday" },
@@ -295,6 +319,15 @@ const rangeOptions: Array<{ value: RangeKey; label: string }> = [
   { value: "last_7_days", label: "Last 7 days" },
   { value: "last_4_weeks", label: "Last 4 weeks" },
   { value: "last_3_months", label: "Last 3 months" },
+];
+
+const subsequenceActivityOptions = [
+  { label: "Opened", value: "opened" },
+  { label: "Clicked", value: "clicked" },
+  { label: "Replied", value: "replied" },
+  { label: "Bounced", value: "bounced" },
+  { label: "Interested", value: "interested" },
+  { label: "Not Interested", value: "not_interested" },
 ];
 
 const csvTypeOptions: Array<{ value: CsvColumnType; label: string }> = [
@@ -1025,10 +1058,221 @@ function KpiCard({
   );
 }
 
+function getDefaultSubsequence(): CampaignSubsequence {
+  return {
+    _id: "",
+    name: "New subsequence",
+    status: "draft",
+    trigger: {
+      statuses: [],
+      activities: [],
+      phrases: [],
+    },
+    scheduleMode: "inherit",
+    dailyLimitMode: "inherit",
+    dailyLimit: 0,
+    ignoreAccountDailyLimits: false,
+    sequences: [
+      {
+        stepOrder: 1,
+        type: "email",
+        delay: 1,
+        delayUnit: "days",
+        variants: [{ subject: "", body: "" }],
+      },
+    ],
+  };
+}
+
+function normalizeSubsequence(input: any): CampaignSubsequence {
+  const fallback = getDefaultSubsequence();
+
+  return {
+    _id: String(input?._id || ""),
+    name: String(input?.name || fallback.name),
+    status: ["draft", "launched", "paused", "completed"].includes(input?.status)
+      ? input.status
+      : "draft",
+    trigger: {
+      statuses: Array.isArray(input?.trigger?.statuses) ? input.trigger.statuses : [],
+      activities: Array.isArray(input?.trigger?.activities) ? input.trigger.activities : [],
+      phrases: Array.isArray(input?.trigger?.phrases) ? input.trigger.phrases : [],
+    },
+    scheduleMode: input?.scheduleMode === "custom" ? "custom" : "inherit",
+    dailyLimitMode:
+      input?.dailyLimitMode === "custom" || input?.dailyLimitMode === "none"
+        ? input.dailyLimitMode
+        : "inherit",
+    dailyLimit: Number(input?.dailyLimit || 0),
+    ignoreAccountDailyLimits: Boolean(input?.ignoreAccountDailyLimits),
+    sequences:
+      Array.isArray(input?.sequences) && input.sequences.length
+        ? input.sequences.map((step: any, index: number) => ({
+          stepOrder: Number(step?.stepOrder || index + 1),
+          type: "email",
+          delay: Number(step?.delay || (index === 0 ? 1 : 1)),
+          delayUnit:
+            step?.delayUnit === "minutes" ||
+              step?.delayUnit === "hours" ||
+              step?.delayUnit === "days"
+              ? step.delayUnit
+              : "days",
+          variants:
+            Array.isArray(step?.variants) && step.variants.length
+              ? step.variants.map((variant: any) => ({
+                subject: String(variant?.subject || ""),
+                body: String(variant?.body || ""),
+              }))
+              : [{ subject: "", body: "" }],
+        }))
+        : fallback.sequences,
+    createdAt: input?.createdAt || "",
+    updatedAt: input?.updatedAt || "",
+  };
+}
+
+function parseSubsequencesPayload(payload: any): CampaignSubsequence[] {
+  const rows =
+    payload?.data?.data ||
+    payload?.data ||
+    payload ||
+    [];
+
+  return getArrayPayload(rows).map(normalizeSubsequence);
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function looksLikeHtml(value = "") {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
+
+function bodyToEditorHtml(value = "") {
+  if (!value) return "";
+  if (looksLikeHtml(value)) return value;
+
+  return escapeHtml(value).replace(/\n/g, "<br>");
+}
+
+type TooltipProps = {
+  label: string;
+  children: ReactNode;
+};
+
+function Tooltip({ label, children }: TooltipProps) {
+  return (
+    <div className="group relative inline-flex">
+      {children}
+      <div className="pointer-events-none absolute bottom-[calc(100%+10px)] left-1/2 z-[120] -translate-x-1/2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-white opacity-0 shadow-lg transition duration-150 group-hover:opacity-100 group-focus-within:opacity-100 whitespace-nowrap">
+        {label}
+      </div>
+    </div>
+  );
+}
+
+type IconButtonProps = {
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+  children: ReactNode;
+  className?: string;
+  disabled?: boolean;
+};
+
+function IconButton({
+  label,
+  onClick,
+  active = false,
+  children,
+  className = "",
+  disabled = false,
+}: IconButtonProps) {
+  return (
+    <Tooltip label={label}>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cx(
+          "inline-flex h-9 w-9 items-center justify-center rounded-xl border text-slate-600 transition",
+          active
+            ? "border-blue-200 bg-blue-50 text-blue-600"
+            : "border-transparent bg-transparent hover:bg-slate-100 hover:text-slate-900",
+          disabled && "cursor-not-allowed opacity-50",
+          className
+        )}
+      >
+        {children}
+      </button>
+    </Tooltip>
+  );
+}
+
+type ToolbarButtonProps = {
+  label: string;
+  icon: ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+};
+
+function ToolbarButton({
+  label,
+  icon,
+  onClick,
+  active = false,
+}: ToolbarButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cx(
+        "inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm font-medium transition",
+        active ? "text-blue-600" : "text-slate-600 hover:text-slate-900"
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function useClickOutside<T extends HTMLElement>(
+  ref: React.RefObject<T | null>,
+  onOutside: () => void,
+  enabled = true
+) {
+  useEffect(() => {
+    if (!enabled) return;
+
+    function handle(event: MouseEvent) {
+      if (!ref.current) return;
+      if (!ref.current.contains(event.target as Node)) {
+        onOutside();
+      }
+    }
+
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [enabled, onOutside, ref]);
+}
+
+type SidebarRoleResponse = {
+  success?: boolean;
+  data?: {
+    role?: string;
+  };
+};
+
 export default function CampaignDetailPage() {
   const params = useParams();
   const campaignId = String(params?.id || "");
-
+  const [viewerRole, setViewerRole] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("analytics");
   const [analyticsSubTab, setAnalyticsSubTab] = useState<AnalyticsSubTab>("step_analytics");
   const [loading, setLoading] = useState(true);
@@ -1081,6 +1325,24 @@ export default function CampaignDetailPage() {
   const [visibleMetrics, setVisibleMetrics] =
     useState<Record<MetricKey, boolean>>(defaultVisibleMetrics);
 
+  const [subsequences, setSubsequences] = useState<CampaignSubsequence[]>([]);
+  const [isSubsequenceModalOpen, setIsSubsequenceModalOpen] = useState(false);
+  const [editingSubsequenceId, setEditingSubsequenceId] = useState<string | null>(null);
+  const [subsequenceForm, setSubsequenceForm] = useState<CampaignSubsequence>(getDefaultSubsequence());
+
+  const [customTemplates, setCustomTemplates] = useState<SequenceTemplate[]>([]);
+  const mergedTemplateGroups = useMemo<SequenceTemplateGroup[]>(() => {
+    return sequenceTemplateGroups.map((group) =>
+      group.category === "custom_templates"
+        ? { ...group, templates: customTemplates }
+        : group
+    );
+  }, [customTemplates]);
+
+  const [isSaveMenuOpen, setIsSaveMenuOpen] = useState(false);
+  const [isSaveAsTemplateModalOpen, setIsSaveAsTemplateModalOpen] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState("");
+
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
   const [expandedTemplateGroups, setExpandedTemplateGroups] = useState<Record<string, boolean>>({
@@ -1098,6 +1360,23 @@ export default function CampaignDetailPage() {
   });
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("lead_generation_quick_question");
 
+  const sequenceEditorRef = useRef<HTMLDivElement | null>(null);
+  const savedSelectionRangeRef = useRef<Range | null>(null);
+  const selectedLinkElementRef = useRef<HTMLAnchorElement | null>(null);
+
+  const [isLinkToolsOpen, setIsLinkToolsOpen] = useState(false);
+  const [linkToolsPosition, setLinkToolsPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
+  const [linkEditorMode, setLinkEditorMode] = useState<"insert" | "edit">("insert");
+  const [linkEditorUrl, setLinkEditorUrl] = useState("");
+  const [linkEditorText, setLinkEditorText] = useState("");
+
+  const saveMenuRef = useRef<HTMLDivElement | null>(null);
+  const variablesMenuRef = useRef<HTMLDivElement | null>(null);
+  const metricMenuRef = useRef<HTMLDivElement | null>(null);
+  const linkToolsRef = useRef<HTMLDivElement | null>(null);
+
   const [sequenceInsertTarget, setSequenceInsertTarget] = useState<{
     stepIndex: number;
     field: "subject" | "body";
@@ -1105,6 +1384,16 @@ export default function CampaignDetailPage() {
 
   const flowType: CampaignFlowType = campaign?.flowType || "standard_brand";
   const [isVariablesMenuOpen, setIsVariablesMenuOpen] = useState(false);
+
+  useClickOutside(saveMenuRef, () => setIsSaveMenuOpen(false), isSaveMenuOpen);
+  useClickOutside(
+    variablesMenuRef,
+    () => setIsVariablesMenuOpen(false),
+    isVariablesMenuOpen
+  );
+  useClickOutside(metricMenuRef, () => setMetricMenuOpen(false), metricMenuOpen);
+  useClickOutside(linkToolsRef, () => closeLinkTools(), isLinkToolsOpen);
+
 
   async function showApiError(error: unknown, fallback: string) {
     setMessage({
@@ -1160,20 +1449,35 @@ export default function CampaignDetailPage() {
     try {
       if (showLoader) setLoading(true);
 
-      const [campaignPayload, contactsPayload, overviewPayload, stepsPayload, templateVarsPayload] =
-        await Promise.all([
-          adminGet(`/outreach/campaigns/${campaignId}`),
-          adminGet(`/outreach/campaigns/${campaignId}/contacts`),
-          adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange }).catch(() => null),
-          adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange }).catch(() => null),
-          adminGet(`/outreach/campaigns/${campaignId}/template-variables`).catch(() => null),
-        ]);
+      const [
+        campaignPayload,
+        contactsPayload,
+        overviewPayload,
+        stepsPayload,
+        templateVarsPayload,
+        templatesPayload,
+        sidebarPayload,
+      ] = await Promise.all([
+        adminGet(`/outreach/campaigns/${campaignId}`),
+        adminGet(`/outreach/campaigns/${campaignId}/contacts`),
+        adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/template-variables`).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/templates`).catch(() => null),
+        adminGet<SidebarRoleResponse>(`/outreach/sidebar`).catch(() => null),
+      ]);
 
       const nextCampaign = parseCampaign(campaignPayload);
       const nextContacts = parseContacts(contactsPayload);
 
       setCampaign(nextCampaign);
       setContacts(nextContacts);
+
+      const nextViewerRole = String(sidebarPayload?.data?.role || "")
+        .trim()
+        .toLowerCase();
+
+      setViewerRole(nextViewerRole);
 
       if (nextCampaign) {
         setConfiguration(nextCampaign.configuration);
@@ -1194,6 +1498,42 @@ export default function CampaignDetailPage() {
 
       setTemplateVariables(varsFromApi.length ? varsFromApi : varsFromCampaign);
 
+      const templatesRoot =
+        templatesPayload?.data?.data ||
+        templatesPayload?.data ||
+        templatesPayload ||
+        {};
+
+      const customTemplateRows = Array.isArray(templatesRoot?.customTemplates)
+        ? templatesRoot.customTemplates
+        : [];
+
+      const nextCustomTemplates: SequenceTemplate[] = customTemplateRows.map((item: any) => ({
+        id: String(item?._id || item?.id || ""),
+        category: String(item?.category || "custom_templates"),
+        title: String(item?.name || item?.title || "Untitled Template"),
+        subject: String(item?.subject || ""),
+        body: String(item?.body || ""),
+      }));
+
+      setCustomTemplates(nextCustomTemplates);
+
+      if (!selectedTemplateId && nextCustomTemplates.length) {
+        setSelectedTemplateId(nextCustomTemplates[0].id);
+      }
+
+      let nextSubsequences: CampaignSubsequence[] = [];
+
+      if (nextCampaign?.status === "launched") {
+        const subsequencesPayload: any = await adminGet(
+          `/outreach/campaigns/${campaignId}/subsequences`
+        ).catch(() => null);
+
+        nextSubsequences = parseSubsequencesPayload(subsequencesPayload);
+      }
+
+      setSubsequences(nextSubsequences);
+
       if (Array.isArray(nextCampaign?.csvSchema?.columns) && nextCampaign.csvSchema.columns.length) {
         setCsvPreviewColumns(nextCampaign.csvSchema.columns);
         setCsvPreviewFileName(nextCampaign.csvSchema.fileName || "");
@@ -1209,6 +1549,17 @@ export default function CampaignDetailPage() {
   useEffect(() => {
     if (campaignId) void loadPage(true);
   }, [campaignId, timeRange]);
+
+  const normalizedViewerRole = String(viewerRole || "").trim().toLowerCase();
+  const isSdrViewer = normalizedViewerRole === "sdr";
+
+  const canViewReplyAnalytics = !isSdrViewer;
+
+  useEffect(() => {
+    if (isSdrViewer && analyticsSubTab === "activity") {
+      setAnalyticsSubTab("step_analytics");
+    }
+  }, [isSdrViewer, analyticsSubTab]);
 
   useEffect(() => {
     const timer = setTimeout(() => setMessage(null), 3500);
@@ -1230,8 +1581,29 @@ export default function CampaignDetailPage() {
     }));
   }
 
-  function updateVariant(stepIndex: number, patch: Partial<CampaignSequenceVariant>) {
-    setConfiguration((prev) => ({
+  function openCreateSubsequence() {
+    setEditingSubsequenceId(null);
+    setSubsequenceForm(getDefaultSubsequence());
+    setIsSubsequenceModalOpen(true);
+  }
+
+  function openEditSubsequence(row: CampaignSubsequence) {
+    setEditingSubsequenceId(row._id);
+    setSubsequenceForm(normalizeSubsequence(row));
+    setIsSubsequenceModalOpen(true);
+  }
+
+  function updateSubsequenceStep(stepIndex: number, patch: Partial<CampaignSubsequenceStep>) {
+    setSubsequenceForm((prev) => ({
+      ...prev,
+      sequences: prev.sequences.map((step, index) =>
+        index === stepIndex ? { ...step, ...patch } : step
+      ),
+    }));
+  }
+
+  function updateSubsequenceVariant(stepIndex: number, patch: Partial<CampaignSequenceVariant>) {
+    setSubsequenceForm((prev) => ({
       ...prev,
       sequences: prev.sequences.map((step, index) =>
         index === stepIndex
@@ -1244,6 +1616,164 @@ export default function CampaignDetailPage() {
           : step
       ),
     }));
+  }
+
+  function addSubsequenceStep() {
+    setSubsequenceForm((prev) => ({
+      ...prev,
+      sequences: [
+        ...prev.sequences,
+        {
+          stepOrder: prev.sequences.length + 1,
+          type: "email",
+          delay: 1,
+          delayUnit: "days",
+          variants: [{ subject: "", body: "" }],
+        },
+      ],
+    }));
+  }
+
+  function removeSubsequenceStep(stepIndex: number) {
+    setSubsequenceForm((prev) => {
+      if (prev.sequences.length <= 1) return prev;
+
+      return {
+        ...prev,
+        sequences: prev.sequences
+          .filter((_, index) => index !== stepIndex)
+          .map((step, index) => ({
+            ...step,
+            stepOrder: index + 1,
+          })),
+      };
+    });
+  }
+
+  async function handleSaveSubsequence() {
+    try {
+      if (!subsequenceForm.name.trim()) {
+        throw new Error("Subsequence name is required");
+      }
+
+      setSubmittingKey("save-subsequence");
+
+      const payload = {
+        name: subsequenceForm.name.trim(),
+        trigger: {
+          statuses: subsequenceForm.trigger.statuses,
+          activities: subsequenceForm.trigger.activities,
+          phrases: subsequenceForm.trigger.phrases,
+        },
+        scheduleMode: subsequenceForm.scheduleMode,
+        dailyLimitMode: subsequenceForm.dailyLimitMode,
+        dailyLimit: subsequenceForm.dailyLimit,
+        ignoreAccountDailyLimits: subsequenceForm.ignoreAccountDailyLimits,
+        sequences: subsequenceForm.sequences,
+      };
+
+      const response: any = editingSubsequenceId
+        ? await adminPatch(
+          `/outreach/campaigns/${campaignId}/subsequences/${editingSubsequenceId}`,
+          payload
+        )
+        : await adminPost(`/outreach/campaigns/${campaignId}/subsequences`, payload);
+
+      if (response?.success === false) {
+        throw new Error(response?.message || "Failed to save subsequence");
+      }
+
+      setIsSubsequenceModalOpen(false);
+      setEditingSubsequenceId(null);
+      setSubsequenceForm(getDefaultSubsequence());
+
+      setMessage({
+        type: "success",
+        text: response?.message || "Subsequence saved successfully",
+      });
+
+      await loadPage(false);
+    } catch (error) {
+      await showApiError(error, "Failed to save subsequence");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleDeleteSubsequence(subsequenceId: string) {
+    try {
+      setSubmittingKey(`delete-subsequence-${subsequenceId}`);
+
+      const response: any = await adminDelete(
+        `/outreach/campaigns/${campaignId}/subsequences/${subsequenceId}`
+      );
+
+      if (response?.success === false) {
+        throw new Error(response?.message || "Failed to delete subsequence");
+      }
+
+      setMessage({
+        type: "success",
+        text: response?.message || "Subsequence deleted successfully",
+      });
+
+      await loadPage(false);
+    } catch (error) {
+      await showApiError(error, "Failed to delete subsequence");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleDuplicateSubsequence(subsequenceId: string) {
+    try {
+      setSubmittingKey(`duplicate-subsequence-${subsequenceId}`);
+
+      const response: any = await adminPost(
+        `/outreach/campaigns/${campaignId}/subsequences/${subsequenceId}/duplicate`
+      );
+
+      if (response?.success === false) {
+        throw new Error(response?.message || "Failed to duplicate subsequence");
+      }
+
+      setMessage({
+        type: "success",
+        text: response?.message || "Subsequence duplicated successfully",
+      });
+
+      await loadPage(false);
+    } catch (error) {
+      await showApiError(error, "Failed to duplicate subsequence");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleToggleSubsequenceStatus(row: CampaignSubsequence) {
+    try {
+      const action = row.status === "launched" ? "pause" : "launch";
+      setSubmittingKey(`${action}-subsequence-${row._id}`);
+
+      const response: any = await adminPost(
+        `/outreach/campaigns/${campaignId}/subsequences/${row._id}/${action}`
+      );
+
+      if (response?.success === false) {
+        throw new Error(response?.message || `Failed to ${action} subsequence`);
+      }
+
+      setMessage({
+        type: "success",
+        text: response?.message || `Subsequence ${action}ed successfully`,
+      });
+
+      await loadPage(false);
+    } catch (error) {
+      await showApiError(error, "Failed to update subsequence");
+    } finally {
+      setSubmittingKey("");
+    }
   }
 
   function updateSendingOption(key: keyof SendingOptions, value: any) {
@@ -1614,6 +2144,67 @@ export default function CampaignDetailPage() {
     }
   }
 
+  async function handleSaveAsTemplate() {
+    try {
+      const subject = selectedSequenceVariant?.subject || "";
+      const body = selectedSequenceVariant?.body || "";
+
+      if (!templateNameInput.trim()) {
+        throw new Error("Template name is required");
+      }
+
+      if (!subject.trim() && !body.trim()) {
+        throw new Error("Write subject or email body before saving template");
+      }
+
+      setSubmittingKey("save-template");
+
+      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/templates`, {
+        name: templateNameInput.trim(),
+        category: "custom_templates",
+        subject,
+        body,
+      });
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to save template");
+      }
+
+      const created =
+        payload?.data?.data ||
+        payload?.data ||
+        null;
+
+      if (created?._id || created?.id) {
+        const nextTemplate: SequenceTemplate = {
+          id: String(created?._id || created?.id),
+          category: String(created?.category || "custom_templates"),
+          title: String(created?.name || created?.title || templateNameInput.trim()),
+          subject: String(created?.subject || subject),
+          body: String(created?.body || body),
+        };
+
+        setCustomTemplates((prev) => [nextTemplate, ...prev]);
+        setSelectedTemplateId(nextTemplate.id);
+      } else {
+        await loadPage(false);
+      }
+
+      setIsSaveAsTemplateModalOpen(false);
+      setIsSaveMenuOpen(false);
+      setTemplateNameInput("");
+
+      setMessage({
+        type: "success",
+        text: payload?.message || "Template saved successfully",
+      });
+    } catch (error) {
+      await showApiError(error, "Failed to save template");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
   function openRemoveLead(row: ContactRow) {
     setRemoveLead(row);
     setRemoveLeadOpen(true);
@@ -1711,8 +2302,8 @@ export default function CampaignDetailPage() {
       {
         id: "stage",
         header: "Stage",
-        render: (row) => (
-          <div className="flex items-center gap-2">
+        render: (row) =>
+          isSdrViewer ? (
             <span
               className={cx(
                 "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
@@ -1721,20 +2312,30 @@ export default function CampaignDetailPage() {
             >
               {row.stage || "—"}
             </span>
-            <select
-              value={row.stage || "new"}
-              onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
-              disabled={submittingKey === `stage-${row._id}`}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-            >
-              {stageOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ),
+          ) : (
+            <div className="flex items-center gap-2">
+              <span
+                className={cx(
+                  "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+                  getStagePillClasses(row.stage)
+                )}
+              >
+                {row.stage || "—"}
+              </span>
+              <select
+                value={row.stage || "new"}
+                onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
+                disabled={submittingKey === `stage-${row._id}`}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+              >
+                {stageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ),
       },
       {
         id: "launchedAt",
@@ -1757,7 +2358,7 @@ export default function CampaignDetailPage() {
         ),
       },
     ],
-    [submittingKey]
+    [submittingKey, isSdrViewer]
   );
 
   const activeScheduleWindow =
@@ -1804,60 +2405,97 @@ export default function CampaignDetailPage() {
         ? "Pause campaign"
         : "Launch campaign";
 
-  const metricDefinitions: MetricDefinition[] = [
-    {
-      key: "sequence_started",
-      label: "Sequence started",
-      value: overview.sequenceStartedAt ? formatDate(overview.sequenceStartedAt) : "-",
-      icon: <CalendarDays className="h-4 w-4" />,
-    },
-    {
-      key: "open_rate",
-      label: "Open rate",
-      value: openRateText,
-      icon: <Mail className="h-4 w-4" />,
-    },
-    {
-      key: "click_rate",
-      label: "Click rate",
-      value: clickRate,
-      subValue: "-",
-      icon: <MousePointerClick className="h-4 w-4" />,
-    },
-    {
-      key: "reply_rate",
-      label: "Reply rate",
-      value: replyRate,
-      subValue: "-",
-      icon: <Reply className="h-4 w-4" />,
-    },
-    {
-      key: "positive_reply_rate",
-      label: "Positive Reply Rate",
-      value: positiveReplyRate,
-      subValue: "-",
-      icon: <Sparkles className="h-4 w-4" />,
-    },
-    {
-      key: "opportunities",
-      label: "Opportunities",
-      value: totalOpportunities,
-      subValue: "$0",
-      icon: <Target className="h-4 w-4" />,
-    },
-    {
-      key: "conversions",
-      label: "Conversions",
-      value: totalQualified,
-      subValue: "$0",
-      icon: <CheckCircle2 className="h-4 w-4" />,
-    },
-  ];
+  const metricDefinitions: MetricDefinition[] = isSdrViewer
+    ? [
+      {
+        key: "sequence_started",
+        label: "Sequence started",
+        value: overview.sequenceStartedAt ? formatDate(overview.sequenceStartedAt) : "-",
+        icon: <CalendarDays className="h-4 w-4" />,
+      },
+      {
+        key: "open_rate",
+        label: "Open rate",
+        value: openRateText,
+        icon: <Mail className="h-4 w-4" />,
+      },
+      {
+        key: "click_rate",
+        label: "Click rate",
+        value: clickRate,
+        subValue: "-",
+        icon: <MousePointerClick className="h-4 w-4" />,
+      },
+    ]
+    : [
+      {
+        key: "sequence_started",
+        label: "Sequence started",
+        value: overview.sequenceStartedAt ? formatDate(overview.sequenceStartedAt) : "-",
+        icon: <CalendarDays className="h-4 w-4" />,
+      },
+      {
+        key: "open_rate",
+        label: "Open rate",
+        value: openRateText,
+        icon: <Mail className="h-4 w-4" />,
+      },
+      {
+        key: "click_rate",
+        label: "Click rate",
+        value: clickRate,
+        subValue: "-",
+        icon: <MousePointerClick className="h-4 w-4" />,
+      },
+      {
+        key: "reply_rate",
+        label: "Reply rate",
+        value: replyRate,
+        subValue: "-",
+        icon: <Reply className="h-4 w-4" />,
+      },
+      {
+        key: "positive_reply_rate",
+        label: "Positive Reply Rate",
+        value: positiveReplyRate,
+        subValue: "-",
+        icon: <Sparkles className="h-4 w-4" />,
+      },
+      {
+        key: "opportunities",
+        label: "Opportunities",
+        value: totalOpportunities,
+        subValue: "$0",
+        icon: <Target className="h-4 w-4" />,
+      },
+      {
+        key: "conversions",
+        label: "Conversions",
+        value: totalQualified,
+        subValue: "$0",
+        icon: <CheckCircle2 className="h-4 w-4" />,
+      },
+    ];
 
   const visibleMetricCards = metricDefinitions.filter((metric) => visibleMetrics[metric.key]);
   const filteredMetricList = metricDefinitions.filter((metric) =>
     metric.label.toLowerCase().includes(metricSearch.trim().toLowerCase())
   );
+
+  const performanceCards = isSdrViewer
+    ? [
+      { label: "Leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+      { label: "Sent", value: totalSent, icon: <Mail className="h-4 w-4" /> },
+      { label: "Opened", value: totalOpened, icon: <Sparkles className="h-4 w-4" /> },
+      { label: "Clicked", value: totalClicked, icon: <MousePointerClick className="h-4 w-4" /> },
+    ]
+    : [
+      { label: "Leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+      { label: "Sent", value: totalSent, icon: <Mail className="h-4 w-4" /> },
+      { label: "Opened", value: totalOpened, icon: <Sparkles className="h-4 w-4" /> },
+      { label: "Replies", value: totalReplies, icon: <Reply className="h-4 w-4" /> },
+      { label: "Qualified", value: totalQualified, icon: <Target className="h-4 w-4" /> },
+    ];
 
   const stageStats = useMemo(() => {
     return contacts.reduce(
@@ -1879,47 +2517,65 @@ export default function CampaignDetailPage() {
   }, [contacts]);
 
   const [selectedSequenceStepIndex, setSelectedSequenceStepIndex] = useState(0);
+  const [selectedSequenceVariantIndex, setSelectedSequenceVariantIndex] = useState(0);
 
   const selectedSequenceStep =
     configuration.sequences[selectedSequenceStepIndex] || configuration.sequences[0];
 
   const selectedSequenceVariant =
-    selectedSequenceStep?.variants?.[0] || { subject: "", body: "" };
+    selectedSequenceStep?.variants?.[selectedSequenceVariantIndex] || {
+      subject: "",
+      body: "",
+    };
 
-  function updateSelectedStep(patch: Partial<CampaignSequenceStep>) {
-    updateStep(selectedSequenceStepIndex, patch);
+  function updateVariantAt(
+    stepIndex: number,
+    variantIndex: number,
+    patch: Partial<CampaignSequenceVariant>
+  ) {
+    setConfiguration((prev) => ({
+      ...prev,
+      sequences: prev.sequences.map((step, index) =>
+        index === stepIndex
+          ? {
+            ...step,
+            variants: step.variants.map((variant, innerIndex) =>
+              innerIndex === variantIndex ? { ...variant, ...patch } : variant
+            ),
+          }
+          : step
+      ),
+    }));
   }
 
   function updateSelectedVariant(patch: Partial<CampaignSequenceVariant>) {
-    updateVariant(selectedSequenceStepIndex, patch);
+    updateVariantAt(selectedSequenceStepIndex, selectedSequenceVariantIndex, patch);
   }
 
   function handleAddSequenceStepInstantlyStyle() {
+    let nextStepIndex = 0;
+
     setConfiguration((prev): CampaignConfiguration => {
+      nextStepIndex = prev.sequences.length;
+
       const nextStep: CampaignSequenceStep = {
         stepOrder: prev.sequences.length + 1,
         type: "email",
-        delay: prev.sequences.length === 0 ? 0 : 1,
+        delay: 1,
         delayUnit: "days",
         preDelay: 0,
         preDelayUnit: "days",
         variants: [{ subject: "", body: "" }],
       };
 
-      const nextSequences: CampaignSequenceStep[] = [
-        ...prev.sequences,
-        nextStep,
-      ];
-
       return {
         ...prev,
-        sequences: nextSequences,
+        sequences: [...prev.sequences, nextStep],
       };
     });
 
-    setTimeout(() => {
-      setSelectedSequenceStepIndex(configuration.sequences.length);
-    }, 0);
+    setSelectedSequenceStepIndex(nextStepIndex);
+    setSelectedSequenceVariantIndex(0);
   }
 
   function handleRemoveSequenceStepInstantlyStyle(index: number) {
@@ -1940,19 +2596,87 @@ export default function CampaignDetailPage() {
       if (current === index) return Math.max(0, index - 1);
       return current;
     });
+
+    setSelectedSequenceVariantIndex(0);
   }
 
-  function getInstantlySequenceCardSubject(step: CampaignSequenceStep, index: number) {
-    const subject = step?.variants?.[0]?.subject?.trim();
-    if (subject) return subject;
-    if (index === 0) return "<Empty subject>";
-    return "<Previous email's subject>";
+  function getVariantLabel(index: number) {
+    return String.fromCharCode(65 + index);
   }
 
-  function getInstantlyStepDelayLabel(step: CampaignSequenceStep, index: number) {
-    if (index === 0) return "Sends on campaign launch";
-    return `Send next message in ${step.delay} ${step.delayUnit}`;
+  function handleSelectSequenceStep(index: number) {
+    setSelectedSequenceStepIndex(index);
+    setSelectedSequenceVariantIndex(0);
   }
+
+  function handleSelectVariant(stepIndex: number, variantIndex: number) {
+    setSelectedSequenceStepIndex(stepIndex);
+    setSelectedSequenceVariantIndex(variantIndex);
+  }
+
+  function handleAddVariant(stepIndex: number) {
+    let nextVariantIndex = 0;
+
+    setConfiguration((prev) => {
+      const nextSequences = prev.sequences.map((step, index) => {
+        if (index !== stepIndex) return step;
+
+        nextVariantIndex = step.variants.length;
+
+        return {
+          ...step,
+          variants: [
+            ...step.variants,
+            {
+              subject: "",
+              body: "",
+            },
+          ],
+        };
+      });
+
+      return {
+        ...prev,
+        sequences: nextSequences,
+      };
+    });
+
+    setSelectedSequenceStepIndex(stepIndex);
+    setSelectedSequenceVariantIndex(nextVariantIndex);
+  }
+
+  function handleRemoveVariant(stepIndex: number, variantIndex: number) {
+    setConfiguration((prev) => ({
+      ...prev,
+      sequences: prev.sequences.map((step, index) => {
+        if (index !== stepIndex) return step;
+        if (step.variants.length <= 1) return step;
+
+        return {
+          ...step,
+          variants: step.variants.filter((_, innerIndex) => innerIndex !== variantIndex),
+        };
+      }),
+    }));
+
+    if (stepIndex === selectedSequenceStepIndex) {
+      setSelectedSequenceVariantIndex((current) => {
+        if (current > variantIndex) return current - 1;
+        if (current === variantIndex) return Math.max(0, variantIndex - 1);
+        return current;
+      });
+    }
+  }
+
+  function getStepDelayOwnerIndex(index: number) {
+    const nextStepExists = index < configuration.sequences.length - 1;
+    return nextStepExists ? index + 1 : null;
+  }
+
+  const nextSelectedStep =
+    selectedSequenceStepIndex < configuration.sequences.length - 1
+      ? configuration.sequences[selectedSequenceStepIndex + 1]
+      : null;
 
   type SequenceVariableOption = {
     label: string;
@@ -1998,7 +2722,7 @@ export default function CampaignDetailPage() {
         return {
           ...step,
           variants: step.variants.map((variant, variantIndex) => {
-            if (variantIndex !== 0) return variant;
+            if (variantIndex !== selectedSequenceVariantIndex) return variant;
 
             if (target.field === "subject") {
               return {
@@ -2027,7 +2751,7 @@ export default function CampaignDetailPage() {
   const filteredTemplateGroups = useMemo(() => {
     const query = templateSearch.trim().toLowerCase();
 
-    return sequenceTemplateGroups.map((group) => {
+    return mergedTemplateGroups.map((group) => {
       if (!query) return group;
 
       return {
@@ -2046,7 +2770,224 @@ export default function CampaignDetailPage() {
         }),
       };
     });
-  }, [templateSearch]);
+  }, [templateSearch, mergedTemplateGroups]);
+
+  function syncEditorBodyToState() {
+    const html = sequenceEditorRef.current?.innerHTML || "";
+    updateSelectedVariant({ body: html });
+  }
+
+  function saveEditorSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    savedSelectionRangeRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function restoreEditorSelection() {
+    const selection = window.getSelection();
+    if (!selection || !savedSelectionRangeRef.current) return;
+
+    selection.removeAllRanges();
+    selection.addRange(savedSelectionRangeRef.current);
+  }
+
+  function closeLinkTools() {
+    setIsLinkToolsOpen(false);
+    setLinkToolsPosition(null);
+    selectedLinkElementRef.current = null;
+  }
+
+  function resetLinkEditor() {
+    setIsLinkEditorOpen(false);
+    setLinkEditorMode("insert");
+    setLinkEditorUrl("");
+    setLinkEditorText("");
+  }
+
+  function updateLinkToolsFromSelection() {
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0) {
+      closeLinkTools();
+      return;
+    }
+
+    const node =
+      selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode?.parentElement || null;
+
+    const linkElement = node?.closest?.("a") as HTMLAnchorElement | null;
+
+    if (!linkElement || !sequenceEditorRef.current?.contains(linkElement)) {
+      closeLinkTools();
+      return;
+    }
+
+    const rect = linkElement.getBoundingClientRect();
+
+    selectedLinkElementRef.current = linkElement;
+    setLinkEditorText(linkElement.textContent || "");
+    setLinkEditorUrl(linkElement.getAttribute("href") || "");
+    setLinkToolsPosition({
+      top: rect.top - 58,
+      left: rect.left + rect.width / 2,
+    });
+    setIsLinkToolsOpen(true);
+  }
+
+  function handleEditorInput() {
+    syncEditorBodyToState();
+    saveEditorSelection();
+    updateLinkToolsFromSelection();
+  }
+
+  function handleEditorSelectionChange() {
+    saveEditorSelection();
+    updateLinkToolsFromSelection();
+  }
+
+  function handleOpenInsertLinkEditor() {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString() || "";
+
+    setLinkEditorMode("insert");
+    setLinkEditorText(selectedText.trim());
+    setLinkEditorUrl("");
+    setIsLinkEditorOpen(true);
+    setIsLinkToolsOpen(false);
+  }
+
+  function handleOpenEditLinkEditor() {
+    const currentLink = selectedLinkElementRef.current;
+
+    if (!currentLink) {
+      setMessage({
+        type: "info",
+        text: "No selected link found",
+      });
+      return;
+    }
+
+    setLinkEditorMode("edit");
+    setLinkEditorText(currentLink.textContent || "");
+    setLinkEditorUrl(currentLink.getAttribute("href") || "");
+    setIsLinkEditorOpen(true);
+    setIsLinkToolsOpen(false);
+  }
+
+  function handleOpenLinkInNewTab() {
+    const currentLink = selectedLinkElementRef.current;
+    const url = currentLink?.getAttribute("href");
+
+    if (!url) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function handleRemoveSelectedLink() {
+    const currentLink = selectedLinkElementRef.current;
+    if (!currentLink) return;
+
+    const textNode = document.createTextNode(currentLink.textContent || "");
+    currentLink.replaceWith(textNode);
+
+    syncEditorBodyToState();
+    closeLinkTools();
+
+    setMessage({
+      type: "success",
+      text: "Link removed",
+    });
+  }
+
+  function handleSubmitLinkEditor() {
+    const normalizedUrl = normalizeInsertLinkUrl(linkEditorUrl);
+
+    if (!normalizedUrl) {
+      setMessage({
+        type: "error",
+        text: "Web address is required",
+      });
+      return;
+    }
+
+    const finalText = linkEditorText.trim() || normalizedUrl;
+
+    if (linkEditorMode === "edit" && selectedLinkElementRef.current) {
+      selectedLinkElementRef.current.setAttribute("href", normalizedUrl);
+      selectedLinkElementRef.current.setAttribute("target", "_blank");
+      selectedLinkElementRef.current.setAttribute("rel", "noopener noreferrer");
+      selectedLinkElementRef.current.textContent = finalText;
+
+      syncEditorBodyToState();
+      resetLinkEditor();
+
+      setMessage({
+        type: "success",
+        text: "Link updated",
+      });
+      return;
+    }
+
+    restoreEditorSelection();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      const currentHtml = sequenceEditorRef.current?.innerHTML || "";
+      const appended = `${currentHtml}${currentHtml ? "<br>" : ""}<a href="${normalizedUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+        finalText
+      )}</a>`;
+
+      if (sequenceEditorRef.current) {
+        sequenceEditorRef.current.innerHTML = appended;
+      }
+
+      syncEditorBodyToState();
+      resetLinkEditor();
+
+      setMessage({
+        type: "success",
+        text: "Link inserted",
+      });
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const anchor = document.createElement("a");
+    anchor.href = normalizedUrl;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.textContent = finalText;
+
+    range.insertNode(anchor);
+
+    const nextRange = document.createRange();
+    nextRange.setStartAfter(anchor);
+    nextRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(nextRange);
+    savedSelectionRangeRef.current = nextRange.cloneRange();
+
+    syncEditorBodyToState();
+    resetLinkEditor();
+
+    setMessage({
+      type: "success",
+      text: "Link inserted",
+    });
+  }
+
+  useEffect(() => {
+    if (!sequenceEditorRef.current) return;
+
+    const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
+    if (sequenceEditorRef.current.innerHTML !== nextHtml) {
+      sequenceEditorRef.current.innerHTML = nextHtml;
+    }
+  }, [selectedSequenceStepIndex, selectedSequenceVariant.body]);
 
   const flatFilteredTemplates = useMemo(() => {
     return filteredTemplateGroups.flatMap((group) => group.templates);
@@ -2054,7 +2995,7 @@ export default function CampaignDetailPage() {
 
   const selectedTemplate =
     flatFilteredTemplates.find((template) => template.id === selectedTemplateId) ||
-    sequenceTemplateGroups.flatMap((group) => group.templates).find((template) => template.id === selectedTemplateId) ||
+    mergedTemplateGroups.flatMap((group) => group.templates).find((template) => template.id === selectedTemplateId) ||
     null;
 
   useEffect(() => {
@@ -2081,7 +3022,7 @@ export default function CampaignDetailPage() {
         return {
           ...step,
           variants: step.variants.map((variant, variantIndex) => {
-            if (variantIndex !== 0) return variant;
+            if (variantIndex !== selectedSequenceVariantIndex) return variant;
 
             return {
               ...variant,
@@ -2110,6 +3051,14 @@ export default function CampaignDetailPage() {
       type: "success",
       text: `Template "${selectedTemplate.title}" copied`,
     });
+  }
+
+  function normalizeInsertLinkUrl(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+
+    if (/^https?:\/\//i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
   }
 
   return (
@@ -2176,36 +3125,40 @@ export default function CampaignDetailPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={topActionIsPause ? handlePause : handleLaunch}
-                disabled={submittingKey !== ""}
-                className={cx(
-                  "inline-flex h-11 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition disabled:opacity-50",
-                  topActionIsPause
-                    ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-                    : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
-                )}
-              >
-                {topActionIsPause ? (
-                  <Pause className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4 text-emerald-500" />
-                )}
-                {submittingKey === "launch" || submittingKey === "pause"
-                  ? "Please wait..."
-                  : topActionLabel}
-              </button>
+              <Tooltip label={topActionIsPause ? "Pause sending for this campaign" : "Launch or resume this campaign"}>
+                <button
+                  type="button"
+                  onClick={topActionIsPause ? handlePause : handleLaunch}
+                  disabled={submittingKey !== ""}
+                  className={cx(
+                    "inline-flex h-11 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                    topActionIsPause
+                      ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      : "border-slate-200 bg-white text-slate-900 hover:bg-slate-50"
+                  )}
+                >
+                  {topActionIsPause ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4 text-emerald-500" />
+                  )}
+                  {submittingKey === "launch" || submittingKey === "pause"
+                    ? "Please wait..."
+                    : topActionLabel}
+                </button>
+              </Tooltip>
 
-              <button
-                type="button"
-                onClick={handleDirectSync}
-                disabled={submittingKey !== ""}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                <RefreshCw className={cx("h-4 w-4", submittingKey === "sync" && "animate-spin")} />
-                Sync
-              </button>
+              <Tooltip label="Sync campaign settings and analytics">
+                <button
+                  type="button"
+                  onClick={handleDirectSync}
+                  disabled={submittingKey !== ""}
+                  className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw className={cx("h-4 w-4", submittingKey === "sync" && "animate-spin")} />
+                  Sync
+                </button>
+              </Tooltip>
             </div>
           </div>
         </div>
@@ -2258,31 +3211,35 @@ export default function CampaignDetailPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMessage({
-                        type: campaign?.sync?.lastErrorMessage ? "error" : "info",
-                        text:
-                          campaign?.sync?.lastErrorMessage ||
-                          "Campaign looks healthy.",
-                      })
-                    }
-                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <Wrench className="h-4 w-4" />
-                    Diagnose
-                  </button>
+                  <Tooltip label="Check campaign sync and health">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setMessage({
+                          type: campaign?.sync?.lastErrorMessage ? "error" : "info",
+                          text:
+                            campaign?.sync?.lastErrorMessage ||
+                            "Campaign looks healthy.",
+                        })
+                      }
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Wrench className="h-4 w-4" />
+                      Diagnose
+                    </button>
+                  </Tooltip>
 
-                  <button
-                    type="button"
-                    onClick={handleShare}
-                    disabled={submittingKey === "share"}
-                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    <Share2 className="h-4 w-4" />
-                    {submittingKey === "share" ? "Sharing..." : "Share"}
-                  </button>
+                  <Tooltip label="Copy campaign share link">
+                    <button
+                      type="button"
+                      onClick={handleShare}
+                      disabled={submittingKey === "share"}
+                      className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Share2 className="h-4 w-4" />
+                      {submittingKey === "share" ? "Sharing..." : "Share"}
+                    </button>
+                  </Tooltip>
 
                   <div className="relative">
                     <select
@@ -2299,14 +3256,16 @@ export default function CampaignDetailPage() {
                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   </div>
 
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setMetricMenuOpen((prev) => !prev)}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
-                    >
-                      <Settings className="h-4 w-4" />
-                    </button>
+                  <div ref={metricMenuRef} className="relative">
+                    <Tooltip label="Choose visible analytics cards">
+                      <button
+                        type="button"
+                        onClick={() => setMetricMenuOpen((prev) => !prev)}
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+                      >
+                        <Settings className="h-4 w-4" />
+                      </button>
+                    </Tooltip>
 
                     {metricMenuOpen && (
                       <div className="absolute right-0 top-[52px] z-20 w-[320px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
@@ -2399,18 +3358,12 @@ export default function CampaignDetailPage() {
               </div>
 
               <div className="grid gap-0 xl:grid-cols-5">
-                {[
-                  { label: "Leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
-                  { label: "Sent", value: totalSent, icon: <Mail className="h-4 w-4" /> },
-                  { label: "Opened", value: totalOpened, icon: <Sparkles className="h-4 w-4" /> },
-                  { label: "Replies", value: totalReplies, icon: <Reply className="h-4 w-4" /> },
-                  { label: "Qualified", value: totalQualified, icon: <Target className="h-4 w-4" /> },
-                ].map((item, index) => (
+                {performanceCards.map((item, index) => (
                   <div
                     key={item.label}
                     className={cx(
                       "flex items-center gap-4 px-6 py-6",
-                      index !== 4 && "border-b border-slate-100 xl:border-b-0 xl:border-r"
+                      index !== performanceCards.length - 1 && "border-b border-slate-100 xl:border-b-0 xl:border-r"
                     )}
                   >
                     <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-50 text-slate-600">
@@ -2441,49 +3394,79 @@ export default function CampaignDetailPage() {
                     Step Analytics
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setAnalyticsSubTab("activity")}
-                    className={cx(
-                      "border-b-2 pb-4 text-base font-semibold",
-                      analyticsSubTab === "activity"
-                        ? "border-blue-600 text-blue-600"
-                        : "border-transparent text-slate-500"
-                    )}
-                  >
-                    Activity
-                  </button>
+                  {!isSdrViewer && (
+                    <button
+                      type="button"
+                      onClick={() => setAnalyticsSubTab("activity")}
+                      className={cx(
+                        "border-b-2 pb-4 text-base font-semibold",
+                        analyticsSubTab === "activity"
+                          ? "border-blue-600 text-blue-600"
+                          : "border-transparent text-slate-500"
+                      )}
+                    >
+                      Activity
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {analyticsSubTab === "step_analytics" ? (
+              {analyticsSubTab === "step_analytics" || isSdrViewer ? (
                 stepAnalytics.length ? (
                   <div className="px-6 py-6">
-                    <div className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                      <div>Step</div>
-                      <div>Sent</div>
-                      <div>Opened</div>
-                      <div>Replied</div>
-                      <div>Clicked</div>
-                      <div>Opportunities</div>
-                    </div>
-
-                    {stepAnalytics.map((step) => (
-                      <div
-                        key={`${step.stepOrder}-${step.label}`}
-                        className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
-                      >
-                        <div>
-                          <p className="font-medium text-slate-900">{step.label}</p>
-                          <p className="mt-1 text-xs text-slate-400">{step.subject || step.type}</p>
+                    {canViewReplyAnalytics ? (
+                      <>
+                        <div className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          <div>Step</div>
+                          <div>Sent</div>
+                          <div>Opened</div>
+                          <div>Replied</div>
+                          <div>Clicked</div>
+                          <div>Opportunities</div>
                         </div>
-                        <div>{step.sent}</div>
-                        <div>{step.opened ?? "-"}</div>
-                        <div>{step.replied}</div>
-                        <div>{step.clicked}</div>
-                        <div>{step.opportunities}</div>
-                      </div>
-                    ))}
+
+                        {stepAnalytics.map((step) => (
+                          <div
+                            key={`${step.stepOrder}-${step.label}`}
+                            className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                          >
+                            <div>
+                              <p className="font-medium text-slate-900">{step.label}</p>
+                              <p className="mt-1 text-xs text-slate-400">{step.subject || step.type}</p>
+                            </div>
+                            <div>{step.sent}</div>
+                            <div>{step.opened ?? "-"}</div>
+                            <div>{step.replied}</div>
+                            <div>{step.clicked}</div>
+                            <div>{step.opportunities}</div>
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-[1.8fr_repeat(3,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          <div>Step</div>
+                          <div>Sent</div>
+                          <div>Opened</div>
+                          <div>Clicked</div>
+                        </div>
+
+                        {stepAnalytics.map((step) => (
+                          <div
+                            key={`${step.stepOrder}-${step.label}`}
+                            className="grid grid-cols-[1.8fr_repeat(3,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                          >
+                            <div>
+                              <p className="font-medium text-slate-900">{step.label}</p>
+                              <p className="mt-1 text-xs text-slate-400">{step.subject || step.type}</p>
+                            </div>
+                            <div>{step.sent}</div>
+                            <div>{step.opened ?? "-"}</div>
+                            <div>{step.clicked}</div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="px-6 py-16">
@@ -2739,12 +3722,33 @@ export default function CampaignDetailPage() {
                     description="Campaign pipeline snapshot"
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
-                      { label: "Replies", value: stageStats.replied, icon: <Reply className="h-4 w-4" /> },
-                      { label: "Assigned to BME", value: stageStats.assignedToBme, icon: <Target className="h-4 w-4" /> },
-                      { label: "Assigned to IME", value: stageStats.assignedToIme, icon: <Sparkles className="h-4 w-4" /> },
-                    ].map((item) => (
+                    {(
+                      isSdrViewer
+                        ? [
+                          { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+                          {
+                            label: "New",
+                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "new").length,
+                            icon: <Plus className="h-4 w-4" />,
+                          },
+                          {
+                            label: "Queued",
+                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "queued").length,
+                            icon: <CalendarDays className="h-4 w-4" />,
+                          },
+                          {
+                            label: "In Sequence",
+                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "in_sequence").length,
+                            icon: <Mail className="h-4 w-4" />,
+                          },
+                        ]
+                        : [
+                          { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
+                          { label: "Replies", value: stageStats.replied, icon: <Reply className="h-4 w-4" /> },
+                          { label: "Assigned to BME", value: stageStats.assignedToBme, icon: <Target className="h-4 w-4" /> },
+                          { label: "Assigned to IME", value: stageStats.assignedToIme, icon: <Sparkles className="h-4 w-4" /> },
+                        ]
+                    ).map((item) => (
                       <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-medium text-slate-500">{item.label}</p>
@@ -2788,12 +3792,15 @@ export default function CampaignDetailPage() {
         )}
 
         {activeTab === "sequences" && (
-          <div className="grid gap-0 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm xl:grid-cols-[288px_minmax(0,1fr)]">
+          <div className="grid gap-0 overflow-visible rounded-[24px] border border-slate-200 bg-white shadow-sm xl:grid-cols-[288px_minmax(0,1fr)]">
             <div className="border-r border-slate-200 bg-[#fbfbfd]">
               <div className="p-5">
                 <div className="space-y-4">
                   {configuration.sequences.map((step, index) => {
                     const isSelected = selectedSequenceStepIndex === index;
+                    const nextStepIndex = getStepDelayOwnerIndex(index);
+                    const nextStep =
+                      nextStepIndex !== null ? configuration.sequences[nextStepIndex] : null;
 
                     return (
                       <div
@@ -2807,7 +3814,7 @@ export default function CampaignDetailPage() {
                       >
                         <button
                           type="button"
-                          onClick={() => setSelectedSequenceStepIndex(index)}
+                          onClick={() => handleSelectSequenceStep(index)}
                           className="w-full text-left"
                         >
                           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-5">
@@ -2832,14 +3839,68 @@ export default function CampaignDetailPage() {
                           </div>
 
                           <div className="px-4 py-4">
-                            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-                              <p className="truncate text-sm font-medium text-slate-700">
-                                {getInstantlySequenceCardSubject(step, index)}
-                              </p>
+                            <div className="space-y-2.5">
+                              {step.variants.map((variant, variantIndex) => {
+                                const isVariantSelected =
+                                  selectedSequenceStepIndex === index &&
+                                  selectedSequenceVariantIndex === variantIndex;
+
+                                return (
+                                  <div
+                                    key={`${index}-${variantIndex}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleSelectVariant(index, variantIndex);
+                                    }}
+                                    className={cx(
+                                      "flex items-center gap-3 rounded-xl border px-4 py-3 transition",
+                                      isVariantSelected
+                                        ? "border-blue-200 bg-blue-50"
+                                        : "border-slate-200 bg-white hover:border-slate-300"
+                                    )}
+                                  >
+                                    <div
+                                      className={cx(
+                                        "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                                        isVariantSelected
+                                          ? "bg-blue-600 text-white"
+                                          : "bg-slate-200 text-slate-600"
+                                      )}
+                                    >
+                                      {getVariantLabel(variantIndex)}
+                                    </div>
+
+                                    <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
+                                      {variant.subject?.trim()
+                                        ? variant.subject
+                                        : index === 0
+                                          ? "<Empty subject>"
+                                          : "<Previous email's subject>"}
+                                    </p>
+
+                                    {step.variants.length > 1 ? (
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          handleRemoveVariant(index, variantIndex);
+                                        }}
+                                        className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
                             </div>
 
                             <button
                               type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleAddVariant(index);
+                              }}
                               className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-700 transition hover:text-blue-600"
                             >
                               <Plus className="h-4 w-4 text-blue-600" />
@@ -2847,54 +3908,43 @@ export default function CampaignDetailPage() {
                             </button>
                           </div>
 
-                          <div className="border-t border-slate-100 px-4 py-5">
-                            {index === 0 ? (
-                              <div>
-                                <p className="text-sm font-medium text-slate-700">
-                                  Sends on campaign launch
-                                </p>
-                                <p className="mt-1 text-xs text-slate-400">
-                                  Respects campaign schedule and timezone
-                                </p>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="mb-3 text-sm font-medium text-slate-700">
-                                  Send next message in
-                                </p>
+                          {nextStep ? (
+                            <div className="border-t border-slate-100 px-4 py-5">
+                              <p className="mb-3 text-sm font-medium text-slate-700">
+                                Send next message in
+                              </p>
 
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    value={step.delay}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) =>
-                                      updateStep(index, {
-                                        delay: Number(e.target.value || 0),
-                                      })
-                                    }
-                                    className="h-8 w-[52px] rounded-lg border border-slate-200 px-2 text-sm text-slate-700 outline-none"
-                                  />
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={nextStep.delay}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) =>
+                                    updateStep(nextStepIndex!, {
+                                      delay: Number(e.target.value || 0),
+                                    })
+                                  }
+                                  className="h-8 w-[52px] rounded-lg border border-slate-200 px-2 text-sm text-slate-700 outline-none"
+                                />
 
-                                  <select
-                                    value={step.delayUnit}
-                                    onClick={(e) => e.stopPropagation()}
-                                    onChange={(e) =>
-                                      updateStep(index, {
-                                        delayUnit: e.target.value as CampaignSequenceStep["delayUnit"],
-                                      })
-                                    }
-                                    className="h-8 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none"
-                                  >
-                                    <option value="minutes">Minutes</option>
-                                    <option value="hours">Hours</option>
-                                    <option value="days">Days</option>
-                                  </select>
-                                </div>
+                                <select
+                                  value={nextStep.delayUnit}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) =>
+                                    updateStep(nextStepIndex!, {
+                                      delayUnit: e.target.value as CampaignSequenceStep["delayUnit"],
+                                    })
+                                  }
+                                  className="h-8 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none"
+                                >
+                                  <option value="minutes">Minutes</option>
+                                  <option value="hours">Hours</option>
+                                  <option value="days">Days</option>
+                                </select>
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          ) : null}
                         </button>
                       </div>
                     );
@@ -2917,28 +3967,22 @@ export default function CampaignDetailPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-3">
                     <p className="text-[15px] font-semibold text-slate-900">Subject</p>
-                    <p className="truncate text-sm text-slate-400">
-                      {selectedSequenceStepIndex === 0
-                        ? "Write the first email subject"
-                        : "Leave empty to use previous step's subject"}
-                    </p>
+                    <div className="text-xs text-slate-400">
+                      {nextSelectedStep
+                        ? `Next step sends in ${nextSelectedStep.delay} ${nextSelectedStep.delayUnit}`
+                        : ""}
+                    </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-blue-600 transition hover:bg-slate-50"
+                    disabled
+                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-400 cursor-not-allowed"
                   >
                     <Eye className="h-4 w-4" />
                     Preview
-                  </button>
-
-                  <button
-                    type="button"
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-blue-600 transition hover:bg-slate-50"
-                  >
-                    <Zap className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -2958,68 +4002,127 @@ export default function CampaignDetailPage() {
                 />
               </div>
 
-              <div className="flex-1 px-6 py-5">
-                <textarea
-                  value={selectedSequenceVariant.body || ""}
+              <div className="relative flex-1 px-6 py-5">
+                {!selectedSequenceVariant.body?.trim() && (
+                  <div className="pointer-events-none absolute left-6 top-5 z-0 text-[15px] leading-7 text-slate-400">
+                    Start typing here...
+                  </div>
+                )}
+
+                <div
+                  ref={sequenceEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
                   onFocus={() =>
                     setSequenceInsertTarget({
                       stepIndex: selectedSequenceStepIndex,
                       field: "body",
                     })
                   }
-                  onChange={(e) => updateSelectedVariant({ body: e.target.value })}
-                  placeholder="Start typing here..."
-                  className="min-h-[520px] w-full resize-none border-0 bg-transparent px-0 py-0 text-[15px] leading-7 text-slate-800 outline-none placeholder:text-slate-400 focus:ring-0"
+                  onInput={handleEditorInput}
+                  onClick={handleEditorSelectionChange}
+                  onKeyUp={handleEditorSelectionChange}
+                  onMouseUp={handleEditorSelectionChange}
+                  className="relative z-[1] min-h-[520px] w-full rounded-2xl border border-transparent bg-transparent px-0 py-0 text-[15px] leading-7 text-slate-800 outline-none transition focus:border-slate-200 focus:bg-slate-50/30 focus:ring-0 [&_a]:font-medium [&_a]:text-blue-600 [&_a]:underline"
+                  style={{ whiteSpace: "pre-wrap" }}
                 />
+
+                {isLinkToolsOpen && linkToolsPosition && (
+                  <div
+                    ref={linkToolsRef}
+                    className="fixed z-[75] -translate-x-1/2"
+                    style={{
+                      top: `${linkToolsPosition.top}px`,
+                      left: `${linkToolsPosition.left}px`,
+                    }}
+                  >
+                    <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-[0_16px_40px_rgba(15,23,42,0.14)]">
+                      <div className="flex items-center gap-1.5">
+                        <IconButton label="Open link" onClick={handleOpenLinkInNewTab}>
+                          <ExternalLink className="h-4 w-4" />
+                        </IconButton>
+
+                        <IconButton label="Insert link" onClick={handleOpenInsertLinkEditor} active>
+                          <Link2 className="h-4 w-4" />
+                        </IconButton>
+
+                        <IconButton label="Edit link" onClick={handleOpenEditLinkEditor}>
+                          <Pencil className="h-4 w-4" />
+                        </IconButton>
+
+                        <IconButton label="Remove link" onClick={handleRemoveSelectedLink}>
+                          <Unlink className="h-4 w-4" />
+                        </IconButton>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="relative border-t border-slate-200 px-6 py-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => handleSaveConfiguration(false)}
-                      disabled={submittingKey !== ""}
-                      className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {submittingKey === "save-config" ? "Saving..." : "Save"}
-                      <ChevronDown className="h-4 w-4" />
-                    </button>
+                    <div ref={saveMenuRef} className="relative inline-flex items-stretch">
+                      <div className="inline-flex h-11 overflow-hidden rounded-xl border border-blue-600 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveConfiguration(false)}
+                          disabled={submittingKey !== ""}
+                          className="inline-flex items-center gap-2 bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {submittingKey === "save-config" ? "Saving..." : "Save"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsSaveMenuOpen((prev) => !prev)}
+                          disabled={submittingKey !== ""}
+                          className="inline-flex w-11 items-center justify-center border-l border-blue-500 bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-haspopup="menu"
+                          aria-expanded={isSaveMenuOpen}
+                        >
+                          <ChevronDown
+                            className={cx(
+                              "h-4 w-4 transition-transform duration-200",
+                              isSaveMenuOpen ? "rotate-180" : ""
+                            )}
+                          />
+                        </button>
+                      </div>
+
+                      {isSaveMenuOpen && (
+                        <div className="absolute bottom-[calc(100%+10px)] left-0 z-[80] min-w-[240px] overflow-hidden rounded-2xl border border-slate-200 bg-white p-1.5 shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsSaveMenuOpen(false);
+                              setIsSaveAsTemplateModalOpen(true);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                          >
+                            <LayoutTemplate className="h-4 w-4 text-slate-600" />
+                            <span>Save as a template</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     <div className="h-6 w-px bg-slate-200" />
 
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <CalendarClock className="h-4 w-4" />
-                      AI Tools
-                    </button>
-
-                    <button
-                      type="button"
+                    <ToolbarButton
+                      label="Templates"
+                      icon={<LayoutTemplate className="h-4 w-4" />}
                       onClick={() => setIsTemplatesModalOpen(true)}
-                      className={cx(
-                        "inline-flex items-center gap-2 text-sm font-medium transition",
-                        isTemplatesModalOpen ? "text-blue-600" : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      <LayoutTemplate className="h-4 w-4" />
-                      Templates
-                    </button>
+                      active={isTemplatesModalOpen}
+                    />
 
-                    <div className="relative">
-                      <button
-                        type="button"
+                    <div ref={variablesMenuRef} className="relative">
+                      <ToolbarButton
+                        label="Variables"
+                        icon={<Variable className="h-4 w-4" />}
                         onClick={() => setIsVariablesMenuOpen((prev) => !prev)}
-                        className={cx(
-                          "inline-flex items-center gap-2 text-sm font-medium transition",
-                          isVariablesMenuOpen ? "text-blue-600" : "text-slate-600 hover:text-slate-900"
-                        )}
-                      >
-                        <Variable className="h-4 w-4" />
-                        Variables
-                      </button>
+                        active={isVariablesMenuOpen}
+                      />
 
                       {isVariablesMenuOpen && (
                         <div className="absolute bottom-[calc(100%+12px)] left-0 z-30 w-[320px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.16)]">
@@ -3050,47 +4153,11 @@ export default function CampaignDetailPage() {
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <Type className="h-4 w-4" />
-                      A:
-                    </button>
-
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <Wand2 className="h-4 w-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <Link2 className="h-4 w-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-slate-900"
-                    >
-                      <Braces className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  <div className="text-xs text-slate-400">
-                    {selectedSequenceStepIndex === 0
-                      ? "Step 1 sends on launch inside schedule"
-                      : getInstantlyStepDelayLabel(selectedSequenceStep, selectedSequenceStepIndex)}
+                    <ToolbarButton
+                      label="Link"
+                      icon={<Link2 className="h-4 w-4" />}
+                      onClick={handleOpenInsertLinkEditor}
+                    />
                   </div>
                 </div>
               </div>
@@ -3393,17 +4460,181 @@ export default function CampaignDetailPage() {
         )}
 
         {activeTab === "subsequences" && (
-          <ShellCard className="p-10">
-            <div className="flex flex-col items-center justify-center text-center">
-              <Activity className="h-10 w-10 text-slate-300" />
-              <h3 className="mt-4 text-xl font-semibold text-slate-800">
-                Subsequences ready for next backend step
-              </h3>
-              <p className="mt-2 max-w-2xl text-sm text-slate-500">
-                The page now feels much closer to Instantly. The remaining lift is provider-side subsequence move/remove wiring.
-              </p>
+          campaign?.status !== "launched" ? (
+            <ShellCard className="p-10">
+              <div className="flex flex-col items-center justify-center text-center">
+                <Activity className="h-10 w-10 text-slate-300" />
+                <h3 className="mt-4 text-xl font-semibold text-slate-800">
+                  Launch the campaign first
+                </h3>
+                <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                  Subsequences become available after the main campaign is launched.
+                </p>
+              </div>
+            </ShellCard>
+          ) : (
+            <div className="space-y-6">
+              <ShellCard className="p-6">
+                <SectionHeader
+                  title="Subsequences"
+                  description="Create triggered follow-up flows for exact phrases, statuses, or activities."
+                  action={
+                    <button
+                      type="button"
+                      onClick={openCreateSubsequence}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add subsequence
+                    </button>
+                  }
+                />
+
+                {subsequences.length ? (
+                  <div className="grid gap-4">
+                    {subsequences.map((row) => (
+                      <div
+                        key={row._id}
+                        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_6px_24px_rgba(15,23,42,0.03)]"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-lg font-semibold text-slate-900">{row.name}</p>
+                              <span
+                                className={cx(
+                                  "inline-flex rounded-full px-3 py-1 text-xs font-semibold",
+                                  getStatusPillClasses(row.status)
+                                )}
+                              >
+                                {row.status.toUpperCase()}
+                              </span>
+                            </div>
+
+                            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Status triggers
+                                </p>
+                                <p className="mt-2 text-sm text-slate-700">
+                                  {row.trigger.statuses.length ? row.trigger.statuses.join(", ") : "—"}
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Activity triggers
+                                </p>
+                                <p className="mt-2 text-sm text-slate-700">
+                                  {row.trigger.activities.length ? row.trigger.activities.join(", ") : "—"}
+                                </p>
+                              </div>
+
+                              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                  Exact phrases
+                                </p>
+                                <p className="mt-2 text-sm text-slate-700">
+                                  {row.trigger.phrases.length ? row.trigger.phrases.join(" · ") : "—"}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                              <span>
+                                Daily limit mode: <strong>{row.dailyLimitMode}</strong>
+                              </span>
+                              <span>
+                                Ignore account limits:{" "}
+                                <strong>{row.ignoreAccountDailyLimits ? "Yes" : "No"}</strong>
+                              </span>
+                              <span>
+                                Steps: <strong>{row.sequences.length}</strong>
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openEditSubsequence(row)}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDuplicateSubsequence(row._id)}
+                              disabled={submittingKey === `duplicate-subsequence-${row._id}`}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                            >
+                              Duplicate
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSubsequenceStatus(row)}
+                              disabled={
+                                submittingKey === `launch-subsequence-${row._id}` ||
+                                submittingKey === `pause-subsequence-${row._id}`
+                              }
+                              className={cx(
+                                "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:opacity-50",
+                                row.status === "launched"
+                                  ? "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                  : "bg-blue-600 text-white hover:bg-blue-700"
+                              )}
+                            >
+                              {row.status === "launched" ? (
+                                <>
+                                  <Pause className="h-4 w-4" />
+                                  Pause
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-4 w-4" />
+                                  Launch
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteSubsequence(row._id)}
+                              disabled={submittingKey === `delete-subsequence-${row._id}`}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 px-6 py-14 text-center">
+                    <Activity className="mx-auto h-10 w-10 text-slate-300" />
+                    <p className="mt-4 text-lg font-semibold text-slate-800">
+                      No subsequences yet
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Create a subsequence for phrase-based or activity-based follow-up automation.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={openCreateSubsequence}
+                      className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create first subsequence
+                    </button>
+                  </div>
+                )}
+              </ShellCard>
             </div>
-          </ShellCard>
+          )
         )}
       </div>
 
@@ -3592,6 +4823,608 @@ export default function CampaignDetailPage() {
                     Use template
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isSaveAsTemplateModalOpen && (
+        <div className="fixed inset-0 z-[69] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Template
+                </p>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">Save as a Template</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Enter a template name to save this subject and email body.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSaveAsTemplateModalOpen(false);
+                  setTemplateNameInput("");
+                }}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Template name
+                </label>
+                <input
+                  value={templateNameInput}
+                  onChange={(e) => setTemplateNameInput(e.target.value)}
+                  placeholder="Enter template name"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Preview
+                </p>
+                <p className="mt-2 truncate text-sm font-medium text-slate-800">
+                  Subject: {selectedSequenceVariant?.subject || "—"}
+                </p>
+                <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-sm text-slate-600">
+                  {selectedSequenceVariant?.body || "—"}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSaveAsTemplateModalOpen(false);
+                  setTemplateNameInput("");
+                }}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveAsTemplate}
+                disabled={submittingKey === "save-template"}
+                className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {submittingKey === "save-template" ? "Saving..." : "Save Template"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isSubsequenceModalOpen && (
+        <div className="fixed inset-0 z-[68] bg-slate-950/45 p-4 backdrop-blur-[2px]">
+          <div className="mx-auto flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Subsequences
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  <h3 className="text-2xl font-bold text-slate-900">
+                    {editingSubsequenceId ? "Edit subsequence" : "Create subsequence"}
+                  </h3>
+                  <span className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                    {subsequenceForm.status?.toUpperCase() || "DRAFT"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  Create a triggered follow-up flow based on lead status, activity, or exact phrases.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSubsequenceModalOpen(false);
+                  setEditingSubsequenceId(null);
+                  setSubsequenceForm(getDefaultSubsequence());
+                }}
+                className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-5">
+                      <h4 className="text-base font-semibold text-slate-900">Trigger rules</h4>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Decide when leads should enter this subsequence.
+                      </p>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Subsequence name
+                        </label>
+                        <input
+                          value={subsequenceForm.name}
+                          onChange={(e) =>
+                            setSubsequenceForm((prev) => ({ ...prev, name: e.target.value }))
+                          }
+                          placeholder="New subsequence"
+                          className={inputClassName}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-3 block text-sm font-medium text-slate-700">
+                          Lead status triggers
+                        </label>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {stageOptions.map((option) => {
+                            const checked = subsequenceForm.trigger.statuses.includes(option.value);
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setSubsequenceForm((prev) => ({
+                                    ...prev,
+                                    trigger: {
+                                      ...prev.trigger,
+                                      statuses: checked
+                                        ? prev.trigger.statuses.filter((item) => item !== option.value)
+                                        : [...prev.trigger.statuses, option.value],
+                                    },
+                                  }))
+                                }
+                                className={cx(
+                                  "flex items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm transition",
+                                  checked
+                                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                                )}
+                              >
+                                <span className="font-medium">{option.label}</span>
+                                <span
+                                  className={cx(
+                                    "h-4 w-4 rounded-full border",
+                                    checked
+                                      ? "border-blue-600 bg-blue-600"
+                                      : "border-slate-300 bg-white"
+                                  )}
+                                />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="mb-3 block text-sm font-medium text-slate-700">
+                          Activity triggers
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {subsequenceActivityOptions.map((option) => {
+                            const checked = subsequenceForm.trigger.activities.includes(option.value);
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  setSubsequenceForm((prev) => ({
+                                    ...prev,
+                                    trigger: {
+                                      ...prev.trigger,
+                                      activities: checked
+                                        ? prev.trigger.activities.filter((item) => item !== option.value)
+                                        : [...prev.trigger.activities, option.value],
+                                    },
+                                  }))
+                                }
+                                className={cx(
+                                  "rounded-full border px-4 py-2 text-sm font-medium transition",
+                                  checked
+                                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Exact phrases
+                        </label>
+                        <textarea
+                          value={subsequenceForm.trigger.phrases.join("\n")}
+                          onChange={(e) =>
+                            setSubsequenceForm((prev) => ({
+                              ...prev,
+                              trigger: {
+                                ...prev.trigger,
+                                phrases: e.target.value
+                                  .split("\n")
+                                  .map((item) => item.trim())
+                                  .filter(Boolean),
+                              },
+                            }))
+                          }
+                          rows={5}
+                          placeholder={`One phrase per line\ninterested\nsend pricing\nbook a call`}
+                          className={cx(inputClassName, "resize-y")}
+                        />
+                        <p className="mt-2 text-xs text-slate-400">
+                          Leads can enter the subsequence when their reply contains one of these exact phrases.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-5">
+                      <h4 className="text-base font-semibold text-slate-900">Subsequence steps</h4>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Configure the emails and timing for this triggered flow.
+                      </p>
+                    </div>
+
+                    <div className="space-y-4">
+                      {subsequenceForm.sequences.map((step, index) => (
+                        <div
+                          key={`${step.stepOrder}-${index}`}
+                          className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-4">
+                            <div>
+                              <div className="flex items-center gap-3">
+                                <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-2xl bg-slate-900 px-3 text-sm font-semibold text-white">
+                                  {index + 1}
+                                </span>
+                                <div>
+                                  <p className="text-base font-semibold text-slate-900">
+                                    Step {index + 1}
+                                  </p>
+                                  <p className="mt-1 text-sm text-slate-500">
+                                    {index === 0
+                                      ? "Delay before the first subsequence message"
+                                      : "Delay after the previous subsequence step"}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {subsequenceForm.sequences.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => removeSubsequenceStep(index)}
+                                className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-5 grid gap-4 lg:grid-cols-[120px_170px_minmax(0,1fr)]">
+                            <div>
+                              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                Delay
+                              </label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={step.delay}
+                                onChange={(e) =>
+                                  updateSubsequenceStep(index, {
+                                    delay: Number(e.target.value || 0),
+                                  })
+                                }
+                                className={inputClassName}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                Unit
+                              </label>
+                              <select
+                                value={step.delayUnit}
+                                onChange={(e) =>
+                                  updateSubsequenceStep(index, {
+                                    delayUnit: e.target.value as "minutes" | "hours" | "days",
+                                  })
+                                }
+                                className={inputClassName}
+                              >
+                                <option value="minutes">Minutes</option>
+                                <option value="hours">Hours</option>
+                                <option value="days">Days</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                Subject
+                              </label>
+                              <input
+                                value={step.variants?.[0]?.subject || ""}
+                                onChange={(e) =>
+                                  updateSubsequenceVariant(index, { subject: e.target.value })
+                                }
+                                placeholder="Write subject line"
+                                className={inputClassName}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-4">
+                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              Email body
+                            </label>
+                            <textarea
+                              value={step.variants?.[0]?.body || ""}
+                              onChange={(e) =>
+                                updateSubsequenceVariant(index, { body: e.target.value })
+                              }
+                              placeholder="Write follow-up message"
+                              rows={6}
+                              className={cx(inputClassName, "resize-y")}
+                            />
+                          </div>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={addSubsequenceStep}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-blue-600 transition hover:border-blue-300 hover:bg-blue-50"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add step
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="mb-5">
+                      <h4 className="text-base font-semibold text-slate-900">Delivery settings</h4>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Control how this subsequence follows campaign limits and schedules.
+                      </p>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div>
+                        <label className="mb-3 block text-sm font-medium text-slate-700">
+                          Schedule mode
+                        </label>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {[
+                            { label: "Inherit from campaign", value: "inherit" },
+                            { label: "Custom schedule", value: "custom" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setSubsequenceForm((prev) => ({
+                                  ...prev,
+                                  scheduleMode: option.value as "inherit" | "custom",
+                                }))
+                              }
+                              className={cx(
+                                "rounded-2xl border px-4 py-3 text-left text-sm font-medium transition",
+                                subsequenceForm.scheduleMode === option.value
+                                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="mb-3 block text-sm font-medium text-slate-700">
+                          Daily limit mode
+                        </label>
+                        <div className="grid gap-2">
+                          {[
+                            { label: "Inherit from campaign", value: "inherit" },
+                            { label: "Custom daily limit", value: "custom" },
+                            { label: "No daily limit", value: "none" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                setSubsequenceForm((prev) => ({
+                                  ...prev,
+                                  dailyLimitMode: option.value as "inherit" | "custom" | "none",
+                                }))
+                              }
+                              className={cx(
+                                "rounded-2xl border px-4 py-3 text-left text-sm font-medium transition",
+                                subsequenceForm.dailyLimitMode === option.value
+                                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Daily limit
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={subsequenceForm.dailyLimit}
+                          onChange={(e) =>
+                            setSubsequenceForm((prev) => ({
+                              ...prev,
+                              dailyLimit: Number(e.target.value || 0),
+                            }))
+                          }
+                          className={inputClassName}
+                        />
+                      </div>
+
+                      <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        <span className="font-medium">Ignore account daily limits</span>
+                        <input
+                          type="checkbox"
+                          checked={subsequenceForm.ignoreAccountDailyLimits}
+                          onChange={(e) =>
+                            setSubsequenceForm((prev) => ({
+                              ...prev,
+                              ignoreAccountDailyLimits: e.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <h4 className="text-base font-semibold text-slate-900">Summary</h4>
+                    <div className="mt-4 grid gap-3">
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Selected statuses
+                        </p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          {subsequenceForm.trigger.statuses.length
+                            ? subsequenceForm.trigger.statuses.join(", ")
+                            : "None selected"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Selected activities
+                        </p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          {subsequenceForm.trigger.activities.length
+                            ? subsequenceForm.trigger.activities.join(", ")
+                            : "None selected"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-white px-4 py-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Total steps
+                        </p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          {subsequenceForm.sequences.length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSubsequenceModalOpen(false);
+                  setEditingSubsequenceId(null);
+                  setSubsequenceForm(getDefaultSubsequence());
+                }}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveSubsequence}
+                disabled={submittingKey === "save-subsequence"}
+                className="rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-60"
+              >
+                {submittingKey === "save-subsequence" ? "Saving..." : "Save subsequence"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isLinkEditorOpen && (
+        <div className="fixed inset-0 z-[76] flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-[340px] overflow-hidden rounded-[10px] border border-slate-200 bg-white shadow-[0_20px_50px_rgba(15,23,42,0.18)]">
+            <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
+              <button
+                type="button"
+                onClick={resetLinkEditor}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-700 transition hover:bg-slate-100"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-700 transition hover:bg-slate-100"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-6 px-5 py-6">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                  URL
+                </label>
+                <input
+                  value={linkEditorUrl}
+                  onChange={(e) => setLinkEditorUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full rounded-none border border-blue-500 px-3 py-2.5 text-sm text-slate-900 outline-none focus:ring-0"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Text
+                </label>
+                <input
+                  value={linkEditorText}
+                  onChange={(e) => setLinkEditorText(e.target.value)}
+                  placeholder="Link"
+                  className="w-full rounded-none border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-0"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleSubmitLinkEditor}
+                  className="text-[15px] font-semibold text-blue-600 transition hover:text-blue-700"
+                >
+                  {linkEditorMode === "edit" ? "Update" : "Insert"}
+                </button>
               </div>
             </div>
           </div>
