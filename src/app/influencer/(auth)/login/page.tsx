@@ -3,6 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  GoogleReCaptchaProvider,
+  useGoogleReCaptcha,
+} from "react-google-recaptcha-v3";
 
 import { FloatingInput } from "@/components/ui/floatingInput";
 import { PasswordInput } from "@/components/ui/password";
@@ -56,6 +60,33 @@ type CookieOptions = {
 };
 
 const ONBOARDING_RESUME_KEY = "cg_influencer_onboarding_resume_step";
+const Login_S3_Image =
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image5.png";
+
+function hasCookie(name: string) {
+  if (typeof document === "undefined") return false;
+
+  return document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .some((part) => part.startsWith(`${encodeURIComponent(name)}=`));
+}
+
+function getStoredInfluencerResumeRoute(): OnboardingRoute | undefined {
+  if (typeof window === "undefined") return undefined;
+
+  try {
+    const step = sessionStorage.getItem(ONBOARDING_RESUME_KEY);
+
+    if (step === "page1" || step === "page2" || step === "page3") {
+      return step;
+    }
+  } catch {
+    // ignore
+  }
+
+  return undefined;
+}
 
 function getApiErrorDetails(
   err: any,
@@ -90,9 +121,9 @@ function setCookie(name: string, value: string, opts: CookieOptions = {}) {
     path = "/",
     sameSite = "Lax",
     secure =
-    typeof window !== "undefined"
-      ? window.location.protocol === "https:"
-      : false,
+      typeof window !== "undefined"
+        ? window.location.protocol === "https:"
+        : false,
   } = opts;
 
   const maxAge = days * 24 * 60 * 60;
@@ -246,9 +277,28 @@ function getPostLoginRedirect(res?: SignInResponse) {
   return "/influencer/dashboards";
 }
 
-export default function InfluencerLoginPage() {
-  const router = useRouter();
+async function runRecaptchaCheck(
+  executeRecaptcha: ((action: string) => Promise<string>) | undefined,
+  action: string
+) {
+  if (!executeRecaptcha) {
+    throw new Error("Security check is still loading. Please try again.");
+  }
 
+  const token = await executeRecaptcha(action);
+
+  if (!token) {
+    throw new Error("Security verification failed. Please try again.");
+  }
+
+  return token;
+}
+
+function InfluencerLoginContent() {
+  const router = useRouter();
+  const { executeRecaptcha } = useGoogleReCaptcha();
+
+  const [authGuardReady, setAuthGuardReady] = React.useState(false);
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -259,6 +309,58 @@ export default function InfluencerLoginPage() {
   const emailTrimmed = email.trim();
   const emailInvalid = !!emailError;
   const passwordInvalid = !!passwordError;
+
+  const hasActiveInfluencerSession = React.useCallback(() => {
+    if (typeof window === "undefined") return false;
+
+    try {
+      const token =
+        localStorage.getItem("token") || localStorage.getItem("influencerToken");
+      const influencerId = localStorage.getItem("influencerId");
+      const hasCookieSession = hasCookie("token") && hasCookie("influencerId");
+
+      return Boolean((token && influencerId) || hasCookieSession);
+    } catch {
+      return hasCookie("token") && hasCookie("influencerId");
+    }
+  }, []);
+
+  const redirectAuthenticatedInfluencerUser = React.useCallback(() => {
+    if (!hasActiveInfluencerSession()) return false;
+
+    const resumeRoute = getStoredInfluencerResumeRoute();
+    router.replace(routeToPath(resumeRoute));
+    return true;
+  }, [hasActiveInfluencerSession, router]);
+
+  React.useEffect(() => {
+    const enforceGuestOnlyAccess = () => {
+      const redirected = redirectAuthenticatedInfluencerUser();
+      if (!redirected) {
+        setAuthGuardReady(true);
+      }
+    };
+
+    enforceGuestOnlyAccess();
+
+    const handlePageShow = () => {
+      enforceGuestOnlyAccess();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        enforceGuestOnlyAccess();
+      }
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [redirectAuthenticatedInfluencerUser]);
 
   const clearEmailOnFocus = () => {
     if (emailError) setEmailError("");
@@ -295,6 +397,8 @@ export default function InfluencerLoginPage() {
     setLoading(true);
 
     try {
+      await runRecaptchaCheck(executeRecaptcha, "influencer_login");
+
       const res = (await apiSignInInfluencer(
         emailTrimmed,
         password
@@ -333,6 +437,10 @@ export default function InfluencerLoginPage() {
     }
   };
 
+  if (!authGuardReady) {
+    return <div className="min-h-screen bg-background text-foreground" />;
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <ToastStyles />
@@ -361,7 +469,7 @@ export default function InfluencerLoginPage() {
                 CollabGlam
               </span>
               <span className="block text-[10px] leading-[12px] text-tx-tertiary -mt-[2px]">
-                For Influencers
+                For Creators
               </span>
             </span>
           </Link>
@@ -396,7 +504,7 @@ export default function InfluencerLoginPage() {
                 <div
                   className="absolute inset-0 z-[1]"
                   style={{
-                    background: `lightgray url(/images/login_1.png) 50% / cover no-repeat`,
+                    background: `lightgray url(${Login_S3_Image}) 50% / cover no-repeat`,
                     mixBlendMode: "luminosity",
                   }}
                 />
@@ -501,5 +609,20 @@ export default function InfluencerLoginPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function InfluencerLoginPage() {
+  return (
+    <GoogleReCaptchaProvider
+      reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}
+      scriptProps={{
+        async: true,
+        defer: true,
+        appendTo: "head",
+      }}
+    >
+      <InfluencerLoginContent />
+    </GoogleReCaptchaProvider>
   );
 }

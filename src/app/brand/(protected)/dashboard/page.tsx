@@ -146,6 +146,31 @@ export default function BrandDashboardHome() {
   const accentTo = "#FF7236";
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const keepOnDashboard = () => {
+      window.history.pushState(
+        { dashboardLock: true, path: "/brand/dashboard" },
+        "",
+        "/brand/dashboard"
+      );
+    };
+
+    keepOnDashboard();
+
+    const handlePopState = () => {
+      keepOnDashboard();
+      router.replace("/brand/dashboard");
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [router]);
+
+  useEffect(() => {
     const brandId =
       typeof window !== "undefined" ? localStorage.getItem("brandId") : null;
 
