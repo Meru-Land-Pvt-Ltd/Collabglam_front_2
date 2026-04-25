@@ -91,6 +91,20 @@ interface ApiBrand {
   subscription?: ApiSubscription;
   subscriptionExpired?: boolean;
 
+  isAdminCreated?: boolean;
+  signupCompleted?: boolean;
+  createdByAdmin?: string | null;
+  adminCreatedRole?: string;
+  adminCreatedAt?: string | null;
+  signupCompletedAt?: string | null;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  createdByLabel?: string;
+  createdBySource?: "admin" | "brand";
+  currentStatus?: "pending_signup" | "active";
+  currentStatusLabel?: string;
+  currentStatusSubLabel?: string;
+
   assignedRm?: string;
   assignedBm?: string;
   assignedIm?: string;
@@ -157,6 +171,20 @@ interface BrandRow {
   features: ApiFeature[];
   internalCredits: { used: number; resetsAt: string | null };
 
+  isAdminCreated: boolean;
+  signupCompleted: boolean;
+  createdByAdmin: string | null;
+  adminCreatedRole: string;
+  adminCreatedAt: string;
+  signupCompletedAt: string;
+  createdByAdminName: string;
+  createdByAdminEmail: string;
+  createdByLabel: string;
+  createdBySource: "admin" | "brand";
+  currentStatus: "pending_signup" | "active";
+  currentStatusLabel: string;
+  currentStatusSubLabel: string;
+
   assignedRh: string;
   assignedBme: string;
   assignedIme: string;
@@ -212,7 +240,19 @@ function formatDate(value?: string) {
 
 function formatMoney(value: number) {
   if (!value) return "Free";
-  return `$${value.toLocaleString()}`;
+  return `${value.toLocaleString()}`;
+}
+
+function formatRoleLabel(role?: string) {
+  const normalized = String(role || "").trim().toLowerCase();
+
+  if (normalized === "super_admin") return "Super Admin";
+  if (normalized === "revenue_head") return "RH";
+  if (normalized === "bme") return "BME";
+  if (normalized === "ime") return "IME";
+  if (normalized === "sdr") return "SDR";
+
+  return normalized ? normalized.replace(/_/g, " ").toUpperCase() : "Admin";
 }
 
 function canManageCampaigns(brand: BrandRow) {
@@ -228,6 +268,47 @@ function getStatusFromApi(brand: ApiBrand): BrandStatus {
   if (brand.subscription?.status === "archived") return "archived";
   if (brand.subscriptionExpired) return "expired";
   return "active";
+}
+
+function getCreatedByInfo(brand: BrandRow) {
+  if (brand.createdBySource === "admin" || brand.isAdminCreated) {
+    return {
+      label:
+        brand.createdByLabel ||
+        brand.createdByAdminName ||
+        brand.createdByAdminEmail ||
+        "Admin",
+      subLabel: formatRoleLabel(brand.adminCreatedRole),
+      badge: "Admin",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    };
+  }
+
+  return {
+    label: "Brand",
+    subLabel: "Self signup",
+    badge: "Brand",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
+function getBrandCurrentStatus(brand: BrandRow) {
+  if (
+    brand.currentStatus === "pending_signup" ||
+    (brand.isAdminCreated && !brand.signupCompleted)
+  ) {
+    return {
+      label: brand.currentStatusLabel || "Pending Signup",
+      subLabel: brand.currentStatusSubLabel || "Admin-created placeholder",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  return {
+    label: brand.currentStatusLabel || "Active",
+    subLabel: brand.currentStatusSubLabel || "Signup completed",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
 }
 
 function mapBrand(brand: ApiBrand): BrandRow {
@@ -263,6 +344,37 @@ function mapBrand(brand: ApiBrand): BrandRow {
       used: 0,
       resetsAt: null,
     },
+
+    isAdminCreated: brand.isAdminCreated === true,
+    signupCompleted: brand.signupCompleted !== false,
+    createdByAdmin: brand.createdByAdmin || null,
+    adminCreatedRole: brand.adminCreatedRole || "",
+    adminCreatedAt: brand.adminCreatedAt || "",
+    signupCompletedAt: brand.signupCompletedAt || "",
+    createdByAdminName: brand.createdByAdminName || "",
+    createdByAdminEmail: brand.createdByAdminEmail || "",
+    createdByLabel:
+      brand.createdByLabel ||
+      brand.createdByAdminName ||
+      brand.createdByAdminEmail ||
+      (brand.isAdminCreated ? "Admin" : "Brand"),
+    createdBySource:
+      brand.createdBySource || (brand.isAdminCreated ? "admin" : "brand"),
+    currentStatus:
+      brand.currentStatus ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "pending_signup"
+        : "active"),
+    currentStatusLabel:
+      brand.currentStatusLabel ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "Pending Signup"
+        : "Active"),
+    currentStatusSubLabel:
+      brand.currentStatusSubLabel ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "Admin-created placeholder"
+        : "Signup completed"),
 
     assignedRh: brand.assignedRh || brand.assignedRm || "",
     assignedBme: brand.assignedBme || brand.assignedBm || "",
@@ -520,6 +632,51 @@ const PlanCell = React.memo(function PlanCell({ brand }: { brand: BrandRow }) {
   );
 });
 
+const CreatedByCell = React.memo(function CreatedByCell({
+  brand,
+}: {
+  brand: BrandRow;
+}) {
+  const createdBy = getCreatedByInfo(brand);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${createdBy.className}`}
+      >
+        {createdBy.badge}
+      </span>
+      <span className="max-w-[150px] truncate text-xs font-semibold text-slate-600">
+        {createdBy.label}
+      </span>
+      <span className="text-[10px] font-medium text-slate-400">
+        {createdBy.subLabel}
+      </span>
+    </div>
+  );
+});
+
+const CurrentStatusCell = React.memo(function CurrentStatusCell({
+  brand,
+}: {
+  brand: BrandRow;
+}) {
+  const currentStatus = getBrandCurrentStatus(brand);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${currentStatus.className}`}
+      >
+        {currentStatus.label}
+      </span>
+      <span className="text-[10px] font-medium text-slate-400">
+        {currentStatus.subLabel}
+      </span>
+    </div>
+  );
+});
+
 const AssigneeCell = React.memo(function AssigneeCell({
   brandId,
   currentValue,
@@ -756,6 +913,8 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
           { label: "Industry", value: brand.industry },
           { label: "Company Size", value: brand.companySize },
           { label: "Proxy Email", value: brand.proxyEmail || "—" },
+          { label: "Created By", value: getCreatedByInfo(brand).label },
+          { label: "Current Status", value: getBrandCurrentStatus(brand).label },
           {
             label: "Billing",
             value: brand.billingCycle === "annual" ? "Annual" : "Monthly",
@@ -1268,6 +1427,13 @@ const AdminBrandPage: NextPage = () => {
       active: brands.filter((item) => item.status === "active").length,
       expired: brands.filter((item) => item.status === "expired").length,
       archived: brands.filter((item) => item.status === "archived").length,
+      pendingSignup: brands.filter((item) => item.currentStatus === "pending_signup").length,
+      adminCreated: brands.filter(
+        (item) => item.createdBySource === "admin" || item.isAdminCreated
+      ).length,
+      brandCreated: brands.filter(
+        (item) => item.createdBySource === "brand" && !item.isAdminCreated
+      ).length,
     }),
     [brands]
   );
@@ -1311,6 +1477,20 @@ const AdminBrandPage: NextPage = () => {
             {formatDate(brand.createdAt)}
           </span>
         ),
+      },
+      {
+        id: "createdBy",
+        header: "Created By",
+        align: "center",
+        widthClassName: "min-w-[170px]",
+        render: (brand) => <CreatedByCell brand={brand} />,
+      },
+      {
+        id: "currentStatus",
+        header: "Current Status",
+        align: "center",
+        widthClassName: "min-w-[170px]",
+        render: (brand) => <CurrentStatusCell brand={brand} />,
       },
       {
         id: "expiresAt",
@@ -1423,7 +1603,7 @@ const AdminBrandPage: NextPage = () => {
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <SummaryCard
             title="Total Brands"
             value={total}
@@ -1437,22 +1617,28 @@ const AdminBrandPage: NextPage = () => {
             hint="Brands currently active on this page"
           />
           <SummaryCard
+            title="Pending Signup"
+            value={statusCounts.pendingSignup}
+            icon={Clock3}
+            hint="Admin-created brands awaiting signup"
+          />
+          <SummaryCard
+            title="Admin Created"
+            value={statusCounts.adminCreated}
+            icon={ShieldCheck}
+            hint="Created from admin panel"
+          />
+          <SummaryCard
             title="RH Assigned"
             value={assignedCounts.rh}
             icon={Users}
             hint="Brands with RH already mapped"
           />
           <SummaryCard
-            title="BME Assigned"
-            value={assignedCounts.bme}
+            title="BME / IME Assigned"
+            value={String(assignedCounts.bme) + "/" + String(assignedCounts.ime)}
             icon={Briefcase}
-            hint="Brands with BME assigned"
-          />
-          <SummaryCard
-            title="IME Assigned"
-            value={assignedCounts.ime}
-            icon={CalendarDays}
-            hint="Brands with IME assigned"
+            hint="BME and IME mapped counts"
           />
         </div>
 
@@ -1464,7 +1650,7 @@ const AdminBrandPage: NextPage = () => {
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search by brand, email, plan, or assignee..."
+                  placeholder="Search by brand, email, plan, status, creator, or assignee..."
                   className="h-11 rounded-2xl border-slate-200 bg-slate-50 pl-11 text-sm font-medium shadow-none focus-visible:ring-0"
                 />
               </div>
@@ -1510,7 +1696,7 @@ const AdminBrandPage: NextPage = () => {
               showSummary: true,
             }}
             className="w-full"
-            tableClassName="min-w-[1200px]"
+            tableClassName="min-w-[1500px]"
             headerRowClassName="border-slate-200 hover:bg-transparent"
             bodyClassName="[&_tr:last-child]:border-b-0"
           />

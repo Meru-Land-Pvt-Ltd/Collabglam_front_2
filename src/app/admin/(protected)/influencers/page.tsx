@@ -5,12 +5,12 @@ import Link from "next/link";
 import { post } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  HiOutlineRefresh, HiOutlineEye, HiChevronUp, HiChevronDown,
-  HiChevronLeft, HiChevronRight, HiOutlineClipboardList,
+  HiOutlineRefresh, HiChevronUp, HiChevronDown,
+  HiChevronLeft, HiChevronRight,
 } from "react-icons/hi";
 import {
   Activity, ArrowUpRight, BadgeCheck, CalendarDays, CircleHelp,
-  Globe2, Layers3, Search, TrendingUp, Users, Plus, XCircle,
+  Globe2, Layers3, Search, TrendingUp, Users, Plus, XCircle, Clock3,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,19 @@ interface Influencer {
   country?: NamedEntity | null; languages?: NamedEntity[]; categories?: NamedEntity[];
   proxyEmail?: string; primaryPlatform?: string | null; socialProfiles?: SocialProfile[];
   onboarding?: Onboarding; createdAt?: string; updatedAt?: string;
+  isAdminCreated?: boolean;
+  signupCompleted?: boolean;
+  createdByAdmin?: string | null;
+  adminCreatedRole?: string;
+  adminCreatedAt?: string | null;
+  signupCompletedAt?: string | null;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  createdByLabel?: string;
+  createdBySource?: "admin" | "influencer";
+  currentStatus?: "pending_signup" | "active";
+  currentStatusLabel?: string;
+  currentStatusSubLabel?: string;
 }
 interface GetListResponse { page: number; limit: number; total: number; pages?: number; count?: number; influencers: Influencer[]; }
 interface CreateInfluencerResponse { success: boolean; message: string; influencer?: Influencer; }
@@ -50,13 +63,13 @@ const FETCH_LIMIT = 200;
 const MAX_FETCH_PAGES = 20;
 const ROW_OPTIONS = [10, 20, 50, 100] as const;
 
-const HEADERS: { key: SortField | "country" | "categories" | "onboarding" | "contact"; label: string; sortable?: boolean; align?: "left" | "center" | "right"; }[] = [
+const HEADERS: { key: SortField | "country" | "categories" | "onboarding" | "contact" | "createdBy" | "currentStatus"; label: string; sortable?: boolean; align?: "left" | "center" | "right"; }[] = [
   { key: "name", label: "Influencer", sortable: true, align: "left" },
   { key: "contact", label: "Contact", align: "left" },
   { key: "primaryPlatform", label: "Platform", sortable: true, align: "center" },
-  { key: "createdAt", label: "Signup", sortable: true, align: "center" },
-  { key: "country", label: "Country", align: "center" },
-  { key: "categories", label: "Categories", align: "center" },
+  { key: "createdAt", label: "Created", sortable: true, align: "center" },
+  { key: "createdBy", label: "Created By", align: "center" },
+  { key: "currentStatus", label: "Current Status", align: "center" },
   { key: "onboarding", label: "Onboarding", align: "center" },
 ];
 
@@ -158,6 +171,51 @@ function getPrimaryUsername(inf: Influencer) {
   const fallbackProfile = primaryProfile || inf.socialProfiles?.[0];
   return fallbackProfile?.handle || fallbackProfile?.username || "";
 }
+function formatRoleLabel(role?: string) {
+  const r = String(role || "").trim().toLowerCase();
+  if (r === "super_admin") return "Super Admin";
+  if (r === "revenue_head") return "RH";
+  if (r === "bme") return "BME";
+  if (r === "ime") return "IME";
+  if (r === "sdr") return "SDR";
+  return r ? r.replace(/_/g, " ").toUpperCase() : "Admin";
+}
+function getCreatedByInfo(inf: Influencer) {
+  const isAdmin = inf.createdBySource === "admin" || inf.isAdminCreated === true;
+  const roleLabel = formatRoleLabel(inf.adminCreatedRole);
+  const adminName = inf.createdByAdminName || inf.createdByLabel || inf.createdByAdminEmail || "Admin";
+
+  if (isAdmin) {
+    return {
+      label: adminName,
+      subLabel: roleLabel,
+      badge: "Admin",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    };
+  }
+
+  return {
+    label: "Influencer",
+    subLabel: "Self signup",
+    badge: "Self",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+function getInfluencerCurrentStatus(inf: Influencer) {
+  if (inf.currentStatus === "pending_signup" || (inf.isAdminCreated === true && inf.signupCompleted === false)) {
+    return {
+      label: inf.currentStatusLabel || "Pending Signup",
+      subLabel: inf.currentStatusSubLabel || "Admin-created placeholder",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  return {
+    label: inf.currentStatusLabel || "Active",
+    subLabel: inf.currentStatusSubLabel || "Signup completed",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
 function getCompletedPages(inf: Influencer) {
   const o = inf.onboarding; if (!o) return 0;
   return (o.page1Done ? 1 : 0) + (o.page2Done || o.ispage2Skip ? 1 : 0) + (o.page3Done || o.ispage3Skip ? 1 : 0);
@@ -209,9 +267,13 @@ function buildMonthlyTrendDetailed(rows: Influencer[], months = 6): TrendPoint[]
 }
 
 function getSearchableText(inf: Influencer) {
+  const createdBy = getCreatedByInfo(inf);
+  const currentStatus = getInfluencerCurrentStatus(inf);
+
   return [inf.name, inf.email, inf.proxyEmail, getCountryName(inf), getPrimaryPlatform(inf),
   getCategoryNames(inf).join(" "), getLanguageNames(inf).join(" "),
-  getPrimaryUsername(inf),
+  getPrimaryUsername(inf), createdBy.label, createdBy.badge, createdBy.subLabel,
+  currentStatus.label, currentStatus.subLabel,
   inf.socialProfiles?.map(i => i.handle || i.username || i.provider).join(" "),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -802,7 +864,7 @@ const AdminInfluencersPage = () => {
     const email = createEmail.trim().toLowerCase();
     const platform = createPlatform;
     const username = createUsername.trim().replace(/^@+/, "");
-    const emailRx = new RegExp("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!canCreateInfluencer) {
       setCreateError("Only Super Admin, RH, or IME can create influencers.");
@@ -894,7 +956,7 @@ const AdminInfluencersPage = () => {
   const filteredRows = React.useMemo(() => {
     const rows = allRows.filter(inf => {
       const createdDate = safeDate(inf.createdAt);
-      const searchable = getSearchableText(inf);
+      const searchable = `${getSearchableText(inf)} ${getCreatedByInfo(inf).label} ${getCreatedByInfo(inf).subLabel} ${getInfluencerCurrentStatus(inf).label}`.toLowerCase();
       const pp = getPrimaryPlatform(inf);
       const ms = !debouncedTableSearch || searchable.includes(debouncedTableSearch);
       const mp = tablePlatformFilter === "all" || pp === tablePlatformFilter;
@@ -1001,8 +1063,8 @@ const AdminInfluencersPage = () => {
 
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-3">
             <MetricCard title="Total Influencers" tooltip="Overall influencer records." value={formatCompactNumber(analyticsRows.length)} icon={Users} accentColor="#0f172a" hint={""} />
-            <MetricCard title="This Month" tooltip="Signups in current calendar month." value={formatCompactNumber(currentMonthSignups)} icon={CalendarDays} accentColor="#3b82f6" hint={""} />
-            <MetricCard title="Growth Rate" tooltip="Month-over-month signup growth." value={formatSignedPercent(growthRate)} icon={TrendingUp} accentColor={growthRate >= 0 ? "#10b981" : "#ef4444"} hint={""} />
+            <MetricCard title="Pending Signup" tooltip="Admin-created influencers who still need to complete signup." value={formatCompactNumber(analyticsRows.filter(item => item.isAdminCreated === true && item.signupCompleted === false).length)} icon={Clock3} accentColor="#f59e0b" hint={"Admin-created"} />
+            <MetricCard title="Active" tooltip="Influencers whose signup is completed." value={formatCompactNumber(analyticsRows.filter(item => !(item.isAdminCreated === true && item.signupCompleted === false)).length)} icon={BadgeCheck} accentColor="#10b981" hint={"Signup completed"} />
           </div>
 
           <div className="grid gap-5 =">
@@ -1047,7 +1109,7 @@ const AdminInfluencersPage = () => {
                     <div className="relative">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <Input
-                        placeholder="Search .. "
+                        placeholder="Search by name, email, creator, status, platform..."
                         value={tableSearch}
                         onChange={e => setTableSearch(e.target.value)}
                         className="h-8 rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
@@ -1157,8 +1219,6 @@ const AdminInfluencersPage = () => {
                         </div>
                       </TableCell></TableRow>
                     ) : rows.map(inf => {
-                      const categoryNames = getCategoryNames(inf);
-                      const languageNames = getLanguageNames(inf);
                       const socialProfileCount = getSocialProfileCount(inf);
                       const completedPages = getCompletedPages(inf);
                       const profilePicture = inf.socialProfiles?.find(p => p.picture)?.picture;
@@ -1180,8 +1240,39 @@ const AdminInfluencersPage = () => {
                               <span className={cn("text-xs", createdDate && isCurrentMonth(createdDate) ? "font-medium text-emerald-500" : "text-slate-400")}>{createdDate && isCurrentMonth(createdDate) ? "This month" : "Earlier"}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="py-3.5 text-center"><span className="inline-flex items-center gap-1 text-sm text-slate-700"><Globe2 className="h-3.5 w-3.5 text-slate-400" />{getCountryName(inf)}</span></TableCell>
-                          <TableCell className="py-3.5 text-center"><div className="flex flex-col items-center gap-0.5"><span className="inline-flex items-center gap-1 text-sm text-slate-700"><Layers3 className="h-3.5 w-3.5 text-slate-400" />{categoryNames.length} categor{categoryNames.length === 1 ? "y" : "ies"}</span><span className="max-w-[200px] truncate text-xs text-slate-400">{categoryNames.length ? categoryNames.join(", ") : "None"}</span></div></TableCell>
+                          <TableCell className="py-3.5 text-center">
+                            {(() => {
+                              const createdBy = getCreatedByInfo(inf);
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${createdBy.className}`}>
+                                    {createdBy.badge}
+                                  </span>
+                                  <span className="max-w-[150px] truncate text-xs font-semibold text-slate-600">
+                                    {createdBy.label}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-slate-400">
+                                    {createdBy.subLabel}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell className="py-3.5 text-center">
+                            {(() => {
+                              const currentStatus = getInfluencerCurrentStatus(inf);
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${currentStatus.className}`}>
+                                    {currentStatus.label}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-slate-400">
+                                    {currentStatus.subLabel}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="py-3.5 text-center"><div className="flex flex-col items-center gap-1"><OnboardingBadge influencer={inf} /><span className="text-xs text-slate-400">{completedPages}/3 steps</span></div></TableCell>
                           <TableCell className="py-3.5 text-center">
                             <div className="flex items-center justify-center gap-0.5">
@@ -1224,9 +1315,6 @@ const AdminInfluencersPage = () => {
                   <h2 className="text-xl font-black text-slate-950">
                     Create Influencer
                   </h2>
-                  <p className="mt-1 text-sm font-medium leading-6 text-slate-500">
-                    Add an influencer with name, email, platform, and username. The influencer can complete signup later using the same email.
-                  </p>
                 </div>
 
                 <button
