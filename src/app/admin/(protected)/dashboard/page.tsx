@@ -26,7 +26,9 @@ import {
   WalletCards,
 } from "lucide-react";
 
-type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme";
+type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme" | "sdr";
+
+
 
 type AdminMeResponse = {
   _id: string;
@@ -278,7 +280,7 @@ const MAIN_ADMIN = {
   role: "super_admin",
 };
 
-const VALID_ROLES: AdminRole[] = ["super_admin", "revenue_head", "ime", "bme"];
+const VALID_ROLES: AdminRole[] = ["super_admin", "revenue_head", "ime", "bme", "sdr"];
 
 const CAMPAIGN_POST_BODY = {
   page: 1,

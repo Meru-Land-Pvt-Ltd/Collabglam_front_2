@@ -1,12 +1,19 @@
-// app/influencer/signup/page.tsx
 "use client";
 
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  GoogleReCaptchaProvider,
+  useGoogleReCaptcha,
+} from "react-google-recaptcha-v3";
 
 import { FloatingInput } from "@/components/ui/floatingInput";
-import { FloatingMultiSelect, FloatingSelect, SelectItem } from "@/components/ui/selectComp";
+import {
+  FloatingMultiSelect,
+  FloatingSelect,
+  SelectItem
+} from "@/components/ui/selectComp";
 import { PasswordInput } from "@/components/ui/password";
 import { Button, buttonVariants } from "@/components/ui/buttonComp";
 import { cn } from "@/lib/utils";
@@ -14,15 +21,19 @@ import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 
 import { toast, ToastStyles } from "@/components/ui/toast";
 
-// ✅ OTP UI
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+// OTP UI
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 import { CountdownTicker } from "@/components/ui/countdown-ticker";
 import { CaretLeft } from "@phosphor-icons/react";
 
-// ✅ NEW: Random hero component (image + quote)
+// Random hero component (image + quote)
 import { InfluencerHero } from "@/components/ui/influencer/InfluencerHero";
 
-// ✅ APIs
+// APIs
 import {
   apiSendInfluencerSignupOtp,
   apiVerifyInfluencerOtpSignup,
@@ -41,12 +52,8 @@ const SUBTITLE_CLASS =
 const ERROR_TEXT_CLASS =
   "mt-1 text-[12px] leading-[16px] text-[color:var(--Errors-500,#E35141)]";
 
-const CLEAR_VALUE = "__clear__";
-
-// ✅ simple option type for FloatingMultiSelect
 type Chip = { label: string; value: string };
 
-// ✅ local normalizer (extra safe)
 const normalizeArray = <T,>(x: any): T[] => {
   if (Array.isArray(x)) return x as T[];
   if (Array.isArray(x?.data)) return x.data as T[];
@@ -55,23 +62,39 @@ const normalizeArray = <T,>(x: any): T[] => {
   return [];
 };
 
-// ✅ render flag as image (so it won’t degrade into country code letters)
 const emojiToCodePoint = (emoji: string) =>
   Array.from(emoji)
     .map((ch) => ch.codePointAt(0)!.toString(16))
     .join("-");
 
 const twemojiSvgUrl = (emoji: string) =>
-  `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${emojiToCodePoint(emoji)}.svg`;
+  `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${emojiToCodePoint(
+    emoji
+  )}.svg`;
 
-export default function InfluencerSignupPage() {
+async function runRecaptchaCheck(
+  executeRecaptcha: ((action: string) => Promise<string>) | undefined,
+  action: string
+) {
+  if (!executeRecaptcha) {
+    throw new Error("Security check is still loading. Please try again.");
+  }
+
+  const token = await executeRecaptcha(action);
+
+  if (!token) {
+    throw new Error("Security verification failed. Please try again.");
+  }
+
+  return token;
+}
+
+function InfluencerSignupContent() {
   const router = useRouter();
+  const { executeRecaptcha } = useGoogleReCaptcha();
 
   type Step = "form" | "otp";
 
-  // -------------------------
-  // Dropdown data
-  // -------------------------
   const [countries, setCountries] = React.useState<CountryRow[]>([]);
   const [languagesList, setLanguagesList] = React.useState<LangRow[]>([]);
   const [categoriesList, setCategoriesList] = React.useState<CategoryRow[]>([]);
@@ -111,40 +134,39 @@ export default function InfluencerSignupPage() {
     };
   }, []);
 
-  // ✅ build multi-select options for categories
+  const languageOptions: Chip[] = React.useMemo(() => {
+    return languagesList
+      .filter((l) => !!(l._id ?? l.id))
+      .map((l) => ({
+        label: l.name ?? l.code ?? "Language",
+        value: String(l._id ?? l.id),
+      }));
+  }, [languagesList]);
+
   const categoryOptions: Chip[] = React.useMemo(() => {
     return categoriesList
       .filter((c) => !!c?.id)
       .map((c) => ({ label: c.name ?? "Category", value: String(c.id) }));
   }, [categoriesList]);
 
-  // -------------------------
-  // Form state (IDs)
-  // -------------------------
   const [creatorName, setCreatorName] = React.useState("");
   const [email, setEmail] = React.useState("");
-
-  // ✅ store selected IDs
-  const [countryId, setCountryId] = React.useState(""); // required
-  const [languageId, setLanguageId] = React.useState(""); // optional
-
-  // ✅ categories is multi + required
-  const [categoryIds, setCategoryIds] = React.useState<string[]>([]); // required
-
+  const [countryId, setCountryId] = React.useState("");
+  // const [countrySearch, setCountrySearch] = React.useState("");
+  const [languageIds, setLanguageIds] = React.useState<string[]>([]);
+  const [categoryIds, setCategoryIds] = React.useState<string[]>([]);
   const [password, setPassword] = React.useState("");
   const [agreed, setAgreed] = React.useState(false);
 
   const [attemptedSubmit, setAttemptedSubmit] = React.useState(false);
-
-  // ✅ Step handling
   const [step, setStep] = React.useState<Step>("form");
 
-  // ✅ OTP state
   const [otp, setOtp] = React.useState("");
-  const [otpError, setOtpError] = React.useState<string | undefined>(undefined);
+  const [otpError, setOtpError] = React.useState<string | undefined>(
+    undefined
+  );
   const [secondsLeft, setSecondsLeft] = React.useState(0);
 
-  // ✅ split loaders like brand
   const [isSendingOtp, setIsSendingOtp] = React.useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = React.useState(false);
 
@@ -172,17 +194,28 @@ export default function InfluencerSignupPage() {
     });
   };
 
-  // -------------------------
-  // Validation
-  // -------------------------
+  // const filteredCountries = React.useMemo(() => {
+  //   const q = countrySearch.trim().toLowerCase();
+
+  //   return countries
+  //     .filter((c) => !!(c._id ?? c.id))
+  //     .filter((c) => {
+  //       if (!q) return true;
+
+  //       const name = String(
+  //         (c as any)?.countryName ?? c.countryNameEn ?? ""
+  //       ).toLowerCase();
+
+  //       return name.includes(q);
+  //     });
+  // }, [countries, countrySearch]);
+
   const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
-  // ✅ creator name sanitize + validation (no special chars)
-  // Allowed: letters (any language), spaces, dot, apostrophe, hyphen
   const sanitizeCreatorName = (v: string) => v.replace(/[^\p{L}\s.'-]/gu, "");
-  const creatorNameOk = (v: string) => /^[\p{L}][\p{L}\s.'-]*$/u.test(v.trim());
+  const creatorNameOk = (v: string) =>
+    /^[\p{L}][\p{L}\s.'-]*$/u.test(v.trim());
 
-  // ✅ password must include BOTH uppercase + lowercase + number, length 8–16
   const pwOk = (p: string) => {
     const s = (p ?? "").trim();
     if (s.length < 8 || s.length > 16) return false;
@@ -197,8 +230,8 @@ export default function InfluencerSignupPage() {
       ? !creatorName.trim()
         ? "Creator name is required."
         : !creatorNameOk(creatorName)
-        ? "Only letters and spaces are allowed. (.'- allowed)"
-        : ""
+          ? "Only letters and spaces are allowed. (.'- allowed)"
+          : ""
       : "";
 
   const emailError =
@@ -206,12 +239,14 @@ export default function InfluencerSignupPage() {
       ? !email.trim()
         ? "Work email is required."
         : !emailOk(email)
-        ? "Please enter a valid email address."
-        : ""
+          ? "Please enter a valid email address."
+          : ""
       : "";
 
   const countryError =
-    attemptedSubmit && !clearedOnFocus.countryId && !countryId ? "Location is required." : "";
+    attemptedSubmit && !clearedOnFocus.countryId && !countryId
+      ? "Location is required."
+      : "";
 
   const categoryError =
     attemptedSubmit && !clearedOnFocus.categoryIds && categoryIds.length === 0
@@ -223,8 +258,8 @@ export default function InfluencerSignupPage() {
       ? !password.trim()
         ? "Password is required."
         : !pwOk(password)
-        ? "Password must be 8–16 characters and include uppercase, lowercase, and a number."
-        : ""
+          ? "Password must be 8–16 characters and include uppercase, lowercase, and a number."
+          : ""
       : "";
 
   const agreedError =
@@ -232,9 +267,6 @@ export default function InfluencerSignupPage() {
       ? "Please accept Terms of Service and Privacy Policy."
       : "";
 
-  // -------------------------
-  // OTP countdown
-  // -------------------------
   React.useEffect(() => {
     if (step !== "otp") return;
     if (secondsLeft <= 0) return;
@@ -246,16 +278,13 @@ export default function InfluencerSignupPage() {
     return () => window.clearInterval(id);
   }, [secondsLeft, step]);
 
-  // -------------------------
-  // API helpers
-  // -------------------------
   const sendOtp = async () => {
     await apiSendInfluencerSignupOtp({
       creatorName: creatorName.trim(),
       email: email.trim(),
       password,
       countryId,
-      languageId: languageId || undefined,
+      languageId: languageIds.length ? languageIds : undefined,
       categoryIds,
     });
 
@@ -268,19 +297,28 @@ export default function InfluencerSignupPage() {
       otp: code,
     });
 
-    // ✅ store token with the SAME key onboarding expects (only if present)
     if ((res as any)?.token) {
       localStorage.setItem("influencerToken", (res as any).token);
-      localStorage.setItem("token", (res as any).token); // optional compatibility
+      localStorage.setItem("token", (res as any).token);
     }
     if ((res as any)?.influencerId) {
       localStorage.setItem("influencerId", (res as any).influencerId);
     }
 
-    const country = countries.find((x) => String(x._id ?? x.id) === String(countryId));
-    const lang = languagesList.find((x) => String(x._id ?? x.id) === String(languageId));
+    const country = countries.find(
+      (x) => String(x._id ?? x.id) === String(countryId)
+    );
 
-    const cats = categoriesList.filter((x) => categoryIds.includes(String(x.id)));
+    const langs = languagesList.filter((x) =>
+      languageIds.includes(String(x._id ?? x.id))
+    );
+    const languageNames = langs
+      .map((l) => l.name ?? l.code ?? null)
+      .filter(Boolean);
+
+    const cats = categoriesList.filter((x) =>
+      categoryIds.includes(String(x.id))
+    );
     const categoryNames = cats.map((c) => c.name).filter(Boolean);
 
     localStorage.setItem(
@@ -289,25 +327,19 @@ export default function InfluencerSignupPage() {
         creatorName: creatorName.trim(),
         email: email.trim(),
         countryId,
-        countryName: (country as any)?.countryName ?? country?.countryNameEn ?? null,
+        countryName:
+          (country as any)?.countryName ?? country?.countryNameEn ?? null,
         countryFlag: country?.flag ?? null,
-        languageId: languageId || null,
-        languageName: lang?.name ?? lang?.code ?? null,
+        languageIds,
+        languageNames,
         categoryIds,
         categoryNames,
       })
     );
 
-    // ✅ IMPORTANT CHANGE:
-    // Do NOT call /api-1/influencer-auth here (it was blocking/triggering that flow).
-    // We should directly move user to onboarding.
-
     return res;
   };
 
-  // -------------------------
-  // Actions
-  // -------------------------
   const handleContinueFromForm = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -328,6 +360,7 @@ export default function InfluencerSignupPage() {
 
     setIsSendingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "influencer_signup_send_otp");
       await sendOtp();
 
       setStep("otp");
@@ -351,7 +384,6 @@ export default function InfluencerSignupPage() {
   };
 
   const handleVerifyOtp = async () => {
-    // ✅ inline validation
     if (otp.length !== 6) {
       setOtpError("Please enter the 6-digit OTP.");
       return;
@@ -359,6 +391,7 @@ export default function InfluencerSignupPage() {
 
     setIsVerifyingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "influencer_signup_verify_otp");
       await verifyOtp(otp);
 
       toast({
@@ -367,7 +400,6 @@ export default function InfluencerSignupPage() {
         text: "Redirecting to onboarding…",
       });
 
-      // ✅ Redirect to onboarding (no influencer-auth hop)
       router.replace("/influencer/onboarding");
       router.refresh();
     } catch (err) {
@@ -389,6 +421,7 @@ export default function InfluencerSignupPage() {
 
     setIsSendingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "influencer_signup_resend_otp");
       await sendOtp();
       toast({
         icon: "success",
@@ -417,8 +450,7 @@ export default function InfluencerSignupPage() {
     <div className="min-h-[100svh] bg-background text-foreground flex flex-col overflow-x-hidden">
       <ToastStyles />
 
-      {/* Header */}
-      <header className="w-full bg-white border-y border-[color:var(--Border-Primary,#B3B3B3)]">
+      <header className="w-full bg-white border-b border-bd-primary">
         <div
           className={cn(
             "mx-auto flex flex-wrap items-center justify-between content-center",
@@ -437,29 +469,39 @@ export default function InfluencerSignupPage() {
               loading="eager"
             />
             <span className="leading-tight">
-              <span className="block text-[20px] font-bold text-tx-primary">CollabGlam</span>
+              <span className="block text-[20px] font-bold text-tx-primary">
+                CollabGlam
+              </span>
               <span className="block text-[10px] leading-[12px] text-tx-tertiary -mt-[2px]">
-                For Influencers
+                For Creators
               </span>
             </span>
           </Link>
 
-          <Button
-            onClick={() => router.push("/brand/login")}
+          <Link
+            href="/brand/login"
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "!my-0 rounded-m px-l !border-black !text-black bg-white hover:bg-black/5"
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
             )}
           >
             Join as a Brand
-          </Button>
+          </Link>
         </div>
       </header>
 
-      {/* Body */}
-      <main className={cn("max-w-full flex-1 min-h-0 overflow-y-auto", "py-[20px]")}>
-        <div className={cn("grid min-h-0 items-stretch", "lg:grid-cols-2 lg:min-h-[calc(100svh-114px)]")}>
-          {/* LEFT */}
+      <main
+        className={cn(
+          "max-w-full flex-1 min-h-0 overflow-y-auto",
+          "py-[20px]"
+        )}
+      >
+        <div
+          className={cn(
+            "grid min-h-0 items-stretch",
+            "lg:grid-cols-2 lg:min-h-[calc(100svh-114px)]"
+          )}
+        >
           <section className="order-1 lg:h-full">
             <div className="flex w-full lg:h-full lg:items-stretch pr-[20px]">
               <div
@@ -474,25 +516,25 @@ export default function InfluencerSignupPage() {
             </div>
           </section>
 
-          {/* RIGHT */}
           <section
             className={cn(
               "order-2 flex px-[20px] justify-center w-full items-start",
-              step === "form" || step === "otp" ? "pt-[84px]" : "",
+              step === "form" || step === "otp" ? "pt-[10px]" : "",
               "lg:min-h-[calc(100svh-114px)]"
             )}
           >
             <div className={cn("w-full max-w-[520px]")}>
-              {/* FORM */}
               {step === "form" && (
                 <>
                   <h1 className="cg-heading">Get Your Profile Started</h1>
                   <p className="mt-m cg-description">
-                    Enter your email and password so we can take you back to your dashboard and ongoing work.
+                    Share a few basic details so we can set up your workspace.
                   </p>
 
-                  <form onSubmit={handleContinueFromForm} className="mt-2xl space-y-[16px]">
-                    {/* Creator Name */}
+                  <form
+                    onSubmit={handleContinueFromForm}
+                    className="mt-2xl space-y-[16px]"
+                  >
                     <div>
                       <FloatingInput
                         label="Creator Name"
@@ -502,7 +544,8 @@ export default function InfluencerSignupPage() {
                         onValueChange={(v) => {
                           const cleaned = sanitizeCreatorName(v);
                           setCreatorName(cleaned);
-                          if (creatorNameError) clearFieldOnFocus("creatorName");
+                          if (creatorNameError)
+                            clearFieldOnFocus("creatorName");
                         }}
                         onFocus={() => clearFieldOnFocus("creatorName")}
                         icon={false}
@@ -510,10 +553,11 @@ export default function InfluencerSignupPage() {
                         state={creatorNameError ? "error" : "default"}
                         errorText={undefined}
                       />
-                      {creatorNameError ? <p className={ERROR_TEXT_CLASS}>{creatorNameError}</p> : null}
+                      {creatorNameError ? (
+                        <p className={ERROR_TEXT_CLASS}>{creatorNameError}</p>
+                      ) : null}
                     </div>
 
-                    {/* Work Email */}
                     <div>
                       <FloatingInput
                         label="Work Email"
@@ -529,16 +573,19 @@ export default function InfluencerSignupPage() {
                         state={emailError ? "error" : "default"}
                         errorText={undefined}
                       />
-                      {emailError ? <p className={ERROR_TEXT_CLASS}>{emailError}</p> : null}
+                      {emailError ? (
+                        <p className={ERROR_TEXT_CLASS}>{emailError}</p>
+                      ) : null}
                     </div>
 
-                    {/* Location */}
                     <div>
                       <FloatingSelect
                         label={listsLoading ? "Location (loading...)" : "Location"}
                         size="small"
                         required
                         value={countryId}
+                        searchable
+                        searchPlaceholder="Search location..."
                         onValueChange={(v) => {
                           setCountryId(v);
                           if (countryError) clearFieldOnFocus("countryId");
@@ -554,11 +601,18 @@ export default function InfluencerSignupPage() {
                           .filter((c) => !!(c._id ?? c.id))
                           .map((c) => {
                             const id = String(c._id ?? c.id);
-                            const name = (c as any)?.countryName ?? c.countryNameEn ?? "";
+                            const name =
+                              (c as any)?.countryName ??
+                              c.countryNameEn ??
+                              "";
                             const flagEmoji = c.flag ?? "";
 
                             return (
-                              <SelectItem key={id} value={id}>
+                              <SelectItem
+                                key={id}
+                                value={id}
+                                textValue={name || "Country"}
+                              >
                                 <span className="inline-flex items-center gap-2">
                                   {flagEmoji ? (
                                     <img
@@ -567,7 +621,6 @@ export default function InfluencerSignupPage() {
                                       className="w-4 h-4"
                                       loading="lazy"
                                       onError={(e) => {
-                                        // fallback to emoji text if image fails
                                         (e.currentTarget as HTMLImageElement).style.display = "none";
                                       }}
                                     />
@@ -577,49 +630,51 @@ export default function InfluencerSignupPage() {
                               </SelectItem>
                             );
                           })}
+
+                        <SelectItem value="__no_results__" disabled textValue="No results">
+                          No results
+                        </SelectItem>
                       </FloatingSelect>
 
-                      {countryError ? <p className={ERROR_TEXT_CLASS}>{countryError}</p> : null}
+                      {countryError ? (
+                        <p className={ERROR_TEXT_CLASS}>{countryError}</p>
+                      ) : null}
                     </div>
 
                     <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2">
-                      {/* Languages */}
-                      <FloatingSelect
-                        label={listsLoading ? "Languages (loading...)" : "Languages"}
+                      <FloatingMultiSelect
+                        label={
+                          listsLoading
+                            ? "Languages (loading...)"
+                            : "Languages"
+                        }
                         size="small"
-                        value={languageId}
-                        onValueChange={(v) => setLanguageId(v === CLEAR_VALUE ? "" : v)}
+                        options={languageOptions}
+                        value={languageIds}
+                        onValueChange={setLanguageIds}
                         icon
-                      >
-                        <SelectItem value={CLEAR_VALUE}>None</SelectItem>
+                        includeAll={false}
+                      />
 
-                        {languagesList
-                          .filter((l) => !!(l._id ?? l.id))
-                          .map((l) => {
-                            const id = String(l._id ?? l.id);
-                            return (
-                              <SelectItem key={id} value={id}>
-                                {l.name ?? l.code ?? "Language"}
-                              </SelectItem>
-                            );
-                          })}
-                      </FloatingSelect>
-
-                      {/* Categories */}
                       <div
                         onClick={() => {
                           if (categoryError) clearFieldOnFocus("categoryIds");
                         }}
                       >
                         <FloatingMultiSelect
-                          label={listsLoading ? "Categories (loading...)" : "Categories"}
+                          label={
+                            listsLoading
+                              ? "Categories (loading...)"
+                              : "Categories"
+                          }
                           size="small"
                           required
                           options={categoryOptions}
                           value={categoryIds}
                           onValueChange={(v) => {
                             setCategoryIds(v);
-                            if (categoryError) clearFieldOnFocus("categoryIds");
+                            if (categoryError)
+                              clearFieldOnFocus("categoryIds");
                           }}
                           icon
                           includeAll={false}
@@ -627,11 +682,12 @@ export default function InfluencerSignupPage() {
                           errorText={undefined}
                         />
 
-                        {categoryError ? <p className={ERROR_TEXT_CLASS}>{categoryError}</p> : null}
+                        {categoryError ? (
+                          <p className={ERROR_TEXT_CLASS}>{categoryError}</p>
+                        ) : null}
                       </div>
                     </div>
 
-                    {/* Password */}
                     <div>
                       <PasswordInput
                         label="Password"
@@ -648,16 +704,20 @@ export default function InfluencerSignupPage() {
                         errorText={undefined}
                         showRules={attemptedSubmit}
                       />
-                      {passwordError ? <p className={ERROR_TEXT_CLASS}>{passwordError}</p> : null}
+                      {passwordError ? (
+                        <p className={ERROR_TEXT_CLASS}>{passwordError}</p>
+                      ) : null}
                     </div>
 
-                    {/* Terms */}
                     <div className="mt-xl">
+                      {/*
+                        FIX: Checkbox error is indicated ONLY by the red border on the
+                        checkbox itself. The label text no longer changes to red, which
+                        was the redundant "additional error message" described in the bug.
+                        No separate <p> error text is rendered below the checkbox.
+                      */}
                       <label
-                        className={cn(
-                          "flex items-center gap-[10px] text-center text-[12px] leading-[16px]",
-                          agreedError ? "text-[color:var(--Errors-500,#E35141)]" : "text-[#7A7A7A]"
-                        )}
+                        className="flex items-center gap-[10px] text-center text-[12px] leading-[16px] text-[#7A7A7A]"
                       >
                         <Checkbox
                           checked={agreed}
@@ -679,24 +739,32 @@ export default function InfluencerSignupPage() {
 
                         <span>
                           By continuing, you agree to our{" "}
-                          <Link href="/terms" className="font-semibold hover:underline text-current">
+                          <Link
+                            href="/terms"
+                            className="font-semibold hover:underline text-current"
+                          >
                             Terms of Service
                           </Link>{" "}
                           and{" "}
-                          <Link href="/privacy-policy" className="font-semibold hover:underline text-current">
+                          <Link
+                            href="/privacy-policy"
+                            className="font-semibold hover:underline text-current"
+                          >
                             Privacy Policy
                           </Link>
                         </span>
                       </label>
-
-                      {agreedError ? <p className={ERROR_TEXT_CLASS}>{agreedError}</p> : null}
+                      {/* No <p> error text here — the red border on the checkbox is sufficient */}
                     </div>
 
                     <Button
                       type="submit"
                       variant="solid"
                       size="lg"
-                      className={cn("w-full rounded-m mt-2xl", isSendingOtp && "opacity-60")}
+                      className={cn(
+                        "w-full rounded-m mt-2xl",
+                        isSendingOtp && "opacity-60"
+                      )}
                       disabled={isSendingOtp}
                     >
                       {isSendingOtp ? "Sending OTP..." : "Continue"}
@@ -704,7 +772,10 @@ export default function InfluencerSignupPage() {
 
                     <p className={cn(SUBTITLE_CLASS, "text-center mt-l")}>
                       Already Have an Account?{" "}
-                      <Link href="/influencer/login" className="font-semibold text-black hover:underline">
+                      <Link
+                        href="/influencer/login"
+                        className="font-semibold text-black hover:underline"
+                      >
                         Login
                       </Link>
                     </p>
@@ -712,7 +783,6 @@ export default function InfluencerSignupPage() {
                 </>
               )}
 
-              {/* OTP */}
               {step === "otp" && (
                 <>
                   <div className="flex items-center gap-2">
@@ -725,7 +795,9 @@ export default function InfluencerSignupPage() {
                       <CaretLeft
                         size={18}
                         weight="bold"
-                        style={{ color: "var(--Light-Icon-Primary, #1A1A1A)" }}
+                        style={{
+                          color: "var(--Light-Icon-Primary, #1A1A1A)",
+                        }}
                       />
                     </button>
 
@@ -735,7 +807,8 @@ export default function InfluencerSignupPage() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") goBackToForm();
+                        if (e.key === "Enter" || e.key === " ")
+                          goBackToForm();
                       }}
                     >
                       Back
@@ -745,7 +818,8 @@ export default function InfluencerSignupPage() {
                   <h1 className="cg-heading m-0 mt-2">Enter OTP</h1>
 
                   <p className="mt-s cg-description">
-                    Enter the 6-digit code sent to your email to activate your account.
+                    Enter the 6-digit code sent to your email to activate your
+                    account.
                   </p>
 
                   <div className="space-y-[14px] mt-[12px]">
@@ -764,14 +838,22 @@ export default function InfluencerSignupPage() {
                             <InputOTPSlot
                               key={i}
                               index={i}
-                              className={cn(otpError ? "border-error-500" : "border-neutral-300")}
+                              className={cn(
+                                otpError
+                                  ? "border-error-500"
+                                  : "border-neutral-300"
+                              )}
                             />
                           ))}
                         </InputOTPGroup>
                       </InputOTP>
                     </div>
 
-                    {otpError && <p className={cn(ERROR_TEXT_CLASS, "text-center mt-0")}>{otpError}</p>}
+                    {otpError && (
+                      <p className={cn(ERROR_TEXT_CLASS, "text-center mt-0")}>
+                        {otpError}
+                      </p>
+                    )}
 
                     <div className="space-y-[20px]">
                       <Button
@@ -786,8 +868,15 @@ export default function InfluencerSignupPage() {
                         {isVerifyingOtp ? "Verifying..." : "Continue"}
                       </Button>
 
-                      <div className={cn(SUBTITLE_CLASS, " mt-[12px] flex items-center justify-center gap-1")}>
-                        <span className="leading-[20px]">Didn&apos;t Received an OTP?</span>
+                      <div
+                        className={cn(
+                          SUBTITLE_CLASS,
+                          " mt-[12px] flex items-center justify-center gap-1"
+                        )}
+                      >
+                        <span className="leading-[20px]">
+                          Didn&apos;t Received an OTP?
+                        </span>
                         <button
                           type="button"
                           onClick={handleResendOtp}
@@ -797,13 +886,17 @@ export default function InfluencerSignupPage() {
                             "inline-flex items-center justify-center",
                             "leading-[20px]",
                             "cursor-pointer",
-                            (secondsLeft > 0 || isSendingOtp) && "cursor-not-allowed opacity-60"
+                            (secondsLeft > 0 || isSendingOtp) &&
+                            "cursor-not-allowed opacity-60"
                           )}
                         >
                           {isSendingOtp ? (
                             "Sending..."
                           ) : secondsLeft > 0 ? (
-                            <CountdownTicker seconds={secondsLeft} className="leading-none -translate-y-[-2px]" />
+                            <CountdownTicker
+                              seconds={secondsLeft}
+                              className="leading-none -translate-y-[-2px]"
+                            />
                           ) : (
                             "Resend OTP"
                           )}
@@ -818,5 +911,20 @@ export default function InfluencerSignupPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function InfluencerSignupPage() {
+  return (
+    <GoogleReCaptchaProvider
+      reCaptchaKey={process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || ""}
+      scriptProps={{
+        async: true,
+        defer: true,
+        appendTo: "head",
+      }}
+    >
+      <InfluencerSignupContent />
+    </GoogleReCaptchaProvider>
   );
 }

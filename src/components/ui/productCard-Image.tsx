@@ -13,6 +13,7 @@ function pickValidFiles(list: FileList | File[]) {
 const fileKey = (f: File) => `${f.name}__${f.size}__${f.lastModified}`;
 
 export function ProductCardUpload({
+  showLabel = true,
   files,
   existingImages = [],
   existingImageKeys = [],
@@ -25,6 +26,7 @@ export function ProductCardUpload({
   error = false,
   errorText,
 }: {
+  showLabel?: boolean;
   files: File[];
   existingImages?: string[];
   existingImageKeys?: string[];
@@ -166,7 +168,9 @@ export function ProductCardUpload({
             : "text-[color:var(--Light-Text-Primary,#1A1A1A)]",
         ].join(" ")}
       >
-        <span>Product images / references</span>
+        {showLabel && (
+          <span>Product images / references</span>
+        )}
         {required ? (
           <span className="ml-1 !text-[#E53935]" aria-hidden="true">
             *

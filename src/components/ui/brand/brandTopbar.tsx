@@ -11,7 +11,14 @@ import React, {
 } from "react";
 import type { TopbarAction } from "./brandTopbarProvider";
 import NotificationCard from "./notificationCard";
-import { BellIcon, CaretRightIcon, ListDashes } from "@phosphor-icons/react";
+import { apiGetBrandLite } from "@/app/brand/services/brandApi";
+import {
+  BellIcon,
+  BookOpenIcon,
+  CaretRightIcon,
+  Coins,
+  ListDashes,
+} from "@phosphor-icons/react";
 
 /* -------- tiny util (keeps this file standalone) -------- */
 function useMediaQuery(query: string) {
@@ -34,6 +41,34 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+type BrandLiteFeature = {
+  key?: string | null;
+  value?: string | number | null;
+  limit?: number | null;
+  used?: number | null;
+  note?: string | null;
+  resetsEvery?: string | null;
+  resetsAt?: string | null;
+};
+
+type BrandLiteSubscription = {
+  brandPlanId?: string | null;
+  brandPlanName?: string | null;
+  plan?: string | null;
+  status?: string | null;
+  features?: BrandLiteFeature[] | null;
+};
+
+type BrandLiteRes = {
+  brandId?: string | null;
+  name?: string | null;
+  proxyEmail?: string | null;
+  profilePic?: string | null;
+  subscriptionDetails?: BrandLiteSubscription | null;
+  subscription?: BrandLiteSubscription | null;
+  features?: BrandLiteFeature[] | null;
+};
+
 const LABELS: Record<string, string> = {
   brand: "Brand",
   overview: "Overview",
@@ -43,6 +78,13 @@ const LABELS: Record<string, string> = {
   wallet: "Wallet",
   browse: "Browse Influencers",
   "create-camapign": "Create Campaign",
+};
+
+const CREDIT_LABELS: Record<string, string> = {
+  influencer_search_per_month: "Influencer Search",
+  influencer_profile_views_per_month: "Influencer Profile Views",
+  invites_per_month: "Invites Per Month",
+  active_campaigns: "Active Campaign",
 };
 
 function titleize(seg: string) {
@@ -85,6 +127,25 @@ function getDefaultActions(pathname: string): TopbarAction[] {
   return [];
 }
 
+function normaliseNumber(value: unknown) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function prettifyFeatureLabel(key?: string | null) {
+  const safeKey = String(key || "").trim();
+  if (!safeKey) return "Credit";
+  if (CREDIT_LABELS[safeKey]) return CREDIT_LABELS[safeKey];
+  return safeKey
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function getProgressColor(progress: number) {
+  if (progress >= 0.6) return "#F04438";
+  return "#22C55E";
+}
+
 function ActionButton({ action }: { action: TopbarAction }) {
   if ("static" in action) {
     return (
@@ -111,9 +172,8 @@ function ActionButton({ action }: { action: TopbarAction }) {
 
   const secondary = "bg-transparent text-[#1A1A1A] hover:bg-[#F5F5F5]";
   const primary = "bg-[#1A1A1A] text-white hover:bg-black";
-  const cls = `${base} ${
-    action.variant === "primary" ? primary : secondary
-  } ${action.className ?? ""}`;
+  const cls = `${base} ${action.variant === "primary" ? primary : secondary
+    } ${action.className ?? ""}`;
 
   const content = (
     <>
@@ -157,9 +217,20 @@ export default function BrandTopbar({
   const isNarrow = useMediaQuery("(max-width: 640px)");
   const topbarRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
+  const creditsRef = useRef<HTMLDivElement>(null);
+  const creditsCloseTimeoutRef = useRef<number | null>(null);
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [notificationPosition, setNotificationPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  const [brandId, setBrandId] = useState<string | null>(null);
+  const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
+  const [showCredits, setShowCredits] = useState(false);
+  const [creditsPosition, setCreditsPosition] = useState<{
     top: number;
     left: number;
     width: number;
@@ -186,6 +257,62 @@ export default function BrandTopbar({
     return () => ro.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const storedBrandId =
+      window.localStorage.getItem("brandId") ||
+      window.localStorage.getItem("currentBrandId");
+
+    if (storedBrandId) setBrandId(storedBrandId);
+  }, []);
+
+  useEffect(() => {
+    if (!brandId) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await apiGetBrandLite(brandId);
+        if (!cancelled) setBrandLite(data ?? null);
+      } catch {
+        if (!cancelled) setBrandLite(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId]);
+
+  const creditUsageItems = useMemo(() => {
+    const features =
+      brandLite?.subscriptionDetails?.features ??
+      brandLite?.subscription?.features ??
+      brandLite?.features ??
+      [];
+
+    return features.slice(0, 4).map((item) => {
+      const limit = normaliseNumber(item?.limit);
+      const used = normaliseNumber(item?.used);
+      const progress = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+
+      return {
+        key: String(item?.key || ""),
+        label: prettifyFeatureLabel(item?.key),
+        limit,
+        used,
+        progress,
+        color: getProgressColor(limit > 0 ? used / limit : 0),
+      };
+    });
+  }, [brandLite]);
+
+  const totalCredits = useMemo(() => {
+    return creditUsageItems.reduce((sum, item) => sum + item.limit, 0);
+  }, [creditUsageItems]);
+
   const updateNotificationPosition = useCallback(() => {
     const trigger = notificationRef.current;
     if (!trigger) return;
@@ -210,6 +337,30 @@ export default function BrandTopbar({
     setNotificationPosition({ top, left, width });
   }, []);
 
+  const updateCreditsPosition = useCallback(() => {
+    const trigger = creditsRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 8;
+    const desiredWidth = 272;
+
+    const width = Math.min(
+      desiredWidth,
+      Math.max(240, window.innerWidth - viewportPadding * 2)
+    );
+
+    const left = Math.min(
+      Math.max(viewportPadding, rect.right - width),
+      window.innerWidth - width - viewportPadding
+    );
+
+    const top = rect.bottom + gap;
+
+    setCreditsPosition({ top, left, width });
+  }, []);
+
   useEffect(() => {
     if (!showNotifications) return;
 
@@ -226,6 +377,51 @@ export default function BrandTopbar({
     };
   }, [showNotifications, updateNotificationPosition]);
 
+  useEffect(() => {
+    if (!showCredits) return;
+
+    updateCreditsPosition();
+
+    const handleReposition = () => updateCreditsPosition();
+
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
+    return () => {
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [showCredits, updateCreditsPosition]);
+
+  useEffect(() => {
+    return () => {
+      if (creditsCloseTimeoutRef.current) {
+        window.clearTimeout(creditsCloseTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const clearCreditsCloseTimeout = () => {
+    if (creditsCloseTimeoutRef.current) {
+      window.clearTimeout(creditsCloseTimeoutRef.current);
+      creditsCloseTimeoutRef.current = null;
+    }
+  };
+
+  const openCreditsPopover = () => {
+    clearCreditsCloseTimeout();
+    updateCreditsPosition();
+    setShowCredits(true);
+    setShowNotifications(false);
+  };
+
+  const scheduleCloseCreditsPopover = () => {
+    clearCreditsCloseTimeout();
+    creditsCloseTimeoutRef.current = window.setTimeout(() => {
+      setShowCredits(false);
+    }, 120);
+  };
+
   const crumbs = useMemo(() => getCrumbs(pathname), [pathname]);
 
   const displayCrumbs = useMemo(() => {
@@ -241,6 +437,8 @@ export default function BrandTopbar({
   }, [actionsOverride, pathname]);
 
   const handleNotificationToggle = () => {
+    setShowCredits(false);
+
     if (showNotifications) {
       setShowNotifications(false);
       return;
@@ -350,18 +548,47 @@ export default function BrandTopbar({
           )}
 
           <div className="ml-auto flex items-center gap-2 sm:gap-4 shrink-0">
+            <div
+              ref={creditsRef}
+              className="relative shrink-0"
+              onMouseEnter={openCreditsPopover}
+              onMouseLeave={scheduleCloseCreditsPopover}
+            >
+              <button
+                type="button"
+                aria-label="Credits"
+                title="Credits"
+                onClick={() => {
+                  if (showCredits) {
+                    setShowCredits(false);
+                    return;
+                  }
+                  openCreditsPopover();
+                }}
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg px-2.5 text-[#1A1A1A] transition hover:bg-neutral-50"
+              >
+                <img src="/images/star_coin.png" alt="star_coin" className="h-6 w-6" />
+                <span className="text-[13px] sm:text-[14px] font-semibold text-[#1A1A1A]">
+                  {totalCredits}
+                </span>
+              </button>
+            </div>
+
             <div className="relative shrink-0" ref={notificationRef}>
               <button
                 type="button"
                 aria-label="Notifications"
                 title="Notifications"
                 onClick={handleNotificationToggle}
-                className="grid h-10 w-10 place-items-center rounded-lg  hover:bg-neutral-50 transition"
+                className="grid h-10 w-10 border border-bd-subtle place-items-center rounded-lg hover:bg-neutral-50 transition"
               >
-                <BellIcon size={20} className="text-[#1A1A1A]" />
+                <BellIcon size={16} className="text-[#1A1A1A]" weight="bold"/>
               </button>
             </div>
-
+            <button className="flex gap-2 item-center font-bold text-xs p-3   border border-bd-subtle place-items-center rounded-lg hover:bg-neutral-50 transition">
+              <BookOpenIcon size={16} weight="bold"/>
+              <span>Guide</span>
+            </button>
             <div
               className={[
                 "flex items-center gap-2 sm:gap-6 shrink-0",
@@ -377,12 +604,52 @@ export default function BrandTopbar({
         </div>
       </div>
 
+      {showCredits && creditsPosition ? (
+        <div
+          className="fixed z-[95]"
+          style={{
+            top: creditsPosition.top,
+            left: creditsPosition.left,
+            width: creditsPosition.width,
+          }}
+          onMouseEnter={openCreditsPopover}
+          onMouseLeave={scheduleCloseCreditsPopover}
+        >
+          <div className="rounded-lg border border-[#EAEAEA] bg-white p-3">
+            <div className="space-y-3">
+              {creditUsageItems.map((item) => (
+                <div key={item.key}>
+                  <div className="mb-1 flex items-center justify-between gap-3">
+                    <span className="truncate text-[11px] font-medium text-[#7A7A7A]">
+                      {item.label}
+                    </span>
+                    <span className="text-[10px] font-medium text-[#9A9A9A]">
+                      {item.used}/{item.limit}
+                    </span>
+                  </div>
+
+                  <div className="h-[3px] w-full overflow-hidden rounded-full bg-[#ECECEC]">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${item.progress}%`,
+                        backgroundColor: item.color,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showNotifications && notificationPosition ? (
         <div
           className="fixed inset-0 z-[100]"
           onMouseDown={() => setShowNotifications(false)}
         >
-          <div className="absolute inset-0 bg-black/10" />
+          <div className="absolute inset-0" />
 
           <div
             className="absolute"

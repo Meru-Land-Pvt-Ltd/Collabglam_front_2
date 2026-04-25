@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { CaretDown, FilePdf, GearSix, X } from "@phosphor-icons/react";
+import React, { useEffect, useMemo, useState } from "react";
+import { CaretDown, GearSix, X } from "@phosphor-icons/react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/buttonComp";
+import { get } from "@/lib/api";
 
 type NotificationTab = "all" | "read" | "unread";
 type NotificationSection = "Today" | "Older";
@@ -16,6 +18,31 @@ type NotificationCategory =
   | "Contracts"
   | "System & Reminders";
 
+type BrandNotificationApiItem = {
+  _id: string;
+  brandId?: string | null;
+  influencerId?: string | null;
+  adminId?: string | null;
+  type?: string | null;
+  title?: string | null;
+  message?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  actionPath?: string | null;
+  isRead?: boolean;
+  notificationId?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type BrandNotificationsResponse = {
+  data?: BrandNotificationApiItem[];
+  total?: number;
+  unread?: number;
+  page?: number;
+  limit?: number;
+};
+
 type NotificationAction = {
   label: string;
   tone?: "primary" | "secondary";
@@ -23,24 +50,17 @@ type NotificationAction = {
   onClick?: () => void;
 };
 
-type NotificationAttachment = {
-  name: string;
-  size: string;
-  actions?: NotificationAction[];
-};
-
 export type NotificationItem = {
   id: string;
-  name: string;
-  message: string;
   title: string;
+  message: string;
   time: string;
-  avatar: string;
   section: NotificationSection;
   category: NotificationCategory;
-  read?: boolean;
+  read: boolean;
+  actionPath?: string;
+  initials: string;
   actions?: NotificationAction[];
-  attachment?: NotificationAttachment;
 };
 
 type NotificationPanelProps = {
@@ -64,94 +84,213 @@ const CATEGORY_OPTIONS: NotificationCategory[] = [
   "System & Reminders",
 ];
 
-const DEMO_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: "1",
-    name: "Ijustine",
-    message: "submitted a reel draft",
-    title: "Nike New Balance Hi...",
-    time: "1 hrs",
-    avatar: "https://i.pravatar.cc/64?img=32",
-    section: "Today",
-    category: "Campaigns",
-    read: false,
-    actions: [
-      { label: "Decline", tone: "secondary" },
-      { label: "View", tone: "primary" },
-    ],
-  },
-  {
-    id: "2",
-    name: "Ijustine",
-    message: "submitted a reel draft",
-    title: "Nike New Balance Hi...",
-    time: "14 aug",
-    avatar: "https://i.pravatar.cc/64?img=32",
-    section: "Today",
-    category: "Contracts",
-    read: true,
-    attachment: {
-      name: "BrandxInfluencer_contract.pdf",
-      size: "10.5 MB",
-      actions: [
-        { label: "Edit", tone: "secondary", size: "compact" },
-        { label: "Review", tone: "primary", size: "compact" },
-      ],
-    },
-  },
-  {
-    id: "3",
-    name: "Ijustine",
-    message: "applied in the",
-    title: "Nike New Balance High flye...",
-    time: "14 aug",
-    avatar: "https://i.pravatar.cc/64?img=32",
-    section: "Older",
-    category: "Campaigns",
-    read: false,
-    actions: [
-      { label: "Decline", tone: "secondary" },
-      { label: "Accept", tone: "primary" },
-    ],
-  },
-  {
-    id: "4",
-    name: "Nike",
-    message: "Campaign is Ending Soon",
-    title: "",
-    time: "14 aug",
-    avatar: "https://i.pravatar.cc/64?img=12",
-    section: "Older",
-    category: "System & Reminders",
-    read: true,
-    actions: [
-      { label: "Decline", tone: "secondary" },
-      { label: "View", tone: "primary" },
-    ],
-  },
-];
+function isToday(date: Date) {
+  const now = new Date();
+  return (
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear()
+  );
+}
+
+function formatNotificationTime(value?: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+
+  if (isToday(date)) {
+    const mins = Math.max(1, Math.floor(diffMs / 60000));
+    if (mins < 60) return `${mins} min`;
+
+    const hrs = Math.floor(mins / 60);
+    return `${hrs} hr${hrs > 1 ? "s" : ""}`;
+  }
+
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function getSection(value?: string | null): NotificationSection {
+  if (!value) return "Older";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Older";
+
+  return isToday(date) ? "Today" : "Older";
+}
+
+function getCategory(item: BrandNotificationApiItem): NotificationCategory {
+  const type = String(item.type || "").toLowerCase();
+  const entityType = String(item.entityType || "").toLowerCase();
+
+  if (
+    type.includes("campaign") ||
+    entityType.includes("campaign")
+  ) {
+    return "Campaigns";
+  }
+
+  if (
+    type.includes("deliver") ||
+    entityType.includes("deliver")
+  ) {
+    return "Deliveries";
+  }
+
+  if (
+    type.includes("milestone") ||
+    entityType.includes("milestone")
+  ) {
+    return "Milestones";
+  }
+
+  if (
+    type.includes("payment") ||
+    type.includes("wallet") ||
+    entityType.includes("payment") ||
+    entityType.includes("wallet")
+  ) {
+    return "Payments & Wallet";
+  }
+
+  if (
+    type.includes("dispute") ||
+    entityType.includes("dispute")
+  ) {
+    return "Disputes";
+  }
+
+  if (
+    type.includes("contract") ||
+    entityType.includes("contract")
+  ) {
+    return "Contracts";
+  }
+
+  return "System & Reminders";
+}
+
+function getInitials(item: BrandNotificationApiItem) {
+  const source =
+    item.entityType ||
+    item.title ||
+    item.type ||
+    "N";
+
+  const parts = String(source)
+    .replace(/[^a-zA-Z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!parts.length) return "N";
+  return parts.slice(0, 2).map((p) => p[0]!.toUpperCase()).join("");
+}
+
+function mapApiNotification(item: BrandNotificationApiItem): NotificationItem {
+  return {
+    id: item.notificationId || item._id,
+    title: item.title || "Notification",
+    message: item.message || "",
+    time: formatNotificationTime(item.createdAt),
+    section: getSection(item.createdAt),
+    category: getCategory(item),
+    read: Boolean(item.isRead),
+    actionPath: item.actionPath || undefined,
+    initials: getInitials(item),
+  };
+}
 
 export default function NotificationPanel({
   isOpen = true,
-  notifications = DEMO_NOTIFICATIONS,
+  notifications,
   defaultTab = "all",
   defaultCategory = "All Notification",
   onClose,
   onSettings,
   onMarkAllRead,
 }: NotificationPanelProps) {
+  const router = useRouter();
+
   const [activeTab, setActiveTab] = useState<NotificationTab>(defaultTab);
   const [activeCategory, setActiveCategory] =
     useState<NotificationCategory>(defaultCategory);
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
 
+  const [brandId, setBrandId] = useState<string | null>(null);
+  const [apiNotifications, setApiNotifications] = useState<NotificationItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const storedBrandId =
+      window.localStorage.getItem("brandId") ||
+      window.localStorage.getItem("currentBrandId");
+
+    if (storedBrandId) {
+      setBrandId(storedBrandId);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || notifications?.length) return;
+    if (!brandId) return;
+
+    let cancelled = false;
+
+    const loadNotifications = async () => {
+      try {
+        setLoading(true);
+        setError("");
+
+        const res = await get<BrandNotificationsResponse>(
+          `/notifications/brand?brandId=${encodeURIComponent(brandId)}`
+        );
+
+        if (cancelled) return;
+
+        const mapped = (res?.data || []).map(mapApiNotification);
+        setApiNotifications(mapped);
+        setUnreadCount(
+          typeof res?.unread === "number"
+            ? res.unread
+            : mapped.filter((item) => !item.read).length
+        );
+      } catch (err) {
+        if (cancelled) return;
+        console.error("Failed to load notifications:", err);
+        setError("Failed to load notifications");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadNotifications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, isOpen, notifications]);
+
+  const sourceNotifications = useMemo(() => {
+    return notifications?.length ? notifications : apiNotifications;
+  }, [notifications, apiNotifications]);
+
   const filteredNotifications = useMemo(() => {
-    return notifications.filter((item) => {
+    return sourceNotifications.filter((item) => {
       const matchesTab =
         activeTab === "all"
           ? true
           : activeTab === "read"
-          ? !!item.read
+          ? item.read
           : !item.read;
 
       const matchesCategory =
@@ -161,7 +300,7 @@ export default function NotificationPanel({
 
       return matchesTab && matchesCategory;
     });
-  }, [notifications, activeTab, activeCategory]);
+  }, [sourceNotifications, activeTab, activeCategory]);
 
   const groupedNotifications = useMemo(() => {
     const today = filteredNotifications.filter((item) => item.section === "Today");
@@ -172,6 +311,17 @@ export default function NotificationPanel({
       { label: "Older" as const, items: older },
     ].filter((group) => group.items.length > 0);
   }, [filteredNotifications]);
+
+  const handleMarkAllRead = () => {
+    setApiNotifications((prev) =>
+      prev.map((item) => ({
+        ...item,
+        read: true,
+      }))
+    );
+    setUnreadCount(0);
+    onMarkAllRead?.();
+  };
 
   if (!isOpen) return null;
 
@@ -240,7 +390,7 @@ export default function NotificationPanel({
                 key={tab}
                 type="button"
                 onClick={() => setActiveTab(tab)}
-                className={`flex h-7 w-14 items-center justify-center rounded-[0.5rem] text-center text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A] ${
+                className={`flex h-7 min-w-14 items-center justify-center rounded-[0.5rem] px-2 text-center text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A] ${
                   activeTab === tab ? "bg-[#EDEDED]" : "bg-transparent"
                 }`}
               >
@@ -251,59 +401,85 @@ export default function NotificationPanel({
 
           <button
             type="button"
-            onClick={onMarkAllRead}
+            onClick={handleMarkAllRead}
             className="flex h-7 items-center justify-center rounded-[0.75rem] px-2 text-center text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]"
           >
             Mark all as read
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-[0.9375rem]">
-          <div className="flex w-full flex-col gap-[0.9375rem]">
-            {groupedNotifications.map((group) => (
-              <div key={group.label} className="flex w-full flex-col gap-[0.625rem]">
-                <div className="px-5 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]">
-                  {group.label}
-                </div>
+        <div className="px-5 pt-3 text-[0.8125rem] font-medium text-[#7A7A7A]">
+          Unread: {unreadCount}
+        </div>
 
-                <div className="flex w-full flex-col gap-3 px-5">
-                  {group.items.map((item) => (
-                    <NotificationItemCard key={item.id} item={item} />
-                  ))}
+        <div className="flex-1 overflow-y-auto py-[0.9375rem]">
+          {loading ? (
+            <div className="px-5 text-[0.875rem] text-[#666]">Loading notifications...</div>
+          ) : error ? (
+            <div className="px-5 text-[0.875rem] text-[#F04438]">{error}</div>
+          ) : groupedNotifications.length === 0 ? (
+            <div className="px-5 text-[0.875rem] text-[#666]">No notifications found</div>
+          ) : (
+            <div className="flex w-full flex-col gap-[0.9375rem]">
+              {groupedNotifications.map((group) => (
+                <div key={group.label} className="flex w-full flex-col gap-[0.625rem]">
+                  <div className="px-5 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]">
+                    {group.label}
+                  </div>
+
+                  <div className="flex w-full flex-col gap-3 px-5">
+                    {group.items.map((item) => (
+                      <NotificationItemCard
+                        key={item.id}
+                        item={item}
+                        onView={() => {
+                          if (!item.actionPath) return;
+                          router.push(item.actionPath);
+                          onClose?.();
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function NotificationItemCard({ item }: { item: NotificationItem }) {
+function NotificationItemCard({
+  item,
+  onView,
+}: {
+  item: NotificationItem;
+  onView: () => void;
+}) {
   return (
     <div className="flex w-full items-start gap-3 rounded-[0.75rem] bg-white py-1">
-      <img
-        src={item.avatar}
-        alt={item.name}
-        className="h-8 w-8 shrink-0 rounded-[2rem] border border-[rgba(255,255,255,0.30)] object-cover"
-      />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#F3F4F6] text-[0.75rem] font-semibold text-[#1A1A1A]">
+        {item.initials}
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0 text-[0.875rem] font-bold leading-5 tracking-[0] text-[#1A1A1A]">
-              {item.name}
-            </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              {!item.read ? (
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#1A1A1A]" />
+              ) : null}
 
-            <span className="shrink-0 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#1A1A1A]">
-              {item.message}
-            </span>
-
-            {item.title ? (
               <span className="truncate text-[0.875rem] font-bold leading-5 tracking-[0] text-[#1A1A1A]">
                 {item.title}
               </span>
+            </div>
+
+            {item.message ? (
+              <div className="mt-1 text-[0.875rem] font-medium leading-5 tracking-[0] text-[#666]">
+                {item.message}
+              </div>
             ) : null}
           </div>
 
@@ -312,40 +488,17 @@ function NotificationItemCard({ item }: { item: NotificationItem }) {
           </span>
         </div>
 
-        {item.attachment ? (
-          <div className="flex items-center justify-between gap-3 rounded-[0.75rem] border border-[#E6E6E6] bg-white px-3 py-2.5">
-            <div className="flex min-w-0 items-center gap-[0.625rem]">
-              <div className="flex items-center justify-center text-[#1A1A1A]">
-                <FilePdf size={18} weight="fill" className="text-[#1A1A1A]" />
-              </div>
-
-              <div className="min-w-0">
-                <div className="truncate text-[0.875rem] font-medium leading-[1.125rem] tracking-[0] text-[#1A1A1A]">
-                  {item.attachment.name}
-                </div>
-                <div className="text-[0.8125rem] font-medium leading-4 tracking-[0] text-[#1A1A1A]">
-                  {item.attachment.size}
-                </div>
-              </div>
-            </div>
-
-            {item.attachment.actions?.length ? (
-              <div className="flex shrink-0 items-center gap-2">
-                {item.attachment.actions.map((action) => (
-                  <NotificationActionButton key={action.label} action={action} />
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        {item.actions?.length ? (
-          <div className="flex items-center gap-2">
-            {item.actions.map((action) => (
-              <NotificationActionButton key={action.label} action={action} />
-            ))}
-          </div>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {item.actionPath ? (
+            <NotificationActionButton
+              action={{
+                label: "View",
+                tone: "primary",
+                onClick: onView,
+              }}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );

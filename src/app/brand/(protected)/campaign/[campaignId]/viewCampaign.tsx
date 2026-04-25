@@ -85,6 +85,7 @@ interface InfluencerContextMenuProps {
   onCopyProfileLink?: () => void;
   onViewInfluencerList?: () => void;
   onInviteInfluencer?: () => void;
+  onRaiseDispute?: () => void;
   onSaveToHub?: () => void;
   onMoveToWorkspace?: () => void;
   onNotRelevant?: () => void;
@@ -502,6 +503,7 @@ const menuItems = [
   { label: "Copy Link", icon: LinkIcon, key: "copylink" },
   { label: "View Influencer list", icon: Eye, key: "viewinfluencerlist" },
   { label: "Invite Influencer", icon: IdentificationCardIcon, key: "inviteinfluencer" },
+  { label: "Raise Dispute", icon: WarningCircle, key: "raisedispute" },
 ];
 
 export function InfluencerContextMenu({
@@ -511,6 +513,7 @@ export function InfluencerContextMenu({
   onCopyProfileLink,
   onViewInfluencerList,
   onInviteInfluencer,
+  onRaiseDispute,
   onMoveToWorkspace,
   onDelete,
   hideInviteInfluencer = false,
@@ -539,6 +542,7 @@ export function InfluencerContextMenu({
     copylink: onCopyProfileLink,
     viewinfluencerlist: onViewInfluencerList,
     inviteinfluencer: onInviteInfluencer,
+    raisedispute: onRaiseDispute,
   };
 
   const visibleMenuItems = menuItems.filter(
@@ -2027,6 +2031,9 @@ export default function ViewCampaignPage() {
                 }}
                 onViewInfluencerList={() => router.push(`/brand/influ/all?campaignId=${campaignId}`)}
                 onInviteInfluencer={() => router.push(`/brand/browse-influencer?campaignId=${campaignId}`)}
+                onRaiseDispute={() =>
+                  router.push(`/brand/disputes/?id=${encodeURIComponent(campaignId)}`)
+                }
                 onDelete={() => {
                   if (hasProtectedInfluencers) {
                     toast({
