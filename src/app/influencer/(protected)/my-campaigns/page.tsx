@@ -590,7 +590,7 @@ function FloatingInput({
   );
 }
 
-function FloatingTextarea({
+export function FloatingTextarea({
   id,
   label,
   value,

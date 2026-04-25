@@ -85,6 +85,7 @@ interface InfluencerContextMenuProps {
   onCopyProfileLink?: () => void;
   onViewInfluencerList?: () => void;
   onInviteInfluencer?: () => void;
+  onRaiseDispute?: () => void;
   onSaveToHub?: () => void;
   onMoveToWorkspace?: () => void;
   onNotRelevant?: () => void;
@@ -502,6 +503,7 @@ const menuItems = [
   { label: "Copy Link", icon: LinkIcon, key: "copylink" },
   { label: "View Influencer list", icon: Eye, key: "viewinfluencerlist" },
   { label: "Invite Influencer", icon: IdentificationCardIcon, key: "inviteinfluencer" },
+  { label: "Raise Dispute", icon: WarningCircle, key: "raisedispute" },
 ];
 
 export function InfluencerContextMenu({
@@ -511,6 +513,7 @@ export function InfluencerContextMenu({
   onCopyProfileLink,
   onViewInfluencerList,
   onInviteInfluencer,
+  onRaiseDispute,
   onMoveToWorkspace,
   onDelete,
   hideInviteInfluencer = false,
@@ -539,6 +542,7 @@ export function InfluencerContextMenu({
     copylink: onCopyProfileLink,
     viewinfluencerlist: onViewInfluencerList,
     inviteinfluencer: onInviteInfluencer,
+    raisedispute: onRaiseDispute,
   };
 
   const visibleMenuItems = menuItems.filter(
@@ -2027,6 +2031,9 @@ export default function ViewCampaignPage() {
                 }}
                 onViewInfluencerList={() => router.push(`/brand/influ/all?campaignId=${campaignId}`)}
                 onInviteInfluencer={() => router.push(`/brand/browse-influencer?campaignId=${campaignId}`)}
+                onRaiseDispute={() =>
+                  router.push(`/brand/disputes/?id=${encodeURIComponent(campaignId)}`)
+                }
                 onDelete={() => {
                   if (hasProtectedInfluencers) {
                     toast({
@@ -2600,7 +2607,7 @@ export default function ViewCampaignPage() {
           </div>
         ) : null}
       </div>
-      {/* {!isAdminCreatedCampaign ? (
+       {!isAdminCreatedCampaign ? (
         <div className="mt-7 w-full flex flex-col items-start self-stretch">
           <div
             className="self-stretch text-[#1A1A1A] text-[1.25rem] font-semibold leading-[1.75rem]"
@@ -2613,7 +2620,7 @@ export default function ViewCampaignPage() {
             className="mt-2 self-stretch text-[#B8B8B8] text-[0.875rem] font-normal leading-[1.25rem]"
             style={{ fontFamily: "Inter" }}
           >
-            {lorem10}
+            {lorem1}
           </div>
 
           <div className="mt-6 w-full mb-[3.5rem]">
@@ -2747,7 +2754,7 @@ export default function ViewCampaignPage() {
             )}
           </div>
         </div>
-      ) : null} */}
+      ) : null}
 
       {addFundsModalOpen && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 px-4">

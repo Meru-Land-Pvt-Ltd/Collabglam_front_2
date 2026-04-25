@@ -307,6 +307,22 @@ export const post = async <T = any>(
   return res.data;
 };
 
+
+export const patch = async <T = any>(
+  url: string,
+  data?: any,
+  config: AxiosRequestConfig = {}
+): Promise<T> => {
+  const finalConfig: AxiosRequestConfig = { ...config };
+
+  if (isFormData(data)) {
+    finalConfig.headers = stripContentType(finalConfig.headers) as any;
+  }
+
+  const res = await api.patch<T>(url, data, finalConfig);
+  return res.data;
+}
+
 export const postFormData = async <T = any>(
   url: string,
   formData: FormData,

@@ -178,6 +178,12 @@ export const ADMIN_MODULES: AdminModule[] = [
     aliases: ["employee", "employees", "role", "roles"],
   },
   {
+    key: "Brand Intelligence Tool",
+    label: "Brand Intelligence Tool",
+    href: "/admin/brand-details",
+    icon: UserCog,
+  },
+  {
     key: "settings",
     label: "Settings",
     href: "/admin/settings",

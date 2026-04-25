@@ -787,7 +787,7 @@ export default function CampaignListPage({
               ),
             },
             {
-              label: "Influencer",
+              label: "Creators",
               value: (
                 <button
                   type="button"
