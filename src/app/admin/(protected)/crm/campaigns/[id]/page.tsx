@@ -104,6 +104,8 @@ type SendingOptions = {
   insertUnsubscribeHeader: boolean;
   allowRiskyContacts: boolean;
   disableBounceProtect: boolean;
+  ccList: string[];
+  bccList: string[];
 };
 
 type CampaignConfiguration = {
@@ -150,6 +152,7 @@ type CampaignDetail = {
   instantly?: {
     senderAccountEmail?: string;
     accountEmails?: string[];
+    availableAccountEmails?: string[];
     campaignId?: string;
     leadListId?: string;
     shareLink?: string;
@@ -255,6 +258,8 @@ type MetricDefinition = {
   subValue?: string | number;
   icon: ReactNode;
 };
+
+type LeadImportMode = "csv" | "manual" | "sheet" | null;
 
 type SequenceTemplate = {
   id: string;
@@ -630,6 +635,10 @@ function getArrayPayload(payload: any): any[] {
   return [];
 }
 
+function normalizeEmailValue(value?: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function formatDate(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
@@ -777,6 +786,8 @@ function getDefaultConfiguration(flowType: CampaignFlowType = "standard_brand"):
       insertUnsubscribeHeader: false,
       allowRiskyContacts: false,
       disableBounceProtect: false,
+      ccList: [],
+      bccList: [],
     },
   };
 }
@@ -1330,6 +1341,10 @@ export default function CampaignDetailPage() {
   const [editingSubsequenceId, setEditingSubsequenceId] = useState<string | null>(null);
   const [subsequenceForm, setSubsequenceForm] = useState<CampaignSubsequence>(getDefaultSubsequence());
 
+  const [selectedSenderEmail, setSelectedSenderEmail] = useState("");
+  const [selectedAccountEmails, setSelectedAccountEmails] = useState<string[]>([]);
+  const [showCcBcc, setShowCcBcc] = useState(false);
+
   const [customTemplates, setCustomTemplates] = useState<SequenceTemplate[]>([]);
   const mergedTemplateGroups = useMemo<SequenceTemplateGroup[]>(() => {
     return sequenceTemplateGroups.map((group) =>
@@ -1372,6 +1387,9 @@ export default function CampaignDetailPage() {
   const [linkEditorUrl, setLinkEditorUrl] = useState("");
   const [linkEditorText, setLinkEditorText] = useState("");
 
+  const [isLeadImportModalOpen, setIsLeadImportModalOpen] = useState(false);
+  const [leadImportMode, setLeadImportMode] = useState<LeadImportMode>(null);
+
   const saveMenuRef = useRef<HTMLDivElement | null>(null);
   const variablesMenuRef = useRef<HTMLDivElement | null>(null);
   const metricMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1401,6 +1419,66 @@ export default function CampaignDetailPage() {
       text: await getApiErrorMessage(error, fallback),
     });
   }
+
+  function openLeadImportModal() {
+    setLeadImportMode(null);
+    setIsLeadImportModalOpen(true);
+  }
+
+  function closeLeadImportModal() {
+    setIsLeadImportModalOpen(false);
+    setLeadImportMode(null);
+  }
+
+  function openLeadImportMode(mode: Exclude<LeadImportMode, null>) {
+    setLeadImportMode(mode);
+  }
+
+  useEffect(() => {
+    const available = Array.from(
+      new Set(
+        (
+          campaign?.instantly?.availableAccountEmails?.length
+            ? campaign.instantly.availableAccountEmails
+            : campaign?.instantly?.accountEmails || []
+        )
+          .map((item) => normalizeEmailValue(item))
+          .filter(Boolean)
+      )
+    );
+
+    const configured = Array.from(
+      new Set(
+        (campaign?.instantly?.accountEmails || [])
+          .map((item) => normalizeEmailValue(item))
+          .filter(Boolean)
+      )
+    );
+
+    const savedPrimary = normalizeEmailValue(campaign?.instantly?.senderAccountEmail);
+
+    let nextSelectedAccounts: string[] = [];
+
+    if (configured.length) {
+      nextSelectedAccounts = configured.filter((email) => available.includes(email));
+    } else if (savedPrimary && available.includes(savedPrimary)) {
+      nextSelectedAccounts = [savedPrimary];
+    } else if (available.length) {
+      nextSelectedAccounts = [available[0]];
+    }
+
+    const nextSelectedSender =
+      savedPrimary && nextSelectedAccounts.includes(savedPrimary)
+        ? savedPrimary
+        : nextSelectedAccounts[0] || "";
+
+    setSelectedAccountEmails(nextSelectedAccounts);
+    setSelectedSenderEmail(nextSelectedSender);
+  }, [
+    campaign?.instantly?.senderAccountEmail,
+    campaign?.instantly?.accountEmails,
+    campaign?.instantly?.availableAccountEmails,
+  ]);
 
   async function loadTimezoneOptions(preferredTimezone?: string) {
     const fallbackTimezone = preferredTimezone || configuration.schedule.timezone || "UTC";
@@ -1449,8 +1527,11 @@ export default function CampaignDetailPage() {
     try {
       if (showLoader) setLoading(true);
 
+      const cacheBust = Date.now();
+
       const [
         campaignPayload,
+        configurationPayload,
         contactsPayload,
         overviewPayload,
         stepsPayload,
@@ -1458,16 +1539,39 @@ export default function CampaignDetailPage() {
         templatesPayload,
         sidebarPayload,
       ] = await Promise.all([
-        adminGet(`/outreach/campaigns/${campaignId}`),
-        adminGet(`/outreach/campaigns/${campaignId}/contacts`),
-        adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange }).catch(() => null),
-        adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange }).catch(() => null),
-        adminGet(`/outreach/campaigns/${campaignId}/template-variables`).catch(() => null),
-        adminGet(`/outreach/campaigns/${campaignId}/templates`).catch(() => null),
-        adminGet<SidebarRoleResponse>(`/outreach/sidebar`).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}`, { _ts: cacheBust }),
+        adminGet(`/outreach/campaigns/${campaignId}/configuration`, { _ts: cacheBust }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/contacts`, { _ts: cacheBust }),
+        adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange, _ts: cacheBust }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange, _ts: cacheBust }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/template-variables`, { _ts: cacheBust }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/templates`, { _ts: cacheBust }).catch(() => null),
+        adminGet<SidebarRoleResponse>(`/outreach/sidebar`, { _ts: cacheBust }).catch(() => null),
       ]);
 
       const nextCampaign = parseCampaign(campaignPayload);
+
+      if (nextCampaign && configurationPayload?.data) {
+        const configData = configurationPayload.data;
+
+        nextCampaign.configuration = normalizeConfiguration(
+          configData.configuration || nextCampaign.configuration,
+          nextCampaign.flowType
+        );
+
+        nextCampaign.instantly = {
+          ...(nextCampaign.instantly || {}),
+          ...(configData.instantly || {}),
+        };
+
+        if (configData.status) {
+          nextCampaign.status = configData.status;
+        }
+
+        if (configData.flowType === "ime_influencer" || configData.flowType === "standard_brand") {
+          nextCampaign.flowType = configData.flowType;
+        }
+      }
       const nextContacts = parseContacts(contactsPayload);
 
       setCampaign(nextCampaign);
@@ -1552,8 +1656,17 @@ export default function CampaignDetailPage() {
 
   const normalizedViewerRole = String(viewerRole || "").trim().toLowerCase();
   const isSdrViewer = normalizedViewerRole === "sdr";
+  const isRhViewer = normalizedViewerRole === "revenue_head" || normalizedViewerRole === "rh";
+  const isImeViewer = normalizedViewerRole === "ime";
+  const isSuperAdminViewer = normalizedViewerRole === "super_admin";
 
   const canViewReplyAnalytics = !isSdrViewer;
+
+  // keep this FALSE for RH unless backend getManagedCampaign is also updated
+  const canManageCampaign =
+    isSuperAdminViewer ||
+    isSdrViewer ||
+    isImeViewer;
 
   useEffect(() => {
     if (isSdrViewer && analyticsSubTab === "activity") {
@@ -1786,6 +1899,30 @@ export default function CampaignDetailPage() {
     }));
   }
 
+  function toggleSelectedAccountEmail(email: string) {
+    const normalizedEmail = normalizeEmailValue(email);
+
+    setSelectedAccountEmails((prev) => {
+      const normalizedPrev = Array.from(
+        new Set(prev.map((item) => normalizeEmailValue(item)).filter(Boolean))
+      );
+
+      const exists = normalizedPrev.includes(normalizedEmail);
+
+      const next = exists
+        ? normalizedPrev.filter((item) => item !== normalizedEmail)
+        : [...normalizedPrev, normalizedEmail];
+
+      const normalizedSelectedSender = normalizeEmailValue(selectedSenderEmail);
+
+      if (!next.includes(normalizedSelectedSender)) {
+        setSelectedSenderEmail(next[0] || "");
+      }
+
+      return next;
+    });
+  }
+
   function updateScheduleWindow(index: number, patch: Partial<CampaignScheduleWindow>) {
     setConfiguration((prev) => ({
       ...prev,
@@ -1862,10 +1999,37 @@ export default function CampaignDetailPage() {
       const payload: any = await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
         configuration,
         syncNow,
+        senderAccountEmail: selectedSenderEmail,
+        accountEmails: selectedAccountEmails,
       });
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to save campaign configuration");
+      }
+
+      const returnedCampaign = payload?.data;
+      if (returnedCampaign?._id) {
+        const parsedReturnedCampaign = parseCampaign({ data: returnedCampaign });
+        if (parsedReturnedCampaign) {
+          setCampaign((prev) => ({
+            ...(prev || parsedReturnedCampaign),
+            ...parsedReturnedCampaign,
+            instantly: {
+              ...(prev?.instantly || {}),
+              ...(parsedReturnedCampaign.instantly || {}),
+            },
+          }));
+
+          setSelectedAccountEmails(
+            Array.isArray(returnedCampaign?.instantly?.accountEmails)
+              ? returnedCampaign.instantly.accountEmails.map((item: string) => normalizeEmailValue(item))
+              : []
+          );
+
+          setSelectedSenderEmail(
+            normalizeEmailValue(returnedCampaign?.instantly?.senderAccountEmail || "")
+          );
+        }
       }
 
       setMessage({
@@ -1884,7 +2048,10 @@ export default function CampaignDetailPage() {
   async function handleDirectSync() {
     try {
       setSubmittingKey("sync");
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/sync`);
+      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/sync`, {
+        senderAccountEmail: selectedSenderEmail,
+        accountEmails: selectedAccountEmails,
+      });
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to sync campaign");
@@ -2043,7 +2210,10 @@ export default function CampaignDetailPage() {
       setSubmittingKey("launch");
 
       const route = campaign?.status === "paused" ? "activate" : "launch";
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/${route}`);
+      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/${route}`, {
+        senderAccountEmail: selectedSenderEmail,
+        accountEmails: selectedAccountEmails,
+      });
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to launch campaign");
@@ -3116,10 +3286,42 @@ export default function CampaignDetailPage() {
                 {campaign?.name || "Campaign"}
               </h1>
 
-              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
-                <span>Sender: {campaign?.instantly?.senderAccountEmail || "—"}</span>
+              <div className="mt-2 flex flex-wrap items-end gap-4 text-sm text-slate-500">
+                <div className="flex min-w-[260px] flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Sender Email
+                  </span>
+
+                  {selectedAccountEmails.length > 1 ? (
+                    <select
+                      value={selectedSenderEmail}
+                      onChange={(e) => {
+                        const nextEmail = normalizeEmailValue(e.target.value);
+                        setSelectedSenderEmail(nextEmail);
+                        setSelectedAccountEmails((prev) =>
+                          prev.includes(nextEmail) ? prev : [nextEmail, ...prev]
+                        );
+                      }}
+                      className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none"
+                    >
+                      {selectedAccountEmails.map((email) => (
+                        <option key={email} value={email}>
+                          {email}
+                          {normalizeEmailValue(campaign?.instantly?.senderAccountEmail) === normalizeEmailValue(email)
+                            ? " (Primary)"
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      {selectedSenderEmail || selectedAccountEmails[0] || "—"}
+                    </div>
+                  )}
+                </div>
+
                 <span>Owner: {getAdminLabel(flowType === "ime_influencer" ? campaign?.IMEId : campaign?.sdrId)}</span>
-                <span>Instantly ID: {campaign?.instantly?.campaignId || "Not launched yet"}</span>
+                {/* <span>Instantly ID: {campaign?.instantly?.campaignId || "Not launched yet"}</span> */}
                 <span>Last analytics sync: {formatDateTime(campaign?.sync?.lastAnalyticsSyncedAt)}</span>
               </div>
             </div>
@@ -3129,7 +3331,7 @@ export default function CampaignDetailPage() {
                 <button
                   type="button"
                   onClick={topActionIsPause ? handlePause : handleLaunch}
-                  disabled={submittingKey !== ""}
+                  disabled={submittingKey !== "" || !canManageCampaign || !selectedAccountEmails.length}
                   className={cx(
                     "inline-flex h-11 items-center gap-2 rounded-2xl border px-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
                     topActionIsPause
@@ -3145,18 +3347,6 @@ export default function CampaignDetailPage() {
                   {submittingKey === "launch" || submittingKey === "pause"
                     ? "Please wait..."
                     : topActionLabel}
-                </button>
-              </Tooltip>
-
-              <Tooltip label="Sync campaign settings and analytics">
-                <button
-                  type="button"
-                  onClick={handleDirectSync}
-                  disabled={submittingKey !== ""}
-                  className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RefreshCw className={cx("h-4 w-4", submittingKey === "sync" && "animate-spin")} />
-                  Sync
                 </button>
               </Tooltip>
             </div>
@@ -3233,7 +3423,7 @@ export default function CampaignDetailPage() {
                     <button
                       type="button"
                       onClick={handleShare}
-                      disabled={submittingKey === "share"}
+                      disabled={submittingKey === "share" || !canManageCampaign}
                       className="inline-flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Share2 className="h-4 w-4" />
@@ -3514,280 +3704,592 @@ export default function CampaignDetailPage() {
 
         {activeTab === "leads" && (
           <div className="space-y-6">
-            <div className="grid gap-6 xl:grid-cols-[1.35fr_1fr]">
-              <ShellCard className="p-6">
-                <SectionHeader
-                  title="CSV Mapping Import"
-                  description="Preview the file, map every column, then import"
-                  action={
-                    csvPreviewFileName ? (
-                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        File processed
-                      </span>
-                    ) : null
-                  }
-                />
-
-                <div className="space-y-4">
-                  <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 transition hover:border-blue-300 hover:bg-blue-50">
-                    <Upload className="h-8 w-8 text-slate-400" />
-                    <span className="text-base font-semibold text-slate-700">
-                      {csvFile ? csvFile.name : "Choose a CSV file"}
-                    </span>
-                    <span className="text-sm text-slate-400">Drop a file or click to browse</span>
-                    <input
-                      type="file"
-                      accept=".csv"
-                      className="sr-only"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) await handlePreviewCsv(file);
-                      }}
-                    />
-                  </label>
-
-                  {csvPreviewColumns.length > 0 ? (
-                    <div className="overflow-hidden rounded-3xl border border-slate-200">
-                      <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">{csvPreviewFileName}</p>
-                            <p className="text-xs text-slate-500">{csvPreviewTotalRows} rows detected</p>
-                          </div>
-                          <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                            <Sparkles className="h-3.5 w-3.5" />
-                            Variables auto-generated
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="max-h-[470px] overflow-auto">
-                        <table className="min-w-full text-left">
-                          <thead className="sticky top-0 z-10 bg-white">
-                            <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                              <th className="px-5 py-3">Column</th>
-                              <th className="px-5 py-3">Type</th>
-                              <th className="px-5 py-3">Variable</th>
-                              <th className="px-5 py-3">Samples</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {csvPreviewColumns.map((column) => (
-                              <tr key={column.header} className="border-b border-slate-100 align-top last:border-b-0">
-                                <td className="px-5 py-4">
-                                  <p className="text-sm font-semibold text-slate-900">{column.header}</p>
-                                  <p className="mt-1 text-xs text-slate-400">
-                                    Auto-detected: {column.inferredType.replaceAll("_", " ")}
-                                  </p>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <select
-                                    value={column.selectedType}
-                                    onChange={(e) =>
-                                      updateCsvPreviewColumn(column.header, {
-                                        selectedType: e.target.value as CsvColumnType,
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
-                                  >
-                                    {csvTypeOptions.map((option) => (
-                                      <option key={option.value} value={option.value}>
-                                        {option.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <input
-                                    value={column.variableKey}
-                                    onChange={(e) =>
-                                      updateCsvPreviewColumn(column.header, {
-                                        variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
-                                      })
-                                    }
-                                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800"
-                                  />
-                                  <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                                    {`{{${column.variableKey}}}`}
-                                  </p>
-                                </td>
-                                <td className="px-5 py-4">
-                                  <div className="space-y-1">
-                                    {column.samples.map((sample, index) => (
-                                      <p key={index} className="text-sm text-slate-600">
-                                        {sample}
-                                      </p>
-                                    ))}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      <div className="flex items-center justify-end border-t border-slate-100 px-5 py-4">
-                        <button
-                          type="button"
-                          onClick={handleConfirmCsvImport}
-                          disabled={submittingKey !== ""}
-                          className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
-                        >
-                          <Upload className="h-4 w-4" />
-                          {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
-                        </button>
-                      </div>
+            <div className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.05)]">
+              <div className="border-b border-slate-100 bg-white px-6 py-6">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                      <Users className="h-6 w-6" />
                     </div>
-                  ) : (
-                    <div className="rounded-3xl border border-slate-200 bg-slate-50 px-5 py-10 text-center">
-                      <p className="text-base font-semibold text-slate-700">Upload a CSV to preview mappings</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Every header will become an available template variable.
+
+                    <div>
+                      <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+                        Leads
+                      </h2>
+                      <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                        Manage campaign prospects, review stages, and add leads using CSV,
+                        manual entry, or Google Sheets.
                       </p>
                     </div>
-                  )}
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="relative w-full sm:w-[340px]">
+                      <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={leadSearch}
+                        onChange={(e) => setLeadSearch(e.target.value)}
+                        placeholder="Search by lead, contact, email, or stage..."
+                        className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={openLeadImportModal}
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add Leads
+                    </button>
+                  </div>
                 </div>
-              </ShellCard>
+              </div>
 
-              <div className="space-y-6">
-                <ShellCard className="p-6">
-                  <SectionHeader
-                    title="Quick add lead"
-                    description="Add one lead manually"
-                  />
-                  <div className="space-y-3">
-                    <input
-                      value={manualForm.entityName}
-                      onChange={(e) =>
-                        setManualForm((prev) => ({ ...prev, entityName: e.target.value }))
-                      }
-                      placeholder="Brand / Influencer name"
-                      className={inputClassName}
-                    />
-                    <input
-                      value={manualForm.contactName}
-                      onChange={(e) =>
-                        setManualForm((prev) => ({ ...prev, contactName: e.target.value }))
-                      }
-                      placeholder="Contact name"
-                      className={inputClassName}
-                    />
-                    <input
-                      value={manualForm.contactEmail}
-                      onChange={(e) =>
-                        setManualForm((prev) => ({ ...prev, contactEmail: e.target.value }))
-                      }
-                      placeholder="Contact email"
-                      className={inputClassName}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleManualAdd}
-                      disabled={submittingKey !== ""}
-                      className="w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      {submittingKey === "manual" ? "Adding..." : "Add Lead"}
-                    </button>
-                  </div>
-                </ShellCard>
-
-                <ShellCard className="p-6">
-                  <SectionHeader
-                    title="Google Sheets import"
-                    description="Import a public Google Sheet"
-                  />
-                  <div className="space-y-3">
-                    <textarea
-                      value={sheetUrl}
-                      onChange={(e) => setSheetUrl(e.target.value)}
-                      placeholder="https://docs.google.com/spreadsheets/d/..."
-                      rows={5}
-                      className={cx(inputClassName, "resize-y")}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleGoogleSheetImport}
-                      disabled={submittingKey !== ""}
-                      className="w-full rounded-2xl bg-slate-900 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      {submittingKey === "sheet" ? "Importing..." : "Import Sheet"}
-                    </button>
-                  </div>
-                </ShellCard>
-
-                <ShellCard className="p-6">
-                  <SectionHeader
-                    title="Lead summary"
-                    description="Campaign pipeline snapshot"
-                  />
-                  <div className="grid grid-cols-2 gap-3">
-                    {(
-                      isSdrViewer
-                        ? [
-                          { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
-                          {
-                            label: "New",
-                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "new").length,
-                            icon: <Plus className="h-4 w-4" />,
-                          },
-                          {
-                            label: "Queued",
-                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "queued").length,
-                            icon: <CalendarDays className="h-4 w-4" />,
-                          },
-                          {
-                            label: "In Sequence",
-                            value: contacts.filter((item) => (item.stage || "").toLowerCase() === "in_sequence").length,
-                            icon: <Mail className="h-4 w-4" />,
-                          },
-                        ]
-                        : [
-                          { label: "Total leads", value: totalLeads, icon: <Users className="h-4 w-4" /> },
-                          { label: "Replies", value: stageStats.replied, icon: <Reply className="h-4 w-4" /> },
-                          { label: "Assigned to BME", value: stageStats.assignedToBme, icon: <Target className="h-4 w-4" /> },
-                          { label: "Assigned to IME", value: stageStats.assignedToIme, icon: <Sparkles className="h-4 w-4" /> },
-                        ]
-                    ).map((item) => (
-                      <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium text-slate-500">{item.label}</p>
-                          <div className="text-slate-400">{item.icon}</div>
-                        </div>
-                        <p className="mt-3 text-2xl font-bold text-slate-900">{item.value}</p>
+              <div className="grid gap-4 border-b border-slate-100 bg-slate-50/50 px-6 py-5 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  {
+                    label: "Total Leads",
+                    value: totalLeads,
+                    helper: `${filteredContacts.length} visible`,
+                    icon: <Users className="h-4 w-4" />,
+                    className: "bg-blue-50 text-blue-600",
+                  },
+                  {
+                    label: isSdrViewer ? "New Leads" : "Replies",
+                    value: isSdrViewer
+                      ? contacts.filter((item) => (item.stage || "").toLowerCase() === "new").length
+                      : stageStats.replied,
+                    helper: isSdrViewer ? "Ready to queue" : "Pending review",
+                    icon: isSdrViewer ? <Plus className="h-4 w-4" /> : <Reply className="h-4 w-4" />,
+                    className: "bg-emerald-50 text-emerald-600",
+                  },
+                  {
+                    label: isSdrViewer ? "Queued" : "Assigned to BME",
+                    value: isSdrViewer
+                      ? contacts.filter((item) => (item.stage || "").toLowerCase() === "queued").length
+                      : stageStats.assignedToBme,
+                    helper: isSdrViewer ? "Waiting for sequence" : "Brand execution",
+                    icon: isSdrViewer ? <CalendarDays className="h-4 w-4" /> : <Target className="h-4 w-4" />,
+                    className: "bg-amber-50 text-amber-600",
+                  },
+                  {
+                    label: isSdrViewer ? "In Sequence" : "Assigned to IME",
+                    value: isSdrViewer
+                      ? contacts.filter((item) => (item.stage || "").toLowerCase() === "in_sequence").length
+                      : stageStats.assignedToIme,
+                    helper: isSdrViewer ? "Currently active" : "Influencer execution",
+                    icon: isSdrViewer ? <Mail className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />,
+                    className: "bg-violet-50 text-violet-600",
+                  },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.03)]"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                          {item.label}
+                        </p>
+                        <p className="mt-3 text-3xl font-bold tracking-tight text-slate-950">
+                          {item.value}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">{item.helper}</p>
                       </div>
-                    ))}
+
+                      <div
+                        className={cx(
+                          "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl",
+                          item.className
+                        )}
+                      >
+                        {item.icon}
+                      </div>
+                    </div>
                   </div>
-                </ShellCard>
+                ))}
+              </div>
+
+              <div className="px-6 py-6">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-950">
+                      Campaign Lead List
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Showing {filteredContacts.length} of {contacts.length} total leads.
+                    </p>
+                  </div>
+
+                  {leadSearch.trim() ? (
+                    <button
+                      type="button"
+                      onClick={() => setLeadSearch("")}
+                      className="inline-flex w-fit items-center justify-center rounded-xl px-3 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-50"
+                    >
+                      Clear search
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
+                  <AdminTable
+                    data={filteredContacts}
+                    columns={contactColumns}
+                    rowKey={(row) => row._id}
+                    loading={loading}
+                    emptyTitle={loading ? "Loading leads..." : "No leads added"}
+                    emptyDescription="Click Add Leads to upload CSV, enter emails manually, or import from Google Sheets."
+                  />
+                </div>
               </div>
             </div>
 
-            <ShellCard className="p-6">
-              <SectionHeader
-                title="Leads"
-                description={`${filteredContacts.length} visible of ${contacts.length} total`}
-                action={
-                  <div className="relative w-full max-w-[280px]">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={leadSearch}
-                      onChange={(e) => setLeadSearch(e.target.value)}
-                      placeholder="Search leads..."
-                      className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-400"
-                    />
-                  </div>
-                }
-              />
+            {isLeadImportModalOpen && (
+              <div className="fixed inset-0 z-[100] bg-white">
+                <div className="flex h-full min-h-screen flex-col bg-[#f8fafc]">
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={leadImportMode ? () => setLeadImportMode(null) : closeLeadImportModal}
+                      className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
+                    >
+                      <ArrowLeft className="h-5 w-5" />
+                      {leadImportMode ? "Back" : "Cancel"}
+                    </button>
 
-              <AdminTable
-                data={filteredContacts}
-                columns={contactColumns}
-                rowKey={(row) => row._id}
-                loading={loading}
-                emptyTitle={loading ? "Loading leads..." : "No leads added"}
-                emptyDescription="Use CSV mapping import, manual entry, or Google Sheets import."
-              />
-            </ShellCard>
+                    <div className="text-center">
+                      <p className="text-sm font-bold text-slate-950">
+                        {leadImportMode === "csv" && "Upload CSV"}
+                        {leadImportMode === "manual" && "Enter Emails Manually"}
+                        {leadImportMode === "sheet" && "Import from Google Sheets"}
+                        {!leadImportMode && "Add Leads"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {contacts.length} leads currently in this campaign
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={closeLeadImportModal}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+
+                  {!leadImportMode && (
+                    <div className="flex flex-1 items-start justify-center overflow-auto px-5 py-12 md:py-16">
+                      <div className="w-full max-w-[720px]">
+                        <div className="mb-8 text-center">
+                          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
+                            <Users className="h-7 w-7" />
+                          </div>
+
+                          <h2 className="text-3xl font-bold tracking-tight text-slate-950">
+                            Add leads to this campaign
+                          </h2>
+                          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">
+                            Choose how you want to add leads. Upload a mapped CSV,
+                            add one lead manually, or import from Google Sheets.
+                          </p>
+                        </div>
+
+                        <div className="mb-7 flex justify-center">
+                          <div className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                            <CircleAlert className="h-4 w-4" />
+                            {contacts.length} leads uploaded
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          <button
+                            type="button"
+                            onClick={() => openLeadImportMode("csv")}
+                            className="group flex w-full items-center gap-5 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]"
+                          >
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                              <Upload className="h-7 w-7" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                                Upload
+                              </p>
+                              <h3 className="mt-1 text-2xl font-bold text-slate-950">
+                                CSV
+                              </h3>
+                              <p className="mt-1 text-sm text-slate-500">
+                                Upload a CSV, preview columns, map variables, then import.
+                              </p>
+                            </div>
+
+                            <ChevronDown className="-rotate-90 h-5 w-5 text-slate-300 transition group-hover:text-blue-500" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openLeadImportMode("manual")}
+                            className="group flex w-full items-center gap-5 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]"
+                          >
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                              <Mail className="h-7 w-7" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                                Enter
+                              </p>
+                              <h3 className="mt-1 text-2xl font-bold text-slate-950">
+                                Emails Manually
+                              </h3>
+                              <p className="mt-1 text-sm text-slate-500">
+                                Add a single lead with brand, contact name, and email.
+                              </p>
+                            </div>
+
+                            <ChevronDown className="-rotate-90 h-5 w-5 text-slate-300 transition group-hover:text-blue-500" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openLeadImportMode("sheet")}
+                            className="group flex w-full items-center gap-5 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]"
+                          >
+                            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                              <CheckSquare className="h-7 w-7" />
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                                Use
+                              </p>
+                              <h3 className="mt-1 text-2xl font-bold text-slate-950">
+                                Google Sheets
+                              </h3>
+                              <p className="mt-1 text-sm text-slate-500">
+                                Paste a public Google Sheet URL and import leads directly.
+                              </p>
+                            </div>
+
+                            <ChevronDown className="-rotate-90 h-5 w-5 text-slate-300 transition group-hover:text-blue-500" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {leadImportMode === "csv" && (
+                    <div className="flex-1 overflow-auto px-5 py-8">
+                      <div className="mx-auto max-w-6xl">
+                        <div className="mb-6">
+                          <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+                            Upload CSV
+                          </h2>
+                          <p className="mt-2 text-sm text-slate-500">
+                            Upload your CSV file, verify column mappings, and import leads into the campaign.
+                          </p>
+                        </div>
+
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <h3 className="text-base font-semibold text-slate-950">
+                                CSV Mapping Import
+                              </h3>
+                              <p className="mt-1 text-sm text-slate-500">
+                                Preview the file, map every column, then import.
+                              </p>
+                            </div>
+
+                            {csvPreviewFileName ? (
+                              <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                File processed
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="space-y-5">
+                            <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[28px] border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center transition hover:border-blue-300 hover:bg-blue-50">
+                              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+                                <Upload className="h-7 w-7" />
+                              </div>
+
+                              <div>
+                                <p className="text-base font-semibold text-slate-800">
+                                  {csvFile ? csvFile.name : "Choose a CSV file"}
+                                </p>
+                                <p className="mt-1 text-sm text-slate-500">
+                                  Drop a file here or click to browse
+                                </p>
+                              </div>
+
+                              <input
+                                type="file"
+                                accept=".csv"
+                                className="sr-only"
+                                onChange={async (e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) await handlePreviewCsv(file);
+                                }}
+                              />
+                            </label>
+
+                            {csvPreviewColumns.length > 0 ? (
+                              <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
+                                <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">
+                                        {csvPreviewFileName}
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {csvPreviewTotalRows} rows detected
+                                      </p>
+                                    </div>
+
+                                    <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      Variables auto-generated
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="max-h-[520px] overflow-auto">
+                                  <table className="min-w-full text-left">
+                                    <thead className="sticky top-0 z-10 bg-white">
+                                      <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                        <th className="px-5 py-3">Column</th>
+                                        <th className="px-5 py-3">Type</th>
+                                        <th className="px-5 py-3">Variable</th>
+                                        <th className="px-5 py-3">Samples</th>
+                                      </tr>
+                                    </thead>
+
+                                    <tbody>
+                                      {csvPreviewColumns.map((column) => (
+                                        <tr
+                                          key={column.header}
+                                          className="border-b border-slate-100 align-top last:border-b-0"
+                                        >
+                                          <td className="px-5 py-4">
+                                            <p className="text-sm font-semibold text-slate-900">
+                                              {column.header}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-400">
+                                              Auto-detected: {column.inferredType.replaceAll("_", " ")}
+                                            </p>
+                                          </td>
+
+                                          <td className="px-5 py-4">
+                                            <select
+                                              value={column.selectedType}
+                                              onChange={(e) =>
+                                                updateCsvPreviewColumn(column.header, {
+                                                  selectedType: e.target.value as CsvColumnType,
+                                                })
+                                              }
+                                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                                            >
+                                              {csvTypeOptions.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                  {option.label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </td>
+
+                                          <td className="px-5 py-4">
+                                            <input
+                                              value={column.variableKey}
+                                              onChange={(e) =>
+                                                updateCsvPreviewColumn(column.header, {
+                                                  variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                                                })
+                                              }
+                                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                                            />
+
+                                            <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                              {`{{${column.variableKey}}}`}
+                                            </p>
+                                          </td>
+
+                                          <td className="px-5 py-4">
+                                            <div className="space-y-1">
+                                              {column.samples.map((sample, index) => (
+                                                <p key={index} className="text-sm text-slate-600">
+                                                  {sample}
+                                                </p>
+                                              ))}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+
+                                <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="text-xs text-slate-500">
+                                    Review all column mappings before importing.
+                                  </p>
+
+                                  <button
+                                    type="button"
+                                    onClick={handleConfirmCsvImport}
+                                    disabled={submittingKey !== ""}
+                                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    <Upload className="h-4 w-4" />
+                                    {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-12 text-center">
+                                <p className="text-base font-semibold text-slate-800">
+                                  Upload a CSV to preview mappings
+                                </p>
+                                <p className="mt-1 text-sm text-slate-500">
+                                  Every header will become an available template variable.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {leadImportMode === "manual" && (
+                    <div className="flex flex-1 items-start justify-center overflow-auto px-5 py-12">
+                      <div className="w-full max-w-2xl">
+                        <div className="mb-6 text-center">
+                          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
+                            <Mail className="h-7 w-7" />
+                          </div>
+
+                          <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+                            Enter Emails Manually
+                          </h2>
+                          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+                            Add a single lead by entering the brand or influencer name,
+                            contact name, and contact email.
+                          </p>
+                        </div>
+
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                          <div className="space-y-4">
+                            <div>
+                              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                                Brand / Influencer Name
+                              </label>
+                              <input
+                                value={manualForm.entityName}
+                                onChange={(e) =>
+                                  setManualForm((prev) => ({ ...prev, entityName: e.target.value }))
+                                }
+                                placeholder="Enter brand or influencer name"
+                                className={inputClassName}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                                Contact Name
+                              </label>
+                              <input
+                                value={manualForm.contactName}
+                                onChange={(e) =>
+                                  setManualForm((prev) => ({ ...prev, contactName: e.target.value }))
+                                }
+                                placeholder="Enter contact name"
+                                className={inputClassName}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                                Contact Email
+                              </label>
+                              <input
+                                value={manualForm.contactEmail}
+                                onChange={(e) =>
+                                  setManualForm((prev) => ({ ...prev, contactEmail: e.target.value }))
+                                }
+                                placeholder="name@example.com"
+                                className={inputClassName}
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleManualAdd}
+                              disabled={submittingKey !== ""}
+                              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Plus className="h-4 w-4" />
+                              {submittingKey === "manual" ? "Adding..." : "Add Lead"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {leadImportMode === "sheet" && (
+                    <div className="flex flex-1 items-start justify-center overflow-auto px-5 py-12">
+                      <div className="w-full max-w-3xl">
+                        <div className="mb-6 text-center">
+                          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-amber-50 text-amber-600">
+                            <CheckSquare className="h-7 w-7" />
+                          </div>
+
+                          <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+                            Import from Google Sheets
+                          </h2>
+                          <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">
+                            Paste a public Google Sheet URL. Make sure the sheet is accessible
+                            and contains the required lead columns.
+                          </p>
+                        </div>
+
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                          <div className="space-y-4">
+                            <div>
+                              <label className="mb-1.5 block text-sm font-semibold text-slate-700">
+                                Google Sheet URL
+                              </label>
+                              <textarea
+                                value={sheetUrl}
+                                onChange={(e) => setSheetUrl(e.target.value)}
+                                placeholder="https://docs.google.com/spreadsheets/d/..."
+                                rows={6}
+                                className={cx(inputClassName, "resize-y")}
+                              />
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleGoogleSheetImport}
+                              disabled={submittingKey !== ""}
+                              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <CheckSquare className="h-4 w-4" />
+                              {submittingKey === "sheet" ? "Importing..." : "Import Sheet"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -4023,7 +4525,7 @@ export default function CampaignDetailPage() {
                   onClick={handleEditorSelectionChange}
                   onKeyUp={handleEditorSelectionChange}
                   onMouseUp={handleEditorSelectionChange}
-                  className="relative z-[1] min-h-[520px] w-full rounded-2xl border border-transparent bg-transparent px-0 py-0 text-[15px] leading-7 text-slate-800 outline-none transition focus:border-slate-200 focus:bg-slate-50/30 focus:ring-0 [&_a]:font-medium [&_a]:text-blue-600 [&_a]:underline"
+                  className="relative z-[1] min-h-[520px] w-full px-0 py-0 text-[15px] leading-7 text-slate-800 outline-none transition focus:border-slate-200 focus:bg-slate-50/30 focus:ring-0 [&_a]:font-medium [&_a]:text-blue-600 [&_a]:underline"
                   style={{ whiteSpace: "pre-wrap" }}
                 />
 
@@ -4363,19 +4865,11 @@ export default function CampaignDetailPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => handleSaveConfiguration(false)}
+                  onClick={() => handleSaveConfiguration(true)}
                   disabled={submittingKey !== ""}
                   className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
                 >
                   Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveConfiguration(true)}
-                  disabled={submittingKey !== ""}
-                  className="rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  Save & Sync
                 </button>
               </div>
             </div>
@@ -4386,15 +4880,133 @@ export default function CampaignDetailPage() {
           <div className="space-y-6">
             <ShellCard className="p-6">
               <SectionHeader
-                title="Sending limits"
-                description="Control throughput and rate safeguards"
+                title="Accounts to use"
+                description="Select one or more accounts to send emails from"
+              />
+
+              {(
+                campaign?.instantly?.availableAccountEmails?.length
+                  ? campaign.instantly.availableAccountEmails
+                  : campaign?.instantly?.accountEmails || []
+              ).length ? (
+                <div className="space-y-4">
+                  <div className="grid gap-3">
+                    {(
+                      campaign?.instantly?.availableAccountEmails?.length
+                        ? campaign.instantly.availableAccountEmails
+                        : campaign?.instantly?.accountEmails || []
+                    ).map((email) => {
+                      const normalizedEmail = normalizeEmailValue(email);
+                      const isPrimary =
+                        normalizeEmailValue(campaign?.instantly?.senderAccountEmail) === normalizedEmail;
+
+                      const isChecked = selectedAccountEmails
+                        .map((item) => normalizeEmailValue(item))
+                        .includes(normalizedEmail);
+
+                      const isCurrentSender =
+                        normalizeEmailValue(selectedSenderEmail) === normalizedEmail;
+
+                      return (
+                        <label
+                          key={email}
+                          className={cx(
+                            "flex cursor-pointer items-start justify-between gap-4 rounded-2xl border p-4 transition",
+                            isChecked
+                              ? "border-blue-200 bg-blue-50"
+                              : "border-slate-200 bg-white hover:bg-slate-50"
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-900">{email}</p>
+
+                              {isPrimary ? (
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                  Primary
+                                </span>
+                              ) : null}
+
+                              {isCurrentSender ? (
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                                  Default sender
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <p className="mt-1 text-xs text-slate-500">
+                              {flowType === "ime_influencer"
+                                ? "Assigned IME sending account"
+                                : "Assigned SDR sending account"}
+                            </p>
+                          </div>
+
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelectedAccountEmail(email)}
+                            className="mt-1 h-4 w-4 rounded border-slate-300"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Default sender
+                      </label>
+                      <select
+                        value={selectedSenderEmail}
+                        onChange={(e) => {
+                          const nextEmail = normalizeEmailValue(e.target.value);
+                          setSelectedSenderEmail(nextEmail);
+                          setSelectedAccountEmails((prev) =>
+                            prev.includes(nextEmail) ? prev : [nextEmail, ...prev]
+                          );
+                        }}
+                        className={inputClassName}
+                      >
+                        {selectedAccountEmails.map((email) => (
+                          <option key={email} value={email}>
+                            {email}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Owner
+                      </label>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900">
+                        {getAdminLabel(flowType === "ime_influencer" ? campaign?.IMEId : campaign?.sdrId)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
+                  <p className="text-sm font-semibold text-slate-700">No sending accounts found</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Assign mailboxes first from My Accounts / Mailboxes.
+                  </p>
+                </div>
+              )}
+            </ShellCard>
+
+            <ShellCard className="p-6">
+              <SectionHeader
+                title="Sending pattern"
+                description="Specify how you want your emails to go"
               />
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {[
-                  ["dailyLimit", "Daily limit"],
-                  ["dailyMaxLeads", "Daily max leads"],
-                  ["emailGap", "Email gap (min)"],
-                  ["randomWaitMax", "Random wait max (min)"],
+                  ["dailyLimit", "Daily Limit"],
+                  ["dailyMaxLeads", "Max New Leads / Day"],
+                  ["emailGap", "Minimum Time Gap (min)"],
+                  ["randomWaitMax", "Random Additional Time (min)"],
                 ].map(([key, label]) => (
                   <div key={key} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
                     <label className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -4418,41 +5030,99 @@ export default function CampaignDetailPage() {
 
             <ShellCard className="p-6">
               <SectionHeader
-                title="Behavior & tracking"
-                description="Fine-tune delivery guardrails and tracking options"
+                title="Behavior, tracking & deliverability"
+                description="Campaign safety, provider matching, unsubscribe header, CC/BCC"
               />
+
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                <Toggle label="Stop on Reply" description="Prevent follow-ups after any reply" checked={configuration.sendingOptions.stopOnReply} onChange={(value) => updateSendingOption("stopOnReply", value)} />
-                <Toggle label="Stop on Auto Reply" description="Pause after OOO or vacation messages" checked={configuration.sendingOptions.stopOnAutoReply} onChange={(value) => updateSendingOption("stopOnAutoReply", value)} />
+                <Toggle label="Stop sending emails on reply" description="Stop sending emails to a lead if a response has been received" checked={configuration.sendingOptions.stopOnReply} onChange={(value) => updateSendingOption("stopOnReply", value)} />
+                <Toggle label="Stop sending emails on auto-reply" description="Pause after out-of-office or automatic responses" checked={configuration.sendingOptions.stopOnAutoReply} onChange={(value) => updateSendingOption("stopOnAutoReply", value)} />
+                <Toggle label="Open Tracking" description="Track email opens" checked={configuration.sendingOptions.openTracking} onChange={(value) => updateSendingOption("openTracking", value)} />
                 <Toggle label="Link Tracking" description="Track clicks inside emails" checked={configuration.sendingOptions.linkTracking} onChange={(value) => updateSendingOption("linkTracking", value)} />
-                <Toggle label="Open Tracking" description="Track open activity" checked={configuration.sendingOptions.openTracking} onChange={(value) => updateSendingOption("openTracking", value)} />
-                <Toggle label="Text Only" description="Use plain-text messages" checked={configuration.sendingOptions.textOnly} onChange={(value) => updateSendingOption("textOnly", value)} />
-                <Toggle label="First Email Text Only" description="Only the first step is plain text" checked={configuration.sendingOptions.firstEmailTextOnly} onChange={(value) => updateSendingOption("firstEmailTextOnly", value)} />
+                <Toggle label="Delivery Optimization" description="Text-only emails disable open tracking" checked={configuration.sendingOptions.textOnly} onChange={(value) => updateSendingOption("textOnly", value)} />
+                <Toggle label="First Email Text Only" description="Send only the first email as text-only" checked={configuration.sendingOptions.firstEmailTextOnly} onChange={(value) => updateSendingOption("firstEmailTextOnly", value)} />
+                <Toggle label="Prioritize New Leads" description="Prioritize fresh leads before follow-ups" checked={configuration.sendingOptions.prioritizeNewLeads} onChange={(value) => updateSendingOption("prioritizeNewLeads", value)} />
+                <Toggle label="Provider Matching" description="Match the lead ESP with your mailbox provider" checked={configuration.sendingOptions.matchLeadEsp} onChange={(value) => updateSendingOption("matchLeadEsp", value)} />
+                <Toggle label="Stop Campaign for Company on Reply" description="Stop the campaign for all leads in the same company after one reply" checked={configuration.sendingOptions.stopForCompany} onChange={(value) => updateSendingOption("stopForCompany", value)} />
+                <Toggle label="Insert Unsubscribe Link Header" description="Adds one-click unsubscribe header where supported" checked={configuration.sendingOptions.insertUnsubscribeHeader} onChange={(value) => updateSendingOption("insertUnsubscribeHeader", value)} />
+                <Toggle label="Allow Risky Emails" description="Allow risky contacts when verification is enabled" checked={configuration.sendingOptions.allowRiskyContacts} onChange={(value) => updateSendingOption("allowRiskyContacts", value)} />
+                <Toggle label="Disable Bounce Protect" description="Disable bounce protection for this campaign" checked={configuration.sendingOptions.disableBounceProtect} onChange={(value) => updateSendingOption("disableBounceProtect", value)} />
                 <Toggle label="Evergreen Campaign" description="Continuously accept new contacts" checked={configuration.sendingOptions.isEvergreen} onChange={(value) => updateSendingOption("isEvergreen", value)} />
-                <Toggle label="Prioritize New Leads" description="Prefer newly imported leads" checked={configuration.sendingOptions.prioritizeNewLeads} onChange={(value) => updateSendingOption("prioritizeNewLeads", value)} />
-                <Toggle label="Match Lead ESP" description="Try matching sender to provider" checked={configuration.sendingOptions.matchLeadEsp} onChange={(value) => updateSendingOption("matchLeadEsp", value)} />
-                <Toggle label="Stop for Company" description="Skip rest of company after reply" checked={configuration.sendingOptions.stopForCompany} onChange={(value) => updateSendingOption("stopForCompany", value)} />
-                <Toggle label="Unsubscribe Header" description="Insert list-unsubscribe metadata" checked={configuration.sendingOptions.insertUnsubscribeHeader} onChange={(value) => updateSendingOption("insertUnsubscribeHeader", value)} />
-                <Toggle label="Allow Risky Contacts" description="Send to addresses flagged as risky" checked={configuration.sendingOptions.allowRiskyContacts} onChange={(value) => updateSendingOption("allowRiskyContacts", value)} />
-                <Toggle label="Disable Bounce Protect" description="Turn off bounce protection" checked={configuration.sendingOptions.disableBounceProtect} onChange={(value) => updateSendingOption("disableBounceProtect", value)} />
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">CC and BCC</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Add CC and BCC recipients to all emails
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCcBcc((prev) => !prev)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    {showCcBcc ? "Hide CC & BCC" : "Show CC & BCC"}
+                  </button>
+                </div>
+
+                {showCcBcc ? (
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        CC List
+                      </label>
+                      <input
+                        value={(configuration.sendingOptions.ccList || []).join(", ")}
+                        onChange={(e) =>
+                          updateSendingOption(
+                            "ccList",
+                            e.target.value.split(",").map((item) => item.trim()).filter(Boolean)
+                          )
+                        }
+                        placeholder="cc1@example.com, cc2@example.com"
+                        className={inputClassName}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        BCC List
+                      </label>
+                      <input
+                        value={(configuration.sendingOptions.bccList || []).join(", ")}
+                        onChange={(e) =>
+                          updateSendingOption(
+                            "bccList",
+                            e.target.value.split(",").map((item) => item.trim()).filter(Boolean)
+                          )
+                        }
+                        placeholder="bcc1@example.com, bcc2@example.com"
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">Advanced Deliverability</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Domain limiter, custom routing, and workspace-wide deliverability boosters can stay
+                  provider-driven for now.
+                </p>
               </div>
 
               <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-5">
                 <button
                   type="button"
                   onClick={() => handleSaveConfiguration(true)}
-                  disabled={submittingKey !== ""}
+                  disabled={submittingKey !== "" || !selectedAccountEmails.length}
                   className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-600 transition hover:bg-blue-100 disabled:opacity-50"
                 >
-                  Save & Sync
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSaveConfiguration(false)}
-                  disabled={submittingKey !== ""}
-                  className="rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Save Options
+                  {submittingKey === "save-sync" ? "Saving..." : "Save"}
                 </button>
               </div>
             </ShellCard>

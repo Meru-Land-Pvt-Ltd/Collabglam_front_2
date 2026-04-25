@@ -72,7 +72,7 @@ type SidebarApiResponse = {
 };
 
 const sidebarItems: SidebarItem[] = [
-    {
+  {
     label: "My Accounts",
     href: "/admin/crm/my-accounts",
     icon: (

@@ -75,6 +75,9 @@ type AdminOption = {
   email?: string;
   role?: string;
   status?: string;
+  revenueHeadName?: string;
+  parentAdminName?: string;
+  parentAdmin?: string | { _id?: string; name?: string; email?: string; role?: string };
 };
 
 type AdminDirectory = Record<MailboxRole, AdminOption[]>;
@@ -98,13 +101,6 @@ const emptyAdminDirectory: AdminDirectory = {
 };
 
 // --- Utilities ---
-function formatDate(value?: string) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 function normalizeEmail(value?: string) {
   return String(value || "").trim().toLowerCase();
 }
@@ -120,23 +116,10 @@ function getWarmupText(warmupStatus?: number) {
   return "Unknown";
 }
 
-function getWarmupPillClasses(warmupStatus?: number) {
-  if (warmupStatus === 1) return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20";
-  if (warmupStatus === 0) return "bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/20";
-  if (typeof warmupStatus === "number" && warmupStatus < 0) return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20";
-  return "bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/20";
-}
-
 function getStatusText(status?: number) {
   if (status === 1) return "Active";
   if (status === 2) return "Paused";
   return typeof status === "number" ? `Status ${status}` : "Unknown";
-}
-
-function getStatusPillClasses(status?: number) {
-  if (status === 1) return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20";
-  if (status === 2) return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20";
-  return "bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/20";
 }
 
 function getOAuthStatusClasses(status?: OAuthSessionStatus) {
@@ -163,39 +146,95 @@ function getRoleLabel(role?: string) {
   return "Unassigned";
 }
 
+function getAssignmentAdminId(assignment?: MailboxAssignment | null) {
+  if (!assignment) return "";
+  return typeof assignment.adminId === "string" ? assignment.adminId : assignment.adminId?._id || "";
+}
+
 function getAssignmentAdminLabel(assignment?: MailboxAssignment | null) {
   if (!assignment) return "—";
   if (typeof assignment.adminId === "string") return assignment.adminId;
   return assignment.adminId?.name || assignment.adminId?.email || assignment.adminId?._id || "—";
 }
 
-function getAdminLabel(admin?: AdminOption | null) {
+function getNestedName(value: any) {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  return value?.name || value?.fullName || value?.email || "";
+}
+
+function getRevenueHeadName(item: any) {
+  return (
+    item?.revenueHeadName ||
+    item?.revenue_head_name ||
+    item?.rmName ||
+    item?.rm_name ||
+    getNestedName(item?.revenueHead) ||
+    getNestedName(item?.revenue_head) ||
+    getNestedName(item?.rm) ||
+    getNestedName(item?.reportingManager) ||
+    getNestedName(item?.reporting_manager) ||
+    ""
+  );
+}
+
+function getAdminDisplayName(admin?: AdminOption | null) {
   if (!admin) return "";
-  if (admin.name && admin.email) return `${admin.name} (${admin.email})`;
   return admin.name || admin.email || admin._id;
+}
+
+function getAdminOptionLabel(admin?: AdminOption | null, role?: MailboxRole) {
+  if (!admin) return "";
+
+  const name = admin.name || admin.email || admin._id;
+
+  if (role === "revenue_head" || admin.role === "revenue_head") {
+    return name;
+  }
+
+  const revenueHeadName =
+    admin.revenueHeadName ||
+    admin.parentAdminName ||
+    (typeof admin.parentAdmin === "object" ? admin.parentAdmin?.name : "");
+
+  return revenueHeadName ? `${name} (${revenueHeadName})` : name;
+}
+
+function getAssignmentAdminLabelFromDirectory(assignment: MailboxAssignment | null, directory: AdminDirectory) {
+  if (!assignment) return "—";
+  if (typeof assignment.adminId !== "string") return getAssignmentAdminLabel(assignment);
+  const matchedAdmin = (directory[assignment.role] || []).find((admin) => admin._id === assignment.adminId);
+  return getAdminOptionLabel(matchedAdmin, assignment.role) || assignment.adminId;
 }
 
 function parseAdminRows(payload: any): AdminOption[] {
   const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
-  return rows.filter(Boolean).map((item: any) => ({
-    _id: String(item?._id || ""),
-    name: item?.name || "",
-    email: item?.email || "",
-    role: item?.role || "",
-    status: item?.status || "",
-  })).filter((item: AdminOption) => item._id);
+
+  return rows
+    .filter(Boolean)
+    .map((item: any) => {
+      const revenueHeadName =
+        item?.revenueHeadName ||
+        item?.parentAdminName ||
+        item?.parentAdmin?.name ||
+        item?.parentAdmin?.email ||
+        "";
+
+      return {
+        _id: String(item?._id || ""),
+        name: item?.name || "",
+        email: item?.email || "",
+        role: item?.role || "",
+        status: item?.status || "",
+        revenueHeadName,
+        parentAdminName: revenueHeadName,
+        parentAdmin: item?.parentAdmin || "",
+      };
+    })
+    .filter((item: AdminOption) => item._id);
 }
 
 // --- Components ---
-function StatCard({ title, value }: { title: string; value: number | string }) {
-  return (
-    <div className="flex flex-col justify-center rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{title}</p>
-      <h3 className="mt-1 text-2xl font-semibold text-gray-900">{value}</h3>
-    </div>
-  );
-}
-
 function ToolbarSelect({ value, onChange, children }: { value: string; onChange: (value: string) => void; children: React.ReactNode }) {
   return (
     <select
@@ -205,6 +244,31 @@ function ToolbarSelect({ value, onChange, children }: { value: string; onChange:
     >
       {children}
     </select>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, disabled, onLabel = "On", offLabel = "Off" }: { checked: boolean; onChange: () => void; disabled?: boolean; onLabel?: string; offLabel?: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      disabled={disabled}
+      className={cx(
+        "inline-flex w-[78px] items-center rounded-full border p-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "border-green-200 bg-green-50 text-green-700" : "border-gray-200 bg-gray-50 text-gray-600"
+      )}
+    >
+      <span
+        className={cx(
+          "flex h-6 w-8 items-center justify-center rounded-full bg-white shadow-sm transition-transform",
+          checked ? "translate-x-8" : "translate-x-0"
+        )}
+      >
+        {checked ? onLabel : offLabel}
+      </span>
+    </button>
   );
 }
 
@@ -229,37 +293,39 @@ export default function InstantlyAccountsPage() {
   const [expandedEmail, setExpandedEmail] = useState<string | null>(null);
 
   const pollRef = useRef<number | null>(null);
-  
-  // FIX 2: Changed to HTMLInputElement
   const authUrlRef = useRef<HTMLInputElement | null>(null);
 
   const activeAssignmentMap = useMemo(() => {
     const map = new Map<string, MailboxAssignment>();
-    assignments.filter((item) => item.isActive).forEach((item) => {
-      map.set(normalizeEmail(item.email), item);
-    });
+    assignments
+      .filter((item) => item.isActive)
+      .forEach((item) => {
+        map.set(normalizeEmail(item.email), item);
+      });
     return map;
   }, [assignments]);
-
-  const stats = useMemo(() => {
-    const connected = accounts.length;
-    const active = accounts.filter((item) => item.status === 1).length;
-    const warmupOn = accounts.filter((item) => item.warmup_status === 1).length;
-    const healthy = accounts.filter((item) => Number(item.stat_warmup_score || 0) >= 80).length;
-    const unassignedAccounts = accounts.filter((account) => !activeAssignmentMap.has(normalizeEmail(account.email))).length;
-    return { connected, active, warmupOn, healthy, unassignedAccounts };
-  }, [accounts, assignments, activeAssignmentMap]);
 
   const filteredAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
     return accounts.filter((account) => {
       const emailKey = normalizeEmail(account.email);
       const assignment = activeAssignmentMap.get(emailKey) || null;
-      
+
       if (query) {
-        const haystack = [emailKey, account.first_name, account.last_name, getAssignmentAdminLabel(assignment), assignment?.role, getStatusText(account.status), getWarmupText(account.warmup_status)].join(" ").toLowerCase();
+        const haystack = [
+          emailKey,
+          account.first_name,
+          account.last_name,
+          getAssignmentAdminLabelFromDirectory(assignment, adminDirectory),
+          assignment?.role,
+          getStatusText(account.status),
+          getWarmupText(account.warmup_status),
+        ]
+          .join(" ")
+          .toLowerCase();
         if (!haystack.includes(query)) return false;
       }
+
       if (statusFilter === "active" && account.status !== 1) return false;
       if (statusFilter === "paused" && account.status !== 2) return false;
       if (statusFilter === "other" && (account.status === 1 || account.status === 2)) return false;
@@ -271,7 +337,7 @@ export default function InstantlyAccountsPage() {
 
       return true;
     });
-  }, [accounts, activeAssignmentMap, roleFilter, search, statusFilter, warmupFilter]);
+  }, [accounts, activeAssignmentMap, adminDirectory, roleFilter, search, statusFilter, warmupFilter]);
 
   function clearPolling() {
     if (pollRef.current) {
@@ -288,7 +354,7 @@ export default function InstantlyAccountsPage() {
         const email = normalizeEmail(row.email);
         next[email] = {
           role: row.role,
-          adminId: typeof row.adminId === "string" ? row.adminId : row.adminId?._id || "",
+          adminId: getAssignmentAdminId(row),
           isPrimary: Boolean(row.isPrimary),
         };
       });
@@ -318,6 +384,7 @@ export default function InstantlyAccountsPage() {
       adminGet("/admins/get-executive-list", { role: "bme" }),
       adminGet("/admins/get-executive-list", { role: "ime" }),
     ]);
+
     setAdminDirectory({
       revenue_head: parseAdminRows(rmPayload),
       sdr: parseAdminRows(sdrPayload),
@@ -436,7 +503,7 @@ export default function InstantlyAccountsPage() {
     setActionKey(`${account.email}-warmup`);
     await runAccountAction(
       warmupEnabled ? `/instantly/accounts/${email}/warmup/disable` : `/instantly/accounts/${email}/warmup/enable`,
-      warmupEnabled ? "Disabling warmup..." : "Enabling warmup...",
+      warmupEnabled ? "Warmup turned off" : "Warmup turned on",
       2000
     );
     setActionKey("");
@@ -450,14 +517,17 @@ export default function InstantlyAccountsPage() {
       setMessage({ type: "info", text: "Generating link..." });
       const payload: any = await adminPost(`/instantly/oauth/${provider}/init`);
       if (payload?.success === false) throw new Error(payload?.message || "Failed to start OAuth");
-      
+
       const authUrl = payload?.authUrl || payload?.data?.auth_url || "";
       const sessionId = payload?.sessionId || payload?.data?.session_id || "";
       if (!authUrl || !sessionId) throw new Error("Invalid OAuth response");
 
       setOauthSession({ provider, sessionId, authUrl, expiresAt: payload?.expiresAt || "", status: "pending" });
       setMessage({ type: "success", text: "Link generated. Connect in the correct browser profile." });
-      window.setTimeout(() => { authUrlRef.current?.focus(); authUrlRef.current?.select(); }, 50);
+      window.setTimeout(() => {
+        authUrlRef.current?.focus();
+        authUrlRef.current?.select();
+      }, 50);
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "OAuth init failed" });
     } finally {
@@ -473,32 +543,32 @@ export default function InstantlyAccountsPage() {
       setStatusChecking(true);
       const statusPayload: any = await adminGet(`/instantly/oauth/session-status/${activeSession.sessionId}`);
       if (statusPayload?.success === false) throw new Error(statusPayload?.message || "Failed to check status");
-      
+
       const data = statusPayload?.data || {};
       const status = String(data?.status || "").toLowerCase() as OAuthSessionStatus;
 
       if (status === "pending") {
-        setOauthSession((prev) => prev ? { ...prev, status: "pending" } : prev);
+        setOauthSession((prev) => (prev ? { ...prev, status: "pending" } : prev));
         if (!autoPolling) setMessage({ type: "info", text: "Still pending." });
         return;
       }
       if (status === "success") {
         clearPolling();
-        setOauthSession((prev) => prev ? { ...prev, status: "success", email: data?.email || "" } : prev);
+        setOauthSession((prev) => (prev ? { ...prev, status: "success", email: data?.email || "" } : prev));
         setMessage({ type: "success", text: `Connected ${data?.email || "account"}.` });
         await loadPage(false);
         return;
       }
       if (status === "expired") {
         clearPolling();
-        setOauthSession((prev) => prev ? { ...prev, status: "expired", error: "Session expired." } : prev);
+        setOauthSession((prev) => (prev ? { ...prev, status: "expired", error: "Session expired." } : prev));
         setMessage({ type: "error", text: "Link expired." });
         return;
       }
 
       clearPolling();
       const errorText = data?.error_description || data?.error || "Connection failed";
-      setOauthSession((prev) => prev ? { ...prev, status: "error", error: errorText } : prev);
+      setOauthSession((prev) => (prev ? { ...prev, status: "error", error: errorText } : prev));
       setMessage({ type: "error", text: errorText });
     } catch (error) {
       clearPolling();
@@ -535,13 +605,17 @@ export default function InstantlyAccountsPage() {
     setExpandedEmail((prev) => (prev === email ? null : email));
   }
 
+  function getAdminDirectoryOptions(role: MailboxRole) {
+    return adminDirectory[role] || [];
+  }
+
   function renderExpandedRow(account: InstantlyAccount) {
     const emailKey = normalizeEmail(account.email);
     const activeAssignment = activeAssignmentMap.get(emailKey) || null;
 
     const form = assignmentForms[emailKey] || {
       role: activeAssignment?.role || "sdr",
-      adminId: activeAssignment ? (typeof activeAssignment.adminId === "string" ? activeAssignment.adminId : activeAssignment.adminId?._id || "") : "",
+      adminId: getAssignmentAdminId(activeAssignment),
       isPrimary: Boolean(activeAssignment?.isPrimary),
     };
 
@@ -552,75 +626,89 @@ export default function InstantlyAccountsPage() {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm max-w-4xl">
         <h4 className="text-sm font-semibold text-gray-900 mb-4">Mailbox Assignment</h4>
-        <div className="grid gap-4 sm:grid-cols-3 items-end">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">Role</label>
-            <select
-              value={form.role}
-              onChange={(e) => handleAssignmentFormChange(emailKey, { role: e.target.value as MailboxRole })}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-            >
-              {/* FIX 1: Map parameter changed from `opt` to `option` */}
-              {roleOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">Assignee</label>
-            <select
-              value={form.adminId}
-              onChange={(e) => handleAssignmentFormChange(emailKey, { adminId: e.target.value })}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-            >
-              <option value="">Select User...</option>
-              {adminOptions.map((admin) => (
-                <option key={admin._id} value={admin._id}>
-                  {getAdminLabel(admin)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center h-9">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.isPrimary}
-                disabled={form.role !== "sdr"}
-                onChange={(e) => handleAssignmentFormChange(emailKey, { isPrimary: e.target.checked })}
-                className="h-4 w-4 rounded border-gray-300 text-[#1a1a1a] focus:ring-[#1a1a1a] disabled:opacity-50"
-              />
-              <span className="text-sm font-medium text-gray-700">Primary Sender</span>
-            </label>
-          </div>
-        </div>
 
-        <div className="mt-5 flex gap-3 pt-4 border-t border-gray-100">
-          <button
-            type="button"
-            onClick={() => handleAssignMailbox(account.email)}
-            disabled={actionKey !== "" || !form.adminId.trim()}
-            className="inline-flex justify-center rounded-md bg-[#1a1a1a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-          >
-            {actionKey === assignActionKey ? "Saving..." : "Assign Mailbox"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleUnassignMailbox(account.email)}
-            disabled={actionKey !== "" || !activeAssignment}
-            className="inline-flex justify-center rounded-md border border-[#1a1a1a] bg-white px-4 py-2 text-sm font-medium text-[#1a1a1a] shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-          >
-            {actionKey === unassignActionKey ? "Removing..." : "Unassign"}
-          </button>
-        </div>
+        {activeAssignment ? (
+          <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Already assigned</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-gray-900">{getRoleLabel(activeAssignment.role)}</span>
+              {activeAssignment.isPrimary && <span className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">Primary</span>}
+            </div>
+            <p className="mt-1 text-sm text-gray-700">{getAssignmentAdminLabelFromDirectory(activeAssignment, adminDirectory)}</p>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-3 items-end">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Role</label>
+                <select
+                  value={form.role}
+                  onChange={(e) => handleAssignmentFormChange(emailKey, { role: e.target.value as MailboxRole })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
+                >
+                  {roleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Assignee</label>
+                <select
+                  value={form.adminId}
+                  onChange={(e) => handleAssignmentFormChange(emailKey, { adminId: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
+                >
+                  <option value="">Select {getRoleLabel(form.role)}...</option>
+                  {adminOptions.map((admin) => (
+                    <option key={admin._id} value={admin._id}>
+                      {getAdminOptionLabel(admin, form.role)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center h-9">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.isPrimary}
+                    disabled={form.role !== "sdr"}
+                    onChange={(e) => handleAssignmentFormChange(emailKey, { isPrimary: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300 text-[#1a1a1a] focus:ring-[#1a1a1a] disabled:opacity-50"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Primary Sender</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-5 flex gap-3 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => handleAssignMailbox(account.email)}
+                disabled={actionKey !== "" || !form.adminId.trim()}
+                className="inline-flex justify-center rounded-md bg-[#1a1a1a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
+              >
+                {actionKey === assignActionKey ? "Saving..." : "Assign"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {activeAssignment && (
+          <div className="mt-5 flex gap-3 pt-4 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={() => handleUnassignMailbox(account.email)}
+              disabled={actionKey !== ""}
+              className="inline-flex justify-center rounded-md border border-[#1a1a1a] bg-white px-4 py-2 text-sm font-medium text-[#1a1a1a] shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
+            >
+              {actionKey === unassignActionKey ? "Removing..." : "Unassign"}
+            </button>
+          </div>
+        )}
       </div>
     );
-  }
-
-  function getAdminDirectoryOptions(role: MailboxRole) {
-    return adminDirectory[role] || [];
   }
 
   const columns = useMemo<AdminTableColumn<InstantlyAccount>[]>(() => [
@@ -640,26 +728,31 @@ export default function InstantlyAccountsPage() {
     },
     {
       id: "status",
-      header: "Status",
+      header: "Active",
       cellClassName: "align-top",
-      render: (account) => (
-        <span className={cx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", getStatusPillClasses(account.status))}>
-          {getStatusText(account.status)}
-        </span>
-      ),
+      render: (account) => {
+        const isActive = account.status === 1;
+        return (
+          <div className="space-y-1">
+            <ToggleSwitch checked={isActive} onChange={() => handlePauseResume(account)} disabled={actionKey !== ""} />
+            <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500">{isActive ? "Active" : getStatusText(account.status)}</p>
+          </div>
+        );
+      },
     },
     {
       id: "warmup",
       header: "Warmup",
       cellClassName: "align-top",
-      render: (account) => (
-        <div className="space-y-1">
-          <span className={cx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", getWarmupPillClasses(account.warmup_status))}>
-            {getWarmupText(account.warmup_status)}
-          </span>
-          <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Score: {account.stat_warmup_score || "-"}</p>
-        </div>
-      ),
+      render: (account) => {
+        const warmupEnabled = account.warmup_status === 1;
+        return (
+          <div className="space-y-1">
+            <ToggleSwitch checked={warmupEnabled} onChange={() => handleWarmupToggle(account)} disabled={actionKey !== ""} />
+            <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500">Score: {account.stat_warmup_score || "-"}</p>
+          </div>
+        );
+      },
     },
     {
       id: "mapping",
@@ -673,24 +766,15 @@ export default function InstantlyAccountsPage() {
               <span className="text-xs font-semibold text-gray-700">{activeAssignment ? getRoleLabel(activeAssignment.role) : "Unassigned"}</span>
               {activeAssignment?.isPrimary && <span className="rounded bg-[#1a1a1a] px-1.5 py-0.5 text-[9px] font-bold text-white uppercase tracking-wider">Primary</span>}
             </div>
-            <p className="text-xs text-gray-500">{getAssignmentAdminLabel(activeAssignment)}</p>
+            <p className="text-xs text-gray-500">{getAssignmentAdminLabelFromDirectory(activeAssignment, adminDirectory)}</p>
           </div>
         );
       },
     },
-  ], [activeAssignmentMap]);
+  ], [activeAssignmentMap, actionKey, adminDirectory]);
 
   return (
     <div className="flex flex-col space-y-6 font-sans">
-      
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-5">
-        <StatCard title="Connected" value={stats.connected} />
-        <StatCard title="Active" value={stats.active} />
-        <StatCard title="Warmup On" value={stats.warmupOn} />
-        <StatCard title="Healthy" value={stats.healthy} />
-        <StatCard title="Unassigned" value={stats.unassignedAccounts} />
-      </div>
-
       {message && (
         <div className={cx("rounded-md border p-4 text-sm font-medium", message.type === "success" && "border-green-200 bg-green-50 text-green-800", message.type === "error" && "border-red-200 bg-red-50 text-red-800", message.type === "info" && "border-blue-200 bg-blue-50 text-blue-800")}>
           {message.text}
@@ -737,10 +821,7 @@ export default function InstantlyAccountsPage() {
                 className="flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-600 shadow-sm focus:outline-none focus:border-[#1a1a1a] focus:ring-1 focus:ring-[#1a1a1a]"
                 onClick={(e) => e.currentTarget.select()}
               />
-              <button
-                onClick={copyAuthLink}
-                className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black transition-colors"
-              >
+              <button onClick={copyAuthLink} className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black transition-colors">
                 {copied ? "Copied!" : "Copy"}
               </button>
               <button
@@ -751,10 +832,7 @@ export default function InstantlyAccountsPage() {
                 {statusChecking ? "..." : "Check"}
               </button>
               {!autoPolling && oauthSession.status === "pending" && (
-                <button
-                  onClick={startAutoPolling}
-                  className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
-                >
+                <button onClick={startAutoPolling} className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors">
                   Auto-Check
                 </button>
               )}
@@ -778,6 +856,12 @@ export default function InstantlyAccountsPage() {
               <option value="all">All Status</option>
               <option value="active">Active</option>
               <option value="paused">Paused</option>
+            </ToolbarSelect>
+            <ToolbarSelect value={warmupFilter} onChange={(v) => setWarmupFilter(v as WarmupFilter)}>
+              <option value="all">All Warmup</option>
+              <option value="on">Warmup On</option>
+              <option value="off">Warmup Off</option>
+              <option value="issue">Warmup Issue</option>
             </ToolbarSelect>
             <ToolbarSelect value={roleFilter} onChange={(v) => setRoleFilter(v as RoleFilter)}>
               <option value="all">All Roles</option>
@@ -810,30 +894,19 @@ export default function InstantlyAccountsPage() {
           actions={{
             align: "right",
             header: "",
-            render: (account) => (
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => handlePauseResume(account)}
-                  disabled={actionKey !== ""}
-                  className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                >
-                  {account.status === 1 ? "Pause" : "Resume"}
-                </button>
-                <button
-                  onClick={() => handleWarmupToggle(account)}
-                  disabled={actionKey !== ""}
-                  className="inline-flex items-center justify-center rounded-md border border-[#1a1a1a] bg-white px-3 py-1.5 text-xs font-medium text-[#1a1a1a] shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                >
-                  {account.warmup_status === 1 ? "Stop Warmup" : "Start Warmup"}
-                </button>
-                <button
-                  onClick={() => toggleExpanded(account.email)}
-                  className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 transition-colors"
-                >
-                  {expandedEmail === account.email ? "Close" : "Assign"}
-                </button>
-              </div>
-            ),
+            render: (account) => {
+              const activeAssignment = activeAssignmentMap.get(normalizeEmail(account.email)) || null;
+              return (
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => toggleExpanded(account.email)}
+                    className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 transition-colors"
+                  >
+                    {expandedEmail === account.email ? "Close" : activeAssignment ? "View" : "Assign"}
+                  </button>
+                </div>
+              );
+            },
           }}
         />
       </section>

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { adminGet, adminPost } from "@/lib/api";
 
-// --- Types ---
 type ApiState = { type: "success" | "error" | "info"; text: string } | null;
+
+type AdminOption = {
+  _id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+};
 
 type ThreadRow = {
   _id: string;
@@ -16,6 +22,12 @@ type ThreadRow = {
   brandEmail?: string;
   brandName?: string;
   instantlyThreadId?: string;
+  campaignId?: { _id?: string; name?: string } | null;
+  sdrId?: { _id?: string; name?: string; email?: string } | null;
+  RHId?: { _id?: string; name?: string; email?: string } | null;
+  IMEId?: { _id?: string; name?: string; email?: string } | null;
+  assignedBmeId?: { _id?: string; name?: string; email?: string } | null;
+  assignedImeId?: { _id?: string; name?: string; email?: string } | null;
   prospectId?: {
     _id?: string;
     companyName?: string;
@@ -43,9 +55,52 @@ type ThreadDetailResponse = {
   messages: ThreadMessage[];
 };
 
-// --- Utilities ---
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function escapeHtml(value = "") {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function looksLikeHtml(value = "") {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
+
+function bodyToEditorHtml(value = "") {
+  if (!value) return "";
+  if (looksLikeHtml(value)) return value;
+  return escapeHtml(value).replace(/\n/g, "<br>");
+}
+
+function normalizeInsertLinkUrl(value = "") {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
+function isEditorHtmlEmpty(value = "") {
+  const plain = String(value || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .trim();
+
+  return !plain;
+}
+
+function stripHtml(value = "") {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/div>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .trim();
 }
 
 function getInitials(name?: string) {
@@ -79,35 +134,57 @@ function formatShortDateTime(value?: string) {
   });
 }
 
+function getAdminLabel(admin: any) {
+  if (!admin) return "—";
+  if (typeof admin === "string") return admin;
+  if (admin.name && admin.email) return `${admin.name} (${admin.email})`;
+  return admin.name || admin.email || admin._id || "—";
+}
+
 function getStagePillClasses(stage?: string) {
   const value = String(stage || "").toLowerCase();
-  if (value.includes("replied")) return "bg-blue-50 text-blue-700 border-blue-200";
-  if (value.includes("assigned_to_bme")) return "bg-violet-50 text-violet-700 border-violet-200";
-  if (value.includes("assigned_to_ime")) return "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200";
-  if (value.includes("unqualified")) return "bg-rose-50 text-rose-700 border-rose-200";
-  if (value.includes("qualified")) return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  return "bg-gray-100 text-gray-700 border-gray-200";
+  if (value.includes("replied")) return "border-blue-200 bg-blue-50 text-blue-700";
+  if (value.includes("assigned_to_bme")) return "border-violet-200 bg-violet-50 text-violet-700";
+  if (value.includes("assigned_to_ime")) return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700";
+  if (value.includes("unqualified")) return "border-rose-200 bg-rose-50 text-rose-700";
+  if (value.includes("qualified")) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function getStatusPillClasses(status?: string) {
   const value = String(status || "").toLowerCase();
-  if (value === "waiting_on_us") return "bg-amber-50 text-amber-700 border-amber-200";
-  if (value === "waiting_on_brand") return "bg-blue-50 text-blue-700 border-blue-200";
-  if (value === "closed") return "bg-gray-100 text-gray-600 border-gray-200";
-  return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (value === "waiting_on_us") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (value === "waiting_on_brand") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (value === "closed") return "border-slate-200 bg-slate-100 text-slate-600";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
-// --- Components ---
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex flex-col justify-center rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-medium uppercase tracking-wider text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
     </div>
   );
 }
 
-// --- Main Page ---
+function DetailCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 break-words text-sm font-semibold text-slate-900">{value || "—"}</p>
+    </div>
+  );
+}
+
+function getBrandDisplayName(thread?: ThreadRow | null) {
+  return thread?.prospectId?.companyName || thread?.brandName || "Unknown Brand";
+}
+
+function getThreadPreviewText(thread?: ThreadRow | null) {
+  return thread?.subject || "No subject";
+}
+
 export default function RepliesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -121,61 +198,363 @@ export default function RepliesPage() {
     thread: null,
     messages: [],
   });
-
+  const [actorRole, setActorRole] = useState("");
   const [search, setSearch] = useState("");
   const [composerSubject, setComposerSubject] = useState("");
   const [composerBody, setComposerBody] = useState("");
   const [submittingKey, setSubmittingKey] = useState("");
 
-  const filteredThreads = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return threads;
-    return threads.filter((item) => {
-      const haystack = [
-        item.subject,
-        item.brandName,
-        item.brandEmail,
-        item.prospectId?.companyName,
-        item.prospectId?.primaryContact?.name,
-        item.prospectId?.primaryContact?.email,
-        item.ownerRole,
-        item.status,
-      ].filter(Boolean).join(" ").toLowerCase();
-      return haystack.includes(query);
+  const [campaignFilter, setCampaignFilter] = useState("");
+  const [sdrFilter, setSdrFilter] = useState("");
+  const [bmeFilter, setBmeFilter] = useState("");
+  const [rhFilter, setRhFilter] = useState("");
+
+  const [showMobileThread, setShowMobileThread] = useState(false);
+  const [isReplyModalOpen, setIsReplyModalOpen] = useState(false);
+
+  const composerEditorRef = useRef<HTMLDivElement | null>(null);
+  const composerSelectionRef = useRef<Range | null>(null);
+  const selectedLinkElementRef = useRef<HTMLAnchorElement | null>(null);
+
+  const [isLinkToolsOpen, setIsLinkToolsOpen] = useState(false);
+  const [linkToolsPosition, setLinkToolsPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
+  const [linkEditorMode, setLinkEditorMode] = useState<"insert" | "edit">("insert");
+  const [linkEditorUrl, setLinkEditorUrl] = useState("");
+  const [linkEditorText, setLinkEditorText] = useState("");
+
+  const canFilterByRh = actorRole === "super_admin";
+  const canFilterBySdr = actorRole === "super_admin" || actorRole === "revenue_head";
+  const canFilterByBme = actorRole === "super_admin" || actorRole === "revenue_head";
+
+  const campaignOptions = useMemo(() => {
+    const map = new Map<string, { _id: string; name: string }>();
+    threads.forEach((item) => {
+      const id = String(item.campaignId?._id || "");
+      if (!id) return;
+      map.set(id, { _id: id, name: item.campaignId?.name || "Unnamed Campaign" });
     });
-  }, [threads, search]);
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [threads]);
+
+  const sdrFilterOptions = useMemo(() => {
+    const map = new Map<string, AdminOption>();
+    threads.forEach((item) => {
+      const id = String(item.sdrId?._id || "");
+      if (!id) return;
+      map.set(id, {
+        _id: id,
+        name: item.sdrId?.name || "",
+        email: item.sdrId?.email || "",
+        role: "sdr",
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+  }, [threads]);
+
+  const rhFilterOptions = useMemo(() => {
+    const map = new Map<string, AdminOption>();
+    threads.forEach((item) => {
+      const id = String(item.RHId?._id || "");
+      if (!id) return;
+      map.set(id, {
+        _id: id,
+        name: item.RHId?.name || "",
+        email: item.RHId?.email || "",
+        role: "revenue_head",
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+  }, [threads]);
+
+  const bmeFilterOptions = useMemo(() => {
+    const map = new Map<string, AdminOption>();
+    threads.forEach((item) => {
+      const id = String(item.assignedBmeId?._id || "");
+      if (!id) return;
+      map.set(id, {
+        _id: id,
+        name: item.assignedBmeId?.name || "",
+        email: item.assignedBmeId?.email || "",
+        role: "bme",
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+  }, [threads]);
+
+  const filteredThreads = useMemo(() => threads, [threads]);
 
   const selectedThread = useMemo(
-    () => filteredThreads.find((item) => item._id === selectedThreadId) || threads.find((item) => item._id === selectedThreadId) || null,
+    () =>
+      filteredThreads.find((item) => item._id === selectedThreadId) ||
+      threads.find((item) => item._id === selectedThreadId) ||
+      null,
     [filteredThreads, threads, selectedThreadId]
   );
 
-  const waitingOnUsCount = useMemo(() => threads.filter((item) => item.status === "waiting_on_us").length, [threads]);
-  const waitingOnBrandCount = useMemo(() => threads.filter((item) => item.status === "waiting_on_brand").length, [threads]);
+  const selectedThreadMeta = threadDetail.thread || selectedThread;
+
+  const waitingOnUsCount = useMemo(
+    () => threads.filter((item) => item.status === "waiting_on_us").length,
+    [threads]
+  );
+
+  const waitingOnBrandCount = useMemo(
+    () => threads.filter((item) => item.status === "waiting_on_brand").length,
+    [threads]
+  );
+
+  function saveComposerSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    composerSelectionRef.current = selection.getRangeAt(0).cloneRange();
+  }
+
+  function restoreComposerSelection() {
+    const selection = window.getSelection();
+    if (!selection || !composerSelectionRef.current) return;
+    selection.removeAllRanges();
+    selection.addRange(composerSelectionRef.current);
+  }
+
+  function syncComposerBodyFromEditor() {
+    const html = composerEditorRef.current?.innerHTML || "";
+    setComposerBody(html);
+  }
+
+  function closeLinkTools() {
+    setIsLinkToolsOpen(false);
+    setLinkToolsPosition(null);
+    selectedLinkElementRef.current = null;
+  }
+
+  function resetLinkEditor() {
+    setIsLinkEditorOpen(false);
+    setLinkEditorMode("insert");
+    setLinkEditorUrl("");
+    setLinkEditorText("");
+  }
+
+  function updateLinkToolsFromSelection() {
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0) {
+      closeLinkTools();
+      return;
+    }
+
+    const node =
+      selection.anchorNode instanceof Element
+        ? selection.anchorNode
+        : selection.anchorNode?.parentElement || null;
+
+    const linkElement = node?.closest?.("a") as HTMLAnchorElement | null;
+
+    if (!linkElement || !composerEditorRef.current?.contains(linkElement)) {
+      closeLinkTools();
+      return;
+    }
+
+    const rect = linkElement.getBoundingClientRect();
+
+    selectedLinkElementRef.current = linkElement;
+    setLinkEditorText(linkElement.textContent || "");
+    setLinkEditorUrl(linkElement.getAttribute("href") || "");
+    setLinkToolsPosition({
+      top: rect.top - 58,
+      left: rect.left + rect.width / 2,
+    });
+    setIsLinkToolsOpen(true);
+  }
+
+  function openReplyModal() {
+    if (!selectedThreadMeta) return;
+    setComposerSubject(selectedThreadMeta.subject || "");
+    setComposerBody("");
+    if (composerEditorRef.current) {
+      composerEditorRef.current.innerHTML = "";
+    }
+    setIsReplyModalOpen(true);
+    closeLinkTools();
+    resetLinkEditor();
+  }
+
+  function closeReplyModal() {
+    setIsReplyModalOpen(false);
+    closeLinkTools();
+    resetLinkEditor();
+  }
+
+  function handleComposerInsertLink() {
+    const selection = window.getSelection();
+    const selectedText = selection?.toString() || "";
+
+    setLinkEditorMode("insert");
+    setLinkEditorText(selectedText.trim());
+    setLinkEditorUrl("");
+    setIsLinkEditorOpen(true);
+    setIsLinkToolsOpen(false);
+  }
+
+  function handleOpenEditLinkEditor() {
+    const currentLink = selectedLinkElementRef.current;
+    if (!currentLink) return;
+
+    setLinkEditorMode("edit");
+    setLinkEditorText(currentLink.textContent || "");
+    setLinkEditorUrl(currentLink.getAttribute("href") || "");
+    setIsLinkEditorOpen(true);
+    setIsLinkToolsOpen(false);
+  }
+
+  function handleOpenLinkInNewTab() {
+    const currentLink = selectedLinkElementRef.current;
+    const url = currentLink?.getAttribute("href");
+    if (!url) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  function handleRemoveSelectedLink() {
+    const currentLink = selectedLinkElementRef.current;
+    if (!currentLink) return;
+
+    const textNode = document.createTextNode(currentLink.textContent || "");
+    currentLink.replaceWith(textNode);
+
+    syncComposerBodyFromEditor();
+    closeLinkTools();
+
+    setMessage({
+      type: "success",
+      text: "Link removed",
+    });
+  }
+
+  function handleSubmitLinkEditor() {
+    const normalizedUrl = normalizeInsertLinkUrl(linkEditorUrl);
+
+    if (!normalizedUrl) {
+      setMessage({
+        type: "error",
+        text: "Web address is required",
+      });
+      return;
+    }
+
+    const finalText = linkEditorText.trim() || normalizedUrl;
+
+    if (linkEditorMode === "edit" && selectedLinkElementRef.current) {
+      selectedLinkElementRef.current.setAttribute("href", normalizedUrl);
+      selectedLinkElementRef.current.setAttribute("target", "_blank");
+      selectedLinkElementRef.current.setAttribute("rel", "noopener noreferrer");
+      selectedLinkElementRef.current.textContent = finalText;
+
+      syncComposerBodyFromEditor();
+      resetLinkEditor();
+
+      setMessage({
+        type: "success",
+        text: "Link updated",
+      });
+      return;
+    }
+
+    restoreComposerSelection();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      const currentHtml = composerEditorRef.current?.innerHTML || "";
+      const appended = `${currentHtml}${currentHtml ? "<br>" : ""}<a href="${normalizedUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+        finalText
+      )}</a>`;
+
+      if (composerEditorRef.current) {
+        composerEditorRef.current.innerHTML = appended;
+      }
+
+      syncComposerBodyFromEditor();
+      resetLinkEditor();
+
+      setMessage({
+        type: "success",
+        text: "Link inserted",
+      });
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const anchor = document.createElement("a");
+    anchor.href = normalizedUrl;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.textContent = finalText;
+
+    range.insertNode(anchor);
+
+    const nextRange = document.createRange();
+    nextRange.setStartAfter(anchor);
+    nextRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(nextRange);
+    composerSelectionRef.current = nextRange.cloneRange();
+
+    syncComposerBodyFromEditor();
+    resetLinkEditor();
+
+    setMessage({
+      type: "success",
+      text: "Link inserted",
+    });
+  }
 
   async function loadPage(showLoader = true) {
     try {
       if (showLoader) setLoading(true);
       setMessage(null);
 
-      const threadsPayload: any = await adminGet("/outreach/threads");
+      const query: Record<string, string> = {};
+      if (campaignFilter) query.campaignId = campaignFilter;
+      if (sdrFilter) query.sdrId = sdrFilter;
+      if (bmeFilter) query.assignedBmeId = bmeFilter;
+      if (rhFilter) query.RHId = rhFilter;
+      if (search.trim()) query.search = search.trim();
+
+      const [threadsPayload, mePayload] = await Promise.all([
+        adminGet("/outreach/threads", query),
+        adminGet("/admins/me"),
+      ]);
+
       const nextThreads = Array.isArray(threadsPayload?.data) ? threadsPayload.data : [];
       setThreads(nextThreads);
+      setActorRole(String(mePayload?.role || "").toLowerCase());
 
       const threadIdFromQuery = String(searchParams.get("threadId") || "");
       const prospectIdFromQuery = String(searchParams.get("prospectId") || "");
 
       setSelectedThreadId((prev) => {
-        if (threadIdFromQuery && nextThreads.some((t: any) => t._id === threadIdFromQuery)) return threadIdFromQuery;
+        if (threadIdFromQuery && nextThreads.some((t: any) => t._id === threadIdFromQuery)) {
+          return threadIdFromQuery;
+        }
+
         if (prospectIdFromQuery) {
-          const match = nextThreads.find((item: any) => String(item?.prospectId?._id || "") === prospectIdFromQuery);
+          const match = nextThreads.find(
+            (item: any) => String(item?.prospectId?._id || "") === prospectIdFromQuery
+          );
           if (match?._id) return match._id;
         }
+
         if (prev && nextThreads.some((item: any) => item._id === prev)) return prev;
         return nextThreads[0]?._id || "";
       });
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to load replies" });
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to load replies",
+      });
     } finally {
       if (showLoader) setLoading(false);
     }
@@ -185,129 +564,276 @@ export default function RepliesPage() {
     try {
       if (!selectedThreadId) {
         setThreadDetail({ thread: null, messages: [] });
+        setComposerSubject("");
+        setComposerBody("");
+        if (composerEditorRef.current) {
+          composerEditorRef.current.innerHTML = "";
+        }
         return;
       }
+
       setThreadLoading(true);
       const payload: any = await adminGet(`/outreach/threads/${selectedThreadId}`);
+
       setThreadDetail({
         thread: payload?.thread || null,
         messages: Array.isArray(payload?.messages) ? payload.messages : [],
       });
+
       setComposerSubject(payload?.thread?.subject || "");
+      setComposerBody("");
+
+      if (composerEditorRef.current) {
+        composerEditorRef.current.innerHTML = "";
+      }
     } catch (error) {
       setThreadDetail({ thread: null, messages: [] });
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to load conversation" });
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to load conversation",
+      });
     } finally {
       setThreadLoading(false);
     }
   }
 
-  useEffect(() => { loadPage(true); }, []);
-  useEffect(() => { loadSelectedThread(); }, [selectedThreadId]);
+  useEffect(() => {
+    void loadPage(true);
+  }, [campaignFilter, sdrFilter, bmeFilter, rhFilter, search]);
+
+  useEffect(() => {
+    void loadSelectedThread();
+  }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (!composerEditorRef.current) return;
+    const nextHtml = bodyToEditorHtml(composerBody || "");
+    if (composerEditorRef.current.innerHTML !== nextHtml) {
+      composerEditorRef.current.innerHTML = nextHtml;
+    }
+  }, [composerBody]);
+
+  useEffect(() => {
+    if (!selectedThreadId) {
+      setShowMobileThread(false);
+      setIsReplyModalOpen(false);
+    }
+  }, [selectedThreadId]);
 
   async function handleReply() {
     try {
       if (!selectedThreadId) throw new Error("Select a conversation first");
-      if (!composerBody.trim()) throw new Error("Reply body is required");
+
+      const editorHtml = composerEditorRef.current?.innerHTML || composerBody || "";
+      if (isEditorHtmlEmpty(editorHtml)) throw new Error("Reply body is required");
 
       setSubmittingKey("reply");
       setMessage(null);
 
       const payload: any = await adminPost(`/outreach/threads/${selectedThreadId}/reply`, {
         subject: composerSubject.trim(),
-        bodyText: composerBody.trim(),
+        bodyText: editorHtml.trim(),
       });
 
-      if (payload?.success === false) throw new Error(payload?.message || "Failed to send reply");
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to send reply");
+      }
 
       setComposerBody("");
-      setMessage({ type: "success", text: payload?.message || "Reply sent successfully" });
+      if (composerEditorRef.current) {
+        composerEditorRef.current.innerHTML = "";
+      }
+
+      setMessage({
+        type: "success",
+        text: payload?.message || "Reply sent successfully",
+      });
+
+      setIsReplyModalOpen(false);
+      closeLinkTools();
+      resetLinkEditor();
+
       await loadSelectedThread();
       await loadPage(false);
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Failed to send reply" });
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Failed to send reply",
+      });
     } finally {
       setSubmittingKey("");
     }
   }
 
   return (
-    <div className="flex h-[calc(100vh-2rem)] flex-col space-y-4 font-sans">
+    <div className="flex min-h-[calc(100vh-2rem)] flex-col gap-4 bg-[#f8fafc] p-3 sm:p-4 xl:h-[calc(100vh-2rem)]">
       {message && (
         <div
           className={cx(
-            "rounded-md border px-4 py-3 text-sm font-medium",
-            message.type === "success" && "border-green-200 bg-green-50 text-green-800",
-            message.type === "error" && "border-red-200 bg-red-50 text-red-800",
-            message.type === "info" && "border-blue-200 bg-blue-50 text-blue-800"
+            "rounded-2xl border px-4 py-3 text-sm font-medium shadow-sm",
+            message.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+            message.type === "error" && "border-rose-200 bg-rose-50 text-rose-700",
+            message.type === "info" && "border-blue-200 bg-blue-50 text-blue-700"
           )}
         >
           {message.text}
         </div>
       )}
 
-      {/* Top Metrics Row */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {/* <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <MetricCard label="Total Threads" value={threads.length} />
         <MetricCard label="Waiting on Us" value={waitingOnUsCount} />
         <MetricCard label="Waiting on Brand" value={waitingOnBrandCount} />
-      </div>
+      </div> */}
 
-      {/* Unified Inbox Container */}
-      <div className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-        
-        {/* Left Pane: Thread List */}
-        <aside className="flex w-full flex-col border-r border-gray-200 bg-gray-50/30 xl:w-[400px]">
-          <div className="border-b border-gray-200 p-4">
-            <h2 className="text-lg font-semibold text-gray-900">Inbox</h2>
-            <div className="mt-3 relative">
-              <svg className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)] xl:flex-row">
+        <aside
+          className={cx(
+            "flex w-full shrink-0 flex-col border-b border-slate-200 bg-slate-50/70 xl:w-[360px] xl:border-b-0 xl:border-r 2xl:w-[400px]",
+            showMobileThread ? "hidden xl:flex" : "flex"
+          )}
+        >
+          <div className="border-b border-slate-200 p-4 sm:p-5">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Replies</h2>
+              <p className="mt-1 text-sm text-slate-500">Conversation inbox</p>
+            </div>
+
+            <div className="relative mt-4">
+              <svg
+                className="absolute left-3 top-3 h-4 w-4 text-slate-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search leads, companies..."
-                className="w-full rounded-md border border-gray-300 bg-white py-2 pl-9 pr-4 text-sm text-gray-900 placeholder-gray-400 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
+                placeholder="Search brands, campaigns, people..."
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-400"
               />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <select
+                value={campaignFilter}
+                onChange={(e) => setCampaignFilter(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+              >
+                <option value="">All Campaigns</option>
+                {campaignOptions.map((item) => (
+                  <option key={item._id} value={item._id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+
+              {canFilterBySdr && (
+                <select
+                  value={sdrFilter}
+                  onChange={(e) => setSdrFilter(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+                >
+                  <option value="">All SDRs</option>
+                  {sdrFilterOptions.map((item) => (
+                    <option key={item._id} value={item._id}>
+                      {getAdminLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {canFilterByBme && (
+                <select
+                  value={bmeFilter}
+                  onChange={(e) => setBmeFilter(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+                >
+                  <option value="">All BMEs</option>
+                  {bmeFilterOptions.map((item) => (
+                    <option key={item._id} value={item._id}>
+                      {getAdminLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {canFilterByRh && (
+                <select
+                  value={rhFilter}
+                  onChange={(e) => setRhFilter(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+                >
+                  <option value="">All RHs</option>
+                  {rhFilterOptions.map((item) => (
+                    <option key={item._id} value={item._id}>
+                      {getAdminLabel(item)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {loading ? (
-              <div className="p-8 text-center text-sm text-gray-500">Loading inbox...</div>
+              <div className="p-8 text-center text-sm text-slate-500">Loading inbox...</div>
             ) : filteredThreads.length === 0 ? (
-              <div className="p-8 text-center text-sm text-gray-500">No conversations found.</div>
+              <div className="p-8 text-center text-sm text-slate-500">No conversations found.</div>
             ) : (
-              <ul className="divide-y divide-gray-100">
+              <ul className="space-y-2">
                 {filteredThreads.map((thread) => {
                   const active = thread._id === selectedThreadId;
-                  const contactName = thread.prospectId?.primaryContact?.name || thread.brandName || "Unknown Contact";
-                  const companyName = thread.prospectId?.companyName || "No Company";
+                  const brandName = getBrandDisplayName(thread);
+                  const previewText = getThreadPreviewText(thread);
 
                   return (
                     <li key={thread._id}>
                       <button
-                        onClick={() => setSelectedThreadId(thread._id)}
+                        onClick={() => {
+                          setSelectedThreadId(thread._id);
+                          setShowMobileThread(true);
+                        }}
                         className={cx(
-                          "w-full text-left p-4 transition-colors hover:bg-gray-100/50",
-                          active ? "bg-gray-100 relative" : "bg-white"
+                          "w-full rounded-2xl border p-4 text-left transition",
+                          active
+                            ? "border-slate-900 bg-white shadow-sm"
+                            : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
                         )}
                       >
-                        {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#1a1a1a]" />}
                         <div className="flex items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-semibold text-[#1a1a1a]">
-                            {getInitials(contactName)}
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-800">
+                            {getInitials(brandName)}
                           </div>
+
                           <div className="min-w-0 flex-1">
-                            <div className="flex justify-between items-center mb-0.5">
-                              <p className="truncate text-sm font-semibold text-gray-900">{contactName}</p>
-                              <span className="shrink-0 text-xs text-gray-500">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="truncate text-sm font-semibold text-slate-900">
+                                {brandName}
+                              </p>
+                              <span className="shrink-0 text-xs text-slate-500">
                                 {formatShortDateTime(thread.lastMessageAt || thread.updatedAt)}
                               </span>
                             </div>
-                            <p className="truncate text-xs text-gray-600">{companyName}</p>
-                            <p className="mt-1 truncate text-sm text-gray-500">{thread.subject || "(No subject)"}</p>
+
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              <span className="truncate">{previewText}</span>
+                              {thread.campaignId?.name ? (
+                                <>
+                                  <span>•</span>
+                                  <span className="truncate font-medium text-slate-700">
+                                    {thread.campaignId.name}
+                                  </span>
+                                </>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
                       </button>
@@ -319,79 +845,186 @@ export default function RepliesPage() {
           </div>
         </aside>
 
-        {/* Right Pane: Thread Detail & Composer */}
-        <main className="flex min-w-0 flex-1 flex-col bg-white">
-          {!selectedThread ? (
-            <div className="flex h-full items-center justify-center p-8 text-gray-400">
+        <main
+          className={cx(
+            "min-h-0 min-w-0 flex-1 flex-col bg-white",
+            showMobileThread ? "flex" : "hidden xl:flex"
+          )}
+        >
+          {!selectedThreadMeta ? (
+            <div className="flex h-full items-center justify-center p-8 text-slate-400">
               <p>Select a conversation to view details</p>
             </div>
           ) : (
             <>
-              {/* Thread Header */}
-              <div className="flex shrink-0 items-center justify-between border-b border-gray-200 px-6 py-4">
-                <div className="min-w-0">
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    {selectedThread.prospectId?.companyName || selectedThread.brandName || "Unknown Company"}
-                  </h3>
-                  <div className="mt-1 flex items-center gap-2 text-sm text-gray-500">
-                    <span>{selectedThread.prospectId?.primaryContact?.name || "—"}</span>
-                    <span>&bull;</span>
-                    <a href={`mailto:${selectedThread.prospectId?.primaryContact?.email || selectedThread.brandEmail}`} className="text-[#1a1a1a] font-medium hover:underline">
-                      {selectedThread.prospectId?.primaryContact?.email || selectedThread.brandEmail || "—"}
-                    </a>
+              <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowMobileThread(false)}
+                        className="inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 xl:hidden"
+                      >
+                        Back
+                      </button>
+
+                      <div className="min-w-0">
+                        <h3 className="truncate text-xl font-bold text-slate-900 sm:text-2xl">
+                          {getBrandDisplayName(selectedThreadMeta)}
+                        </h3>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span
+                            className={cx(
+                              "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                              getStagePillClasses(selectedThreadMeta.prospectId?.stage)
+                            )}
+                          >
+                            {selectedThreadMeta.prospectId?.stage?.replace(/_/g, " ") || "No Stage"}
+                          </span>
+
+                          <span
+                            className={cx(
+                              "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                              getStatusPillClasses(selectedThreadMeta.status)
+                            )}
+                          >
+                            {selectedThreadMeta.status?.replace(/_/g, " ") || "No Status"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="hidden items-center gap-3 sm:flex">
+                      <button
+                        onClick={() =>
+                          router.push(
+                            selectedThreadMeta.prospectId?._id
+                              ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
+                              : "/admin/crm/review-queue"
+                          )
+                        }
+                        className="inline-flex rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Open CRM Profile
+                      </button>
+
+                      <button
+                        onClick={openReplyModal}
+                        className="inline-flex rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+                      >
+                        Reply
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="flex flex-col items-end gap-2 shrink-0">
-                  <div className="flex items-center gap-2">
-                    <span className={cx("inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-medium", getStagePillClasses(selectedThread.prospectId?.stage))}>
-                      {selectedThread.prospectId?.stage?.replace(/_/g, ' ') || "No Stage"}
-                    </span>
-                    <span className={cx("inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-medium", getStatusPillClasses(selectedThread.status))}>
-                      {selectedThread.status?.replace(/_/g, ' ') || "No Status"}
-                    </span>
+
+                  {/* <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+                    <DetailCard label="Campaign" value={selectedThreadMeta.campaignId?.name || "—"} />
+                    <DetailCard label="Brand" value={getBrandDisplayName(selectedThreadMeta)} />
+                    <DetailCard label="SDR" value={getAdminLabel(selectedThreadMeta.sdrId)} />
+                    <DetailCard label="RH" value={getAdminLabel(selectedThreadMeta.RHId)} />
+                    <DetailCard label="BME" value={getAdminLabel(selectedThreadMeta.assignedBmeId)} />
+                    <DetailCard
+                      label="IME"
+                      value={getAdminLabel(selectedThreadMeta.assignedImeId || selectedThreadMeta.IMEId)}
+                    />
+                  </div> */}
+
+                  <div className="flex gap-3 sm:hidden">
+                    <button
+                      onClick={() =>
+                        router.push(
+                          selectedThreadMeta.prospectId?._id
+                            ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
+                            : "/admin/crm/review-queue"
+                        )
+                      }
+                      className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      Open CRM
+                    </button>
+
+                    <button
+                      onClick={openReplyModal}
+                      className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+                    >
+                      Reply
+                    </button>
                   </div>
-                  <button
-                    onClick={() => router.push(selectedThread.prospectId?._id ? `/admin/instantly-crm/review-queue?prospectId=${selectedThread.prospectId._id}` : "/admin/instantly-crm/review-queue")}
-                    className="text-xs font-medium text-gray-500 hover:text-[#1a1a1a] underline underline-offset-2"
-                  >
-                    Open CRM Profile &rarr;
-                  </button>
                 </div>
               </div>
 
-              {/* Emails Scrollable Area */}
-              <div className="flex-1 overflow-y-auto bg-gray-50/50 p-6">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-3 sm:p-5 lg:p-6">
                 {threadLoading ? (
-                  <div className="text-center text-sm text-gray-500">Loading conversation...</div>
+                  <div className="text-center text-sm text-slate-500">Loading conversation...</div>
                 ) : threadDetail.messages.length === 0 ? (
-                  <div className="text-center text-sm text-gray-500">No messages in this thread yet.</div>
+                  <div className="text-center text-sm text-slate-500">No messages in this thread yet.</div>
                 ) : (
-                  <div className="space-y-6 max-w-4xl mx-auto">
+                  <div className="mx-auto flex max-w-5xl flex-col gap-4">
                     {threadDetail.messages.map((msg) => {
                       const isInbound = msg.direction === "inbound";
+                      const senderLabel = isInbound ? "Brand" : "You";
+                      const previewBody = looksLikeHtml(msg.bodyText || "")
+                        ? stripHtml(msg.bodyText || "")
+                        : (msg.bodyText || "—");
+
                       return (
-                        <div key={msg._id} className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-                          <div className="border-b border-gray-100 bg-gray-50/50 px-5 py-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="text-sm font-semibold text-gray-900">{msg.from || "Unknown Sender"}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">
-                                  To: {Array.isArray(msg.to) && msg.to.length > 0 ? msg.to.join(", ") : "—"}
+                        <div
+                          key={msg._id}
+                          className={cx(
+                            "overflow-hidden rounded-3xl border shadow-sm",
+                            isInbound
+                              ? "border-slate-200 bg-white"
+                              : "border-slate-900 bg-slate-900 text-white"
+                          )}
+                        >
+                          <div
+                            className={cx(
+                              "border-b px-4 py-4 sm:px-5",
+                              isInbound
+                                ? "border-slate-100 bg-slate-50/70"
+                                : "border-slate-800 bg-slate-950"
+                            )}
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0">
+                                <p
+                                  className={cx(
+                                    "text-sm font-semibold",
+                                    isInbound ? "text-slate-900" : "text-white"
+                                  )}
+                                >
+                                  {senderLabel}
+                                </p>
+                                <p
+                                  className={cx(
+                                    "mt-2 break-words text-sm",
+                                    isInbound ? "text-slate-700" : "text-slate-200"
+                                  )}
+                                >
+                                  Subject: {msg.subject || "(No Subject)"}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-3">
-                                <span className={cx("text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded", isInbound ? "bg-gray-200 text-[#1a1a1a]" : "bg-gray-100 text-gray-600")}>
-                                  {isInbound ? "Lead" : "You"}
-                                </span>
-                                <span className="text-xs text-gray-500">{formatDateTime(msg.receivedAt || msg.sentAt || msg.createdAt)}</span>
-                              </div>
+
+                              <span
+                                className={cx(
+                                  "shrink-0 text-xs",
+                                  isInbound ? "text-slate-500" : "text-slate-300"
+                                )}
+                              >
+                                {formatDateTime(msg.receivedAt || msg.sentAt || msg.createdAt)}
+                              </span>
                             </div>
-                            <p className="mt-3 text-sm font-medium text-gray-900 border-t border-gray-100 pt-3">
-                              Subject: <span className="font-normal text-gray-700">{msg.subject || "(No Subject)"}</span>
-                            </p>
                           </div>
-                          <div className="px-5 py-4 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
-                            {msg.bodyText || "—"}
+
+                          <div
+                            className={cx(
+                              "whitespace-pre-wrap break-words px-4 py-4 text-sm leading-7 sm:px-5",
+                              isInbound ? "text-slate-800" : "text-slate-100"
+                            )}
+                          >
+                            {previewBody || "—"}
                           </div>
                         </div>
                       );
@@ -399,50 +1032,244 @@ export default function RepliesPage() {
                   </div>
                 )}
               </div>
-
-              {/* Reply Composer */}
-              <div className="shrink-0 border-t border-gray-200 bg-white p-6">
-                <div className="max-w-4xl mx-auto rounded-lg border border-gray-200 bg-white shadow-sm focus-within:border-[#1a1a1a] focus-within:ring-1 focus-within:ring-[#1a1a1a] transition-all">
-                  <div className="border-b border-gray-100 px-4 py-2 flex items-center">
-                    <span className="text-xs font-medium text-gray-500 w-16">Subject:</span>
-                    <input
-                      value={composerSubject}
-                      onChange={(e) => setComposerSubject(e.target.value)}
-                      placeholder="Re: Subject"
-                      className="flex-1 bg-transparent text-sm font-medium text-gray-900 placeholder-gray-400 focus:outline-none"
-                    />
-                  </div>
-                  <textarea
-                    value={composerBody}
-                    onChange={(e) => setComposerBody(e.target.value)}
-                    rows={5}
-                    placeholder="Type your message here..."
-                    className="w-full resize-y bg-transparent px-4 py-3 text-sm text-gray-900 placeholder-gray-400 focus:outline-none"
-                  />
-                  <div className="flex items-center justify-between border-t border-gray-100 bg-gray-50 px-4 py-3 rounded-b-lg">
-                    <div className="text-xs text-gray-500">
-                      Replying to <span className="font-semibold text-gray-700">{selectedThread.prospectId?.primaryContact?.email || selectedThread.brandEmail || "lead"}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleReply}
-                      disabled={submittingKey !== "" || !composerBody.trim()}
-                      className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {submittingKey === "reply" ? "Sending..." : "Send Email"}
-                      {!submittingKey && (
-                        <svg className="ml-2 -mr-0.5 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
             </>
           )}
         </main>
       </div>
+
+      {selectedThreadMeta ? (
+        <button
+          type="button"
+          onClick={openReplyModal}
+          className="fixed bottom-4 right-4 z-40 inline-flex h-14 items-center justify-center rounded-full bg-slate-900 px-5 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(15,23,42,0.28)] transition hover:bg-black sm:bottom-5 sm:right-5 xl:hidden"
+        >
+          Reply
+        </button>
+      ) : null}
+
+      {isReplyModalOpen && selectedThreadMeta ? (
+        <>
+          <div
+            className="fixed inset-0 z-[90] bg-slate-950/25"
+            onClick={closeReplyModal}
+          />
+
+          <div className="fixed inset-x-2 bottom-2 z-[100] max-h-[82vh] rounded-[24px] border border-slate-200 bg-white shadow-[0_25px_80px_rgba(15,23,42,0.25)] sm:inset-x-auto sm:bottom-5 sm:right-5 sm:w-[520px]">
+            <div className="flex max-h-[82vh] flex-col overflow-hidden">
+              <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">Reply</p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {getBrandDisplayName(selectedThreadMeta)}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={handleComposerInsertLink}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      🔗 Link
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={closeReplyModal}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 text-slate-700 transition hover:bg-slate-50"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-4 sm:flex-row sm:items-center sm:px-5">
+                <span className="shrink-0 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                  Subject
+                </span>
+                <input
+                  value={composerSubject}
+                  onChange={(e) => setComposerSubject(e.target.value)}
+                  placeholder="Re: Subject"
+                  className="flex-1 bg-transparent text-sm font-semibold text-slate-900 placeholder:text-slate-400 outline-none"
+                />
+              </div>
+
+              <div className="relative min-h-0 flex-1 overflow-y-auto">
+                {isEditorHtmlEmpty(composerBody) ? (
+                  <div className="pointer-events-none absolute left-4 top-4 z-10 text-sm text-slate-400 sm:left-5">
+                    Type your reply here...
+                  </div>
+                ) : null}
+
+                <div
+                  ref={composerEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onInput={() => {
+                    syncComposerBodyFromEditor();
+                    saveComposerSelection();
+                    updateLinkToolsFromSelection();
+                  }}
+                  onKeyUp={() => {
+                    saveComposerSelection();
+                    updateLinkToolsFromSelection();
+                  }}
+                  onMouseUp={() => {
+                    saveComposerSelection();
+                    updateLinkToolsFromSelection();
+                  }}
+                  onFocus={() => {
+                    saveComposerSelection();
+                    updateLinkToolsFromSelection();
+                  }}
+                  className="min-h-[220px] w-full bg-white px-4 py-4 text-sm leading-7 text-slate-800 outline-none sm:min-h-[260px] sm:px-5"
+                  style={{ whiteSpace: "pre-wrap" }}
+                />
+              </div>
+
+              <div className="border-t border-slate-100 bg-slate-50 px-4 py-4 sm:px-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-slate-500">
+                    Replying in thread for{" "}
+                    <span className="font-semibold text-slate-700">
+                      {getBrandDisplayName(selectedThreadMeta)}
+                    </span>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={closeReplyModal}
+                      className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:flex-none"
+                    >
+                      Cancel
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleReply}
+                      disabled={submittingKey !== "" || isEditorHtmlEmpty(composerBody)}
+                      className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+                    >
+                      {submittingKey === "reply" ? "Sending..." : "Send Reply"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {isLinkToolsOpen && linkToolsPosition ? (
+        <div
+          className="fixed z-[120] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
+          style={{
+            top: Math.max(linkToolsPosition.top, 12),
+            left: linkToolsPosition.left,
+          }}
+        >
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={handleOpenLinkInNewTab}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 transition hover:bg-slate-100"
+              title="Open link"
+            >
+              ↗
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenEditLinkEditor}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 transition hover:bg-slate-100"
+              title="Edit link"
+            >
+              ✎
+            </button>
+
+            <button
+              type="button"
+              onClick={handleRemoveSelectedLink}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-slate-700 transition hover:bg-slate-100"
+              title="Remove link"
+            >
+              ⨯
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isLinkEditorOpen ? (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/35 px-4">
+          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">
+                  {linkEditorMode === "edit" ? "Edit link" : "Insert link"}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">Add or update link details.</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={resetLinkEditor}
+                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Link text
+                </label>
+                <input
+                  value={linkEditorText}
+                  onChange={(e) => setLinkEditorText(e.target.value)}
+                  placeholder="Enter link text"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Web address
+                </label>
+                <input
+                  value={linkEditorUrl}
+                  onChange={(e) => setLinkEditorUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <button
+                type="button"
+                onClick={resetLinkEditor}
+                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSubmitLinkEditor}
+                className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
+              >
+                {linkEditorMode === "edit" ? "Update link" : "Insert link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

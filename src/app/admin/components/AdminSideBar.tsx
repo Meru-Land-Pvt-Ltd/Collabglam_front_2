@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Outfit } from "next/font/google";
 import {
@@ -18,7 +18,7 @@ import {
 import api from "@/lib/api";
 import {
   ADMIN_MODULES,
-  AdminPermission,
+  type AdminPermission,
   canonicalizeModuleKey,
   hasModuleAccess,
 } from "@/app/admin/components/admin-access";
@@ -58,6 +58,7 @@ const ROLES = {
   REVENUE_HEAD: "revenue_head",
   IME: "ime",
   BME: "bme",
+  SDR: "sdr",
 } as const;
 
 const DEFAULT_ROLE_MODULES: Record<string, string[]> = {
@@ -96,6 +97,14 @@ const DEFAULT_ROLE_MODULES: Record<string, string[]> = {
     "settings",
     "documents",
   ],
+  [ROLES.SDR]: [
+    "dashboard",
+    "campaigns",
+    "compose-mail",
+    "messages",
+    "notifications",
+    "documents",
+  ],
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -103,6 +112,7 @@ const ROLE_LABELS: Record<string, string> = {
   [ROLES.REVENUE_HEAD]: "Revenue Head",
   [ROLES.IME]: "IME",
   [ROLES.BME]: "BME",
+  [ROLES.SDR]: "SDR",
 };
 
 const drawerVariants = {
@@ -116,14 +126,19 @@ const linkActive = "bg-slate-900 text-white shadow-md shadow-slate-900/10";
 const linkInactive = "text-slate-600 hover:bg-slate-100 hover:text-slate-900";
 const subLinkBase =
   "block rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200";
-const subLinkActive = "text-slate-900 bg-slate-100 font-semibold";
-const subLinkInactive = "text-slate-500 hover:text-slate-900 hover:bg-slate-50";
+const subLinkActive = "bg-slate-100 font-semibold text-slate-900";
+const subLinkInactive = "text-slate-500 hover:bg-slate-50 hover:text-slate-900";
 
 function normalizeRole(value?: string) {
   return String(value || "").trim().toLowerCase();
 }
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
 function isActivePath(pathname: string, href: string) {
+  if (!href) return false;
   if (href === "/admin") return pathname === "/admin";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -277,11 +292,36 @@ function IconRailItem({
       }`}
     >
       {icon}
-
-      <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-[90] -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl opacity-0 invisible transition-all duration-150 group-hover:visible group-hover:opacity-100">
+      <span className="pointer-events-none absolute left-[calc(100%+12px)] top-1/2 z-[90] invisible -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-xl transition-all duration-150 group-hover:visible group-hover:opacity-100">
         {label}
       </span>
     </Link>
+  );
+}
+
+function SidebarSkeleton({ collapsed }: { collapsed: boolean }) {
+  if (collapsed) {
+    return (
+      <div className="flex flex-col items-center gap-2 px-3 py-4">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div
+            key={index}
+            className="h-11 w-11 animate-pulse rounded-xl bg-slate-100"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 px-4">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-11 animate-pulse rounded-2xl bg-slate-100"
+        />
+      ))}
+    </div>
   );
 }
 
@@ -327,15 +367,25 @@ export default function AdminSidebar({
         return;
       }
 
-      setCurrentRole(normalizeRole(localStorage.getItem("adminRole") || ""));
-      setAdminName(String(localStorage.getItem("adminName") || ""));
-      setAdminEmail(String(localStorage.getItem("userEmail") || ""));
-      setAdminStatus(String(localStorage.getItem("adminStatus") || ""));
-
       const storedAdmin = getStoredAdmin();
-      setPermissionKeys(getPermissionKeys(getStoredPermissions(storedAdmin)));
+      const roleFromStorage = normalizeRole(
+        localStorage.getItem("adminRole") || storedAdmin?.role || ""
+      );
 
-      if (mounted) setBootstrapped(true);
+      if (!mounted) return;
+
+      setCurrentRole(roleFromStorage);
+      setAdminName(
+        String(localStorage.getItem("adminName") || storedAdmin?.name || "")
+      );
+      setAdminEmail(
+        String(localStorage.getItem("userEmail") || storedAdmin?.email || "")
+      );
+      setAdminStatus(
+        String(localStorage.getItem("adminStatus") || storedAdmin?.status || "")
+      );
+      setPermissionKeys(getPermissionKeys(getStoredPermissions(storedAdmin)));
+      setBootstrapped(true);
     };
 
     const syncFromApi = async () => {
@@ -361,10 +411,7 @@ export default function AdminSidebar({
           localStorage.setItem("adminRole", roleFromApi || "");
           localStorage.setItem("adminName", String(me.name || raw.name || ""));
           localStorage.setItem("userEmail", String(me.email || raw.email || ""));
-          localStorage.setItem(
-            "adminStatus",
-            String(me.status || raw.status || "")
-          );
+          localStorage.setItem("adminStatus", String(me.status || raw.status || ""));
           localStorage.setItem(
             "admin",
             JSON.stringify({
@@ -383,7 +430,7 @@ export default function AdminSidebar({
     };
 
     hydrateFromStorage();
-    syncFromApi();
+    void syncFromApi();
 
     return () => {
       mounted = false;
@@ -447,9 +494,7 @@ export default function AdminSidebar({
   const renderCollapsedSidebarItem = (item: (typeof ADMIN_MODULES)[number]) => {
     const active =
       isActivePath(pathname, item.href) ||
-      Boolean(
-        item.children?.some((child) => isActivePath(pathname, child.href))
-      );
+      Boolean(item.children?.some((child) => isActivePath(pathname, child.href)));
 
     const Icon = item.icon;
 
@@ -536,9 +581,11 @@ export default function AdminSidebar({
         <button
           onClick={() => setDrawerOpen(true)}
           className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 focus:outline-none"
+          aria-label="Open sidebar"
         >
           <Menu className="h-6 w-6" />
         </button>
+
         <div className="ml-4">
           <span className="text-lg font-bold text-slate-900">CollabGlam</span>
         </div>
@@ -558,6 +605,7 @@ export default function AdminSidebar({
               collapsed ? "right-3" : "right-4"
             }`}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? (
               <ChevronRight className="h-4 w-4" />
@@ -572,9 +620,7 @@ export default function AdminSidebar({
             <div className="flex justify-center">
               <div
                 className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-600"
-                title={`${adminName || "Admin User"}${
-                  adminEmail ? ` • ${adminEmail}` : ""
-                }`}
+                title={`${adminName || "Admin User"}${adminEmail ? ` • ${adminEmail}` : ""}`}
               >
                 <UserCircle className="h-7 w-7" />
               </div>
@@ -584,10 +630,12 @@ export default function AdminSidebar({
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
                 <UserCircle className="h-6 w-6" />
               </div>
+
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-slate-900">
                   {adminName || "Admin User"}
                 </p>
+
                 <div className="mt-0.5 flex items-center gap-2">
                   <span className="inline-flex items-center rounded-md bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-700">
                     {roleLabel}
@@ -604,11 +652,7 @@ export default function AdminSidebar({
         </div>
 
         <div
-          className={`flex-1 ${
-            collapsed
-              ? "overflow-visible px-3 pb-4"
-              : "overflow-y-auto custom-scrollbar px-4 pb-4"
-          }`}
+          className={collapsed ? "overflow-visible px-3 pb-4" : "flex-1 overflow-y-auto px-4 pb-4"}
         >
           {!collapsed && (
             <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -616,23 +660,26 @@ export default function AdminSidebar({
             </div>
           )}
 
-          <nav
-            className={
-              collapsed
-                ? "relative flex flex-col items-center overflow-visible"
-                : ""
-            }
-          >
-            {allowedSidebarItems.map((item) => renderSidebarItem(item))}
-          </nav>
+          {allowedSidebarItems.length === 0 ? (
+            <SidebarSkeleton collapsed={collapsed} />
+          ) : (
+            <nav
+              className={
+                collapsed
+                  ? "relative flex flex-col items-center overflow-visible"
+                  : ""
+              }
+            >
+              {allowedSidebarItems.map((item) => renderSidebarItem(item))}
+            </nav>
+          )}
 
           {!isSuperAdmin && permissionKeys.length === 0 && !collapsed && (
             <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 shadow-sm">
               <div className="mb-1 flex items-center gap-2 font-semibold">
                 <ShieldCheck className="h-4 w-4" /> Fallback Mode
               </div>
-              Showing default modules for <strong>{roleLabel}</strong>. Check
-              permissions.
+              Showing default modules for <strong>{roleLabel}</strong>. Check permissions.
             </div>
           )}
         </div>
@@ -644,6 +691,7 @@ export default function AdminSidebar({
                 onClick={handleLogout}
                 title="Sign Out"
                 className="flex h-11 w-11 items-center justify-center rounded-xl text-red-600 transition hover:bg-red-50 hover:text-red-700"
+                aria-label="Sign Out"
               >
                 <LogOut className="h-[18px] w-[18px]" />
               </button>
@@ -672,6 +720,7 @@ export default function AdminSidebar({
               exit={{ opacity: 0 }}
               onClick={() => setDrawerOpen(false)}
             />
+
             <motion.aside
               className={`${outfit.className} fixed inset-y-0 left-0 z-50 flex h-screen w-[280px] flex-col bg-white shadow-2xl`}
               initial="hidden"
@@ -685,6 +734,7 @@ export default function AdminSidebar({
                 <button
                   onClick={() => setDrawerOpen(false)}
                   className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                  aria-label="Close sidebar"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -695,6 +745,7 @@ export default function AdminSidebar({
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
                     <UserCircle className="h-6 w-6" />
                   </div>
+
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900">
                       {adminName || "Admin User"}
@@ -709,11 +760,7 @@ export default function AdminSidebar({
               </div>
 
               <div className="flex-1 overflow-y-auto px-4 pb-4">
-                <nav>
-                  {allowedSidebarItems.map((item) =>
-                    renderSidebarItem(item, true)
-                  )}
-                </nav>
+                <nav>{allowedSidebarItems.map((item) => renderSidebarItem(item, true))}</nav>
               </div>
 
               <div className="border-t border-slate-100 p-4">

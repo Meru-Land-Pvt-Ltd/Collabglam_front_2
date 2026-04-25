@@ -68,29 +68,29 @@ type CampaignRow = {
   flowType: CampaignFlowType;
   status: CampaignUiStatus;
   sdrId:
-  | string
-  | {
-    _id: string;
-    name?: string;
-    email?: string;
-  }
-  | null;
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+      }
+    | null;
   RHId:
-  | string
-  | {
-    _id: string;
-    name?: string;
-    email?: string;
-  }
-  | null;
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+      }
+    | null;
   IMEId:
-  | string
-  | {
-    _id: string;
-    name?: string;
-    email?: string;
-  }
-  | null;
+    | string
+    | {
+        _id: string;
+        name?: string;
+        email?: string;
+      }
+    | null;
   instantly?: {
     senderAccountEmail?: string;
     accountEmails?: string[];
@@ -372,7 +372,7 @@ function ActionMenu({
         Download analytics CSV
       </button>
 
-      {/* <button
+      <button
         type="button"
         disabled={busy}
         onClick={onShare}
@@ -380,7 +380,7 @@ function ActionMenu({
       >
         <Share2 className="h-4 w-4 text-slate-400" />
         Share Campaign
-      </button> */}
+      </button>
     </div>
   );
 }
@@ -422,7 +422,11 @@ export default function InstantlyCampaignsPage() {
   const normalizedRole = String(me?.role || "").toLowerCase();
 
   const canCreate = useMemo(() => {
-    return normalizedRole === "sdr" || normalizedRole === "ime" || normalizedRole === "super_admin";
+    return (
+      normalizedRole === "sdr" ||
+      normalizedRole === "ime" ||
+      normalizedRole === "super_admin"
+    );
   }, [normalizedRole]);
 
   const fixedFlowType = useMemo<CampaignFlowType>(() => {
@@ -453,6 +457,12 @@ export default function InstantlyCampaignsPage() {
 
     return cols.join(" ");
   }, [canViewOwnerColumn, canViewRhOwnerColumn, canViewReplyColumns]);
+
+  const desktopMinWidthClass = useMemo(() => {
+    if (canViewRhOwnerColumn) return "min-w-[1500px]";
+    if (canViewOwnerColumn) return "min-w-[1320px]";
+    return "min-w-[1180px]";
+  }, [canViewOwnerColumn, canViewRhOwnerColumn]);
 
   async function showApiError(error: unknown, fallback: string) {
     setMessage({
@@ -552,17 +562,17 @@ export default function InstantlyCampaignsPage() {
       }
 
       const flowType =
-        me?.role === "super_admin"
+        normalizedRole === "super_admin"
           ? createForm.flowType
-          : me?.role === "ime"
+          : normalizedRole === "ime"
             ? "ime_influencer"
             : "standard_brand";
 
-      if (me?.role === "super_admin" && flowType === "standard_brand" && !createForm.sdrId) {
+      if (normalizedRole === "super_admin" && flowType === "standard_brand" && !createForm.sdrId) {
         throw new Error("Select an SDR owner");
       }
 
-      if (me?.role === "super_admin" && flowType === "ime_influencer" && !createForm.imeId) {
+      if (normalizedRole === "super_admin" && flowType === "ime_influencer" && !createForm.imeId) {
         throw new Error("Select an IME owner");
       }
 
@@ -575,10 +585,10 @@ export default function InstantlyCampaignsPage() {
       };
 
       if (flowType === "standard_brand") {
-        if (me?.role === "super_admin") {
+        if (normalizedRole === "super_admin") {
           payload.sdrId = createForm.sdrId;
         }
-      } else if (me?.role === "super_admin") {
+      } else if (normalizedRole === "super_admin") {
         payload.imeId = createForm.imeId;
       }
 
@@ -594,12 +604,11 @@ export default function InstantlyCampaignsPage() {
       }
 
       setCreateOpen(false);
-      setRenameOpen(false);
       setCreateForm({
         name: "",
-        flowType: me?.role === "ime" ? "ime_influencer" : "standard_brand",
-        sdrId: me?.role === "sdr" ? me._id || "" : "",
-        imeId: me?.role === "ime" ? me._id || "" : "",
+        flowType: normalizedRole === "ime" ? "ime_influencer" : "standard_brand",
+        sdrId: normalizedRole === "sdr" ? me?._id || "" : "",
+        imeId: normalizedRole === "ime" ? me?._id || "" : "",
       });
 
       router.push(buildCampaignDetailUrl(campaignId));
@@ -741,12 +750,12 @@ export default function InstantlyCampaignsPage() {
           prev.map((item) =>
             item._id === row._id
               ? {
-                ...item,
-                instantly: {
-                  ...(item.instantly || {}),
-                  shareLink: shareUrl,
-                },
-              }
+                  ...item,
+                  instantly: {
+                    ...(item.instantly || {}),
+                    shareLink: shareUrl,
+                  },
+                }
               : item
           )
         );
@@ -819,7 +828,7 @@ export default function InstantlyCampaignsPage() {
 
     const rect = event.currentTarget.getBoundingClientRect();
     const menuWidth = 224;
-    const estimatedHeight = 252;
+    const estimatedHeight = 292;
     const spacing = 8;
 
     const left = Math.max(
@@ -985,9 +994,7 @@ export default function InstantlyCampaignsPage() {
       <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
         <div className="px-5 py-4">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Campaigns</h2>
-            </div>
+            <h2 className="text-base font-semibold text-slate-900">Campaigns</h2>
 
             <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
               {filteredCampaigns.length} visible
@@ -995,7 +1002,7 @@ export default function InstantlyCampaignsPage() {
           </div>
         </div>
 
-        <div className="xl:hidden p-4 space-y-4">
+        <div className="space-y-4 p-4 xl:hidden">
           {loading ? (
             Array.from({ length: 3 }).map((_, index) => (
               <div
@@ -1040,6 +1047,7 @@ export default function InstantlyCampaignsPage() {
               const replied = normalizeNumber(row.stats?.totalReplies);
               const opportunities = normalizeNumber(row.stats?.totalOpportunities);
               const ownerMeta = getCampaignOwnerMeta(row);
+
               return (
                 <div
                   key={row._id}
@@ -1148,7 +1156,7 @@ export default function InstantlyCampaignsPage() {
                   <div className="mt-5">
                     <div className="flex items-center justify-between text-xs font-medium text-slate-500">
                       <span>Progress</span>
-                      <span className="text-sm font-semibold text-slate-900">{progress}%</span>
+                      <span className="text-sm font-semibold tabular-nums text-slate-900">{progress}%</span>
                     </div>
                     <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                       <div
@@ -1168,7 +1176,7 @@ export default function InstantlyCampaignsPage() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                         Sent
                       </p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
+                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
                         {sent > 0 ? sent : "-"}
                       </p>
                     </div>
@@ -1177,7 +1185,7 @@ export default function InstantlyCampaignsPage() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                         Click
                       </p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900">{clicked}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">{clicked}</p>
                     </div>
 
                     {canViewReplyColumns && (
@@ -1185,7 +1193,7 @@ export default function InstantlyCampaignsPage() {
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                           Replied
                         </p>
-                        <p className="mt-2 text-lg font-semibold text-slate-900">
+                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
                           {replied > 0 ? replied : "-"}
                         </p>
                       </div>
@@ -1196,7 +1204,7 @@ export default function InstantlyCampaignsPage() {
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                           Opportunities
                         </p>
-                        <p className="mt-2 text-lg font-semibold text-slate-900">
+                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
                           {opportunities}
                         </p>
                       </div>
@@ -1218,7 +1226,7 @@ export default function InstantlyCampaignsPage() {
         </div>
 
         <div className="hidden xl:block px-4 pb-4">
-          <div className="min-w-[1180px]">
+          <div className={desktopMinWidthClass}>
             <div
               className="grid items-center px-2 pb-3 text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
               style={{ gridTemplateColumns: desktopGridTemplateColumns }}
@@ -1305,27 +1313,28 @@ export default function InstantlyCampaignsPage() {
                         <p className="truncate text-[1.05rem] font-semibold text-slate-900">
                           {row.name}
                         </p>
-                        {canViewOwnerColumn && (
-                          <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
-                            <p className="truncate font-semibold text-slate-900">{ownerMeta.value}</p>
-                            <p className="mt-1 text-xs text-slate-500">{ownerMeta.label} owner</p>
-                          </div>
-                        )}
-
-                        {canViewRhOwnerColumn && (
-                          <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
-                            <p className="truncate font-semibold text-slate-900">
-                              {row.flowType === "ime_influencer" ? "—" : getAdminEntityLabel(row.RHId)}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {row.flowType === "ime_influencer" ? "Not applicable" : "Revenue head"}
-                            </p>
-                          </div>
-                        )}
                         <p className="mt-1 truncate text-xs text-slate-500">
                           {row.instantly?.senderAccountEmail || "No sender assigned"}
                         </p>
                       </button>
+
+                      {canViewOwnerColumn && (
+                        <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                          <p className="truncate font-semibold text-slate-900">{ownerMeta.value}</p>
+                          <p className="mt-1 text-xs text-slate-500">{ownerMeta.label} owner</p>
+                        </div>
+                      )}
+
+                      {canViewRhOwnerColumn && (
+                        <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                          <p className="truncate font-semibold text-slate-900">
+                            {row.flowType === "ime_influencer" ? "—" : getAdminEntityLabel(row.RHId)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {row.flowType === "ime_influencer" ? "Not applicable" : "Revenue head"}
+                          </p>
+                        </div>
+                      )}
 
                       <div className="px-4 py-7">
                         <div className="flex items-center gap-2">
@@ -1347,7 +1356,7 @@ export default function InstantlyCampaignsPage() {
                       </div>
 
                       <div className="px-4 py-7">
-                        <p className="text-[1.05rem] font-semibold text-slate-900">{progress}%</p>
+                        <p className="text-[1.05rem] font-semibold tabular-nums text-slate-900">{progress}%</p>
                         <div className="mt-3 h-1.5 w-[72px] overflow-hidden rounded-full bg-slate-200">
                           <div
                             className="h-full rounded-full bg-slate-500 transition-all"
@@ -1356,22 +1365,22 @@ export default function InstantlyCampaignsPage() {
                         </div>
                       </div>
 
-                      <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                      <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
                         {sent > 0 ? sent : "-"}
                       </div>
 
-                      <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                      <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
                         {clicked}
                       </div>
 
                       {canViewReplyColumns && (
-                        <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                        <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
                           {replied > 0 ? replied : "-"}
                         </div>
                       )}
 
                       {canViewReplyColumns && (
-                        <div className="px-4 py-7 text-[1.05rem] font-medium text-slate-900">
+                        <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
                           {opportunities}
                         </div>
                       )}
@@ -1417,6 +1426,7 @@ export default function InstantlyCampaignsPage() {
           </div>
         </div>
       </section>
+
       {openMenu && (
         <div
           ref={menuRef}
@@ -1461,7 +1471,7 @@ export default function InstantlyCampaignsPage() {
             </div>
 
             <div className="mt-6 space-y-4">
-              {me?.role === "super_admin" ? (
+              {isSuperAdmin ? (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-800">
                     Campaign Flow
@@ -1491,7 +1501,7 @@ export default function InstantlyCampaignsPage() {
                 </div>
               )}
 
-              {me?.role === "super_admin" && createForm.flowType === "standard_brand" && (
+              {isSuperAdmin && createForm.flowType === "standard_brand" && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-800">
                     SDR Owner
@@ -1513,7 +1523,7 @@ export default function InstantlyCampaignsPage() {
                 </div>
               )}
 
-              {me?.role === "super_admin" && createForm.flowType === "ime_influencer" && (
+              {isSuperAdmin && createForm.flowType === "ime_influencer" && (
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-800">
                     IME Owner
