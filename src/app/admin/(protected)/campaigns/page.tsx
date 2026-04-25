@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { post } from "@/lib/api";
 import AdminTable, { type AdminTableColumn } from "../../components/table";
 import {
@@ -159,6 +160,12 @@ function isStandardCampaign(campaign: Campaign) {
   return !isFullyManagedCampaign(campaign);
 }
 
+function getQuickFilterFromQuery(value?: string | null): QuickFilter {
+  if (value === "fully_managed") return "fully_managed";
+  if (value === "standard_campaign") return "standard_campaign";
+  return "all";
+}
+
 function getStatusMeta(campaign: Campaign) {
   if (campaign.isDraft === 1) {
     return {
@@ -221,6 +228,9 @@ async function copyTextToClipboard(text: string) {
 }
 
 export default function AdminCampaignsPage() {
+  const searchParams = useSearchParams();
+  const quickFilterParam = searchParams.get("quickFilter");
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -236,7 +246,7 @@ export default function AdminCampaignsPage() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(0);
-  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(() => getQuickFilterFromQuery(quickFilterParam));
   const [datePreset, setDatePreset] = useState<DatePreset>("all_time");
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -315,6 +325,14 @@ export default function AdminCampaignsPage() {
       setSummaryLoading(false);
     }
   }, []);
+
+
+  useEffect(() => {
+    const nextFilter = getQuickFilterFromQuery(quickFilterParam);
+
+    setQuickFilter((current) => (current === nextFilter ? current : nextFilter));
+    setPage(1);
+  }, [quickFilterParam]);
 
   useEffect(() => {
     fetchCampaigns();

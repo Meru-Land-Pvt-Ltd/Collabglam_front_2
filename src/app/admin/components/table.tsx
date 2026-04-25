@@ -98,6 +98,7 @@ export interface AdminTableProps<T> {
   rowClassName?: (row: T, index: number, isExpanded: boolean) => string;
 
   className?: string;
+  containerClassName?: string;
   tableClassName?: string;
   bodyClassName?: string;
   headerRowClassName?: string;
@@ -137,7 +138,9 @@ function SortHead({
       <div className={cx("flex items-center gap-1", getJustifyClass(align))}>
         {label}
         {isActive ? (
-          <span className="text-slate-500">{sortOrder === "asc" ? "↑" : "↓"}</span>
+          <span className="text-slate-500">
+            {sortOrder === "asc" ? "↑" : "↓"}
+          </span>
         ) : null}
       </div>
     </TableHead>
@@ -184,6 +187,7 @@ export default function AdminTable<T>({
   onRowClick,
   rowClassName,
   className,
+  containerClassName,
   tableClassName,
   bodyClassName,
   headerRowClassName,
@@ -202,147 +206,176 @@ export default function AdminTable<T>({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
-        <Table className={tableClassName}>
-          <TableHeader>
-            <TableRow
-              className={cx("border-slate-200 hover:bg-transparent", headerRowClassName)}
-            >
-              {hasExpandable ? <TableHead className="w-10 py-4" /> : null}
+      <div
+        className={cx(
+          "overflow-hidden rounded-l border border-slate-200 bg-white shadow-sm",
+          containerClassName
+        )}
+      >
+        <div className="overflow-x-auto">
+          <Table className={cx("border-collapse", tableClassName)}>
+            <TableHeader>
+              <TableRow
+                className={cx(
+                  "border-b border-slate-200 hover:bg-transparent",
+                  headerRowClassName
+                )}
+              >
+                {hasExpandable ? <TableHead className="w-10 py-4" /> : null}
 
-              {columns.map((column) => (
-                <SortHead
-                  key={column.id}
-                  label={column.header}
-                  field={column.sortField || column.id}
-                  sortable={column.sortable}
-                  sortBy={sortBy}
-                  sortOrder={sortOrder}
-                  align={column.align}
-                  headerClassName={cx(column.widthClassName, column.headerClassName)}
-                  onSort={onSort}
-                />
-              ))}
+                {columns.map((column) => (
+                  <SortHead
+                    key={column.id}
+                    label={column.header}
+                    field={column.sortField || column.id}
+                    sortable={column.sortable}
+                    sortBy={sortBy}
+                    sortOrder={sortOrder}
+                    align={column.align}
+                    headerClassName={cx(
+                      column.widthClassName,
+                      column.headerClassName
+                    )}
+                    onSort={onSort}
+                  />
+                ))}
 
-              {hasActions ? (
-                <TableHead
-                  className={cx(
-                    "py-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500",
-                    getTextAlignClass(actions?.align || "right"),
-                    actions?.headerClassName
-                  )}
-                >
-                  <div className={cx("flex items-center", getJustifyClass(actions?.align || "right"))}>
-                    {actions?.header || "Actions"}
-                  </div>
-                </TableHead>
-              ) : null}
-            </TableRow>
-          </TableHeader>
-
-          <TableBody className={bodyClassName}>
-            {loading ? <SkeletonRows rows={loadingRows} colSpan={totalColumns} /> : null}
-
-            {!loading && data.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={totalColumns} className="py-12 text-center">
-                  <div className="mx-auto max-w-md space-y-2">
-                    <p className="text-base font-extrabold text-slate-900">{emptyTitle}</p>
-                    <p className="text-sm font-medium text-slate-500">{emptyDescription}</p>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : null}
-
-            {!loading &&
-              data.map((row, index) => {
-                const id = rowKey(row, index);
-                const canExpand = expandable?.canExpand
-                  ? expandable.canExpand(row)
-                  : Boolean(expandable);
-                const isExpanded = canExpand && expandable?.expandedRowId === id;
-                const isClickable = Boolean(onRowClick || (expandable && canExpand));
-
-                return (
-                  <React.Fragment key={id}>
-                    <TableRow
+                {hasActions ? (
+                  <TableHead
+                    className={cx(
+                      "py-4 text-xs font-bold uppercase tracking-[0.14em] text-slate-500",
+                      getTextAlignClass(actions?.align || "right"),
+                      actions?.headerClassName
+                    )}
+                  >
+                    <div
                       className={cx(
-                        "border-slate-100 transition",
-                        isClickable && "cursor-pointer",
-                        isExpanded ? "bg-slate-50" : isClickable && "hover:bg-slate-50/70",
-                        rowClassName?.(row, index, Boolean(isExpanded))
+                        "flex items-center",
+                        getJustifyClass(actions?.align || "right")
                       )}
-                      onClick={() => {
-                        if (onRowClick) {
-                          onRowClick(row, id);
-                          return;
-                        }
-
-                        if (expandable && canExpand) {
-                          expandable.onToggle(id, row);
-                        }
-                      }}
                     >
-                      {hasExpandable ? (
-                        <TableCell className="pl-4 pr-1">
-                          {canExpand ? (
-                            isExpanded ? (
-                              <ChevronDown className="h-4 w-4 text-slate-500" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-slate-400" />
-                            )
-                          ) : null}
-                        </TableCell>
-                      ) : null}
+                      {actions?.header || "Actions"}
+                    </div>
+                  </TableHead>
+                ) : null}
+              </TableRow>
+            </TableHeader>
 
-                      {columns.map((column) => (
-                        <TableCell
-                          key={column.id}
-                          className={cx(
-                            "py-4",
-                            getTextAlignClass(column.align),
-                            column.widthClassName,
-                            column.cellClassName
-                          )}
-                        >
-                          {column.render(row, index)}
-                        </TableCell>
-                      ))}
+            <TableBody className={bodyClassName}>
+              {loading ? (
+                <SkeletonRows rows={loadingRows} colSpan={totalColumns} />
+              ) : null}
 
-                      {hasActions ? (
-                        <TableCell
-                          className={cx(
-                            "py-4",
-                            getTextAlignClass(actions?.align || "right"),
-                            actions?.cellClassName
-                          )}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {actions?.render(row, index)}
-                        </TableCell>
-                      ) : null}
-                    </TableRow>
+              {!loading && data.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={totalColumns} className="py-12 text-center">
+                    <div className="mx-auto max-w-md space-y-2">
+                      <p className="text-base font-extrabold text-slate-900">
+                        {emptyTitle}
+                      </p>
+                      <p className="text-sm font-medium text-slate-500">
+                        {emptyDescription}
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : null}
 
-                    {isExpanded && expandable ? (
+              {!loading &&
+                data.map((row, index) => {
+                  const id = rowKey(row, index);
+                  const canExpand = expandable?.canExpand
+                    ? expandable.canExpand(row)
+                    : Boolean(expandable);
+                  const isExpanded = canExpand && expandable?.expandedRowId === id;
+                  const isClickable = Boolean(onRowClick || (expandable && canExpand));
+
+                  return (
+                    <React.Fragment key={id}>
                       <TableRow
                         className={cx(
-                          "border-slate-100 bg-slate-50/70",
-                          expandable.expandedRowClassName
+                          "border-b border-slate-100 transition last:border-b-0",
+                          isClickable && "cursor-pointer",
+                          isExpanded
+                            ? "bg-slate-50"
+                            : isClickable && "hover:bg-slate-50/70",
+                          rowClassName?.(row, index, Boolean(isExpanded))
                         )}
+                        onClick={() => {
+                          if (onRowClick) {
+                            onRowClick(row, id);
+                            return;
+                          }
+
+                          if (expandable && canExpand) {
+                            expandable.onToggle(id, row);
+                          }
+                        }}
                       >
-                        <TableCell
-                          colSpan={totalColumns}
-                          className={cx("px-6 py-5", expandable.expandedCellClassName)}
-                        >
-                          {expandable.renderExpandedRow(row)}
-                        </TableCell>
+                        {hasExpandable ? (
+                          <TableCell className="pl-4 pr-1">
+                            {canExpand ? (
+                              isExpanded ? (
+                                <ChevronDown className="h-4 w-4 text-slate-500" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 text-slate-400" />
+                              )
+                            ) : null}
+                          </TableCell>
+                        ) : null}
+
+                        {columns.map((column) => (
+                          <TableCell
+                            key={column.id}
+                            className={cx(
+                              "py-4",
+                              getTextAlignClass(column.align),
+                              column.widthClassName,
+                              column.cellClassName
+                            )}
+                          >
+                            {column.render(row, index)}
+                          </TableCell>
+                        ))}
+
+                        {hasActions ? (
+                          <TableCell
+                            className={cx(
+                              "py-4",
+                              getTextAlignClass(actions?.align || "right"),
+                              actions?.cellClassName
+                            )}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {actions?.render(row, index)}
+                          </TableCell>
+                        ) : null}
                       </TableRow>
-                    ) : null}
-                  </React.Fragment>
-                );
-              })}
-          </TableBody>
-        </Table>
+
+                      {isExpanded && expandable ? (
+                        <TableRow
+                          className={cx(
+                            "border-b border-slate-100 bg-slate-50/70 last:border-b-0",
+                            expandable.expandedRowClassName
+                          )}
+                        >
+                          <TableCell
+                            colSpan={totalColumns}
+                            className={cx(
+                              "px-6 py-5",
+                              expandable.expandedCellClassName
+                            )}
+                          >
+                            {expandable.renderExpandedRow(row)}
+                          </TableCell>
+                        </TableRow>
+                      ) : null}
+                    </React.Fragment>
+                  );
+                })}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
       {pagination ? (
