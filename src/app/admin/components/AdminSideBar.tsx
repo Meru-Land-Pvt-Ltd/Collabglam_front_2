@@ -143,6 +143,14 @@ function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+function getSidebarItemId(item: {
+  key?: string;
+  href?: string;
+  label?: string;
+}) {
+  return [item.key || "item", item.href || "no-href", item.label || "no-label"].join("::");
+}
+
 function getPermissionKeys(permissions: AdminPermission[] = []) {
   return permissions
     .map((item) => canonicalizeModuleKey(item?.key))
@@ -335,9 +343,7 @@ export default function AdminSidebar({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
 
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
-    documents: pathname.startsWith("/admin/documents"),
-  });
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   const [permissionKeys, setPermissionKeys] = useState<string[]>([]);
   const [currentRole, setCurrentRole] = useState("");
@@ -346,9 +352,21 @@ export default function AdminSidebar({
   const [adminStatus, setAdminStatus] = useState("");
 
   useEffect(() => {
-    if (pathname.startsWith("/admin/documents")) {
-      setOpenSections((prev) => ({ ...prev, documents: true }));
-    }
+    const nextOpenSections: Record<string, boolean> = {};
+
+    ADMIN_MODULES.forEach((item) => {
+      if (
+        item.children?.some((child) => isActivePath(pathname, child.href)) ||
+        (item.href && isActivePath(pathname, item.href) && item.children?.length)
+      ) {
+        nextOpenSections[getSidebarItemId(item)] = true;
+      }
+    });
+
+    setOpenSections((prev) => ({
+      ...prev,
+      ...nextOpenSections,
+    }));
   }, [pathname]);
 
   useEffect(() => {
@@ -500,7 +518,7 @@ export default function AdminSidebar({
 
     return (
       <div
-        key={item.key || item.href}
+        key={getSidebarItemId(item)}
         className="relative mb-2 flex justify-center overflow-visible"
       >
         <IconRailItem
@@ -519,6 +537,7 @@ export default function AdminSidebar({
   ) => {
     const active = isActivePath(pathname, item.href);
     const Icon = item.icon;
+    const itemId = getSidebarItemId(item);
 
     if (!isMobile && collapsed) {
       return renderCollapsedSidebarItem(item);
@@ -528,11 +547,11 @@ export default function AdminSidebar({
       const childActive = item.children.some((child) =>
         isActivePath(pathname, child.href)
       );
-      const isOpen = Boolean(openSections[item.key]);
+      const isOpen = Boolean(openSections[itemId]);
 
       return (
         <CollapsibleSection
-          key={item.key}
+          key={itemId}
           title={item.label}
           icon={Icon}
           isOpen={isOpen}
@@ -540,7 +559,7 @@ export default function AdminSidebar({
           onToggle={() =>
             setOpenSections((prev) => ({
               ...prev,
-              [item.key]: !prev[item.key],
+              [itemId]: !prev[itemId],
             }))
           }
         >
@@ -550,7 +569,7 @@ export default function AdminSidebar({
     }
 
     return (
-      <div key={item.href} className="mb-1">
+      <div key={itemId} className="mb-1">
         <Link
           href={item.href}
           onClick={() => {
