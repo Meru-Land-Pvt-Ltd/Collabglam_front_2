@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   Users,
   Briefcase,
-  CalendarDays,
   CheckCircle2,
   XCircle,
   Clock3,
@@ -41,7 +40,7 @@ const outfit = Outfit({
 
 type BrandStatus = "active" | "expired" | "archived";
 type BillingCycle = "monthly" | "annual";
-type AssignRole = "RH" | "BME" | "IME";
+type AssignRole = "RH" | "BME";
 
 type SortField =
   | "name"
@@ -107,15 +106,11 @@ interface ApiBrand {
 
   assignedRm?: string;
   assignedBm?: string;
-  assignedIm?: string;
-
   assignedRh?: string;
   assignedBme?: string;
-  assignedIme?: string;
 
   RHId?: string;
   bdmId?: string;
-  idmId?: string;
 }
 
 interface Employee {
@@ -187,11 +182,9 @@ interface BrandRow {
 
   assignedRh: string;
   assignedBme: string;
-  assignedIme: string;
 
   RHId: string;
   bdmId: string;
-  idmId: string;
 }
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -378,11 +371,9 @@ function mapBrand(brand: ApiBrand): BrandRow {
 
     assignedRh: brand.assignedRh || brand.assignedRm || "",
     assignedBme: brand.assignedBme || brand.assignedBm || "",
-    assignedIme: brand.assignedIme || brand.assignedIm || "",
 
     RHId: brand.RHId || "",
     bdmId: brand.bdmId || "",
-    idmId: brand.idmId || "",
   };
 }
 
@@ -423,13 +414,6 @@ function roleMeta(role: AssignRole) {
         label: "BME",
         payloadKey: "bdmId",
         emptyLabel: "Assign BME",
-      };
-
-    case "IME":
-      return {
-        label: "IME",
-        payloadKey: "idmId",
-        emptyLabel: "Assign IME",
       };
 
     default:
@@ -859,9 +843,9 @@ const AssigneePanelCard = React.memo(function AssigneePanelCard({
             <p className="text-sm font-extrabold text-slate-900">
               {currentValue}
             </p>
-            <p className="mt-1 text-xs font-medium text-slate-500">
+            {/* <p className="mt-1 text-xs font-medium text-slate-500">
               {employeeId ? `Mapped ID: ${employeeId}` : "Assigned"}
-            </p>
+            </p> */}
           </>
         ) : (
           <>
@@ -898,12 +882,11 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
 }: {
   brand: BrandRow;
   rhOptions: Employee[];
-  getScopedExecOptions: (role: "BME" | "IME", brand: BrandRow) => Employee[];
+  getScopedExecOptions: (role: "BME", brand: BrandRow) => Employee[];
   onAssignSave: (brandId: string, role: AssignRole, employeeId: string) => Promise<void>;
 }) {
   const usageFeatures = brand.features.filter((item) => item.limit > 0);
   const brandBmeOptions = getScopedExecOptions("BME", brand);
-  const brandImeOptions = getScopedExecOptions("IME", brand);
 
   return (
     <div className="space-y-5">
@@ -943,7 +926,7 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <AssigneePanelCard
               title="Assigned RH"
               currentValue={brand.assignedRh}
@@ -966,20 +949,6 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
                 !brand.RHId || (!brand.assignedBme && brandBmeOptions.length === 0)
               }
               disabledLabel={!brand.RHId ? "Assign RH first" : "No BME under RH"}
-            />
-
-            <AssigneePanelCard
-              title="Assigned IME"
-              currentValue={brand.assignedIme}
-              employeeId={brand.idmId}
-              brandId={brand._id}
-              role="IME"
-              options={brandImeOptions}
-              onSave={onAssignSave}
-              disabled={
-                !brand.RHId || (!brand.assignedIme && brandImeOptions.length === 0)
-              }
-              disabledLabel={!brand.RHId ? "Assign RH first" : "No IME under RH"}
             />
           </div>
         </div>
@@ -1171,7 +1140,6 @@ const AdminBrandPage: NextPage = () => {
 
   const [rhOptions, setRhOptions] = useState<Employee[]>([]);
   const [bmeOptions, setBmeOptions] = useState<Employee[]>([]);
-  const [imeOptions, setImeOptions] = useState<Employee[]>([]);
 
   const [canEditBrands, setCanEditBrands] = useState(false);
 
@@ -1301,15 +1269,13 @@ const AdminBrandPage: NextPage = () => {
 
   const fetchAssignees = useCallback(async () => {
     try {
-      const [rhResponse, bmeResponse, imeResponse] = await Promise.all([
+      const [rhResponse, bmeResponse] = await Promise.all([
         adminGet<EmployeeListResponse>("/admins/get-rm-list"),
         adminGet<EmployeeListResponse>("/admins/get-executive-list?role=bme"),
-        adminGet<EmployeeListResponse>("/admins/get-executive-list?role=ime"),
       ]);
 
       if (rhResponse.success) setRhOptions(rhResponse.data ?? []);
       if (bmeResponse.success) setBmeOptions(bmeResponse.data ?? []);
-      if (imeResponse.success) setImeOptions(imeResponse.data ?? []);
     } catch (err) {
       console.error("Failed to fetch assignees", err);
     }
@@ -1325,20 +1291,14 @@ const AdminBrandPage: NextPage = () => {
 
   const rhNameMap = useMemo(() => buildEmployeeNameMap(rhOptions), [rhOptions]);
   const bmeNameMap = useMemo(() => buildEmployeeNameMap(bmeOptions), [bmeOptions]);
-  const imeNameMap = useMemo(() => buildEmployeeNameMap(imeOptions), [imeOptions]);
 
   const bmeOptionsByRh = useMemo(
     () => groupEmployeesByParent(bmeOptions),
     [bmeOptions]
   );
 
-  const imeOptionsByRh = useMemo(
-    () => groupEmployeesByParent(imeOptions),
-    [imeOptions]
-  );
-
   const getScopedExecOptions = useCallback(
-    (role: "BME" | "IME", brand: BrandRow) => {
+    (role: "BME", brand: BrandRow) => {
       if (!brand.RHId) return [];
 
       const key = String(brand.RHId);
@@ -1347,9 +1307,9 @@ const AdminBrandPage: NextPage = () => {
         return bmeOptionsByRh[key] ?? [];
       }
 
-      return imeOptionsByRh[key] ?? [];
+      return [];
     },
-    [bmeOptionsByRh, imeOptionsByRh]
+    [bmeOptionsByRh]
   );
 
   const handleSort = useCallback(
@@ -1388,29 +1348,19 @@ const AdminBrandPage: NextPage = () => {
               assignedRh: rhNameMap[employeeId] || employeeId,
               RHId: employeeId,
               assignedBme: "",
-              assignedIme: "",
               bdmId: "",
-              idmId: "",
-            };
-          }
-
-          if (role === "BME") {
-            return {
-              ...brand,
-              assignedBme: bmeNameMap[employeeId] || employeeId,
-              bdmId: employeeId,
             };
           }
 
           return {
             ...brand,
-            assignedIme: imeNameMap[employeeId] || employeeId,
-            idmId: employeeId,
+            assignedBme: bmeNameMap[employeeId] || employeeId,
+            bdmId: employeeId,
           };
         })
       );
     },
-    [rhNameMap, bmeNameMap, imeNameMap]
+    [rhNameMap, bmeNameMap]
   );
 
   const handleToggleExpand = useCallback((brandId: string) => {
@@ -1442,7 +1392,6 @@ const AdminBrandPage: NextPage = () => {
     () => ({
       rh: brands.filter((item) => Boolean(item.assignedRh)).length,
       bme: brands.filter((item) => Boolean(item.assignedBme)).length,
-      ime: brands.filter((item) => Boolean(item.assignedIme)).length,
     }),
     [brands]
   );
@@ -1565,8 +1514,8 @@ const AdminBrandPage: NextPage = () => {
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-600">
-                Manage brands, review subscription health, assign RH, BME, and
-                IME, and render brand avatars directly from profilePic data URLs.
+                Manage brands, review subscription health, assign RH and BME,
+                and render brand avatars directly from profilePic data URLs.
               </p>
             </div>
 
@@ -1635,10 +1584,10 @@ const AdminBrandPage: NextPage = () => {
             hint="Brands with RH already mapped"
           />
           <SummaryCard
-            title="BME / IME Assigned"
-            value={String(assignedCounts.bme) + "/" + String(assignedCounts.ime)}
+            title="BME Assigned"
+            value={assignedCounts.bme}
             icon={Briefcase}
-            hint="BME and IME mapped counts"
+            hint="Brands with BME already mapped"
           />
         </div>
 
@@ -1696,7 +1645,7 @@ const AdminBrandPage: NextPage = () => {
               showSummary: true,
             }}
             className="w-full"
-            tableClassName="min-w-[1500px]"
+            tableClassName="min-w-[1400px]"
             headerRowClassName="border-slate-200 hover:bg-transparent"
             bodyClassName="[&_tr:last-child]:border-b-0"
           />
