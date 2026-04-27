@@ -1256,12 +1256,7 @@ const BrandActionButtons = React.memo(function BrandActionButtons({
           disabled={createDisabled}
         />
 
-        <ActionIconButton
-          icon={Pencil}
-          tooltip={reviewDisabled ? disabledReason : "Review campaigns"}
-          href={`/admin/brands/review-campaigns?brandId=${brand._id}`}
-          disabled={reviewDisabled}
-        />
+
       </div>
     </TooltipProvider>
   );
