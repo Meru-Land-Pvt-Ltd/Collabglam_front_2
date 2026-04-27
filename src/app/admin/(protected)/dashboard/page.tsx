@@ -12,11 +12,15 @@ import {
   Briefcase,
   CheckCircle2,
   CircleDollarSign,
+  Clock3,
   Eye,
   FileWarning,
   FolderKanban,
+  Inbox,
   LayoutDashboard,
   Loader2,
+  Mail,
+  MessageSquareText,
   RefreshCcw,
   ShieldAlert,
   Sparkles,
@@ -406,6 +410,8 @@ type DashboardState = {
   brands: BrandItem[];
   brandMeta: ApiMeta;
   employees: EmployeesByRole;
+  reviewQueue: ReviewQueueItem[];
+  reviewQueueMeta: ApiMeta;
 };
 
 type SectionErrorMap = {
@@ -414,6 +420,7 @@ type SectionErrorMap = {
   disputes?: string | null;
   influencers?: string | null;
   brands?: string | null;
+  reviewQueue?: string | null;
 };
 
 type SafeResult<T> = {
@@ -450,10 +457,40 @@ type DashboardTableRow = {
   cells: Array<string | number | React.ReactNode>;
 };
 
+type ReviewQueueItem = {
+  _id?: string;
+  id?: string;
+  threadId?: string;
+  messageId?: string;
+  subject?: string;
+  snippet?: string;
+  preview?: string;
+  bodyPreview?: string;
+  text?: string;
+  message?: string;
+  from?: string | {
+    name?: string;
+    email?: string;
+  };
+  sender?: string;
+  fromName?: string;
+  fromEmail?: string;
+  email?: string;
+  brandName?: string;
+  campaignName?: string;
+  status?: string;
+  receivedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  displayUrl?: string;
+  url?: string;
+};
+
 const API = {
   me: "/admins/me",
   dashboard: "/dash/dashboard",
   revenueHeadDetails: "/dash/revenueheaddetails",
+  reviewQueue: "/outreach/replies/pending",
 };
 
 const DASHBOARD_POST_BODY = {};
@@ -463,6 +500,7 @@ const CAMPAIGN_VIEW_BASE = "/admin/campaigns/view";
 const DISPUTES_ROUTE = "/admin/disputes";
 const INFLUENCERS_ROUTE = "/admin/influencers";
 const BRANDS_ROUTE = "/admin/brands";
+const QUEUE_ROUTE = "/admin/crm/review-queue";
 
 const MAIN_ADMIN = {
   userId: "69b007bb8e53408b168a8371",
@@ -1448,6 +1486,70 @@ function getActivityItems(
     .slice(0, 6);
 }
 
+
+function canViewReviewQueue(role?: AdminRole | null) {
+  return role === "super_admin" || role === "revenue_head";
+}
+
+function getReviewQueueId(item: ReviewQueueItem, index: number) {
+  return (
+    item._id ||
+    item.id ||
+    item.threadId ||
+    item.messageId ||
+    `${item.fromEmail || item.email || "review"}-${index}`
+  );
+}
+
+function getReviewQueueSenderName(item: ReviewQueueItem) {
+  if (typeof item.from === "object" && item.from?.name) {
+    return item.from.name;
+  }
+
+  return (
+    item.fromName ||
+    item.sender ||
+    item.brandName ||
+    item.campaignName ||
+    "Unknown Sender"
+  );
+}
+
+function getReviewQueueSenderEmail(item: ReviewQueueItem) {
+  if (typeof item.from === "object" && item.from?.email) {
+    return item.from.email;
+  }
+
+  if (typeof item.from === "string" && item.from.includes("@")) {
+    return item.from;
+  }
+
+  return item.fromEmail || item.email || "";
+}
+
+function getReviewQueueSubject(item: ReviewQueueItem) {
+  return (
+    item.subject ||
+    item.campaignName ||
+    item.brandName ||
+    "New pending reply"
+  );
+}
+
+function getReviewQueuePreview(item: ReviewQueueItem) {
+  return (
+    item.snippet ||
+    item.preview ||
+    item.bodyPreview ||
+    item.text ||
+    item.message ||
+    "No message preview available."
+  );
+}
+
+function getReviewQueueTime(item: ReviewQueueItem) {
+  return item.receivedAt || item.createdAt || item.updatedAt || null;
+}
 function getStatusTone(status?: string) {
   const key = String(status || "").toLowerCase();
 
@@ -1513,6 +1615,8 @@ export default function AdminDashboardPage() {
       ime: [],
       sdr: [],
     },
+    reviewQueue: [],
+    reviewQueueMeta: {},
   });
 
   const analytics = useMemo(() => {
@@ -1734,6 +1838,33 @@ export default function AdminDashboardPage() {
         router.replace("/admin/login");
         return;
       }
+      let reviewQueue: ReviewQueueItem[] = [];
+      let reviewQueueMeta: ApiMeta = {};
+      let reviewQueueError: string | null = null;
+
+      if (canViewReviewQueue(me.role)) {
+        const reviewQueueResult = await safeGet<any>(
+          API.reviewQueue,
+          "Review Queue"
+        );
+
+        if (reviewQueueResult.ok && reviewQueueResult.data) {
+          reviewQueue = extractArray<ReviewQueueItem>(reviewQueueResult.data, [
+            "replies",
+            "pendingReplies",
+            "items",
+            "results",
+            "queue",
+            "threads",
+            "data",
+          ]);
+
+          reviewQueueMeta = extractMeta(reviewQueueResult.data);
+        } else {
+          reviewQueueError =
+            reviewQueueResult.error || "Unable to load review queue";
+        }
+      }
 
       const dashboardEndpoint =
         me.role === "revenue_head" ? API.revenueHeadDetails : API.dashboard;
@@ -1818,7 +1949,11 @@ export default function AdminDashboardPage() {
 
         disputes,
         disputeMeta: extractMeta(dashboard.disputes),
+
         employees,
+
+        reviewQueue,
+        reviewQueueMeta,
       });
 
       setSectionErrors({
@@ -1827,6 +1962,7 @@ export default function AdminDashboardPage() {
         influencers: null,
         campaigns: null,
         disputes: null,
+        reviewQueue: reviewQueueError,
       });
     } catch (error: any) {
       setFatalError(error?.message || "Failed to load dashboard");
@@ -1900,18 +2036,16 @@ export default function AdminDashboardPage() {
         <section className="flex flex-col gap-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-                <span>CollabGlam</span>
-                <span>/</span>
-                <span className="text-slate-900">Super Admin Dashboard</span>
-              </div>
-
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950 sm:text-[34px]">
-                Super Admin Dashboard
+                {titleCase(state.me?.role || "Admin")} Dashboard
               </h1>
 
               <p className="mt-2 max-w-3xl text-sm text-slate-500">
-                Brand, influencer, campaign, dispute, and platform activity analytics.
+                {state.me?.role === "revenue_head"
+                  ? "Assigned brands, team employees, campaign activity, and revenue head performance analytics."
+                  : state.me?.role === "super_admin"
+                    ? "Brand, influencer, campaign, dispute, and platform activity analytics."
+                    : "Role-based dashboard overview and activity analytics."}
               </p>
             </div>
 
@@ -1924,50 +2058,9 @@ export default function AdminDashboardPage() {
                 </span>
               ) : null}
 
-              <button
-                onClick={() => void loadDashboard("refresh")}
-                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
-              >
-                <RefreshCcw
-                  className={cn("h-4 w-4", refreshing && "animate-spin")}
-                />
-                Refresh
-              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <QuickAction
-              href={BRANDS_ROUTE}
-              icon={<LayoutDashboard className="h-4 w-4" />}
-              label="Manage Brands"
-            />
-            <QuickAction
-              href={INFLUENCERS_ROUTE}
-              icon={<Users className="h-4 w-4" />}
-              label="Verify Influencer"
-            />
-            <QuickAction
-              href={CAMPAIGNS_ROUTE}
-              icon={<FolderKanban className="h-4 w-4" />}
-              label="Approve Campaign"
-            />
-            <QuickAction
-              href="/admin/withdrawals"
-              icon={<WalletCards className="h-4 w-4" />}
-              label="Approve Withdrawal"
-            />
-            <QuickAction
-              href={DISPUTES_ROUTE}
-              icon={<ShieldAlert className="h-4 w-4" />}
-              label="Resolve Dispute"
-            />
-            <QuickAction
-              href="/admin/employees"
-              icon={<Briefcase className="h-4 w-4" />}
-              label="Add Employee"
-            />
-          </div>
         </section>
 
         <section className="flex flex-col gap-5">
@@ -1976,16 +2069,29 @@ export default function AdminDashboardPage() {
             subtitle="Brand signup, subscription, plan, and account health overview"
           />
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-6">
             <MetricCard
               icon={<LayoutDashboard className="h-5 w-5" />}
-              label="Total Brands"
+              label={
+                state.me?.role === "revenue_head"
+                  ? "Assigned Brands"
+                  : "Total Brands"
+              }
               value={String(
-                state.summary.totalBrands ??
-                state.brandMeta.total ??
-                analytics.brands.length
+                state.me?.role === "revenue_head"
+                  ? state.summary.totalAssignedBrands ??
+                  state.summary.totalBrands ??
+                  state.brandMeta.total ??
+                  analytics.brands.length
+                  : state.summary.totalBrands ??
+                  state.brandMeta.total ??
+                  analytics.brands.length
               )}
-              helper="All registered brands"
+              helper={
+                state.me?.role === "revenue_head"
+                  ? "Brands assigned to you"
+                  : "All registered brands"
+              }
               tone="info"
               href={BRANDS_ROUTE}
             />
@@ -2004,14 +2110,6 @@ export default function AdminDashboardPage() {
               value={analytics.brandMonthGrowth.label}
               helper="Compared with last month"
               tone="managed"
-            />
-
-            <MetricCard
-              icon={<Sparkles className="h-5 w-5" />}
-              label="Active Brands"
-              value={String(analytics.activeBrands.length)}
-              helper="Active brand accounts"
-              tone="success"
             />
 
             <MetricCard
@@ -2039,34 +2137,73 @@ export default function AdminDashboardPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-            <Card
-              title="Brand Analytics"
-              subtitle="Brand signup, subscription, and plan overview"
-              action={
-                <Link
-                  href={BRANDS_ROUTE}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-                >
-                  View All
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
-              }
-              className="h-full"
-            >
-              {sectionErrors.brands ? (
-                <SectionWarning text={sectionErrors.brands} />
-              ) : (
-                <BrandAnalyticsCard
-                  total={analytics.brands.length}
-                  active={analytics.activeBrands.length}
-                  fullyManaged={analytics.fullyManagedBrands.length}
-                  free={analytics.freeBrands.length}
-                  paid={analytics.paidBrands.length}
-                  growth={analytics.brandMonthGrowth}
-                />
+          <div className="flex flex-col gap-5">
+            <div
+              className={cn(
+                "grid grid-cols-1 items-stretch gap-5",
+                canViewReviewQueue(state.me?.role)
+                  ? "xl:grid-cols-[0.95fr_1.05fr]"
+                  : "xl:grid-cols-1"
               )}
-            </Card>
+            >
+              <Card
+                title="Brand Analytics"
+                subtitle="Brand signup, subscription, and plan overview"
+                action={
+                  <Link
+                    href={BRANDS_ROUTE}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
+                    View All
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                }
+                className="h-full"
+              >
+                {sectionErrors.brands ? (
+                  <SectionWarning text={sectionErrors.brands} />
+                ) : (
+                  <BrandAnalyticsCard
+                    total={analytics.brands.length}
+                    active={analytics.activeBrands.length}
+                    fullyManaged={analytics.fullyManagedBrands.length}
+                    free={analytics.freeBrands.length}
+                    paid={analytics.paidBrands.length}
+                    growth={analytics.brandMonthGrowth}
+                  />
+                )}
+              </Card>
+
+              {canViewReviewQueue(state.me?.role) ? (
+                <Card
+                  title="Review Queue"
+                  subtitle="Pending outreach replies that need review"
+                  className="h-full"
+                  action={
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                        <Mail className="h-3.5 w-3.5" />
+                        {state.reviewQueue.length} pending
+                      </span>
+
+                      <Link
+                        href={QUEUE_ROUTE}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
+                        View All
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </div>
+                  }
+                >
+                  {sectionErrors.reviewQueue ? (
+                    <SectionWarning text={sectionErrors.reviewQueue} />
+                  ) : (
+                    <ReviewQueueThreads items={state.reviewQueue} />
+                  )}
+                </Card>
+              ) : null}
+            </div>
 
             <Card
               title="Brand Signup Growth"
@@ -2228,21 +2365,6 @@ export default function AdminDashboardPage() {
                 ) : (
                   <RecentInfluencerList
                     influencers={analytics.recentSignedUpInfluencers}
-                  />
-                )}
-              </Card>
-
-              <Card
-                title="Applied Campaigns by Influencer"
-                subtitle="Campaign applications fetched by influencer ID"
-                className="h-full"
-              >
-                {sectionErrors.influencers ? (
-                  <SectionWarning text={sectionErrors.influencers} />
-                ) : (
-                  <InfluencerAppliedCampaigns
-                    influencers={analytics.topInfluencers}
-                    lookup={state.influencerCampaigns}
                   />
                 )}
               </Card>
@@ -3131,6 +3253,111 @@ function BrandListTable({ brands }: { brands: BrandItem[] }) {
       emptyText="No recent brand signups found."
       tableClassName="min-w-[1080px]"
     />
+  );
+}
+
+function ReviewQueueThreads({ items }: { items: ReviewQueueItem[] }) {
+  if (!items.length) {
+    return (
+      <div className="flex min-h-[360px] flex-col items-center justify-center rounded-[24px] border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-white text-slate-500 shadow-sm ring-1 ring-slate-200">
+          <Inbox className="h-7 w-7" />
+        </div>
+
+        <div className="text-sm font-semibold text-slate-700 ">
+          Queue is empty.
+        </div>
+
+        <p className="mt-2 max-w-sm text-xs leading-5 text-slate-500">
+          New outreach replies waiting for review will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-[560px] overflow-y-auto pr-1">
+      <div className="space-y-3">
+        {items.map((item, index) => {
+          const id = getReviewQueueId(item, index);
+          const senderName = getReviewQueueSenderName(item);
+          const senderEmail = getReviewQueueSenderEmail(item);
+          const subject = getReviewQueueSubject(item);
+          const preview = getReviewQueuePreview(item);
+          const time = getReviewQueueTime(item);
+          const href = item.displayUrl || item.url || "";
+
+          const content = (
+            <div className="group rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/20 hover:shadow-md">
+              <div className="flex items-start gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-50 to-violet-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100">
+                  {(senderName || senderEmail || "RQ")
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-bold text-slate-950">
+                        {senderName}
+                      </div>
+
+                      <div className="mt-0.5 truncate text-xs font-medium text-slate-500">
+                        {senderEmail || item.brandName || item.campaignName || "-"}
+                      </div>
+                    </div>
+
+                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-500">
+                      <Clock3 className="h-3 w-3" />
+                      {formatDateTime(time)}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 flex items-start gap-2">
+                    <div className="mt-0.5 rounded-lg bg-blue-50 p-1.5 text-blue-700">
+                      <MessageSquareText className="h-3.5 w-3.5" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                        {subject}
+                      </div>
+
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                        {preview}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {item.campaignName ? (
+                      <StatusBadge text={item.campaignName} neutral />
+                    ) : null}
+
+                    {item.brandName ? (
+                      <StatusBadge text={item.brandName} neutral />
+                    ) : null}
+
+                    <StatusBadge text={titleCase(item.status || "Pending")} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+
+          if (href) {
+            return (
+              <Link key={id} href={href}>
+                {content}
+              </Link>
+            );
+          }
+
+          return <div key={id}>{content}</div>;
+        })}
+      </div>
+    </div>
   );
 }
 
