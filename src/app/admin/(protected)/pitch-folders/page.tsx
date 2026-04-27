@@ -15,7 +15,6 @@ import {
   Trash2,
   ChevronDown,
   Check,
-  Sparkles,
   Target,
 } from 'lucide-react';
 import swal from 'sweetalert';
@@ -85,6 +84,18 @@ type FolderShare = {
   } | null;
 };
 
+
+type AssignedCampaignMini = {
+  campaignId?: string;
+  campaignsId?: string;
+  campaignTitle?: string;
+  productOrServiceName?: string;
+  brandId?: unknown;
+  brandName?: string;
+  assignedAt?: string | null;
+  assignedByAdminId?: string | null;
+};
+
 type PitchFolder = {
   _id: string;
   title: string;
@@ -96,6 +107,7 @@ type PitchFolder = {
   createdBy?: AdminMini | null;
   updatedBy?: AdminMini | null;
   share?: FolderShare;
+  assignedCampaign?: AssignedCampaignMini | null;
 };
 
 type ListResponse = {
@@ -134,18 +146,25 @@ type CampaignListResponse = {
   totalPages?: number;
 };
 
-type ApplyGoodFitResponse = {
+type AssignCampaignResponse = {
   success?: boolean;
   message?: string;
   data?: {
-    totalGoodFit?: number;
-    withEmail?: number;
-    matched?: number;
-    applied?: number;
-    alreadyApplied?: number;
-    missingEmail?: number;
-    influencerNotFound?: number;
-    applicantCount?: number;
+    folderId?: string;
+    campaignId?: string;
+    assignmentChanged?: boolean;
+    assignedCampaign?: AssignedCampaignMini | null;
+    activation?: {
+      totalGoodFit?: number;
+      withEmail?: number;
+      matched?: number;
+      activated?: number;
+      alreadyInCampaign?: number;
+      missingEmail?: number;
+      influencerNotFound?: number;
+      applicantCount?: number;
+    };
+    folder?: PitchFolder;
   };
 };
 
@@ -220,6 +239,25 @@ function getCampaignStatusLabel(campaign?: CampaignMini | null) {
   return status ? prettyText(status) : 'Active';
 }
 
+
+function getAssignedCampaignId(assigned?: AssignedCampaignMini | null) {
+  return String(assigned?.campaignsId || assigned?.campaignId || '').trim();
+}
+
+function getAssignedCampaignName(assigned?: AssignedCampaignMini | null) {
+  return String(
+    assigned?.campaignTitle ||
+    assigned?.productOrServiceName ||
+    assigned?.campaignsId ||
+    assigned?.campaignId ||
+    'Assigned Campaign'
+  ).trim();
+}
+
+function getAssignedCampaignBrandName(assigned?: AssignedCampaignMini | null) {
+  return String(assigned?.brandName || '').trim();
+}
+
 function AdminMeta({ admin }: { admin?: AdminMini | null }) {
   if (!admin) {
     return <span className="text-sm text-slate-500">--</span>;
@@ -257,7 +295,7 @@ export default function PitchFoldersPage() {
   const [campaigns, setCampaigns] = useState<CampaignMini[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [selectedCampaignByFolder, setSelectedCampaignByFolder] = useState<Record<string, string>>({});
-  const [applyingGoodFitFolderId, setApplyingGoodFitFolderId] = useState<string | null>(null);
+  const [assigningCampaignFolderId, setAssigningCampaignFolderId] = useState<string | null>(null);
   const [openCampaignPickerFolderId, setOpenCampaignPickerFolderId] = useState<string | null>(null);
   const [campaignPickerPosition, setCampaignPickerPosition] = useState<{
     top: number;
@@ -416,7 +454,7 @@ export default function PitchFoldersPage() {
     folderId: string,
     event: React.MouseEvent<HTMLButtonElement>
   ) {
-    if (loadingCampaigns || applyingGoodFitFolderId === folderId) return;
+    if (loadingCampaigns || assigningCampaignFolderId === folderId) return;
 
     if (openCampaignPickerFolderId === folderId) {
       closeCampaignPicker();
@@ -535,7 +573,7 @@ export default function PitchFoldersPage() {
     }
   }
 
-  async function applyGoodFit(folder: PitchFolder) {
+  async function assignCampaign(folder: PitchFolder) {
     const campaignId = String(selectedCampaignByFolder[folder._id] || '').trim();
 
     if (!campaignId) {
@@ -544,29 +582,22 @@ export default function PitchFoldersPage() {
     }
 
     try {
-      setApplyingGoodFitFolderId(folder._id);
+      setAssigningCampaignFolderId(folder._id);
 
-      const resp = await adminPost<ApplyGoodFitResponse>('/pitch-folders/apply-good-fit', {
+      const resp = await adminPost<AssignCampaignResponse>('/pitch-folders/assign-campaign', {
         folderId: folder._id,
         campaignId,
       });
 
-      const data = resp?.data || {};
-      const applied = Number(data.applied || 0);
-      const alreadyApplied = Number(data.alreadyApplied || 0);
-      const notFound = Number(data.influencerNotFound || 0);
-      const missingEmail = Number(data.missingEmail || 0);
-
       await showSuccess(
-        resp?.message ||
-        `Applied ${applied} Good Fit influencer(s). ${alreadyApplied} already applied. ${notFound} not found by email. ${missingEmail} missing email.`
+        resp?.message || 'Campaign assigned to pitch folder successfully.'
       );
 
       await loadFolders(search);
     } catch (e: any) {
-      await showErr(await getApiErrorMessage(e, 'Failed to apply Good Fit.'));
+      await showErr(await getApiErrorMessage(e, 'Failed to assign campaign.'));
     } finally {
-      setApplyingGoodFitFolderId(null);
+      setAssigningCampaignFolderId(null);
     }
   }
 
@@ -695,12 +726,12 @@ export default function PitchFoldersPage() {
         widthClassName: 'min-w-[220px]',
         render: (folder) => <AdminMeta admin={folder.createdBy} />,
       },
-      {
-        id: 'updatedBy',
-        header: 'Last Updated By',
-        widthClassName: 'min-w-[220px]',
-        render: (folder) => <AdminMeta admin={folder.updatedBy} />,
-      },
+      // {
+      //   id: 'updatedBy',
+      //   header: 'Last Updated By',
+      //   widthClassName: 'min-w-[220px]',
+      //   render: (folder) => <AdminMeta admin={folder.updatedBy} />,
+      // },
       {
         id: 'createdAt',
         header: 'Created On',
@@ -711,16 +742,16 @@ export default function PitchFoldersPage() {
           </span>
         ),
       },
-      {
-        id: 'updatedAt',
-        header: 'Updated On',
-        widthClassName: 'min-w-[130px]',
-        render: (folder) => (
-          <span className="text-sm font-medium text-slate-700">
-            {formatDate(folder.updatedAt)}
-          </span>
-        ),
-      },
+      // {
+      //   id: 'updatedAt',
+      //   header: 'Updated On',
+      //   widthClassName: 'min-w-[130px]',
+      //   render: (folder) => (
+      //     <span className="text-sm font-medium text-slate-700">
+      //       {formatDate(folder.updatedAt)}
+      //     </span>
+      //   ),
+      // },
       {
         id: 'itemCount',
         header: 'Influencers',
@@ -733,6 +764,36 @@ export default function PitchFoldersPage() {
             </Badge>
           </div>
         ),
+      },
+      {
+        id: 'assignedCampaign',
+        header: 'Assigned Campaign',
+        widthClassName: 'min-w-[240px]',
+        render: (folder) => {
+          const assignedCampaign = folder.assignedCampaign?.campaignId
+            ? folder.assignedCampaign
+            : null;
+
+          if (!assignedCampaign) {
+            return <span className="text-sm text-slate-500">Reusable / Not assigned</span>;
+          }
+
+          return (
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-900">
+                {getAssignedCampaignName(assignedCampaign)}
+              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                {getAssignedCampaignBrandName(assignedCampaign) ? (
+                  <span>{getAssignedCampaignBrandName(assignedCampaign)}</span>
+                ) : null}
+                <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px]">
+                  Locked
+                </Badge>
+              </div>
+            </div>
+          );
+        },
       },
       {
         id: 'share',
@@ -881,12 +942,25 @@ export default function PitchFoldersPage() {
                 align: 'right',
                 cellClassName: 'pr-4',
                 render: (folder) => {
-                  const selectedCampaignId = selectedCampaignByFolder[folder._id] || '';
-                  const selectedCampaign = campaignById.get(selectedCampaignId) || null;
+                  const assignedCampaign = folder.assignedCampaign?.campaignId
+                    ? folder.assignedCampaign
+                    : null;
+                  const isCampaignAssigned = Boolean(assignedCampaign?.campaignId);
+                  const selectedCampaignId = isCampaignAssigned
+                    ? getAssignedCampaignId(assignedCampaign)
+                    : selectedCampaignByFolder[folder._id] || '';
+                  const selectedCampaign = isCampaignAssigned
+                    ? null
+                    : campaignById.get(selectedCampaignId) || null;
+                  const campaignLabel = isCampaignAssigned
+                    ? getAssignedCampaignName(assignedCampaign)
+                    : selectedCampaign
+                      ? getCampaignName(selectedCampaign)
+                      : '';
                   const busy =
                     duplicatingFolderId === folder._id ||
                     deletingFolderId === folder._id ||
-                    applyingGoodFitFolderId === folder._id;
+                    assigningCampaignFolderId === folder._id;
 
                   return (
                     <div
@@ -897,17 +971,17 @@ export default function PitchFoldersPage() {
                         <button
                           type="button"
                           data-campaign-trigger={folder._id}
-                          disabled={loadingCampaigns || campaigns.length === 0 || busy}
+                          disabled={isCampaignAssigned || loadingCampaigns || campaigns.length === 0 || busy}
                           onClick={(event) => openCampaignPicker(folder._id, event)}
                           className="group flex h-10 w-[300px] items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 text-left transition hover:bg-white hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
                           aria-expanded={openCampaignPickerFolderId === folder._id}
-                          aria-label="Choose campaign"
+                          aria-label={isCampaignAssigned ? "Campaign already assigned" : "Choose campaign"}
                         >
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700 shadow-sm ring-1 ring-slate-200">
                               {loadingCampaigns ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : selectedCampaign ? (
+                              ) : isCampaignAssigned || selectedCampaign ? (
                                 <Check className="h-3.5 w-3.5 text-emerald-600" />
                               ) : (
                                 <Target className="h-3.5 w-3.5" />
@@ -919,20 +993,26 @@ export default function PitchFoldersPage() {
                                 <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
                                   Campaign
                                 </span>
-                                {selectedCampaign ? (
+                                {isCampaignAssigned ? (
+                                  <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-blue-700">
+                                    Assigned
+                                  </span>
+                                ) : selectedCampaign ? (
                                   <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-emerald-700">
                                     Selected
                                   </span>
                                 ) : null}
                               </div>
                               <p className="truncate text-sm font-bold text-slate-900">
-                                {loadingCampaigns
-                                  ? 'Loading campaigns...'
-                                  : selectedCampaign
-                                    ? getCampaignName(selectedCampaign)
-                                    : campaigns.length
-                                      ? 'Choose campaign'
-                                      : 'No campaigns found'}
+                                {isCampaignAssigned
+                                  ? campaignLabel
+                                  : loadingCampaigns
+                                    ? 'Loading campaigns...'
+                                    : selectedCampaign
+                                      ? getCampaignName(selectedCampaign)
+                                      : campaigns.length
+                                        ? 'Choose campaign'
+                                        : 'No campaigns found'}
                               </p>
                             </div>
                           </div>
@@ -947,15 +1027,15 @@ export default function PitchFoldersPage() {
                           type="button"
                           size="sm"
                           className="h-10 rounded-xl bg-slate-900 px-4 font-bold text-white shadow-sm hover:bg-slate-800 disabled:bg-slate-300"
-                          disabled={!selectedCampaignId || busy || loadingCampaigns}
-                          onClick={() => applyGoodFit(folder)}
+                          disabled={isCampaignAssigned || !selectedCampaignId || busy || loadingCampaigns}
+                          onClick={() => assignCampaign(folder)}
                         >
-                          {applyingGoodFitFolderId === folder._id ? (
+                          {assigningCampaignFolderId === folder._id ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                           ) : (
-                            <Sparkles className="mr-2 h-4 w-4" />
+                            <Target className="mr-2 h-4 w-4" />
                           )}
-                          Apply
+                          {isCampaignAssigned ? 'Assigned' : 'Assign Campaign'}
                         </Button>
                       </div>
 
@@ -980,7 +1060,7 @@ export default function PitchFoldersPage() {
                         size="sm"
                         variant="outline"
                         className="rounded-xl"
-                        disabled={deletingFolderId === folder._id || applyingGoodFitFolderId === folder._id}
+                        disabled={deletingFolderId === folder._id || assigningCampaignFolderId === folder._id}
                         onClick={() => openEditFolderModal(folder)}
                       >
                         <Pencil className="mr-2 h-4 w-4" />
@@ -1033,7 +1113,7 @@ export default function PitchFoldersPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-slate-900">Select Campaign</p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    Pick one campaign, then apply all Good Fit influencers.
+                    Pick one campaign to lock this pitch folder to that campaign.
                   </p>
                 </div>
                 <button
