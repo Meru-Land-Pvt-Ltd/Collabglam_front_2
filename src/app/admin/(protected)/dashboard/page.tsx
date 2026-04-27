@@ -2640,7 +2640,11 @@ export default function AdminDashboardPage() {
               <MetricCard
                 icon={<Briefcase className="h-5 w-5" />}
                 label="Total Employees"
-                value={String(state.employees.all.length)}
+                value={String(
+                  state.employees.all.filter(
+                    (employee) => String(employee.status || "").toLowerCase() === "active"
+                  ).length
+                )}
                 helper="Employees under you"
                 tone="info"
               />
@@ -2648,7 +2652,11 @@ export default function AdminDashboardPage() {
               <MetricCard
                 icon={<Users className="h-5 w-5" />}
                 label="BME"
-                value={String(state.employees.bme.length)}
+                value={String(
+                  state.employees.bme.filter(
+                    (employee) => String(employee.status || "").toLowerCase() === "active"
+                  ).length
+                )}
                 helper="Brand management executives"
                 tone="managed"
               />
@@ -2656,7 +2664,11 @@ export default function AdminDashboardPage() {
               <MetricCard
                 icon={<Users className="h-5 w-5" />}
                 label="IME"
-                value={String(state.employees.ime.length)}
+                value={String(
+                  state.employees.ime.filter(
+                    (employee) => String(employee.status || "").toLowerCase() === "active"
+                  ).length
+                )}
                 helper="Influencer management executives"
                 tone="success"
               />
@@ -2664,7 +2676,11 @@ export default function AdminDashboardPage() {
               <MetricCard
                 icon={<Users className="h-5 w-5" />}
                 label="SDR"
-                value={String(state.employees.sdr.length)}
+                value={String(
+                  state.employees.sdr.filter(
+                    (employee) => String(employee.status || "").toLowerCase() === "active"
+                  ).length
+                )}
                 helper="Sales development representatives"
                 tone="default"
               />
@@ -2675,7 +2691,9 @@ export default function AdminDashboardPage() {
               subtitle="All employees created by or assigned under this Revenue Head"
               action={
                 <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-600">
-                  {state.employees.all.length} employees
+                  {state.employees.all.filter(
+                    (employee) => String(employee.status || "").toLowerCase() === "active"
+                  ).length} employees
                 </span>
               }
             >
@@ -2996,8 +3014,12 @@ function BrandAnalyticsCard({
 }
 
 function EmployeeListTable({ employees }: { employees: MiniAdminItem[] }) {
-  if (!employees.length) {
-    return <EmptyText text="No employees found under this Revenue Head." />;
+  const activeEmployees = employees.filter((employee) => {
+    return String(employee.status || "").toLowerCase() === "active";
+  });
+
+  if (!activeEmployees.length) {
+    return <EmptyText text="No active employees found under this Revenue Head." />;
   }
 
   return (
@@ -3010,7 +3032,7 @@ function EmployeeListTable({ employees }: { employees: MiniAdminItem[] }) {
         "Team Type",
         "Proxy Email",
       ]}
-      rows={employees.map((employee) => [
+      rows={activeEmployees.map((employee) => [
         <div
           key={`${employee.adminId || employee._id}-profile`}
           className="flex items-center gap-3"
@@ -3024,9 +3046,6 @@ function EmployeeListTable({ employees }: { employees: MiniAdminItem[] }) {
           <div className="min-w-0">
             <div className="truncate font-semibold text-slate-900">
               {employee.name || "Unnamed Employee"}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-slate-500">
-              {employee.adminId || employee._id || "-"}
             </div>
           </div>
         </div>,
@@ -3048,7 +3067,7 @@ function EmployeeListTable({ employees }: { employees: MiniAdminItem[] }) {
 
         employee.proxyEmail || "-",
       ])}
-      emptyText="No employees found under this Revenue Head."
+      emptyText="No active employees found under this Revenue Head."
       tableClassName="min-w-[980px]"
     />
   );
