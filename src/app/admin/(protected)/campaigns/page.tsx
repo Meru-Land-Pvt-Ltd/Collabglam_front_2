@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
-  ExternalLink,
   RefreshCw,
   Search,
   Sparkles,
@@ -89,7 +88,8 @@ interface SummaryStats {
 }
 
 const MAX_NAME_LENGTH = 72;
-const PAGE_LIMIT = 10;
+const DEFAULT_PAGE_LIMIT = 10;
+const ROW_OPTIONS = [10, 20, 50, 100] as const;
 const FILTER_FETCH_LIMIT = 500;
 
 const MAIN_ADMIN_USER_ID = "69b007bb8e53408b168a8371";
@@ -239,19 +239,20 @@ export default function AdminCampaignsPage() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [datePreset, setDatePreset] = useState<DatePreset>("all_time");
   const [page, setPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_PAGE_LIMIT);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortAsc, setSortAsc] = useState(true);
+
+  const apiPage = quickFilter === "all" ? page : 1;
+  const apiLimit = quickFilter === "all" ? rowsPerPage : FILTER_FETCH_LIMIT;
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
 
     try {
-      const requestPage = quickFilter === "all" ? page : 1;
-      const requestLimit = quickFilter === "all" ? PAGE_LIMIT : FILTER_FETCH_LIMIT;
-
       const payload = {
-        page: requestPage,
-        limit: requestLimit,
+        page: apiPage,
+        limit: apiLimit,
         search,
         sortBy: sortKey,
         sortOrder: sortAsc ? "asc" : "desc",
@@ -264,14 +265,13 @@ export default function AdminCampaignsPage() {
       setCampaigns(data?.campaigns || []);
       setTotal(data?.total || 0);
       setTotalPages(data?.totalPages || 1);
-      setPage(requestPage);
       setError(null);
     } catch (err: any) {
       setError(err?.message || "Failed to load campaigns.");
     } finally {
       setLoading(false);
     }
-  }, [page, search, sortKey, sortAsc, statusFilter, quickFilter, datePreset]);
+  }, [apiPage, apiLimit, search, sortKey, sortAsc, statusFilter, datePreset]);
 
   const fetchSummaryStats = useCallback(async () => {
     setSummaryLoading(true);
@@ -343,15 +343,6 @@ export default function AdminCampaignsPage() {
     return shareUrl;
   }, []);
 
-  const handleOpenPublicLink = async (campaign: Campaign) => {
-    try {
-      const shareUrl = await getPublicShareUrl(campaign);
-      window.open(shareUrl, "_blank", "noopener,noreferrer");
-    } catch (err: any) {
-      window.alert(err?.message || "Failed to open public link");
-    }
-  };
-
   const handleCopyPublicLink = async (campaign: Campaign) => {
     try {
       const shareUrl = await getPublicShareUrl(campaign);
@@ -393,6 +384,11 @@ export default function AdminCampaignsPage() {
     }
   };
 
+  const handleRowsPerPageChange = (limit: number) => {
+    setRowsPerPage(limit);
+    setPage(1);
+  };
+
   const hasActiveFilters =
     search.trim() !== "" ||
     statusFilter !== 0 ||
@@ -431,10 +427,7 @@ export default function AdminCampaignsPage() {
   const manageButtonClass =
     "border-black bg-black text-white hover:!bg-black/90 hover:!text-white";
 
-  const subtleButtonClass =
-    "border-slate-300 bg-white text-slate-700 hover:!bg-slate-50 hover:!text-slate-900";
-
-  const visibleCampaigns = useMemo(() => {
+  const filteredCampaigns = useMemo(() => {
     if (quickFilter === "fully_managed") {
       return campaigns.filter(isFullyManagedCampaign);
     }
@@ -446,7 +439,27 @@ export default function AdminCampaignsPage() {
     return campaigns;
   }, [campaigns, quickFilter]);
 
-  const shownCount = quickFilter === "all" ? total : visibleCampaigns.length;
+  const totalVisibleItems = quickFilter === "all" ? total : filteredCampaigns.length;
+
+  const tableTotalPages =
+    quickFilter === "all"
+      ? Math.max(1, totalPages)
+      : Math.max(1, Math.ceil(filteredCampaigns.length / rowsPerPage));
+
+  const tableCampaigns = useMemo(() => {
+    if (quickFilter === "all") {
+      return filteredCampaigns;
+    }
+
+    const startIndex = (page - 1) * rowsPerPage;
+    return filteredCampaigns.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredCampaigns, page, quickFilter, rowsPerPage]);
+
+  useEffect(() => {
+    if (page > tableTotalPages) {
+      setPage(tableTotalPages);
+    }
+  }, [page, tableTotalPages]);
 
   const summaryCards = useMemo(
     () => [
@@ -630,7 +643,7 @@ export default function AdminCampaignsPage() {
         },
       },
     ],
-    [copiedCampaignId]
+    []
   );
 
   return (
@@ -726,8 +739,7 @@ export default function AdminCampaignsPage() {
                           setQuickFilter(option.value);
                           setPage(1);
                         }}
-                        className={`${filterButtonBaseClass} ${active ? filterButtonActiveClass : filterButtonInactiveClass
-                          }`}
+                        className={`${filterButtonBaseClass} ${active ? filterButtonActiveClass : filterButtonInactiveClass}`}
                       >
                         {option.label}
                       </Button>
@@ -819,18 +831,18 @@ export default function AdminCampaignsPage() {
 
               <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-600">
                 Showing:
-                <span className="ml-2 font-semibold text-slate-900">{shownCount}</span>
+                <span className="ml-2 font-semibold text-slate-900">{totalVisibleItems}</span>
               </div>
             </div>
           </div>
 
           <div className="px-2 pb-2 md:px-3 md:pb-3">
             <AdminTable<Campaign>
-              data={visibleCampaigns}
+              data={tableCampaigns}
               columns={columns}
               rowKey={(row, index) => row.campaignId || row._id || String(index)}
               loading={loading}
-              loadingRows={PAGE_LIMIT}
+              loadingRows={rowsPerPage}
               error={error}
               emptyTitle="No campaigns found"
               emptyDescription="Try adjusting your filters or search."
@@ -882,20 +894,18 @@ export default function AdminCampaignsPage() {
                   </div>
                 ),
               }}
-              pagination={
-                quickFilter === "all"
-                  ? {
-                    page,
-                    totalPages,
-                    totalItems: total,
-                    limit: PAGE_LIMIT,
-                    onPageChange: setPage,
-                    loading,
-                    showRowsSelector: false,
-                    showSummary: true,
-                  }
-                  : undefined
-              }
+              pagination={{
+                page,
+                totalPages: tableTotalPages,
+                totalItems: totalVisibleItems,
+                limit: rowsPerPage,
+                onPageChange: setPage,
+                onLimitChange: handleRowsPerPageChange,
+                rowOptions: ROW_OPTIONS,
+                loading,
+                showRowsSelector: true,
+                showSummary: true,
+              }}
               className="py-2"
               tableClassName="min-w-[1500px]"
               headerRowClassName="bg-slate-50/80"
