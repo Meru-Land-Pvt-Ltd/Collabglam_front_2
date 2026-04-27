@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import swal from "sweetalert";
 import { useRouter, useSearchParams } from "next/navigation";
 import { get, post } from "@/lib/api";
 import { resolveFileList } from "@/lib/files";
@@ -341,6 +342,22 @@ const SECONDARY_BUTTON =
   "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50";
 
 const DELIVERABLES_PER_PAGE = 10;
+
+function showErr(message: string) {
+  return swal({
+    title: "Error",
+    text: message || "Something went wrong.",
+    icon: "error",
+  });
+}
+
+function showSuccess(message: string) {
+  return swal({
+    title: "Success",
+    text: message,
+    icon: "success",
+  });
+}
 
 const formatDate = (iso?: string | null) => {
   if (!iso) return "—";
@@ -1292,19 +1309,7 @@ export default function ViewCampaignPage() {
     setApplicantError(null);
 
     try {
-      if (isAdminCreatedCampaign) {
-        await fetchAdminCreatedCampaignApplicants();
-        return;
-      }
-
-      const {
-        meta: m,
-        influencers: list,
-        applicantCount: cnt,
-        statusCounts: counts,
-        isContracted: contractedFlag,
-        contractId,
-      } = await post<ApplyListResponse>("apply/list", {
+      const applyResponse = await post<ApplyListResponse>("apply/list", {
         campaignId: effectiveCampaignId,
         page: applicantPage,
         limit: applicantLimit,
@@ -1312,14 +1317,33 @@ export default function ViewCampaignPage() {
         sortField,
         sortOrder,
         filterStatus: applicantStatusFilter === "all" ? "" : applicantStatusFilter,
+        // Pitch folder assignment is for fully-managed/admin campaigns, so
+        // old ApplyCampaign rows without isActive flags must still display as Active.
+        forceActiveForManaged: true,
       });
 
-      setApplicantMeta(m || null);
-      setApplicants(Array.isArray(list) ? list : []);
-      setApplicantCount(Number(cnt || 0));
-      setStatusCounts(counts || {});
-      setIsContracted(Number(contractedFlag || 0));
-      setTopLevelContractId(String(contractId || ""));
+      const list = Array.isArray(applyResponse?.influencers)
+        ? applyResponse.influencers
+        : [];
+      const counts = applyResponse?.statusCounts || {};
+      const applyTotal = Number(
+        applyResponse?.applicantCount || counts.total || list.length || 0
+      );
+
+      // Pitch-folder assignment stores influencers in ApplyCampaign, even for
+      // admin-created / fully-managed campaigns. Only fall back to invitations
+      // when there is no ApplyCampaign record for this campaign yet.
+      if (applyTotal > 0 || list.length > 0 || !isAdminCreatedCampaign) {
+        setApplicantMeta(applyResponse?.meta || null);
+        setApplicants(list);
+        setApplicantCount(applyTotal);
+        setStatusCounts(counts);
+        setIsContracted(Number(applyResponse?.isContracted || 0));
+        setTopLevelContractId(String(applyResponse?.contractId || ""));
+        return;
+      }
+
+      await fetchAdminCreatedCampaignApplicants();
     } catch (err: any) {
       setApplicantError(err?.message || "Failed to load applicants.");
       setApplicants([]);
@@ -1399,7 +1423,7 @@ export default function ViewCampaignPage() {
       link.remove();
       window.URL.revokeObjectURL(objectUrl);
     } catch (err: any) {
-      window.alert(err?.message || "Failed to download contract.");
+      await showErr(err?.message || "Failed to download contract.");
     }
   };
 
@@ -1407,13 +1431,13 @@ export default function ViewCampaignPage() {
     event?.preventDefault();
 
     if (!campaign?.brandId || !effectiveCampaignId) {
-      window.alert("Campaign details are incomplete.");
+      await showErr("Campaign details are incomplete.");
       return;
     }
 
     const amount = Number(fundAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      window.alert("Please enter a valid amount greater than 0.");
+      await showErr("Please enter a valid amount greater than 0.");
       return;
     }
 
@@ -1433,9 +1457,9 @@ export default function ViewCampaignPage() {
       setFundNote("");
       setIsFundsModalOpen(false);
       await loadCampaign();
-      window.alert("Funds added successfully.");
+      await showSuccess("Funds added successfully.");
     } catch (err: any) {
-      window.alert(err?.message || "Failed to add campaign funds.");
+      await showErr(err?.message || "Failed to add campaign funds.");
     } finally {
       setAddingFunds(false);
     }
@@ -1514,12 +1538,12 @@ export default function ViewCampaignPage() {
 
   const handleSaveMilestone = async () => {
     if (!selectedInf?.influencerId) {
-      window.alert("Influencer not found.");
+      await showErr("Influencer not found.");
       return;
     }
 
     if (!campaignId || !brandId) {
-      window.alert("Campaign or brand information is missing.");
+      await showErr("Campaign or brand information is missing.");
       return;
     }
 
@@ -1528,12 +1552,12 @@ export default function ViewCampaignPage() {
     const amountNum = Number(milestoneForm.amount);
 
     if (!title) {
-      window.alert("Please enter milestone title.");
+      await showErr("Please enter milestone title.");
       return;
     }
 
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      window.alert("Please enter a valid amount.");
+      await showErr("Please enter a valid amount.");
       return;
     }
 
@@ -1571,10 +1595,10 @@ export default function ViewCampaignPage() {
         keepOpen: true,
       });
 
-      window.alert("Milestone added");
+      await showSuccess("Milestone added successfully.");
     } catch (err: any) {
       console.error(err);
-      window.alert(
+      await showErr(
         err?.response?.data?.message ||
         err?.message ||
         "Failed to create milestone."
@@ -1586,12 +1610,12 @@ export default function ViewCampaignPage() {
 
   const handleOpenDeliverableModal = async (inf: InfluencerApplicant) => {
     if (!inf.influencerId) {
-      window.alert("Influencer not found.");
+      await showErr("Influencer not found.");
       return;
     }
 
     if (!campaignId || !brandId) {
-      window.alert("Campaign or brand information is missing.");
+      await showErr("Campaign or brand information is missing.");
       return;
     }
 
@@ -1631,7 +1655,7 @@ export default function ViewCampaignPage() {
         }));
       }
     } catch (err: any) {
-      window.alert(err?.message || "Failed to load milestones.");
+      await showErr(err?.message || "Failed to load milestones.");
     } finally {
       setDeliverableMilestonesLoading(false);
     }
@@ -1654,12 +1678,12 @@ export default function ViewCampaignPage() {
 
   const handleSaveAdminDeliverable = async () => {
     if (!selectedDeliverableInf?.influencerId) {
-      window.alert("Influencer not found.");
+      await showErr("Influencer not found.");
       return;
     }
 
     if (!campaignId || !brandId) {
-      window.alert("Campaign or brand information is missing.");
+      await showErr("Campaign or brand information is missing.");
       return;
     }
 
@@ -1670,17 +1694,17 @@ export default function ViewCampaignPage() {
     const draftUrl = deliverableForm.draftUrl.trim();
 
     if (!milestoneHistoryId) {
-      window.alert("Please select milestone.");
+      await showErr("Please select milestone.");
       return;
     }
 
     if (!title) {
-      window.alert("Please enter deliverable title.");
+      await showErr("Please enter deliverable title.");
       return;
     }
 
     if (!draftUrl) {
-      window.alert("Please enter deliverable URL.");
+      await showErr("Please enter deliverable URL.");
       return;
     }
 
@@ -1722,10 +1746,10 @@ export default function ViewCampaignPage() {
       });
 
       setActiveTab("deliverables");
-      window.alert("Deliverable added on behalf of influencer.");
+      await showSuccess("Deliverable added on behalf of influencer.");
     } catch (err: any) {
       console.error(err);
-      window.alert(
+      await showErr(
         err?.response?.data?.message ||
         err?.message ||
         "Failed to create deliverable."
@@ -1889,8 +1913,8 @@ export default function ViewCampaignPage() {
       : Math.min(safeDeliverablePage * DELIVERABLES_PER_PAGE, deliverableTotalItems);
 
   const baseApplicants = useMemo(() => {
-    return isAdminCreatedCampaign ? applicants : applicants.filter(isApplicantActive);
-  }, [applicants, isAdminCreatedCampaign]);
+    return applicants.filter(isApplicantActive);
+  }, [applicants]);
 
   const visibleApplicants = useMemo(() => {
     return baseApplicants.filter((inf) => {
@@ -2128,11 +2152,7 @@ export default function ViewCampaignPage() {
                 label="Applicants"
                 active={activeTab === "applicants"}
                 onClick={() => setActiveTab("applicants")}
-                count={
-                  isAdminCreatedCampaign
-                    ? statusCounts.total || undefined
-                    : statusCounts.active || undefined
-                }
+                count={statusCounts.active || statusCounts.total || undefined}
               />
               <Tab
                 label="Deliverables"
@@ -2457,19 +2477,15 @@ export default function ViewCampaignPage() {
                 <div className="flex flex-col gap-2 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-stone-800">
-                      {isAdminCreatedCampaign
-                        ? "Invited Influencers"
-                        : "Active Influencers"}
+                      Active Influencers
                     </p>
                     <p className="text-xs text-stone-400">
                       Showing {visibleApplicants.length} result
                       {visibleApplicants.length === 1 ? "" : "s"} on this page
-                      {isAdminCreatedCampaign
-                        ? statusCounts.total !== undefined
-                          ? ` • ${statusCounts.total} invited total`
-                          : ""
-                        : statusCounts.active !== undefined
-                          ? ` • ${statusCounts.active} active total`
+                      {statusCounts.active !== undefined
+                        ? ` • ${statusCounts.active} active total`
+                        : statusCounts.total !== undefined
+                          ? ` • ${statusCounts.total} total`
                           : ""}
                       .
                     </p>

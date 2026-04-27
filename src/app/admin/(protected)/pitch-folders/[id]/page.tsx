@@ -128,6 +128,27 @@ type RateCardHistoryEntry = {
   changedByAdminId?: string | null;
 };
 
+
+type AssignedCampaign = {
+  campaignId?: string | null;
+  campaignsId?: string;
+  campaignTitle?: string;
+  productOrServiceName?: string;
+  brandId?: string | null;
+  brandName?: string;
+  assignedAt?: string | null;
+  assignedByAdminId?: string | null;
+};
+
+type FolderItemCampaignActivation = {
+  active?: boolean;
+  campaignId?: string | null;
+  campaignsId?: string;
+  influencerId?: string | null;
+  activeAt?: string | null;
+  activatedByAdminId?: string | null;
+};
+
 type FolderItem = {
   _id: string;
   provider?: string;
@@ -157,6 +178,7 @@ type FolderItem = {
     influencerId?: string | null;
     createdAt?: string | null;
   } | null;
+  campaignActivation?: FolderItemCampaignActivation | null;
 };
 
 type FolderResponse = {
@@ -171,6 +193,7 @@ type FolderResponse = {
   createdBy?: AdminMini | null;
   updatedBy?: AdminMini | null;
   share?: FolderShare;
+  assignedCampaign?: AssignedCampaign | null;
   items?: FolderItem[];
 };
 
@@ -1854,9 +1877,12 @@ type InfluencerTableRowProps = {
   onToggleLink: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
+  onActivateOnCampaign: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
+  assignedCampaign?: AssignedCampaign | null;
   isCreateInfluencerLoading: boolean;
+  isActivateCampaignLoading: boolean;
 };
 
 const InfluencerTableRowMemo = memo(function InfluencerTableRow({
@@ -1870,9 +1896,12 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   onToggleLink,
   onTogglePdf,
   onCreateInfluencer,
+  onActivateOnCampaign,
   onEdit,
   onDelete,
+  assignedCampaign,
   isCreateInfluencerLoading,
+  isActivateCampaignLoading,
 }: InfluencerTableRowProps) {
   const hasLink = !!asText(row.mediaKitLink?.url);
   const hasPdf = !!asText(row.mediaKit?.s3Key);
@@ -1880,6 +1909,9 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   const profileUrl = getProfileUrl(row);
   const influencerLinked = !!(row.createdInfluencerId || row.linkedInfluencer?.influencerId);
   const canCreateInfluencer = !!asText(row.name) && !!asText(row.email);
+  const hasAssignedCampaign = !!assignedCampaign?.campaignId;
+  const isActiveOnCampaign = row.campaignActivation?.active === true;
+  const canActivateOnCampaign = hasAssignedCampaign && influencerLinked && !isActiveOnCampaign;
 
   const visibleSource =
     access?.visibleSource === 'pdf'
@@ -2101,6 +2133,38 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
             </Button>
           )}
 
+          {hasAssignedCampaign ? (
+            isActiveOnCampaign ? (
+              <Badge
+                variant="outline"
+                className="rounded-full border-slate-900 bg-slate-900 px-3 py-1 text-white"
+                title="Influencer is already active on the assigned campaign"
+              >
+                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                Already Active
+              </Badge>
+            ) : (
+              <Button
+                size="sm"
+                className="rounded-xl bg-slate-900 text-white hover:bg-slate-800"
+                disabled={!canActivateOnCampaign || isActivateCampaignLoading}
+                title={
+                  !influencerLinked
+                    ? 'Create/link influencer first, then activate on campaign'
+                    : 'Activate this influencer on the assigned campaign'
+                }
+                onClick={() => onActivateOnCampaign(row)}
+              >
+                {isActivateCampaignLoading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                )}
+                Active on Campaign
+              </Button>
+            )
+          ) : null}
+
           <Button
             size="sm"
             variant="outline"
@@ -2143,12 +2207,15 @@ type InfluencerTableProps = {
   onToggleLink: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
+  onActivateOnCampaign: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   onGoToYoutube: () => void;
+  assignedCampaign?: AssignedCampaign | null;
   linkToggleItemId: string;
   pdfToggleItemId: string;
   creatingInfluencerItemId: string;
+  activatingCampaignItemId: string;
 };
 
 const InfluencerTableSection = memo(function InfluencerTableSection({
@@ -2168,12 +2235,15 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   onToggleLink,
   onTogglePdf,
   onCreateInfluencer,
+  onActivateOnCampaign,
   onEdit,
   onDelete,
   onGoToYoutube,
+  assignedCampaign,
   linkToggleItemId,
   pdfToggleItemId,
   creatingInfluencerItemId,
+  activatingCampaignItemId,
 }: InfluencerTableProps) {
   return (
     <Card className="rounded-2xl border border-slate-200 shadow-none">
@@ -2280,7 +2350,7 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <div className="min-w-[1540px]">
+            <div className="min-w-[1760px]">
               <Table>
                 <TableHeader>
                   <TableRow className="border-slate-200">
@@ -2322,9 +2392,12 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
                       onToggleLink={onToggleLink}
                       onTogglePdf={onTogglePdf}
                       onCreateInfluencer={onCreateInfluencer}
+                      onActivateOnCampaign={onActivateOnCampaign}
                       onEdit={onEdit}
                       onDelete={onDelete}
+                      assignedCampaign={assignedCampaign}
                       isCreateInfluencerLoading={creatingInfluencerItemId === row._id}
+                      isActivateCampaignLoading={activatingCampaignItemId === row._id}
                     />
                   ))}
                 </TableBody>
@@ -2381,6 +2454,7 @@ export default function PitchFolderDetailPage() {
   );
   const [movingItems, setMovingItems] = useState(false);
   const [creatingInfluencerItemId, setCreatingInfluencerItemId] = useState('');
+  const [activatingCampaignItemId, setActivatingCampaignItemId] = useState('');
 
   const rowMap = useMemo(() => {
     const map = new Map<string, FolderItem>();
@@ -2799,6 +2873,76 @@ export default function PitchFolderDetailPage() {
       }
     },
     []
+  );
+
+  const activateRowOnCampaign = useCallback(
+    async (row: FolderItem) => {
+      try {
+        if (!folder?.assignedCampaign?.campaignId) {
+          await showErr('Assign a campaign to this pitch folder first.');
+          return;
+        }
+
+        if (!(row.createdInfluencerId || row.linkedInfluencer?.influencerId)) {
+          await showErr('Create/link this influencer first, then activate them on the campaign.');
+          return;
+        }
+
+        setActivatingCampaignItemId(row._id);
+
+        const resp = await post<{
+          success?: boolean;
+          message?: string;
+          data?: {
+            alreadyActive?: boolean;
+            folder?: FolderResponse;
+          };
+        }>(`/pitch-folders/${folderId}/item/${row._id}/activate-campaign`, {});
+
+        const nextFolder = resp?.data?.folder;
+
+        if (nextFolder) {
+          const nextRows = Array.isArray(nextFolder.items) ? nextFolder.items : [];
+          const rowsWithExistingInfluencers = await hydrateRowsWithExistingInfluencers(nextRows);
+
+          setFolder(nextFolder);
+          setRows(rowsWithExistingInfluencers);
+        } else {
+          setRows((prev) =>
+            prev.map((item) =>
+              item._id === row._id
+                ? {
+                  ...item,
+                  campaignActivation: {
+                    active: true,
+                    campaignId: folder.assignedCampaign?.campaignId || null,
+                    campaignsId: folder.assignedCampaign?.campaignsId || '',
+                    influencerId:
+                      row.createdInfluencerId ||
+                      row.linkedInfluencer?.influencerId ||
+                      null,
+                    activeAt: new Date().toISOString(),
+                    activatedByAdminId: null,
+                  },
+                }
+                : item
+            )
+          );
+        }
+
+        await showSuccess(
+          resp?.message ||
+            (resp?.data?.alreadyActive
+              ? 'Influencer is already active on this campaign.'
+              : 'Influencer activated on campaign successfully.')
+        );
+      } catch (e: any) {
+        await showErr(e?.message || 'Failed to activate influencer on campaign.');
+      } finally {
+        setActivatingCampaignItemId('');
+      }
+    },
+    [folder, folderId, hydrateRowsWithExistingInfluencers]
   );
 
   const deleteRow = useCallback(
@@ -3447,12 +3591,15 @@ export default function PitchFolderDetailPage() {
           onToggleLink={handleMediaKitLinkToggle}
           onTogglePdf={handleMediaKitPdfToggle}
           onCreateInfluencer={createInfluencerFromRow}
+          onActivateOnCampaign={activateRowOnCampaign}
           onEdit={openEditDrawer}
           onDelete={deleteRow}
           onGoToYoutube={goToYoutube}
+          assignedCampaign={folder?.assignedCampaign || null}
           linkToggleItemId={linkToggleItemId}
           pdfToggleItemId={pdfToggleItemId}
           creatingInfluencerItemId={creatingInfluencerItemId}
+          activatingCampaignItemId={activatingCampaignItemId}
         />
       </div>
     </div>
