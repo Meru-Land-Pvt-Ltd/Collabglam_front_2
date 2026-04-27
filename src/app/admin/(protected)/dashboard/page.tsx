@@ -28,14 +28,24 @@ import {
 
 type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme" | "sdr";
 
-
-
 type AdminMeResponse = {
   _id: string;
   email: string;
   name?: string;
   role: AdminRole;
   status?: string;
+};
+
+type DashboardSummary = {
+  totalBrands?: number;
+  totalInfluencers?: number;
+  totalCampaigns?: number;
+  totalDisputes?: number;
+  totalRevenueThisMonth?: number;
+  totalRevenueThisQuarter?: number;
+  totalRevenueThisYear?: number;
+  activeCampaigns?: number;
+  completedCampaigns?: number;
 };
 
 type CampaignCreator = {
@@ -55,6 +65,7 @@ type CampaignItem = {
   brandPlanName?: string;
   campaignTitle?: string;
   name?: string;
+  campaignName?: string;
   campaignType?: string;
   campaignCategory?: string;
   publishStatus?: string;
@@ -119,19 +130,6 @@ type InfluencerSocialProfile = {
   picture?: string;
 };
 
-type InfluencerItem = {
-  _id: string;
-  influencerId?: string;
-  email?: string;
-  name?: string;
-  proxyEmail?: string;
-  primaryPlatform?: string;
-  socialProfiles?: InfluencerSocialProfile[];
-  onboarding?: InfluencerOnboarding;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
 type InfluencerAppliedCampaignItem = {
   _id: string;
   id?: string;
@@ -152,6 +150,21 @@ type InfluencerAppliedCampaignItem = {
   endDate?: string;
   applicantCount?: number;
   isActive?: number;
+};
+
+type InfluencerItem = {
+  _id: string;
+  influencerId?: string;
+  email?: string;
+  name?: string;
+  proxyEmail?: string;
+  primaryPlatform?: string;
+  socialProfiles?: InfluencerSocialProfile[];
+  onboarding?: InfluencerOnboarding;
+  appliedCampaigns?: InfluencerAppliedCampaignItem[];
+  campaigns?: InfluencerAppliedCampaignItem[];
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type InfluencerCampaignLookup = Record<
@@ -204,8 +217,30 @@ type ApiMeta = {
   pages?: number;
 };
 
+type DashboardApiResponse = {
+  success?: boolean;
+  role?: AdminRole;
+  dashboard?: DashboardApiData;
+  data?: {
+    role?: AdminRole;
+    dashboard?: DashboardApiData;
+  };
+};
+
+type DashboardApiData = {
+  summary?: DashboardSummary;
+  brands?: any;
+  influencers?: any;
+  campaigns?: any;
+  disputes?: any;
+  influencerCampaigns?: any;
+  appliedCampaignsByInfluencer?: any;
+  influencerAppliedCampaigns?: any;
+};
+
 type DashboardState = {
   me: AdminMeResponse | null;
+  summary: DashboardSummary;
   campaigns: CampaignItem[];
   campaignMeta: ApiMeta;
   disputes: DisputeItem[];
@@ -218,7 +253,7 @@ type DashboardState = {
 };
 
 type SectionErrorMap = {
-  me?: string | null;
+  dashboard?: string | null;
   campaigns?: string | null;
   disputes?: string | null;
   influencers?: string | null;
@@ -261,12 +296,10 @@ type DashboardTableRow = {
 
 const API = {
   me: "/admins/me",
-  campaigns: "/admin/campaign/lite",
-  disputes: "/dispute/admin/list",
-  influencers: "/admin/influencer/list",
-  influencerCampaigns: "/admin/campaign/getByInfluencerId",
-  brands: "/admin/brand/getlist",
+  dashboard: "/dash/dashboard",
 };
+
+const DASHBOARD_POST_BODY = {};
 
 const CAMPAIGNS_ROUTE = "/admin/campaigns";
 const CAMPAIGN_VIEW_BASE = "/admin/campaigns/view";
@@ -280,40 +313,13 @@ const MAIN_ADMIN = {
   role: "super_admin",
 };
 
-const VALID_ROLES: AdminRole[] = ["super_admin", "revenue_head", "ime", "bme", "sdr"];
-
-const CAMPAIGN_POST_BODY = {
-  page: 1,
-  limit: 100,
-  sortBy: "createdAt",
-  sortOrder: "desc",
-};
-
-const DISPUTE_POST_BODY = {
-  page: 1,
-  limit: 10,
-  sortBy: "createdAt",
-  sortOrder: "desc",
-};
-
-const INFLUENCER_POST_BODY = {
-  page: 1,
-  limit: 20,
-  sortBy: "createdAt",
-  sortOrder: "desc",
-};
-
-const INFLUENCER_CAMPAIGN_POST_BODY = {
-  page: 1,
-  limit: 10,
-};
-
-const BRAND_POST_BODY = {
-  page: 1,
-  limit: 20,
-  sortBy: "createdAt",
-  sortOrder: "desc",
-};
+const VALID_ROLES: AdminRole[] = [
+  "super_admin",
+  "revenue_head",
+  "ime",
+  "bme",
+  "sdr",
+];
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -328,6 +334,9 @@ function extractArray<T = any>(payload: any, keys: string[] = []): T[] {
     if (Array.isArray(payload?.data?.data?.[key])) return payload.data.data[key];
   }
 
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.list)) return payload.list;
+  if (Array.isArray(payload?.results)) return payload.results;
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.data?.data)) return payload.data.data;
 
@@ -428,6 +437,92 @@ async function safePost<T = any>(
   }
 }
 
+function getDashboardFromResponse(payload: any): DashboardApiData {
+  return (
+    payload?.dashboard ||
+    payload?.data?.dashboard ||
+    payload?.data?.data?.dashboard ||
+    {}
+  );
+}
+
+function getInfluencerCampaignLookupFromDashboard(
+  dashboard: DashboardApiData,
+  influencers: InfluencerItem[]
+): InfluencerCampaignLookup {
+  const lookup: InfluencerCampaignLookup = {};
+
+  influencers.forEach((influencer) => {
+    const influencerId = getInfluencerId(influencer);
+    const campaigns = extractArray<InfluencerAppliedCampaignItem>(
+      influencer.appliedCampaigns || influencer.campaigns,
+      ["campaigns", "appliedCampaigns"]
+    );
+
+    if (campaigns.length) {
+      lookup[influencerId] = {
+        campaigns,
+        total: campaigns.length,
+        error: null,
+      };
+    }
+  });
+
+  const candidates = [
+    dashboard.influencerCampaigns,
+    dashboard.appliedCampaignsByInfluencer,
+    dashboard.influencerAppliedCampaigns,
+    dashboard.influencers?.influencerCampaigns,
+    dashboard.influencers?.appliedCampaignsByInfluencer,
+    dashboard.influencers?.campaignsByInfluencer,
+  ].filter(Boolean);
+
+  candidates.forEach((candidate) => {
+    if (Array.isArray(candidate)) {
+      candidate.forEach((item: any) => {
+        const influencerId =
+          item.influencerId ||
+          item._id ||
+          item.id ||
+          item.influencer?._id ||
+          item.influencer?.influencerId;
+
+        if (!influencerId) return;
+
+        const campaigns = extractArray<InfluencerAppliedCampaignItem>(item, [
+          "campaigns",
+          "appliedCampaigns",
+        ]);
+
+        lookup[String(influencerId)] = {
+          campaigns,
+          total: Number(item.total || item.count || campaigns.length),
+          error: null,
+        };
+      });
+
+      return;
+    }
+
+    if (candidate && typeof candidate === "object") {
+      Object.entries(candidate).forEach(([key, value]: [string, any]) => {
+        const campaigns = extractArray<InfluencerAppliedCampaignItem>(value, [
+          "campaigns",
+          "appliedCampaigns",
+        ]);
+
+        lookup[key] = {
+          campaigns,
+          total: Number(value?.total || value?.count || campaigns.length),
+          error: value?.error || null,
+        };
+      });
+    }
+  });
+
+  return lookup;
+}
+
 function formatDate(value?: string | null) {
   if (!value) return "-";
 
@@ -484,7 +579,12 @@ function titleCase(value?: string | null) {
 }
 
 function getCampaignTitle(campaign: CampaignItem) {
-  return campaign.campaignTitle || campaign.name || "Untitled Campaign";
+  return (
+    campaign.campaignTitle ||
+    campaign.campaignName ||
+    campaign.name ||
+    "Untitled Campaign"
+  );
 }
 
 function getCampaignBudgetValue(campaign: CampaignItem) {
@@ -917,7 +1017,9 @@ function getActivityItems(
   const campaignActivities = campaigns.slice(0, 3).map((campaign) => ({
     id: `campaign-${campaign._id}`,
     title: `${getCampaignTitle(campaign)} ${
-      isAdminManagedCampaign(campaign) ? "created by Main Admin" : "listed by brand"
+      isAdminManagedCampaign(campaign)
+        ? "created by Main Admin"
+        : "listed by brand"
     }`,
     subtitle: `${campaign.brandName || "Unknown brand"} • ${getManagementType(
       campaign
@@ -943,64 +1045,6 @@ function getActivityItems(
   return [...campaignActivities, ...disputeActivities]
     .sort((a, b) => b.sortAt - a.sortAt)
     .slice(0, 6);
-}
-
-async function fetchInfluencerCampaignLookup(
-  influencers: InfluencerItem[]
-): Promise<InfluencerCampaignLookup> {
-  const entries = await Promise.all(
-    influencers.map(async (influencer) => {
-      const influencerId = getInfluencerId(influencer);
-
-      if (!influencerId) {
-        return null;
-      }
-
-      const result = await safePost<any>(
-        API.influencerCampaigns,
-        {
-          ...INFLUENCER_CAMPAIGN_POST_BODY,
-          influencerId,
-        },
-        "Influencer campaigns"
-      );
-
-      if (!result.ok) {
-        return [
-          influencerId,
-          {
-            campaigns: [],
-            total: 0,
-            error: result.error,
-          },
-        ] as const;
-      }
-
-      const campaigns = extractArray<InfluencerAppliedCampaignItem>(
-        result.data,
-        ["campaigns"]
-      );
-
-      const meta = extractMeta(result.data);
-
-      return [
-        influencerId,
-        {
-          campaigns,
-          total: Number(
-            meta.total ||
-              meta.count ||
-              (result.data as any)?.total ||
-              (result.data as any)?.count ||
-              campaigns.length
-          ),
-          error: null,
-        },
-      ] as const;
-    })
-  );
-
-  return Object.fromEntries(entries.filter(Boolean) as any);
 }
 
 function getStatusTone(status?: string) {
@@ -1052,6 +1096,7 @@ export default function AdminDashboardPage() {
 
   const [state, setState] = useState<DashboardState>({
     me: null,
+    summary: {},
     campaigns: [],
     campaignMeta: {},
     disputes: [],
@@ -1282,49 +1327,67 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      const [brandResult, influencerResult, campaignResult, disputeResult] =
-        await Promise.all([
-          safePost<any>(API.brands, BRAND_POST_BODY, "Brands"),
-          safePost<any>(API.influencers, INFLUENCER_POST_BODY, "Influencers"),
-          safePost<any>(API.campaigns, CAMPAIGN_POST_BODY, "Campaigns"),
-          safePost<any>(API.disputes, DISPUTE_POST_BODY, "Disputes"),
-        ]);
+      const dashboardResult = await safePost<DashboardApiResponse>(
+        API.dashboard,
+        DASHBOARD_POST_BODY,
+        "Dashboard"
+      );
 
-      const influencers = influencerResult.ok
-        ? extractArray<InfluencerItem>(influencerResult.data, ["influencers"])
-        : [];
+      if (!dashboardResult.ok || !dashboardResult.data) {
+        setState((previous) => ({
+          ...previous,
+          me,
+        }));
 
-      const brands = brandResult.ok
-        ? extractArray<BrandItem>(brandResult.data, ["brands"])
-        : [];
+        setSectionErrors({
+          dashboard: dashboardResult.error || "Unable to load dashboard",
+          brands: dashboardResult.error || "Unable to load brands",
+          influencers: dashboardResult.error || "Unable to load influencers",
+          campaigns: dashboardResult.error || "Unable to load campaigns",
+          disputes: dashboardResult.error || "Unable to load disputes",
+        });
 
-      const influencerCampaigns = influencers.length
-        ? await fetchInfluencerCampaignLookup(influencers)
-        : {};
+        return;
+      }
+
+      const dashboard = getDashboardFromResponse(dashboardResult.data);
+
+      const brands = extractArray<BrandItem>(dashboard.brands, ["brands"]);
+      const influencers = extractArray<InfluencerItem>(dashboard.influencers, [
+        "influencers",
+      ]);
+      const campaigns = extractArray<CampaignItem>(dashboard.campaigns, [
+        "campaigns",
+      ]);
+      const disputes = extractArray<DisputeItem>(dashboard.disputes, [
+        "disputes",
+      ]);
+
+      const influencerCampaigns = getInfluencerCampaignLookupFromDashboard(
+        dashboard,
+        influencers
+      );
 
       setState({
         me,
+        summary: dashboard.summary || {},
         brands,
-        brandMeta: extractMeta(brandResult.data),
+        brandMeta: extractMeta(dashboard.brands),
         influencers,
-        influencerMeta: extractMeta(influencerResult.data),
+        influencerMeta: extractMeta(dashboard.influencers),
         influencerCampaigns,
-        campaigns: campaignResult.ok
-          ? extractArray<CampaignItem>(campaignResult.data, ["campaigns"])
-          : [],
-        campaignMeta: extractMeta(campaignResult.data),
-        disputes: disputeResult.ok
-          ? extractArray<DisputeItem>(disputeResult.data, ["disputes"])
-          : [],
-        disputeMeta: extractMeta(disputeResult.data),
+        campaigns,
+        campaignMeta: extractMeta(dashboard.campaigns),
+        disputes,
+        disputeMeta: extractMeta(dashboard.disputes),
       });
 
       setSectionErrors({
-        me: null,
-        brands: brandResult.ok ? null : brandResult.error,
-        influencers: influencerResult.ok ? null : influencerResult.error,
-        campaigns: campaignResult.ok ? null : campaignResult.error,
-        disputes: disputeResult.ok ? null : disputeResult.error,
+        dashboard: null,
+        brands: null,
+        influencers: null,
+        campaigns: null,
+        disputes: null,
       });
     } catch (error: any) {
       setFatalError(error?.message || "Failed to load dashboard");
@@ -1478,7 +1541,11 @@ export default function AdminDashboardPage() {
             <MetricCard
               icon={<LayoutDashboard className="h-5 w-5" />}
               label="Total Brands"
-              value={String(state.brandMeta.total || analytics.brands.length)}
+              value={String(
+                state.summary.totalBrands ||
+                  state.brandMeta.total ||
+                  analytics.brands.length
+              )}
               helper="All registered brands"
               tone="info"
               href={BRANDS_ROUTE}
@@ -1613,7 +1680,9 @@ export default function AdminDashboardPage() {
               icon={<Users className="h-5 w-5" />}
               label="Total Influencers"
               value={String(
-                state.influencerMeta.total || analytics.influencers.length
+                state.summary.totalInfluencers ||
+                  state.influencerMeta.total ||
+                  analytics.influencers.length
               )}
               helper="All registered influencers"
               tone="info"
@@ -1700,7 +1769,7 @@ export default function AdminDashboardPage() {
             </Card>
           </div>
 
-          <div className="grid grid-cols-1 items-stretch gap-5 ">
+          <div className="grid grid-cols-1 items-stretch gap-5 xl:grid-cols-[0.95fr_1.05fr]">
             <Card
               title="Recently Signed Up"
               subtitle="Latest 3 influencer registrations"
@@ -1743,7 +1812,7 @@ export default function AdminDashboardPage() {
 
         <section className="flex flex-col gap-5">
           <SectionHeader
-            title="Campaign & Disputes Data"
+            title="Campaign Data"
             subtitle="Campaign health, budget, management split, disputes, and activity"
           />
 
@@ -1751,7 +1820,9 @@ export default function AdminDashboardPage() {
             <MetricCard
               icon={<FolderKanban className="h-5 w-5" />}
               label="Active Campaigns"
-              value={String(analytics.activeCampaigns.length)}
+              value={String(
+                state.summary.activeCampaigns || analytics.activeCampaigns.length
+              )}
               helper="Current active listings"
               tone="success"
               href={CAMPAIGNS_ROUTE}
@@ -1805,7 +1876,9 @@ export default function AdminDashboardPage() {
               label="Open Disputes"
               value={String(analytics.openDisputes.length)}
               helper={`${
-                state.disputeMeta.total || state.disputes.length
+                state.summary.totalDisputes ||
+                state.disputeMeta.total ||
+                state.disputes.length
               } total disputes`}
               tone="danger"
               href={DISPUTES_ROUTE}
@@ -1830,7 +1903,10 @@ export default function AdminDashboardPage() {
                   />
                   <HealthStat
                     label="Active"
-                    value={analytics.activeCampaigns.length}
+                    value={
+                      state.summary.activeCampaigns ||
+                      analytics.activeCampaigns.length
+                    }
                     accent="text-emerald-700"
                   />
                   <HealthStat
