@@ -1101,14 +1101,46 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const panelMediaKit = useMemo<MediaKit | null>(() => {
       if (!currentPlatformProfile) return null;
 
+      const profileRoot =
+        (raw?.profile as any) ??
+        (data?.profile as any) ??
+        raw ??
+        {};
+
+      const contactList =
+        profileRoot?.contact ??
+        profileRoot?.contacts ??
+        (currentPlatformProfile as any)?.contact ??
+        (currentPlatformProfile as any)?.contacts ??
+        [];
+
       return {
         name: currentPlatformProfile.name,
         country: currentPlatformProfile.country,
         influencerReports: availableProfiles,
         socialProfiles: availableProfiles,
         primaryInfluencerReport: currentPlatformProfile,
+
+        // Admin-only fields consumed by ContactManagementCard
+        contact: contactList,
+        contacts: contactList,
+        email:
+          profileRoot?.email ??
+          profileRoot?.contactEmail ??
+          (currentPlatformProfile as any)?.email ??
+          (currentPlatformProfile as any)?.contactEmail,
+        phone:
+          profileRoot?.phone ??
+          profileRoot?.contactPhone ??
+          (currentPlatformProfile as any)?.phone ??
+          (currentPlatformProfile as any)?.contactPhone,
+      } as MediaKit & {
+        contact?: any[];
+        contacts?: any[];
+        email?: string;
+        phone?: string;
       };
-    }, [availableProfiles, currentPlatformProfile]);
+    }, [availableProfiles, currentPlatformProfile, raw, data]);
 
     const handlePlatformSelect = (profile: InfluencerReport) => {
       onPlatformChange?.(profile);
@@ -2334,7 +2366,7 @@ Team CollabGlam`;
                         className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity ${canAct ? 'hover:opacity-90' : 'cursor-not-allowed opacity-70'
                           }`}
                       >
-                        {sendingInvite ? (
+                        {sendingInvite && brandId ? (
                           <>
                             {effectiveHasEmail ? (
                               <MessageSquare className="h-4 w-4 animate-pulse" />

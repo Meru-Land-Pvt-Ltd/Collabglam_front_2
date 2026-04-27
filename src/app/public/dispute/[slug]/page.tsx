@@ -1005,14 +1005,21 @@ export function EditDisputeDialog({
                 issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
             }}
             influencerDisplayName={dispute.influencerName || undefined}
-            onSubmit={async ({ brandId, values }) => {
+            onSubmit={async ({ brandId, values, removedExistingUrls }) => {
+                const resolvedBrandId = String(brandId || "").trim();
+
+                if (!resolvedBrandId) {
+                    throw new Error("Please log in again to edit this dispute.");
+                }
+
                 await apiEditDispute({
                     disputeId: dispute.disputeId,
-                    brandId,
+                    brandId: resolvedBrandId,
                     subject: values.subject,
                     description: values.description,
                     issueType: values.issueType,
                     attachments: values.attachments,
+                    removedAttachmentUrls: removedExistingUrls,
                 });
             }}
         />

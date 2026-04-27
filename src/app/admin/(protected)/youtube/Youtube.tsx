@@ -1363,7 +1363,7 @@ function PreviewSidebar({
   );
 }
 
-export default function Page() {
+export default function YoutubePage() {
   const router = useRouter();
 
   const [profiles, setProfiles] = useState<InfluencerProfileDoc[]>([]);

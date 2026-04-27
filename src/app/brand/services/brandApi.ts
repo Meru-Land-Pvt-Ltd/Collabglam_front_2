@@ -2072,12 +2072,12 @@ export async function apiRevokeDispute(payload: {
 
 export async function apiEditDispute(payload: {
   disputeId: string;
-  brandId: string;
+  brandId: string | null | undefined;
   subject: string;
   description: string;
   issueType: string[];
   attachments?: File[];
-  removedAttachmentUrls?: string[];   // ← ADD
+  removedAttachmentUrls?: string[];
 }) {
   const {
     disputeId,
@@ -2086,19 +2086,34 @@ export async function apiEditDispute(payload: {
     description,
     issueType,
     attachments = [],
-    removedAttachmentUrls = [],       // ← ADD
+    removedAttachmentUrls = [],
   } = payload;
 
+  const resolvedBrandId = String(brandId || "").trim();
+
+  if (!resolvedBrandId) {
+    throw new Error("Missing brand ID. Please log in again to edit this dispute.");
+  }
+
   const form = new FormData();
-  form.append("brandId", brandId);
+
+  form.append("brandId", resolvedBrandId);
   form.append("subject", subject.trim());
   form.append("description", description.trim());
-  form.append("issueType", JSON.stringify(issueType.length > 0 ? issueType : ["other"]));
-  attachments.forEach((file) => form.append("attachments", file));
+  form.append(
+    "issueType",
+    JSON.stringify(issueType.length > 0 ? issueType : ["other"])
+  );
 
-  // Only append if there are actual removals — avoids sending empty JSON to the API
+  attachments.forEach((file) => {
+    form.append("attachments", file);
+  });
+
   if (removedAttachmentUrls.length > 0) {
-    form.append("removedAttachmentUrls", JSON.stringify(removedAttachmentUrls));  // ← ADD
+    form.append(
+      "removedAttachmentUrls",
+      JSON.stringify(removedAttachmentUrls)
+    );
   }
 
   return apiPatch(`${DISPUTE_BASE}/brand/disputes/${disputeId}/edit`, form);

@@ -170,7 +170,7 @@ export default function PolicyAdminEditor({
   if (loading) return <CardContent>Loading...</CardContent>;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-full">
       <h1 className="text-2xl font-bold mb-6">{pageTitle}</h1>
 
       <div className="mb-5">

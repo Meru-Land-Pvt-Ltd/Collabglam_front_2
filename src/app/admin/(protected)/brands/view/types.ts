@@ -6,7 +6,8 @@ export type BrandTab =
   | "campaigns"
   | "invoices"
   | "activity"
-  | "settings";
+  | "settings"
+  | "coupons";
 
 export interface QAItem {
   question: string;
@@ -45,6 +46,26 @@ export interface Subscription {
   internalCredits?: InternalCredits;
 }
 
+export interface BrandCouponSubscriptionRef {
+  _id?: string;
+  name?: string;
+  displayName?: string;
+  planId?: string;
+}
+
+export interface BrandCouponHistoryItem {
+  _id?: string;
+  brandId?: string;
+  subscriptionId?: string | BrandCouponSubscriptionRef | null;
+  newPrice?: number;
+  promoCode?: string;
+  promocode?: string;
+  expiredAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  hasUsed?: boolean;
+}
+
 export interface BrandDetail {
   _id: string;
   brandId?: string;
@@ -62,6 +83,7 @@ export interface BrandDetail {
   ispage2Skip?: boolean;
   ispage3Skip?: boolean;
   isProfilePicSkip?: boolean;
+  brandCouponHistory?: BrandCouponHistoryItem[];
   subscription: Subscription;
   subscriptionExpired: boolean;
   failedLoginAttempts?: number;
