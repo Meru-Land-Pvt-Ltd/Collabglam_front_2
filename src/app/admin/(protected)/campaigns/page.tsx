@@ -14,6 +14,8 @@ import {
   Search,
   Sparkles,
   XCircle,
+  UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -101,7 +103,6 @@ interface Campaign {
   byAi?: number;
   createdByAdmin?: CreatedByAdmin | null;
 
-  // Assignment fields returned by backend enrichment.
   assignedRh?: string;
   assignedBme?: string;
   assignedIme?: string;
@@ -220,13 +221,21 @@ function formatCurrency(value?: number) {
   return amount < 0 ? `-$${formatted}` : `$${formatted}`;
 }
 
+function normalizePlan(value?: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 function isFullyManagedCampaign(campaign: Campaign) {
   const admin = campaign.createdByAdmin;
-  if (!admin) return false;
+  const planName = normalizePlan(campaign.brandPlanName);
 
   return (
-    admin.userId === MAIN_ADMIN_USER_ID ||
-    admin.email?.toLowerCase() === MAIN_ADMIN_EMAIL.toLowerCase()
+    planName === "fully_managed" ||
+    admin?.userId === MAIN_ADMIN_USER_ID ||
+    admin?.email?.toLowerCase() === MAIN_ADMIN_EMAIL.toLowerCase()
   );
 }
 
@@ -296,6 +305,19 @@ function getEmployeeLabel(employee: Employee) {
   return employee.name || employee.email || "Unnamed IME";
 }
 
+function getEmployeeSubLabel(employee: Employee) {
+  const email = String(employee.email || "").trim();
+  const role = String(employee.role || "ime").toUpperCase();
+  return email ? `${role} · ${email}` : role;
+}
+
+function getInitials(value?: string) {
+  const base = String(value || "IME").trim();
+  const parts = base.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] || ""}${parts[1][0] || ""}`.toUpperCase();
+}
+
 function getAssignedImeLabel(campaign: Campaign, imeOptions: Employee[]) {
   if (campaign.idmId) {
     const found = imeOptions.find((item) => item._id === campaign.idmId);
@@ -345,6 +367,10 @@ export default function AdminCampaignsPage() {
   const [assigningCampaignId, setAssigningCampaignId] = useState<string | null>(null);
   const [assignmentMsg, setAssignmentMsg] = useState<string | null>(null);
   const [assignmentErr, setAssignmentErr] = useState<string | null>(null);
+
+  const [imeModalCampaign, setImeModalCampaign] = useState<Campaign | null>(null);
+  const [selectedImeId, setSelectedImeId] = useState("");
+  const [imeSearch, setImeSearch] = useState("");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(0);
@@ -447,7 +473,7 @@ export default function AdminCampaignsPage() {
       const fullyManagedCount =
         fullListRes.status === "fulfilled"
           ? (fullListRes.value?.campaigns || []).filter(isFullyManagedCampaign)
-              .length
+            .length
           : 0;
 
       setSummaryStats({
@@ -534,10 +560,49 @@ export default function AdminCampaignsPage() {
     [canAssignIme, imeOptions]
   );
 
+  const openImeModal = useCallback(
+    (campaign: Campaign) => {
+      if (!canAssignIme) {
+        setAssignmentErr("Only Super Admin or Revenue Head can assign IME.");
+        return;
+      }
+
+      if (!isFullyManagedCampaign(campaign)) {
+        setAssignmentErr("IME assignment is available only for Fully Managed campaigns.");
+        return;
+      }
+
+      if (!campaign.RHId) {
+        setAssignmentErr("Assign RH to this brand before assigning IME.");
+        return;
+      }
+
+      setImeModalCampaign(campaign);
+      setSelectedImeId(String(campaign.idmId || ""));
+      setImeSearch("");
+      setAssignmentErr(null);
+      setAssignmentMsg(null);
+    },
+    [canAssignIme]
+  );
+
+  const closeImeModal = useCallback(() => {
+    if (assigningCampaignId) return;
+
+    setImeModalCampaign(null);
+    setSelectedImeId("");
+    setImeSearch("");
+  }, [assigningCampaignId]);
+
   const handleAssignIme = useCallback(
     async (campaign: Campaign, idmId: string) => {
       if (!canAssignIme) {
         setAssignmentErr("Only Super Admin or Revenue Head can assign IME to campaigns.");
+        return;
+      }
+
+      if (!isFullyManagedCampaign(campaign)) {
+        setAssignmentErr("IME assignment is available only for Fully Managed campaigns.");
         return;
       }
 
@@ -546,7 +611,10 @@ export default function AdminCampaignsPage() {
         return;
       }
 
-      if (!idmId) return;
+      if (!idmId) {
+        setAssignmentErr("Please select an IME first.");
+        return;
+      }
 
       const campaignMongoId = String(campaign._id || "").trim();
 
@@ -572,14 +640,17 @@ export default function AdminCampaignsPage() {
           prev.map((item) =>
             item._id === campaignMongoId
               ? {
-                  ...item,
-                  idmId,
-                  assignedIme: selectedImeName,
-                }
+                ...item,
+                idmId,
+                assignedIme: selectedImeName,
+              }
               : item
           )
         );
 
+        setImeModalCampaign(null);
+        setSelectedImeId("");
+        setImeSearch("");
         setAssignmentMsg("Campaign IME assignment saved successfully.");
         window.setTimeout(() => setAssignmentMsg(null), 2500);
       } catch (err: any) {
@@ -695,7 +766,10 @@ export default function AdminCampaignsPage() {
   }, [page, tableTotalPages]);
 
   const assignedImeCount = useMemo(
-    () => campaigns.filter((item) => Boolean(item.assignedIme || item.idmId)).length,
+    () =>
+      campaigns.filter(
+        (item) => isFullyManagedCampaign(item) && Boolean(item.assignedIme || item.idmId)
+      ).length,
     [campaigns]
   );
 
@@ -705,7 +779,7 @@ export default function AdminCampaignsPage() {
         id: "total",
         title: "Total Campaigns",
         value: summaryStats.totalCampaigns,
-        subtitle: "All campaigns across the platform",
+        subtitle: "All campaigns visible to your role",
         icon: CheckCircle2,
         cardClassName: "border border-slate-200 bg-white shadow-sm",
         iconWrapClassName: "bg-slate-100 text-slate-700",
@@ -726,7 +800,7 @@ export default function AdminCampaignsPage() {
         id: "fully_managed",
         title: "Fully Managed",
         value: `+${summaryStats.totalFullyManaged}`,
-        subtitle: "Campaigns by Main Admin",
+        subtitle: "Only these campaigns need IME assignment",
         icon: Sparkles,
         cardClassName:
           "border border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-sm ring-1 ring-amber-200/70",
@@ -737,8 +811,8 @@ export default function AdminCampaignsPage() {
         id: "ime_assigned",
         title: "IME Assigned",
         value: assignedImeCount,
-        subtitle: "Loaded campaigns with IME mapped",
-        icon: Check,
+        subtitle: "Fully Managed campaigns with IME mapped",
+        icon: UserCheck,
         cardClassName: "border border-emerald-200 bg-white shadow-sm",
         iconWrapClassName: "bg-emerald-100 text-emerald-700",
         valueClassName: "text-emerald-700",
@@ -747,6 +821,21 @@ export default function AdminCampaignsPage() {
     [assignedImeCount, summaryStats]
   );
 
+  const modalImeOptions = useMemo(() => {
+    if (!imeModalCampaign) return [];
+
+    const base = getImeOptionsForCampaign(imeModalCampaign);
+    const query = imeSearch.trim().toLowerCase();
+
+    if (!query) return base;
+
+    return base.filter((employee) =>
+      [employee.name, employee.email, employee.role].some((value) =>
+        String(value || "").toLowerCase().includes(query)
+      )
+    );
+  }, [getImeOptionsForCampaign, imeModalCampaign, imeSearch]);
+
   const columns = useMemo<AdminTableColumn<Campaign>[]>(
     () => [
       {
@@ -754,7 +843,7 @@ export default function AdminCampaignsPage() {
         header: "Campaign",
         sortable: true,
         sortField: "name",
-        widthClassName: "min-w-[280px]",
+        widthClassName: "min-w-[300px]",
         render: (campaign) => (
           <div className="min-w-0">
             <div
@@ -777,7 +866,11 @@ export default function AdminCampaignsPage() {
                   <Sparkles className="h-3.5 w-3.5" />
                   Fully Managed
                 </span>
-              ) : null}
+              ) : (
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                  Standard
+                </span>
+              )}
 
               {campaign.isDraft === 1 ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
@@ -789,29 +882,30 @@ export default function AdminCampaignsPage() {
           </div>
         ),
       },
-      {
-        id: "brand",
-        header: "Brand",
-        widthClassName: "min-w-[210px]",
-        render: (campaign) => (
-          <div>
-            <p className="text-sm font-semibold text-slate-900">
-              {campaign.brandName || "—"}
-            </p>
-            {campaign.assignedRh || campaign.assignedBme ? (
-              <p className="mt-1 text-xs text-slate-500">
-                {campaign.assignedRh ? `RH: ${campaign.assignedRh}` : ""}
-                {campaign.assignedRh && campaign.assignedBme ? " · " : ""}
-                {campaign.assignedBme ? `BME: ${campaign.assignedBme}` : ""}
-              </p>
-            ) : null}
-          </div>
-        ),
-      },
+      // {
+      //   id: "brand",
+      //   header: "Brand / Team",
+      //   widthClassName: "min-w-[260px]",
+      //   render: (campaign) => (
+      //     <div>
+      //       <p className="text-sm font-semibold text-slate-900">
+      //         {campaign.brandName || "—"}
+      //       </p>
+      //       <div className="mt-2 flex flex-wrap gap-1.5">
+      //         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+      //           RH: {campaign.assignedRh || "—"}
+      //         </span>
+      //         <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+      //           BME: {campaign.assignedBme || "—"}
+      //         </span>
+      //       </div>
+      //     </div>
+      //   ),
+      // },
       {
         id: "createdBy",
         header: "Managed By",
-        widthClassName: "min-w-[250px]",
+        widthClassName: "min-w-[240px]",
         render: (campaign) => {
           const creatorMeta = getCreatorMeta(campaign);
 
@@ -829,114 +923,6 @@ export default function AdminCampaignsPage() {
                   {creatorMeta.role.replace(/_/g, " ")}
                 </span>
               ) : null}
-            </div>
-          );
-        },
-      },
-      {
-        id: "assignedIme",
-        header: canAssignIme ? "IME Assignment" : "Assigned IME",
-        widthClassName: "min-w-[260px]",
-        render: (campaign) => {
-          const scopedOptions = getImeOptionsForCampaign(campaign);
-          const assignedLabel = getAssignedImeLabel(campaign, imeOptions);
-          const currentId = String(campaign.idmId || "");
-          const hasCurrentOutsideOptions =
-            currentId && !scopedOptions.some((item) => item._id === currentId);
-          const displayOptions = hasCurrentOutsideOptions
-            ? [
-                {
-                  _id: currentId,
-                  name: assignedLabel || "Current IME",
-                  email: "",
-                  role: "ime",
-                  status: "active",
-                },
-                ...scopedOptions,
-              ]
-            : scopedOptions;
-
-          const disabled =
-            !canAssignIme ||
-            !campaign.RHId ||
-            imeLoading ||
-            assigningCampaignId === campaign._id ||
-            displayOptions.length === 0;
-
-          if (!canAssignIme) {
-            return (
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">
-                  {assignedLabel || "—"}
-                </p>
-                <p className="text-xs text-slate-500">
-                  RH: {campaign.assignedRh || "—"}
-                </p>
-              </div>
-            );
-          }
-
-          return (
-            <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                  RH: {campaign.assignedRh || "Not assigned"}
-                </span>
-                {assignedLabel ? (
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                    Assigned
-                  </span>
-                ) : null}
-              </div>
-
-              <Select
-                value={currentId}
-                disabled={disabled}
-                onValueChange={(value) => handleAssignIme(campaign, value)}
-              >
-                <SelectTrigger className="h-10 w-[220px] rounded-[10px] border-slate-200 bg-white text-slate-700 focus:ring-0 focus:ring-offset-0">
-                  <SelectValue
-                    placeholder={
-                      imeLoading
-                        ? "Loading IMEs..."
-                        : !campaign.RHId
-                          ? "Assign RH first"
-                          : assignedLabel || "Assign IME"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  {displayOptions.map((employee) => (
-                    <SelectItem
-                      key={employee._id}
-                      value={employee._id}
-                      className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
-                    >
-                      {getEmployeeLabel(employee)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {assigningCampaignId === campaign._id ? (
-                <p className="text-xs font-medium text-slate-500">Saving IME...</p>
-              ) : !campaign.RHId ? (
-                <p className="text-xs font-medium text-amber-600">
-                  Assign RH to brand first
-                </p>
-              ) : assignedLabel ? (
-                <p className="text-xs font-semibold text-emerald-700">
-                  Current: {assignedLabel}
-                </p>
-              ) : displayOptions.length === 0 ? (
-                <p className="text-xs font-medium text-amber-600">
-                  No active IME found
-                </p>
-              ) : (
-                <p className="text-xs font-medium text-slate-500">
-                  Campaign-based assignment
-                </p>
-              )}
             </div>
           );
         },
@@ -1010,6 +996,92 @@ export default function AdminCampaignsPage() {
         },
       },
     ],
+    []
+  );
+
+  const renderImeAction = useCallback(
+    (campaign: Campaign) => {
+      const fullyManaged = isFullyManagedCampaign(campaign);
+
+      if (!fullyManaged) {
+        return null;
+      }
+
+      if (!canAssignIme) {
+        return null;
+      }
+
+      const scopedOptions = getImeOptionsForCampaign(campaign);
+      const assignedLabel = getAssignedImeLabel(campaign, imeOptions);
+      const currentId = String(campaign.idmId || "");
+      const isSaving = assigningCampaignId === campaign._id;
+
+      const hasCurrentOutsideOptions =
+        currentId && !scopedOptions.some((item) => item._id === currentId);
+
+      const displayOptions = hasCurrentOutsideOptions
+        ? [
+          {
+            _id: currentId,
+            name: assignedLabel || "Current IME",
+            email: "",
+            role: "ime",
+            status: "active",
+          },
+          ...scopedOptions,
+        ]
+        : scopedOptions;
+
+      const disabled =
+        !campaign.RHId ||
+        imeLoading ||
+        isSaving ||
+        displayOptions.length === 0;
+
+      return (
+        <div className="min-w-[220px]">
+          <Select
+            value={currentId}
+            disabled={disabled}
+            onValueChange={(value) => handleAssignIme(campaign, value)}
+          >
+            <SelectTrigger className="h-10 w-[220px] rounded-xl border-amber-200 bg-amber-50 text-slate-800 shadow-sm focus:ring-0 focus:ring-offset-0 disabled:bg-slate-100 disabled:text-slate-400">
+              <SelectValue
+                placeholder={
+                  isSaving
+                    ? "Saving..."
+                    : imeLoading
+                      ? "Loading IMEs..."
+                      : !campaign.RHId
+                        ? "Assign RH first"
+                        : displayOptions.length === 0
+                          ? "No IME found"
+                          : assignedLabel || "Assign IME"
+                }
+              />
+            </SelectTrigger>
+
+            <SelectContent className="bg-white">
+              {displayOptions.map((employee) => (
+                <SelectItem
+                  key={employee._id}
+                  value={employee._id}
+                  className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
+                >
+                  {getEmployeeLabel(employee)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {assignedLabel ? (
+            <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+              Current: {assignedLabel}
+            </p>
+          ) : null}
+        </div>
+      );
+    },
     [
       assigningCampaignId,
       canAssignIme,
@@ -1029,14 +1101,13 @@ export default function AdminCampaignsPage() {
               Admin Campaign Management
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Review campaigns, separate standard campaigns from fully managed
-              campaigns, and assign IME campaign-wise from one clean dashboard.
+              Review campaigns and assign IME only for Fully Managed campaigns from the Actions column.
             </p>
 
             {currentRole ? (
               <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
                 Logged in as {currentRole.replace(/_/g, " ").toUpperCase()}
-                {canAssignIme ? " · IME assignment enabled" : ""}
+                {canAssignIme ? " · Fully Managed IME assignment enabled" : ""}
               </div>
             ) : null}
           </div>
@@ -1138,9 +1209,8 @@ export default function AdminCampaignsPage() {
                           setQuickFilter(option.value);
                           setPage(1);
                         }}
-                        className={`${filterButtonBaseClass} ${
-                          active ? filterButtonActiveClass : filterButtonInactiveClass
-                        }`}
+                        className={`${filterButtonBaseClass} ${active ? filterButtonActiveClass : filterButtonInactiveClass
+                          }`}
                       >
                         {option.label}
                       </Button>
@@ -1228,7 +1298,7 @@ export default function AdminCampaignsPage() {
                   Campaign Table
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
-                  Browse, sort, manage campaigns, and assign IME campaign-wise.
+                  IME controls appear only inside Actions for Fully Managed campaigns.
                 </p>
               </div>
 
@@ -1257,46 +1327,49 @@ export default function AdminCampaignsPage() {
               actions={{
                 header: "Actions",
                 align: "right",
-                cellClassName: "min-w-[340px]",
+                cellClassName: "min-w-[360px]",
                 render: (campaign) => (
                   <div className="flex flex-wrap items-center justify-end gap-2">
-                    <Button
-                      asChild
-                      type="button"
-                      className={`${tableButtonBaseClass} ${manageButtonClass}`}
-                    >
-                      <Link
-                        href={`/admin/campaigns/view?id=${campaign.campaignId}`}
-                        aria-label="Manage Campaign"
-                      >
-                        Manage Campaign
-                      </Link>
-                    </Button>
+                    {renderImeAction(campaign)}
 
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => handleCopyPublicLink(campaign)}
-                      aria-label="Copy Public Link"
-                      title="Copy Public Link"
-                      className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
-                        copiedCampaignId === campaign.campaignId
+                    <div className="flex items-center gap-2">
+                      <Button
+                        asChild
+                        type="button"
+                        className={`${tableButtonBaseClass} ${manageButtonClass}`}
+                      >
+                        <Link
+                          href={`/admin/campaigns/view?id=${campaign.campaignId}`}
+                          aria-label="Manage Campaign"
+                        >
+                          Manage
+                        </Link>
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => handleCopyPublicLink(campaign)}
+                        aria-label="Copy Public Link"
+                        title="Copy Public Link"
+                        className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${copiedCampaignId === campaign.campaignId
                           ? "border-0 bg-transparent text-emerald-600 hover:!bg-transparent hover:!text-emerald-700"
                           : "border-0 bg-transparent text-blue-600 hover:!bg-transparent hover:!text-blue-700"
-                      }`}
-                    >
-                      {copiedCampaignId === campaign.campaignId ? (
-                        <>
-                          <Check className="mr-2 h-4.5 w-4.5" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="mr-2 h-4.5 w-4.5" />
-                          Copy Link
-                        </>
-                      )}
-                    </Button>
+                          }`}
+                      >
+                        {copiedCampaignId === campaign.campaignId ? (
+                          <>
+                            <Check className="mr-2 h-4.5 w-4.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="mr-2 h-4.5 w-4.5" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ),
               }}
@@ -1313,12 +1386,148 @@ export default function AdminCampaignsPage() {
                 showSummary: true,
               }}
               className="py-2"
-              tableClassName="min-w-[1760px]"
+              tableClassName="min-w-[1660px]"
               headerRowClassName="bg-slate-50/80"
             />
           </div>
         </div>
       </div>
+
+      {imeModalCampaign ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Fully Managed IME Assignment
+                  </div>
+                  <h2 className="mt-3 text-2xl font-bold tracking-[-0.03em] text-slate-950">
+                    {formatName(imeModalCampaign.name)}
+                  </h2>
+                  <p className="mt-1 text-sm font-medium text-slate-500">
+                    Brand: {imeModalCampaign.brandName || "—"}
+                    {imeModalCampaign.assignedRh
+                      ? ` · RH: ${imeModalCampaign.assignedRh}`
+                      : ""}
+                    {imeModalCampaign.assignedBme
+                      ? ` · BME: ${imeModalCampaign.assignedBme}`
+                      : ""}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeImeModal}
+                  className="rounded-2xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-bold text-slate-900">Current IME</p>
+                <p className="mt-1 text-sm font-medium text-slate-600">
+                  {getAssignedImeLabel(imeModalCampaign, imeOptions) ||
+                    "No IME assigned yet"}
+                </p>
+              </div>
+
+              <div className="mt-5">
+                <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                  Select IME under this RH
+                </p>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={imeSearch}
+                    onChange={(event) => setImeSearch(event.target.value)}
+                    placeholder="Search IME by name or email..."
+                    className="h-11 rounded-2xl border-slate-200 bg-white pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {imeLoading ? (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-medium text-slate-500">
+                    Loading IME list...
+                  </div>
+                ) : modalImeOptions.length ? (
+                  modalImeOptions.map((employee) => {
+                    const active = selectedImeId === employee._id;
+
+                    return (
+                      <button
+                        key={employee._id}
+                        type="button"
+                        onClick={() => setSelectedImeId(employee._id)}
+                        className={`flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition ${active
+                          ? "border-black bg-slate-950 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                      >
+                        <div
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-black ${active
+                            ? "bg-white text-slate-950"
+                            : "bg-slate-100 text-slate-700"
+                            }`}
+                        >
+                          {getInitials(getEmployeeLabel(employee))}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold">
+                            {getEmployeeLabel(employee)}
+                          </p>
+                          <p
+                            className={`mt-1 truncate text-xs font-medium ${active ? "text-white/70" : "text-slate-500"
+                              }`}
+                          >
+                            {getEmployeeSubLabel(employee)}
+                          </p>
+                        </div>
+                        {active ? <Check className="h-5 w-5 shrink-0" /> : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-700">
+                    No active IME found under this RH. Invite or activate an IME first.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-6 py-5">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={closeImeModal}
+                disabled={Boolean(assigningCampaignId)}
+                className="rounded-2xl border-slate-200"
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                onClick={() => handleAssignIme(imeModalCampaign, selectedImeId)}
+                disabled={
+                  Boolean(assigningCampaignId) ||
+                  !selectedImeId ||
+                  selectedImeId === String(imeModalCampaign.idmId || "")
+                }
+                className="rounded-2xl bg-black px-5 text-white hover:bg-black/90"
+              >
+                {assigningCampaignId ? "Saving..." : "Save IME"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

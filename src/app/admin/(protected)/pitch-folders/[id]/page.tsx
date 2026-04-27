@@ -31,6 +31,7 @@ import {
   Settings2,
   Trash2,
   UploadCloud,
+  UserPlus,
   X,
   XCircle,
   Youtube,
@@ -150,6 +151,12 @@ type FolderItem = {
   mediaKit?: FolderItemMediaKit | null;
   mediaKitLink?: FolderItemMediaKitLink | null;
   mediaKitAccess?: FolderItemMediaKitAccess | null;
+  createdInfluencerId?: string | null;
+  influencerCreatedAt?: string | null;
+  linkedInfluencer?: {
+    influencerId?: string | null;
+    createdAt?: string | null;
+  } | null;
 };
 
 type FolderResponse = {
@@ -189,6 +196,17 @@ type FolderListItem = {
 type FolderListResponse = {
   success: boolean;
   data: FolderListItem[];
+};
+
+type AdminInfluencerListItem = {
+  _id?: string;
+  email?: string | null;
+  proxyEmail?: string | null;
+};
+
+type AdminInfluencerListResponse = {
+  success?: boolean;
+  influencers?: AdminInfluencerListItem[];
 };
 
 type DrawerMode = 'create' | 'edit';
@@ -322,6 +340,96 @@ function getProfileUrl(row: FolderItem) {
   if (firstLink) return firstLink;
 
   return buildFallbackProfileUrl(row.provider, row.handle);
+}
+
+function normalizeAdminCreatePlatform(value?: string | null) {
+  const provider = cleanText(value).toLowerCase();
+
+  if (provider === 'youtube' || provider === 'yt') return 'youtube';
+  if (provider === 'instagram' || provider === 'ig' || provider === 'insta') return 'instagram';
+  if (provider === 'tiktok' || provider === 'tt' || provider === 'tk') return 'tiktok';
+
+  return '';
+}
+
+function extractUsernameFromUrl(url?: string | null) {
+  const value = ensureAbsoluteUrl(url);
+  if (!value) return '';
+
+  try {
+    const parsed = new URL(value);
+    const host = parsed.hostname.toLowerCase();
+    const parts = parsed.pathname.split('/').map((part) => part.trim()).filter(Boolean);
+
+    if (!parts.length) return '';
+
+    if (host.includes('instagram.com')) {
+      return parts[0].replace(/^@+/, '');
+    }
+
+    if (host.includes('tiktok.com')) {
+      return parts[0].replace(/^@+/, '');
+    }
+
+    if (host.includes('youtube.com') || host.includes('youtu.be')) {
+      const atPart = parts.find((part) => part.startsWith('@'));
+      if (atPart) return atPart.replace(/^@+/, '');
+      return parts[0].replace(/^@+/, '');
+    }
+  } catch {
+    return '';
+  }
+
+  return '';
+}
+
+function getAdminCreateUsernameFromRow(row: FolderItem) {
+  const handleUsername = asText(row.handle).replace(/^@+/, '');
+  if (handleUsername) return handleUsername;
+
+  const primaryUsername = extractUsernameFromUrl(row.primaryLink);
+  if (primaryUsername) return primaryUsername;
+
+  if (Array.isArray(row.links)) {
+    for (const link of row.links) {
+      const username = extractUsernameFromUrl(link);
+      if (username) return username;
+    }
+  }
+
+  return '';
+}
+
+function normalizeEmailForCompare(value?: string | null) {
+  return asText(value).toLowerCase();
+}
+
+function getExistingInfluencerIdFromList(
+  influencers: AdminInfluencerListItem[] = [],
+  email: string
+) {
+  const targetEmail = normalizeEmailForCompare(email);
+  if (!targetEmail) return '';
+
+  const exactMatch = influencers.find((influencer) => {
+    const influencerEmail = normalizeEmailForCompare(influencer.email);
+    const proxyEmail = normalizeEmailForCompare(influencer.proxyEmail);
+
+    return influencerEmail === targetEmail || proxyEmail === targetEmail;
+  });
+
+  return exactMatch?._id ? String(exactMatch._id) : '';
+}
+
+function markRowAsExistingInfluencer(row: FolderItem, influencerId: string) {
+  return {
+    ...row,
+    createdInfluencerId: row.createdInfluencerId || influencerId,
+    linkedInfluencer: row.linkedInfluencer || {
+      influencerId,
+      createdAt: row.influencerCreatedAt || null,
+    },
+  };
 }
 
 function formatDate(iso?: string | null) {
@@ -1745,8 +1853,10 @@ type InfluencerTableRowProps = {
   onOpenMediaKit: (itemId: string) => void;
   onToggleLink: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
+  onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
+  isCreateInfluencerLoading: boolean;
 };
 
 const InfluencerTableRowMemo = memo(function InfluencerTableRow({
@@ -1759,13 +1869,17 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   onOpenMediaKit,
   onToggleLink,
   onTogglePdf,
+  onCreateInfluencer,
   onEdit,
   onDelete,
+  isCreateInfluencerLoading,
 }: InfluencerTableRowProps) {
   const hasLink = !!asText(row.mediaKitLink?.url);
   const hasPdf = !!asText(row.mediaKit?.s3Key);
   const access = row.mediaKitAccess;
   const profileUrl = getProfileUrl(row);
+  const influencerLinked = !!(row.createdInfluencerId || row.linkedInfluencer?.influencerId);
+  const canCreateInfluencer = !!asText(row.name) && !!asText(row.email);
 
   const visibleSource =
     access?.visibleSource === 'pdf'
@@ -1956,6 +2070,37 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
 
       <TableCell className="align-top text-right">
         <div className="flex justify-end gap-2">
+          {influencerLinked ? (
+            <Badge
+              variant="outline"
+              className="rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700"
+              title="Influencer already created / linked"
+            >
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+              Already Created
+            </Badge>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-xl"
+              disabled={!canCreateInfluencer || isCreateInfluencerLoading}
+              title={
+                !canCreateInfluencer
+                  ? 'Name and email are required to create influencer'
+                  : 'Create influencer account from this pitch folder row'
+              }
+              onClick={() => onCreateInfluencer(row)}
+            >
+              {isCreateInfluencerLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="mr-2 h-4 w-4" />
+              )}
+              Create Influencer
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="outline"
@@ -1997,11 +2142,13 @@ type InfluencerTableProps = {
   onOpenMediaKit: (itemId: string) => void;
   onToggleLink: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
+  onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   onGoToYoutube: () => void;
   linkToggleItemId: string;
   pdfToggleItemId: string;
+  creatingInfluencerItemId: string;
 };
 
 const InfluencerTableSection = memo(function InfluencerTableSection({
@@ -2020,11 +2167,13 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   onOpenMediaKit,
   onToggleLink,
   onTogglePdf,
+  onCreateInfluencer,
   onEdit,
   onDelete,
   onGoToYoutube,
   linkToggleItemId,
   pdfToggleItemId,
+  creatingInfluencerItemId,
 }: InfluencerTableProps) {
   return (
     <Card className="rounded-2xl border border-slate-200 shadow-none">
@@ -2172,8 +2321,10 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
                       onOpenMediaKit={onOpenMediaKit}
                       onToggleLink={onToggleLink}
                       onTogglePdf={onTogglePdf}
+                      onCreateInfluencer={onCreateInfluencer}
                       onEdit={onEdit}
                       onDelete={onDelete}
+                      isCreateInfluencerLoading={creatingInfluencerItemId === row._id}
                     />
                   ))}
                 </TableBody>
@@ -2229,6 +2380,7 @@ export default function PitchFolderDetailPage() {
     []
   );
   const [movingItems, setMovingItems] = useState(false);
+  const [creatingInfluencerItemId, setCreatingInfluencerItemId] = useState('');
 
   const rowMap = useMemo(() => {
     const map = new Map<string, FolderItem>();
@@ -2376,6 +2528,68 @@ export default function PitchFolderDetailPage() {
     []
   );
 
+  const hydrateRowsWithExistingInfluencers = useCallback(
+    async (items: FolderItem[]) => {
+      const emailsToCheck = Array.from(
+        new Set(
+          items
+            .filter((item) => !(item.createdInfluencerId || item.linkedInfluencer?.influencerId))
+            .map((item) => normalizeEmailForCompare(item.email))
+            .filter(Boolean)
+        )
+      );
+
+      if (!emailsToCheck.length) return items;
+
+      const existingByEmail = new Map<string, string>();
+      const batchSize = 8;
+
+      for (let index = 0; index < emailsToCheck.length; index += batchSize) {
+        const batch = emailsToCheck.slice(index, index + batchSize);
+
+        await Promise.all(
+          batch.map(async (email) => {
+            try {
+              const resp = await post<AdminInfluencerListResponse>(
+                '/admin/influencer/list',
+                {
+                  page: 1,
+                  limit: 10,
+                  search: email,
+                  sortBy: 'createdAt',
+                  sortOrder: 'desc',
+                }
+              );
+
+              const influencerId = getExistingInfluencerIdFromList(
+                Array.isArray(resp?.influencers) ? resp.influencers : [],
+                email
+              );
+
+              if (influencerId) existingByEmail.set(email, influencerId);
+            } catch {
+              // Keep folder loading even if the existing-influencer check fails.
+            }
+          })
+        );
+      }
+
+      if (!existingByEmail.size) return items;
+
+      return items.map((item) => {
+        if (item.createdInfluencerId || item.linkedInfluencer?.influencerId) {
+          return item;
+        }
+
+        const email = normalizeEmailForCompare(item.email);
+        const influencerId = existingByEmail.get(email);
+
+        return influencerId ? markRowAsExistingInfluencer(item, influencerId) : item;
+      });
+    },
+    []
+  );
+
   const loadFolder = useCallback(async () => {
     if (!folderId) return;
 
@@ -2387,11 +2601,12 @@ export default function PitchFolderDetailPage() {
 
       const data = resp?.data || null;
       const nextRows = Array.isArray(data?.items) ? data.items : [];
+      const rowsWithExistingInfluencers = await hydrateRowsWithExistingInfluencers(nextRows);
 
       setFolder(data);
-      setRows(nextRows);
+      setRows(rowsWithExistingInfluencers);
       setSelectedItemIds((prev) =>
-        prev.filter((id) => nextRows.some((row) => row._id === id))
+        prev.filter((id) => rowsWithExistingInfluencers.some((row) => row._id === id))
       );
       setFolderBrandCount(
         data?.brandVisibleItemCount === null ||
@@ -2409,7 +2624,7 @@ export default function PitchFolderDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [folderId]);
+  }, [folderId, hydrateRowsWithExistingInfluencers]);
 
   useEffect(() => {
     if (!folderId) return;
@@ -2469,6 +2684,122 @@ export default function PitchFolderDetailPage() {
       setSavingFolderConfig(false);
     }
   }, [folderId, folderBrandCount, showFullListToBrand, loadFolder]);
+
+  const createInfluencerFromRow = useCallback(
+    async (row: FolderItem) => {
+      try {
+        if (!row?._id) {
+          await showErr('Influencer row is missing.');
+          return;
+        }
+
+        const name = asText(row.name);
+        const email = asText(row.email).toLowerCase();
+        const platform = normalizeAdminCreatePlatform(row.provider);
+        const username = getAdminCreateUsernameFromRow(row);
+
+        if (!name) {
+          await showErr('Influencer name is required.');
+          return;
+        }
+
+        if (!email) {
+          await showErr('Influencer email is required.');
+          return;
+        }
+
+        if (!platform) {
+          await showErr('Platform is required. Allowed values: YouTube, Instagram, or TikTok.');
+          return;
+        }
+
+        if (!username) {
+          await showErr('Username / handle is required to create influencer.');
+          return;
+        }
+
+        setCreatingInfluencerItemId(row._id);
+
+        const resp = await post<{
+          success?: boolean;
+          message?: string;
+          influencer?: {
+            _id?: string;
+            name?: string;
+            email?: string;
+            primaryPlatform?: string;
+          };
+        }>('/admin/influencer/create', {
+          name,
+          email,
+          platform,
+          username,
+
+          // Extra row data is sent for future backend support. The current
+          // adminCreateInfluencer API primarily consumes name, email, platform,
+          // and username.
+          followers: row.followers ?? null,
+          profileLink: getProfileUrl(row),
+          country: asText(row.country),
+          niche: Array.isArray(row.niche) ? row.niche : [],
+          selectionReason: asText(row.selectionReason),
+          influencerRateCard: asText(row.influencerRateCard),
+          platformRateCard: asText(row.platformRateCard),
+          rateCardCurrency: asText(row.rateCardCurrency || 'USD'),
+          ourFeePct: row.ourFeePct ?? null,
+          shippingAddress: getShippingAddress(row),
+        });
+
+        const influencerId = resp?.influencer?._id || '';
+
+        if (influencerId) {
+          setRows((prev) =>
+            prev.map((item) =>
+              item._id === row._id
+                ? {
+                  ...item,
+                  createdInfluencerId: influencerId,
+                  linkedInfluencer: {
+                    influencerId,
+                    createdAt: new Date().toISOString(),
+                  },
+                }
+                : item
+            )
+          );
+        }
+
+        await showSuccess(resp?.message || 'Influencer created successfully.');
+      } catch (e: any) {
+        const message = e?.message || 'Failed to create influencer.';
+
+        if (/influencer already exists/i.test(message)) {
+          setRows((prev) =>
+            prev.map((item) =>
+              item._id === row._id
+                ? {
+                  ...item,
+                  createdInfluencerId: item.createdInfluencerId || 'already-created',
+                  linkedInfluencer: item.linkedInfluencer || {
+                    influencerId: 'already-created',
+                    createdAt: new Date().toISOString(),
+                  },
+                }
+                : item
+            )
+          );
+
+          await showSuccess('Influencer already created.');
+          return;
+        }
+
+        await showErr(message);
+      } finally {
+        setCreatingInfluencerItemId('');
+      }
+    },
+    []
+  );
 
   const deleteRow = useCallback(
     async (itemId: string) => {
@@ -3115,11 +3446,13 @@ export default function PitchFolderDetailPage() {
           onOpenMediaKit={openMediaKitModal}
           onToggleLink={handleMediaKitLinkToggle}
           onTogglePdf={handleMediaKitPdfToggle}
+          onCreateInfluencer={createInfluencerFromRow}
           onEdit={openEditDrawer}
           onDelete={deleteRow}
           onGoToYoutube={goToYoutube}
           linkToggleItemId={linkToggleItemId}
           pdfToggleItemId={pdfToggleItemId}
+          creatingInfluencerItemId={creatingInfluencerItemId}
         />
       </div>
     </div>
