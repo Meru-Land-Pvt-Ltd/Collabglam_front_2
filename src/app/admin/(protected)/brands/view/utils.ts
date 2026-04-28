@@ -1,5 +1,6 @@
 import {
   Activity,
+  BadgePercent,
   Building2,
   CreditCard,
   FileText,
@@ -13,9 +14,13 @@ export const BRAND_TABS: BrandTabItem[] = [
   { id: "overview", label: "Overview", icon: Layers3 },
   { id: "subscription", label: "Subscription", icon: CreditCard },
   { id: "campaigns", label: "Campaigns", icon: FolderKanban },
-  { id: "invoices", label: "Invoices", icon: FileText },
-  { id: "activity", label: "Activity Log", icon: Activity },
-  { id: "settings", label: "Settings", icon: Settings2 },
+  // { id: "invoices", label: "Invoices", icon: FileText },
+  // { id: "activity", label: "Activity Log", icon: Activity },
+  // { id: "settings", label: "Settings", icon: Settings2 },
+  { id: "coupons", label: "Coupons", icon: BadgePercent },
+  { id: "invoices", label: "Payment History", icon: FileText },
+  // { id: "activity", label: "Activity Log", icon: Activity },
+  // { id: "settings", label: "Settings", icon: Settings2 },
 ];
 
 export const FEATURE_LABELS: Record<string, string> = {
@@ -42,7 +47,8 @@ export function isBrandTab(value: string | null): value is BrandTab {
     value === "campaigns" ||
     value === "invoices" ||
     value === "activity" ||
-    value === "settings"
+    value === "settings" ||
+    value === "coupons"
   );
 }
 

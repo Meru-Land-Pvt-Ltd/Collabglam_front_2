@@ -1,14 +1,7 @@
 "use client";
-
-import React, { Suspense, lazy } from "react";
-import Login from "./Login";
+import { redirect } from "next/navigation";
 
 export default function LoginPage() {
-    return (
-    <div>
-      <Suspense fallback={<div>Loading Login Page</div>}>
-        <Login />
-      </Suspense>
-    </div>
-  );
+
+  redirect('/brand/login');
 }

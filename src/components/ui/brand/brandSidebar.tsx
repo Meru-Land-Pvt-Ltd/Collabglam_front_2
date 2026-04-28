@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AnimatePresence,
   LazyMotion,
@@ -30,16 +36,15 @@ import {
   DotsThree,
   House,
   Lightning,
+  MagnifyingGlassIcon,
   NotePencil,
   PaperPlaneTilt,
   Question,
   SignOut,
   UserCircle,
   UserPlus,
-  Users,
   Wallet,
   X,
-  MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 
 /* -------------------------------- routing -------------------------------- */
@@ -48,7 +53,6 @@ const CAMPAIGN_PREFIX = "/brand/campaign";
 
 const ROUTES: Record<string, string> = {
   dashboard: "/brand/dashboard",
-  // hub: "/brand/influencer",
   create: "/brand/create-campaign",
   campaigns: "/brand/campaign/all",
   campaigns_all: "/brand/campaign/all",
@@ -57,8 +61,8 @@ const ROUTES: Record<string, string> = {
   campaigns_scheduled: "/brand/campaign/scheduled-campaign",
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
-  wallet: "/brand/wallet",
-  invite_user: "/brand/invite-user",
+  wallet: "",
+  invite_user: "",
   notification: "/brand/notifications",
   help: "",
 };
@@ -215,6 +219,25 @@ function WorkspaceLogo({ ws }: { ws: Workspace }) {
   );
 }
 
+function SidebarTooltip({
+  content,
+  children,
+  side = "right",
+}: {
+  content: string;
+  children: React.ReactElement;
+  side?: "top" | "right" | "bottom" | "left";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} align="center">
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function PanelCaretGlyph({
   dir,
   className,
@@ -293,6 +316,25 @@ function formatWalletAmount(amount: number | null) {
   }).format(amount);
 }
 
+function WalletBalancePill({ value }: { value: string }) {
+  return (
+    <div className="ml-1 flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2 text-[11px] font-semibold text-[#1a1a1a]">
+      <img
+        src="/images/dollar_coin.png"
+        alt="coin"
+        className="h-5 w-5 shrink-0"
+      />
+
+      <span
+        className="shrink-0 whitespace-nowrap tabular-nums leading-none"
+        title={value}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
 const RowButton = React.memo(function RowButton({
   active,
   icon: Icon,
@@ -318,7 +360,7 @@ const RowButton = React.memo(function RowButton({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       className={cn(
-        "relative flex items-center overflow-hidden rounded-lg transition-all duration-300",
+        "relative flex min-w-0 items-center overflow-hidden rounded-lg transition-all duration-300 disabled:opacity-100",
         disabled ? "cursor-default" : "cursor-pointer",
         FOCUS_RING,
         REST_NAV,
@@ -326,9 +368,9 @@ const RowButton = React.memo(function RowButton({
         collapsed
           ? cn("mx-auto justify-center", tight ? "h-11 w-11" : "h-12 w-12")
           : cn(
-            "w-full justify-start",
-            tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
-          )
+              "w-full justify-start",
+              tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
+            )
       )}
       style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
     >
@@ -342,7 +384,7 @@ const RowButton = React.memo(function RowButton({
         }}
         transition={{ duration: 0.2 }}
         className={cn(
-          "overflow-hidden whitespace-nowrap text-current",
+          "shrink-0 overflow-hidden whitespace-nowrap text-current",
           tight ? "text-[13px]" : "text-[14px]",
           "leading-5"
         )}
@@ -354,7 +396,7 @@ const RowButton = React.memo(function RowButton({
         <m.span
           initial={false}
           animate={{ opacity: 1 }}
-          className="ml-auto inline-flex items-center whitespace-nowrap text-current"
+          className="ml-auto inline-flex shrink-0 items-center whitespace-nowrap text-current"
         >
           {right}
         </m.span>
@@ -395,8 +437,6 @@ export default function BrandSidebar({
   const pathname = usePathname();
   const reduceMotion = useReducedMotion();
 
-  /* ------------------------------- responsive ------------------------------ */
-
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const isXl = useMediaQuery("(min-width: 1280px)");
   const isShort = useMediaQuery("(max-height: 800px)");
@@ -420,8 +460,6 @@ export default function BrandSidebar({
   const helpDialogRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
-  /* --------------------------------- state -------------------------------- */
-
   const [active, setActive] = useState<string>("dashboard");
   const [campaignOpen, setCampaignOpen] = useState(false);
 
@@ -444,8 +482,6 @@ export default function BrandSidebar({
   const campaignHoverRef = useRef(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedCollapsed = useRef(false);
-
-  /* -------------------------------- derived -------------------------------- */
 
   const tight = isShort;
   const railMode = isDesktop && (collapsed || isClosing);
@@ -502,12 +538,6 @@ export default function BrandSidebar({
         icon: House,
         section: "overview",
       },
-      // {
-      //   key: "hub",
-      //   label: "Influencer Hub",
-      //   icon: Users,
-      //   section: "overview",
-      // },
       {
         key: "create",
         label: "Create Campaign",
@@ -545,17 +575,6 @@ export default function BrandSidebar({
         section: "manage",
       },
       {
-        key: "invite_user",
-        label: "Invite User",
-        icon: UserPlus,
-        section: "manage",
-        right: (
-          <span className="inline-flex items-center rounded-full border border-[#F2B705] bg-[#FFF8E1] px-2 py-[2px] text-[10px] font-semibold text-[#D4A100]">
-            Soon
-          </span>
-        ),
-      },
-      {
         key: "help",
         label: "Help & Support",
         icon: Question,
@@ -579,7 +598,7 @@ export default function BrandSidebar({
 
   const routePairs = useMemo(() => {
     return Object.entries(ROUTES)
-      .filter(([key]) => key !== "campaigns")
+      .filter(([key, path]) => key !== "campaigns" && Boolean(path))
       .map(([key, path]) => ({ key, path }))
       .sort((a, b) => b.path.length - a.path.length);
   }, []);
@@ -589,9 +608,9 @@ export default function BrandSidebar({
   }, []);
 
   const expandedW = useMemo(() => {
-    const min = isXl ? 260 : 240;
-    const max = isXl ? 320 : 300;
-    return Math.round(clamp(vw * 0.18, min, max));
+    const min = isXl ? 320 : 300;
+    const max = isXl ? 380 : 350;
+    return Math.round(clamp(vw * 0.2, min, max));
   }, [clamp, vw, isXl]);
 
   const collapsedW = useMemo(() => {
@@ -656,14 +675,10 @@ export default function BrandSidebar({
   const helpMenuItems = useMemo<Array<{ key: SupportMenuKey; label: string }>>(
     () => [
       { key: "dispute", label: "Dispute" },
-      { key: "report_issue", label: "Report an Issue" },
-      { key: "help_center", label: "Help Center" },
       { key: "privacy_policy", label: "Privacy Policy" },
     ],
     []
   );
-
-  /* -------------------------------- effects -------------------------------- */
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -684,7 +699,7 @@ export default function BrandSidebar({
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch { }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -735,10 +750,9 @@ export default function BrandSidebar({
           if (latestId) window.localStorage.setItem("brandPlanId", latestId);
           else window.localStorage.removeItem("brandPlanId");
 
-          if (latestName)
-            window.localStorage.setItem("brandPlanName", latestName);
+          if (latestName) window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch { }
+        } catch {}
       } catch {
         // keep cached values on failure
       }
@@ -760,7 +774,7 @@ export default function BrandSidebar({
         try {
           const stored = window.localStorage.getItem("sidebar-collapsed");
           if (stored !== null) initialCollapsed = stored === "true";
-        } catch { }
+        } catch {}
         setCollapsed(initialCollapsed);
         setWidthCollapsed(initialCollapsed);
         hasInitializedCollapsed.current = true;
@@ -797,14 +811,13 @@ export default function BrandSidebar({
 
     const currentPath = pathname.replace(/\/+$/, "") || "/";
     const match = routePairs.find(
-      ({ path }) =>
-        currentPath === path || currentPath.startsWith(`${path}/`)
+      ({ path }) => currentPath === path || currentPath.startsWith(`${path}/`)
     );
 
     const nextKey =
       match?.key ??
       (currentPath === CAMPAIGN_PREFIX ||
-        currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
+      currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
         ? "campaigns"
         : null);
 
@@ -841,12 +854,14 @@ export default function BrandSidebar({
         } else {
           window.localStorage.removeItem("proxyEmail");
         }
+
         const nextSubscription =
           data?.subscriptionDetails ?? data?.subscription ?? null;
 
         const nextPlanId = nextSubscription?.brandPlanId ?? null;
         const nextPlanNameRaw =
           nextSubscription?.brandPlanName ?? nextSubscription?.plan ?? null;
+
         if (nextPlanId) setPlanId(nextPlanId);
         if (nextPlanNameRaw) setPlanName(String(nextPlanNameRaw).toLowerCase());
       } catch {
@@ -890,7 +905,26 @@ export default function BrandSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [helpDialogOpen]);
 
-  /* ------------------------------- callbacks ------------------------------- */
+  useEffect(() => {
+    if (!helpDialogOpen) return;
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+
+      if (helpDialogRef.current?.contains(target)) return;
+      if (helpAnchorRef.current?.contains(target)) return;
+
+      setHelpDialogOpen(false);
+    };
+
+    window.addEventListener("pointerdown", onPointerDown, { capture: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, {
+        capture: true,
+      } as EventListenerOptions);
+    };
+  }, [helpDialogOpen]);
 
   const setDrawerOpen = useCallback(
     (open: boolean) => {
@@ -941,6 +975,7 @@ export default function BrandSidebar({
   const handleHelpMenuSelect = useCallback(
     (key: SupportMenuKey) => {
       setHelpDialogOpen(false);
+      setActive("help");
 
       switch (key) {
         case "dispute":
@@ -953,18 +988,23 @@ export default function BrandSidebar({
           router.push("/brand/help-and-support");
           break;
         case "privacy_policy":
-          router.push("/privacy-policy");
+          if (typeof window !== "undefined") {
+            window.open("/privacy-policy", "_blank", "noopener,noreferrer");
+          }
           break;
         default:
           break;
       }
+
+      if (!isDesktop) setDrawerOpen(false);
     },
-    [router]
+    [router, isDesktop, setDrawerOpen]
   );
 
   const handleSetActive = useCallback(
     (key: string) => {
       setActive(key);
+      setHelpDialogOpen(false);
 
       if (!key.startsWith("campaigns")) {
         setCampaignOpen(false);
@@ -984,7 +1024,7 @@ export default function BrandSidebar({
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch { }
+    } catch {}
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -993,9 +1033,11 @@ export default function BrandSidebar({
     campaignHoverRef.current = false;
     setWorkspaceOpen(false);
     setWidthCollapsed(true);
+    setProfileMenuOpen(false);
+    setHelpDialogOpen(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch { }
+    } catch {}
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -1018,7 +1060,7 @@ export default function BrandSidebar({
         "brandPlanId",
         "brandPlanName",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch { }
+    } catch {}
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
@@ -1028,8 +1070,11 @@ export default function BrandSidebar({
 
   const renderItem = useCallback(
     (item: Item) => {
-      const isActiveItem = active === item.key;
+      const isHelpOpen = helpDialogOpen;
+
+      const isActiveItem = !isHelpOpen && active === item.key;
       const campaignsActive =
+        !isHelpOpen &&
         item.key === "campaigns" &&
         (active === "campaigns" || isCampaignChildActive);
 
@@ -1041,22 +1086,15 @@ export default function BrandSidebar({
             key={item.key}
             icon={item.icon}
             label={item.label}
-            active={isActiveItem}
+            active={false}
             right={
               !isCollapsed ? (
-                <div className="rounded-lg flex items-center gap-2 border border-neutral-200 py-1 px-2 text-[11px] font-medium text-[#1a1a1a]">
-                  <img
-                    src="/images/dollar_coin.png"
-                    alt="dollar_coin"
-                    className="h-6.5 w-6.5"
-                  />
-                  <span>{walletBalanceLabel}</span>
-                </div>
+                <WalletBalancePill value={walletBalanceLabel} />
               ) : undefined
             }
             tight={tight}
             collapsed={isCollapsed}
-            onClick={() => handleSetActive(item.key)}
+            disabled
           />
         );
       }
@@ -1067,7 +1105,7 @@ export default function BrandSidebar({
             <RowButton
               icon={item.icon}
               label={item.label}
-              active={helpDialogOpen}
+              active={helpDialogOpen || active === "help"}
               tight={tight}
               collapsed={isCollapsed}
               onClick={openHelpDialog}
@@ -1105,7 +1143,30 @@ export default function BrandSidebar({
     ]
   );
 
-  /* -------------------------------- markup -------------------------------- */
+  const LogoButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (isDesktop) {
+          if (collapsed || isClosing) beginOpenDesktop();
+        } else {
+          setDrawerOpen(true);
+        }
+      }}
+      className={cn(
+        "grid flex-shrink-0 place-items-center",
+        FOCUS_RING,
+        isDesktop && collapsed ? "cursor-pointer" : "cursor-default"
+      )}
+      aria-label={railMode ? "Open sidebar" : "CollabGlam"}
+    >
+      <img
+        src="/logo.png"
+        alt="CollabGlam"
+        className="h-[40px] w-[40px] rounded-full object-cover"
+      />
+    </button>
+  );
 
   const SidebarBody = (
     <div className="flex h-full flex-col">
@@ -1116,27 +1177,11 @@ export default function BrandSidebar({
             railMode ? "flex-col gap-3" : "gap-3"
           )}
         >
-          <button
-            type="button"
-            onClick={() => {
-              if (isDesktop) {
-                if (collapsed || isClosing) beginOpenDesktop();
-              } else {
-                setDrawerOpen(true);
-              }
-            }}
-            className={cn(
-              "grid flex-shrink-0 place-items-center",
-              FOCUS_RING,
-              isDesktop && collapsed ? "cursor-pointer" : "cursor-default"
-            )}
-          >
-            <img
-              src="/logo.png"
-              alt="CollabGlam"
-              className="h-[40px] w-[40px] rounded-full object-cover"
-            />
-          </button>
+          {railMode ? (
+            <SidebarTooltip content="Open sidebar">{LogoButton}</SidebarTooltip>
+          ) : (
+            LogoButton
+          )}
 
           <AnimatePresence initial={false}>
             {!compactUI && (
@@ -1166,29 +1211,36 @@ export default function BrandSidebar({
           </AnimatePresence>
 
           {isDesktop ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (collapsed || isClosing) beginOpenDesktop();
-                else beginCloseDesktop();
-              }}
-              className={cn(
-                "grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg transition",
-                "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
-                FOCUS_RING,
-                railMode ? "" : "ml-auto"
-              )}
+            <SidebarTooltip
+              content={collapsed || isClosing ? "Open sidebar" : "Close sidebar"}
+              side={collapsed || isClosing ? "right" : "bottom"}
             >
-              {collapsed ? (
-                <PanelCaretGlyph dir="right" />
-              ) : (
-                <PanelCaretGlyph dir="left" />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (collapsed || isClosing) beginOpenDesktop();
+                  else beginCloseDesktop();
+                }}
+                aria-label={collapsed || isClosing ? "Open sidebar" : "Close sidebar"}
+                className={cn(
+                  "grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg transition",
+                  "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
+                  FOCUS_RING,
+                  railMode ? "" : "ml-auto"
+                )}
+              >
+                {collapsed ? (
+                  <PanelCaretGlyph dir="right" />
+                ) : (
+                  <PanelCaretGlyph dir="left" />
+                )}
+              </button>
+            </SidebarTooltip>
           ) : (
             <button
               type="button"
               onClick={() => setDrawerOpen(false)}
+              aria-label="Close menu"
               className={cn(
                 "ml-auto grid h-10 w-10 place-items-center rounded-lg transition",
                 "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
@@ -1199,88 +1251,6 @@ export default function BrandSidebar({
             </button>
           )}
         </div>
-
-        {/* <AnimatePresence initial={false}>
-          {!compactUI && (
-            <m.div
-              key="workspace-switcher"
-              ref={workspaceRef}
-              variants={fadeScale}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={motionTransitions.content}
-              className="mt-1 w-full"
-            >
-              <button
-                type="button"
-                onClick={() => setWorkspaceOpen((prev) => !prev)}
-                className={cn(
-                  "flex h-12 w-full items-center rounded-xl border border-neutral-200 bg-white px-3",
-                  "transition hover:bg-[#F8F8F8]",
-                  FOCUS_RING
-                )}
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <WorkspaceLogo ws={selectedWorkspace} />
-                  <span className="truncate text-[14px] font-medium text-[#1a1a1a]">
-                    {selectedWorkspace.name}
-                  </span>
-                </div>
-
-                <m.span
-                  className="inline-flex items-center"
-                  animate={{ rotate: workspaceOpen ? 180 : 0 }}
-                  transition={motionTransitions.content}
-                >
-                  <CaretDown size={16} className="text-[#1a1a1a]" />
-                </m.span>
-              </button>
-
-              <AnimatePresence initial={false}>
-                {workspaceOpen && (
-                  <m.div
-                    key="workspace-dropdown"
-                    variants={dropdownScaleY}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    transition={motionTransitions.content}
-                    className="origin-top overflow-hidden"
-                  >
-                    <div className="mt-2 rounded-xl border border-neutral-200 bg-white p-2 shadow-sm">
-                      {workspaces.map((workspace) => {
-                        const selected = workspace.key === workspaceKey;
-
-                        return (
-                          <button
-                            key={workspace.key}
-                            type="button"
-                            onClick={() => {
-                              setWorkspaceKey(workspace.key);
-                              setWorkspaceOpen(false);
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition",
-                              selected
-                                ? "bg-[#F5F5F5] text-[#1a1a1a]"
-                                : "text-[#1a1a1a] hover:bg-[#F8F8F8]"
-                            )}
-                          >
-                            <WorkspaceLogo ws={workspace} />
-                            <span className="truncate text-[14px] font-medium">
-                              {workspace.name}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </m.div>
-          )}
-        </AnimatePresence> */}
       </div>
 
       <div className={cn("mt-6 flex min-h-0 flex-1 flex-col", tight ? "mt-4" : "")}>
@@ -1321,9 +1291,10 @@ export default function BrandSidebar({
               }
 
               const isCampaignActive =
-                campaignOpen ||
-                active === "campaigns" ||
-                isCampaignChildActive;
+                !helpDialogOpen &&
+                (campaignOpen ||
+                  active === "campaigns" ||
+                  isCampaignChildActive);
 
               return (
                 <div key={item.key} className="w-full">
@@ -1394,7 +1365,7 @@ export default function BrandSidebar({
                       >
                         <div className="rounded-lg bg-white pt-1">
                           {(item.children ?? []).map((child) => {
-                            const isSubActive = active === child.key;
+                            const isSubActive = !helpDialogOpen && active === child.key;
 
                             return (
                               <button
@@ -1471,29 +1442,33 @@ export default function BrandSidebar({
               transition={motionTransitions.content}
               className="flex flex-col items-center gap-4"
             >
-              <m.button
-                type="button"
-                title={isPaidPlan ? `Current: ${planLabel}` : "Upgrade to PRO"}
-                onClick={handlePlanClick}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-                transition={upgradeSpring}
-                className={cn(
-                  "relative grid place-items-center overflow-hidden",
-                  tight ? "h-12 w-12" : "h-14 w-14",
-                  FOCUS_RING
-                )}
-                style={{
-                  borderRadius: "var(--Spacing-8, 8px)",
-                  background: UPGRADE_COLLAPSED,
-                  willChange: "transform",
-                }}
+              <SidebarTooltip
+                content={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
               >
-                <Lightning size={24} className="text-[#1a1a1a]" />
-                {isPaidPlan && (
-                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#1a1a1a]" />
-                )}
-              </m.button>
+                <m.button
+                  type="button"
+                  aria-label={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
+                  onClick={handlePlanClick}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.98 }}
+                  transition={upgradeSpring}
+                  className={cn(
+                    "relative grid place-items-center overflow-hidden",
+                    tight ? "h-12 w-12" : "h-14 w-14",
+                    FOCUS_RING
+                  )}
+                  style={{
+                    borderRadius: "var(--Spacing-8, 8px)",
+                    background: UPGRADE_COLLAPSED,
+                    willChange: "transform",
+                  }}
+                >
+                  <Lightning size={24} className="text-[#1a1a1a]" />
+                  {isPaidPlan && (
+                    <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#1a1a1a]" />
+                  )}
+                </m.button>
+              </SidebarTooltip>
 
               <div
                 className={cn(
@@ -1502,22 +1477,29 @@ export default function BrandSidebar({
                 )}
               />
 
-              <div
-                className="h-10 w-10 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100"
-                title={footerBrandName}
-              >
-                {footerProfilePic ? (
-                  <img
-                    src={footerProfilePic}
-                    alt={footerBrandName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
-                    {footerBrandName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
+              <SidebarTooltip content="Profile">
+                <button
+                  type="button"
+                  onClick={() => handleProfileMenuAction("/brand/profile")}
+                  aria-label="Open profile"
+                  className={cn(
+                    "h-10 w-10 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100 transition hover:bg-neutral-200",
+                    FOCUS_RING
+                  )}
+                >
+                  {footerProfilePic ? (
+                    <img
+                      src={footerProfilePic}
+                      alt={footerBrandName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
+                      {footerBrandName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </button>
+              </SidebarTooltip>
             </m.div>
           ) : (
             <m.div
@@ -1614,21 +1596,35 @@ export default function BrandSidebar({
 
               <div className="relative">
                 <div className="flex w-full items-center gap-3 bg-white p-3">
-                  <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100">
-                    {footerProfilePic ? (
-                      <img
-                        src={footerProfilePic}
-                        alt={footerBrandName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
-                        {footerBrandName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
+                  <SidebarTooltip content="Profile" side="top">
+                    <button
+                      type="button"
+                      onClick={() => handleProfileMenuAction("/brand/profile")}
+                      aria-label="Open profile"
+                      className={cn(
+                        "h-10 w-10 flex-shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100 transition hover:bg-neutral-200",
+                        FOCUS_RING
+                      )}
+                    >
+                      {footerProfilePic ? (
+                        <img
+                          src={footerProfilePic}
+                          alt={footerBrandName}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
+                          {footerBrandName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </button>
+                  </SidebarTooltip>
 
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => handleProfileMenuAction("/brand/profile")}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <div className="truncate text-[16px] font-semibold text-[#1a1a1a]">
                       {footerBrandName}
                     </div>
@@ -1636,20 +1632,22 @@ export default function BrandSidebar({
                     <div className="truncate text-[12px] text-neutral-500">
                       {footerProxyEmail}
                     </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    aria-label="Open profile menu"
-                    aria-expanded={profileMenuOpen}
-                    onClick={() => setProfileMenuOpen((prev) => !prev)}
-                    className={cn(
-                      "grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl text-[#1a1a1a] transition hover:bg-[#EDEDED]",
-                      FOCUS_RING
-                    )}
-                  >
-                    <DotsThree size={24} />
                   </button>
+
+                  <SidebarTooltip content="More options" side="top">
+                    <button
+                      type="button"
+                      aria-label="Open profile menu"
+                      aria-expanded={profileMenuOpen}
+                      onClick={() => setProfileMenuOpen((prev) => !prev)}
+                      className={cn(
+                        "grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl text-[#1a1a1a] transition hover:bg-[#EDEDED]",
+                        FOCUS_RING
+                      )}
+                    >
+                      <DotsThree size={24} />
+                    </button>
+                  </SidebarTooltip>
                 </div>
 
                 <AnimatePresence initial={false}>

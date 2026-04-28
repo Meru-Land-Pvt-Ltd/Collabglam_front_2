@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import YoutubeHandlePanel from "../../components/YoutubeHandlePanel";
 import ModashDataPanel from "../../components/ModashDataPanel";
+import YoutubePage from "../youtube/Youtube";
 
 type Tab = "youtube" | "modash";
 
@@ -68,7 +69,7 @@ export default function InfluencerDataPage() {
       {/* Panels */}
       {mounted.youtube && (
         <div className={tab === "youtube" ? "block" : "hidden"}>
-          <YoutubeHandlePanel />
+          <YoutubePage />
         </div>
       )}
 

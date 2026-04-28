@@ -25,7 +25,7 @@ function ToolbarButton({
       onClick={onClick}
       className={`px-3 py-1.5 text-sm rounded border transition ${
         active
-          ? "bg-[#ef2f5b] text-white border-[#ef2f5b]"
+          ? "bg-[#1a1a1a] text-white border-[#1a1a1a]"
           : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
       }`}
     >
@@ -174,13 +174,13 @@ const editorClassName = [
 
   "[&_blockquote]:my-4",
   "[&_blockquote]:border-l-4",
-  "[&_blockquote]:border-[#ef2f5b]",
+  "[&_blockquote]:border-[#1a1a1a]",
   "[&_blockquote]:pl-4",
   "[&_blockquote]:italic",
 
   "[&_hr]:my-6",
 
-  "[&_a]:text-[#ef2f5b]",
+  "[&_a]:text-[#1a1a1a]",
   "[&_a]:underline",
 
   "[&_table]:w-full",

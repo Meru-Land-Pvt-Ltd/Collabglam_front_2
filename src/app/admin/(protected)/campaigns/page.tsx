@@ -1211,7 +1211,7 @@ export default function AdminCampaignsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen">
       <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 lg:px-8">
         <div className="mb-6">
           <div>

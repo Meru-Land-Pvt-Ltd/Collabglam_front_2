@@ -640,7 +640,7 @@ function PlatformMixMonthlyAnalytics({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-        <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+        <div className="rounded-xl border border-slate-100 p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Platform Share</div>
@@ -1025,7 +1025,7 @@ const AdminInfluencersPage = () => {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-slate-50/60 p-4 md:p-6">
+      <div className="min-h-screen p-4 md:p-6">
         <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
 
           <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">

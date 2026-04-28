@@ -79,6 +79,20 @@ const ACTIVE_NAV = "bg-[#1a1a1a] text-white";
 const HOVER_NAV = "hover:bg-[#1a1a1a]/10 hover:text-[#1a1a1a]";
 const REST_NAV = "text-[#1a1a1a]";
 
+const SUPPORT_NAV_PATHS = [
+  "/influencer/support-centre",
+  "/influencer/disputes",
+  "/influencer/report-issue",
+  "/privacy-policy",
+];
+
+function isSupportPath(pathname?: string | null) {
+  const p = pathname || "";
+  return SUPPORT_NAV_PATHS.some(
+    (path) => p === path || p.startsWith(`${path}/`)
+  );
+}
+
 /* -------------------------------- types -------------------------------- */
 
 type Item = {
@@ -627,8 +641,8 @@ export default function Sidebar({
   const helpMenuItems = useMemo<Array<{ key: SupportMenuKey; label: string }>>(
     () => [
       { key: "dispute", label: "Dispute" },
-      { key: "report_issue", label: "Report an Issue" },
-      { key: "help_center", label: "Help Center" },
+      // { key: "report_issue", label: "Report an Issue" },
+      // { key: "help_center", label: "Help Center" },
       { key: "privacy_policy", label: "Privacy Policy" },
     ],
     []
@@ -646,6 +660,12 @@ export default function Sidebar({
 
   useEffect(() => {
     const p = pathname || "";
+
+    if (isSupportPath(p)) {
+      setActive("support");
+      return;
+    }
+
     const matched = items.find(
       (item) => item.href === p || p.startsWith(item.href + "/")
     );
@@ -667,6 +687,7 @@ export default function Sidebar({
 
   const compactUI = isDesktop ? collapsed || isClosing : false;
   const tight = isShort;
+  const visualActiveKey = helpDialogOpen ? "support" : active;
 
   const motionTransitions = useMemo(() => {
     const content: Transition = reduceMotion
@@ -705,6 +726,7 @@ export default function Sidebar({
   );
 
   const openHelpDialog = useCallback(() => {
+    setActive("support");
     const rect = helpAnchorRef.current?.getBoundingClientRect();
 
     if (rect) {
@@ -731,6 +753,7 @@ export default function Sidebar({
 
   const handleHelpMenuSelect = useCallback(
     (key: SupportMenuKey) => {
+      setActive("support");
       setHelpDialogOpen(false);
 
       switch (key) {
@@ -743,9 +766,11 @@ export default function Sidebar({
         case "help_center":
           router.push("/influencer/support-centre");
           break;
-        case "privacy_policy":
-          router.push("/privacy-policy");
-          break;
+       case "privacy_policy":
+        if (typeof window !== "undefined") {
+          window.open("/privacy-policy", "_blank", "noopener,noreferrer");
+        }
+        break;
         default:
           break;
       }
@@ -803,7 +828,7 @@ export default function Sidebar({
   const renderItem = useCallback(
     (i: Item) => {
       const Icon = i.icon;
-      const isActiveItem = active === i.key;
+      const isActiveItem = visualActiveKey === i.key;
       const isWalletItem = i.key === "wallet-payments";
 
       if (isDesktop && collapsed) {
@@ -814,7 +839,7 @@ export default function Sidebar({
                 <RailIconButton
                   label={i.label}
                   tight={tight}
-                  active={helpDialogOpen}
+                  active={isActiveItem}
                   hasIndicator={Boolean(i.right)}
                   onClick={openHelpDialog}
                 >
@@ -847,7 +872,7 @@ export default function Sidebar({
               icon={i.icon}
               label={i.label}
               right={i.right}
-              active={helpDialogOpen}
+              active={isActiveItem}
               hideLabel={isDesktop ? isClosing : false}
               tight={tight}
               onClick={openHelpDialog}
@@ -891,6 +916,7 @@ export default function Sidebar({
     },
     [
       active,
+      visualActiveKey,
       collapsed,
       handleSetActive,
       helpDialogOpen,

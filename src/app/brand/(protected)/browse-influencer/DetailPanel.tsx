@@ -279,6 +279,212 @@ function parseMonthLabel(value: string, index: number): string {
   return value;
 }
 
+function readNumber(...values: any[]) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue;
+
+    const cleaned =
+      typeof value === 'string'
+        ? value.replace(/,/g, '').replace('%', '')
+        : value;
+
+    const num = Number(cleaned);
+    if (Number.isFinite(num)) return num;
+  }
+
+  return 0;
+}
+
+
+function formatMetricDelta(value?: number | string | null) {
+  const num = toNumber(value);
+  if (!Number.isFinite(num) || num === 0) return undefined;
+
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${(num * 100).toFixed(1)}%`;
+}
+
+function isSameMetricValue(a: number, b: number) {
+  if (!a || !b) return false;
+
+  const diff = Math.abs(a - b);
+  const max = Math.max(Math.abs(a), Math.abs(b));
+
+  return diff <= 1 || diff / max < 0.005;
+}
+
+function getPlatformViewsLabel(platform?: string | null) {
+  const normalized = String(platform ?? '').toLowerCase();
+
+  if (normalized.includes('youtube')) return 'Avg. views';
+  if (normalized.includes('tiktok')) return 'Avg. video views';
+
+  return 'Avg. reel plays';
+}
+
+function buildUniqueMetricCards(params: {
+  report?: InfluencerReport | null;
+  platform?: string | null;
+  avgLikes?: number;
+  avgViews?: number;
+  avgComments?: number;
+  postsCount?: number;
+  reach?: number;
+  followerCompared?: number | string | null;
+  likesCompared?: number | string | null;
+}) {
+  const {
+    report,
+    platform,
+    avgLikes = 0,
+    avgViews = 0,
+    avgComments = 0,
+    postsCount = 0,
+    reach = 0,
+    followerCompared,
+    likesCompared,
+  } = params;
+
+  const cards: DashboardMetric[] = [];
+  const usedNumericValues: number[] = [];
+
+  const pushMetric = (metric: {
+    key: string;
+    label: string;
+    rawValue: number | string | null | undefined;
+    value?: string;
+    delta?: string;
+    dedupe?: boolean;
+  }) => {
+    const numericValue = toNumber(metric.rawValue);
+
+    if (!numericValue || numericValue <= 0) return;
+
+    if (
+      metric.dedupe !== false &&
+      usedNumericValues.some((used) => isSameMetricValue(used, numericValue))
+    ) {
+      return;
+    }
+
+    if (metric.dedupe !== false) {
+      usedNumericValues.push(numericValue);
+    }
+
+    cards.push({
+      key: metric.key,
+      label: metric.label,
+      value: metric.value ?? formatCompactNumber(numericValue),
+      delta: metric.delta,
+    });
+  };
+
+  pushMetric({
+    key: 'followers',
+    label: 'Followers',
+    rawValue: report?.followers,
+    delta: formatMetricDelta(followerCompared),
+  });
+
+  pushMetric({
+    key: 'engagement',
+    label: 'Avg. engagement rate',
+    rawValue: report?.engagementRate,
+    value: formatPercent(report?.engagementRate, true),
+    dedupe: false,
+  });
+
+  pushMetric({
+    key: 'likes',
+    label: 'Average likes',
+    rawValue: avgLikes,
+    delta: formatMetricDelta(likesCompared),
+  });
+
+  pushMetric({
+    key: 'views',
+    label: getPlatformViewsLabel(platform),
+    rawValue: avgViews,
+  });
+
+  pushMetric({
+    key: 'comments',
+    label: 'Average comments',
+    rawValue: avgComments,
+  });
+
+  pushMetric({
+    key: 'posts',
+    label: 'Total posts',
+    rawValue: postsCount,
+  });
+
+  pushMetric({
+    key: 'reach',
+    label: 'Total reach',
+    rawValue: reach,
+  });
+
+  return cards.slice(0, 6);
+}
+
+function normalizeTrendPoint(item: Record<string, any>) {
+  return {
+    month: item?.month ?? item?.date ?? item?.period ?? '',
+    avgLikes: readNumber(
+      item?.avgLikes,
+      item?.avg_likes,
+      item?.avgEngagements,
+      item?.avg_engagements,
+      item?.likes,
+      item?.engagements
+    ),
+    followers: readNumber(
+      item?.followers,
+      item?.followerCount,
+      item?.followersCount
+    ),
+    avgViews: readNumber(
+      item?.avgViews,
+      item?.avg_views,
+      item?.views,
+      item?.avgReelsPlays,
+      item?.avg_reels_plays,
+      item?.plays
+    ),
+  };
+}
+
+function scoreTrendHistory(items: any[]) {
+  const points = items.map(normalizeTrendPoint);
+  const followerValues = new Set(
+    points.map((item) => item.followers).filter((value) => value > 0)
+  );
+
+  const baseScore = points.reduce((score, item) => {
+    return score + (item.avgLikes > 0 ? 2 : 0) + (item.avgViews > 0 ? 1 : 0);
+  }, 0);
+
+  // Prefer platform-level statHistory with real month-by-month followers over
+  // content-type history that only has avg_likes and repeated fallback values.
+  const followerScore =
+    followerValues.size > 1 ? points.length * 4 : followerValues.size === 1 ? 1 : 0;
+
+  return baseScore + followerScore;
+}
+
+function pickBestTrendHistory(...candidates: any[]) {
+  const validArrays = candidates.filter(
+    (item): item is any[] => Array.isArray(item) && item.length >= 2
+  );
+
+  return (
+    validArrays
+      .slice()
+      .sort((a, b) => scoreTrendHistory(b) - scoreTrendHistory(a))[0] ?? []
+  );
+}
+
 function transformPanelLookalikes(
   lookalikes: ModashLookalike[] = [],
   engagementRate: number
@@ -1098,17 +1304,55 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       );
     }, [availableProfiles, platform, primaryReport]);
 
+    const selectedReport = currentPlatformProfile ?? primaryReport ?? null;
+
+    const activePlatformKey = normalizePlatform(
+      ((selectedReport?.provider as Platform | null) ?? platform) as Platform | null
+    );
+
     const panelMediaKit = useMemo<MediaKit | null>(() => {
-      if (!currentPlatformProfile) return null;
+      if (!selectedReport) return null;
+
+      const profileRoot =
+        (raw?.profile as any) ??
+        (data?.profile as any) ??
+        raw ??
+        {};
+
+      const contactList =
+        (selectedReport as any)?.contact ??
+        (selectedReport as any)?.contacts ??
+        profileRoot?.contact ??
+        profileRoot?.contacts ??
+        [];
 
       return {
-        name: currentPlatformProfile.name,
-        country: currentPlatformProfile.country,
+        name: selectedReport.name,
+        country: selectedReport.country,
         influencerReports: availableProfiles,
         socialProfiles: availableProfiles,
-        primaryInfluencerReport: currentPlatformProfile,
+        primaryInfluencerReport: selectedReport,
+
+        // Admin-only fields consumed by ContactManagementCard
+        contact: contactList,
+        contacts: contactList,
+        email:
+          (selectedReport as any)?.email ??
+          (selectedReport as any)?.contactEmail ??
+          profileRoot?.email ??
+          profileRoot?.contactEmail,
+        phone:
+          (selectedReport as any)?.phone ??
+          (selectedReport as any)?.contactPhone ??
+          profileRoot?.phone ??
+          profileRoot?.contactPhone,
+      } as MediaKit & {
+        contact?: any[];
+        contacts?: any[];
+        email?: string;
+        phone?: string;
       };
-    }, [availableProfiles, currentPlatformProfile]);
+    }, [availableProfiles, selectedReport, raw, data]);
 
     const handlePlatformSelect = (profile: InfluencerReport) => {
       onPlatformChange?.(profile);
@@ -1159,13 +1403,27 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     }, [raw, primaryReport]);
 
     const statHistorySource = useMemo(() => {
-      const history =
-        (data?.profile as any)?.statsByContentType?.all?.statHistory ??
-        (data?.profile as any)?.statHistory ??
-        primaryReport?.statHistory ??
-        [];
-      return Array.isArray(history) ? history : [];
-    }, [data, primaryReport]);
+      const dataProfile = data?.profile as any;
+      const rawAny = raw as any;
+
+      return pickBestTrendHistory(
+        rawAny?.profile?.statHistory,
+        rawAny?.statHistory,
+        dataProfile?.statHistory,
+        primaryReport?.statHistory,
+
+        rawAny?.providerRaw?.profile?.statHistory,
+        dataProfile?.providerRaw?.profile?.statHistory,
+
+        rawAny?.profile?.statsByContentType?.all?.statHistory,
+        rawAny?.statsByContentType?.all?.statHistory,
+        dataProfile?.statsByContentType?.all?.statHistory,
+
+        rawAny?.profile?.statsByContentType?.reels?.statHistory,
+        rawAny?.statsByContentType?.reels?.statHistory,
+        dataProfile?.statsByContentType?.reels?.statHistory
+      );
+    }, [data, raw, primaryReport]);
 
     const {
       organicTrend,
@@ -1174,39 +1432,39 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       secondaryTrendLabel,
     } = useMemo(() => {
       if (statHistorySource.length) {
-        const labels = statHistorySource.map(
-          (item: Record<string, any>, index: number) =>
-            parseMonthLabel(String(item?.month ?? ""), index)
+        const normalizedHistory = statHistorySource.map(normalizeTrendPoint);
+
+        const labels = normalizedHistory.map((item, index) =>
+          parseMonthLabel(String(item.month || ''), index)
         );
 
-        const likesTrend = statHistorySource.map((item: Record<string, any>) =>
-          toNumber(item?.avgLikes ?? item?.likes ?? item?.engagements)
+        const hasFollowersHistory = normalizedHistory.some(
+          (item) => item.followers > 0
         );
 
-        const hasFollowersHistory = statHistorySource.some(
-          (item: Record<string, any>) => item?.followers !== undefined && item?.followers !== null
-        );
-
-        const volumeTrend = statHistorySource.map((item: Record<string, any>) =>
-          toNumber(
-            hasFollowersHistory
-              ? item?.followers
-              : item?.avgViews ?? item?.views ?? item?.avgReelsPlays
-          )
+        const hasViewsHistory = normalizedHistory.some(
+          (item) => item.avgViews > 0
         );
 
         return {
-          organicTrend: likesTrend,
-          sponsoredTrend: volumeTrend,
+          organicTrend: normalizedHistory.map((item) => item.avgLikes),
+          sponsoredTrend: hasFollowersHistory
+            ? normalizedHistory.map((item) => item.followers)
+            : hasViewsHistory
+              ? normalizedHistory.map((item) => item.avgViews)
+              : [],
           trendLabels: labels,
-          secondaryTrendLabel: hasFollowersHistory ? "Followers" : "Avg Views",
+          secondaryTrendLabel:
+            hasFollowersHistory || toNumber(selectedReport?.followers) > 0
+              ? 'Followers'
+              : 'Avg Views',
         };
       }
 
       const fallbackPosts = recentPosts.slice(0, 12);
       const fallbackLabels = fallbackPosts.map((post, index) =>
         parseMonthLabel(
-          String(post?.createdAt ?? post?.publishedAt ?? post?.date ?? ""),
+          String(post?.createdAt ?? post?.publishedAt ?? post?.date ?? ''),
           index
         )
       );
@@ -1217,73 +1475,67 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           toNumber(post?.views ?? post?.plays ?? post?.likes)
         ),
         trendLabels: fallbackLabels.length ? fallbackLabels : undefined,
-        secondaryTrendLabel: "Views",
+        secondaryTrendLabel: 'Views',
       };
-    }, [statHistorySource, recentPosts]);
+    }, [statHistorySource, recentPosts, selectedReport]);
 
     const avgLikes = toNumber(
-      (data?.profile as any)?.avgLikes ??
-      primaryReport?.stats?.avgLikes?.value ??
-      primaryReport?.avgLikes
+      selectedReport?.stats?.avgLikes?.value ??
+      selectedReport?.avgLikes ??
+      (data?.profile as any)?.avgLikes
     );
 
     const avgViews = toNumber(
+      selectedReport?.stats?.avgViews?.value ??
+      selectedReport?.avgReelsPlays ??
+      selectedReport?.avgViews ??
       (data?.profile as any)?.profile?.averageViews ??
       (data?.profile as any)?.avgReelsPlays ??
-      primaryReport?.stats?.avgViews?.value ??
-      average(recentPosts.map((p) => toNumber(p.views ?? p.likes)))
+      average(recentPosts.map((p) => toNumber(p.views ?? p.plays ?? p.likes)))
+    );
+
+    const avgComments = toNumber(
+      selectedReport?.stats?.avgComments?.value ??
+      selectedReport?.avgComments ??
+      (data?.profile as any)?.avgComments ??
+      (data?.profile as any)?.profile?.avgComments
     );
 
     const engagementRate = toNumber(
-      primaryReport?.engagementRate ?? (data?.profile as any)?.profile?.engagementRate
+      selectedReport?.engagementRate ?? (data?.profile as any)?.profile?.engagementRate
     );
 
     const credibilityScore = useMemo(() => {
       const rawCredibility =
-        (data?.profile as any)?.audience?.credibility ??
-        primaryReport?.audience?.credibility;
+        selectedReport?.audience?.credibility ??
+        (data?.profile as any)?.audience?.credibility;
 
       if (rawCredibility !== undefined && rawCredibility !== null) {
         return Math.round(Number(rawCredibility) * 100);
       }
 
       return Math.max(0, Math.min(97, Math.round(engagementRate * 100 || 67)));
-    }, [data, primaryReport, engagementRate]);
+    }, [data, selectedReport, engagementRate]);
 
     const metricCards = useMemo<DashboardMetric[]>(() => {
-      return [
-        {
-          key: 'followers',
-          label: 'Followers',
-          value: formatCompactNumber(primaryReport?.followers),
-        },
-        {
-          key: 'engagement',
-          label: 'Avg. engagement rate',
-          value: formatPercent(primaryReport?.engagementRate, true),
-        },
-        {
-          key: 'likes',
-          label: 'Average likes',
-          value: formatCompactNumber(avgLikes),
-        },
-        {
-          key: 'views',
-          label: 'Avg. views',
-          value: formatCompactNumber(avgViews),
-        },
-        {
-          key: 'posts',
-          label: 'Total posts',
-          value: formatCompactNumber(primaryReport?.postsCount ?? recentPosts.length),
-        },
-        {
-          key: 'reach',
-          label: 'Estimated reach',
-          value: formatCompactNumber(primaryReport?.followers),
-        },
-      ];
-    }, [primaryReport, avgLikes, avgViews, recentPosts.length]);
+      return buildUniqueMetricCards({
+        report: selectedReport,
+        platform: activePlatformKey,
+        avgLikes,
+        avgViews,
+        avgComments,
+        postsCount: toNumber(selectedReport?.postsCount ?? recentPosts.length),
+        followerCompared: selectedReport?.stats?.followers?.compared,
+        likesCompared: selectedReport?.stats?.avgLikes?.compared,
+      });
+    }, [
+      selectedReport,
+      activePlatformKey,
+      avgLikes,
+      avgViews,
+      avgComments,
+      recentPosts.length,
+    ]);
 
     const campaignHighlights = useMemo<CampaignHighlight[]>(() => {
       const sponsoredAvgLikes = average(sponsoredPosts.map((p) => toNumber(p.likes)));
@@ -1306,7 +1558,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         },
         {
           label: 'Total posts',
-          value: formatCompactNumber(primaryReport?.postsCount ?? recentPosts.length),
+          value: formatCompactNumber(selectedReport?.postsCount ?? recentPosts.length),
           meta: 'Current creator activity volume',
         },
         {
@@ -1315,14 +1567,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           meta: 'Estimated quality score',
         },
       ];
-    }, [sponsoredPosts, recentPosts, popularPosts, primaryReport, credibilityScore]);
+    }, [sponsoredPosts, recentPosts, popularPosts, selectedReport, credibilityScore]);
 
-    const audienceAge = (primaryReport?.audience?.ages ?? []).map((item) => ({
+    const audienceAge = (selectedReport?.audience?.ages ?? []).map((item) => ({
       label: item.code,
       value: Number((item.weight || 0) * 100),
     }));
 
-    const audienceGender = (primaryReport?.audience?.genders ?? []).map((item) => ({
+    const audienceGender = (selectedReport?.audience?.genders ?? []).map((item) => ({
       label:
         item.code === 'MALE'
           ? 'Male'
@@ -1332,14 +1584,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       value: Number((item.weight || 0) * 100),
     }));
 
-    const topCountries = (primaryReport?.audience?.geoCountries ?? [])
+    const topCountries = (selectedReport?.audience?.geoCountries ?? [])
       .slice(0, 4)
       .map((item) => ({
         name: item.name,
         value: Number((item.weight || 0) * 100),
       }));
 
-    const topLanguages = (primaryReport?.audience?.languages ?? [])
+    const topLanguages = (selectedReport?.audience?.languages ?? [])
       .slice(0, 4)
       .map((item) => ({
         label: item.code,
@@ -1347,11 +1599,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }));
 
     const lookalikeCreators = useMemo<LookalikeCreator[]>(() => {
-      if (primaryReport?.lookalikes?.length) {
-        return transformPanelLookalikes(primaryReport.lookalikes, engagementRate);
+      if (selectedReport?.lookalikes?.length) {
+        return transformPanelLookalikes(selectedReport.lookalikes, engagementRate);
       }
       return [];
-    }, [primaryReport, engagementRate]);
+    }, [selectedReport, engagementRate]);
 
     const contractedCampaigns = useMemo(() => {
       const source = Array.isArray((data?.profile as any)?.pastCollaborations)
@@ -1440,7 +1692,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
     if (!open) return null;
 
-    const hasUserId = Boolean((data?.profile as any)?.userId || currentPlatformProfile?.modashId);
+    const hasUserId = Boolean((data?.profile as any)?.userId || selectedReport?.modashId || selectedReport?._id);
     const canAct = hasUserId && !loading && !sendingInvite && !refreshing && !checkingEmail;
     const effectiveHasEmail =
       hasAnyEmail !== null ? hasAnyEmail : emailExists === true;
@@ -1452,14 +1704,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       : 'Profile not ready';
 
     const displayName =
-      primaryReport?.name ??
-      primaryReport?.fullname ??
-      primaryReport?.username ??
+      selectedReport?.name ??
+      selectedReport?.fullname ??
+      selectedReport?.username ??
       handle ??
       'Creator profile';
 
     const displayHandle =
-      primaryReport?.handle ??
+      selectedReport?.handle ??
       (handle && (handle.startsWith('@') ? handle : `@${handle}`)) ??
       '';
 
@@ -2334,7 +2586,7 @@ Team CollabGlam`;
                         className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity ${canAct ? 'hover:opacity-90' : 'cursor-not-allowed opacity-70'
                           }`}
                       >
-                        {sendingInvite ? (
+                        {sendingInvite && brandId ? (
                           <>
                             {effectiveHasEmail ? (
                               <MessageSquare className="h-4 w-4 animate-pulse" />
@@ -2396,32 +2648,32 @@ Team CollabGlam`;
               {loading ? <LoadingState /> : null}
               {error ? <ErrorState error={error} /> : null}
 
-              {!loading && !error && !primaryReport ? (
+              {!loading && !error && !selectedReport ? (
                 <div className="mb-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-600">
                   No report data yet. Try refreshing data or selecting another creator.
                 </div>
               ) : null}
 
-              {!loading && !error && primaryReport ? (
+              {!loading && !error && selectedReport ? (
                 <div className="space-y-6">
                   <CreatorHeader
-                    primaryReport={primaryReport}
+                    primaryReport={selectedReport}
                     mediaKit={panelMediaKit}
                     activePlan={plan}
-                    isVerified={primaryReport.isVerified}
-                    accountType={primaryReport.accountType}
-                    postsCount={primaryReport.postsCount}
+                    isVerified={selectedReport.isVerified}
+                    accountType={selectedReport.accountType}
+                    postsCount={selectedReport.postsCount}
                   />
 
                   <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
                     <div className="space-y-6">
                       {hasSectionAccess('contactManagement') ? (
                         <ContactManagementCard
-                          primaryReport={currentPlatformProfile}
+                          primaryReport={selectedReport}
                           mediaKit={panelMediaKit}
                           onCopy={handleCopy}
                           connectedProfiles={availableProfiles}
-                          activePlatform={normalizePlatform(platform)}
+                          activePlatform={activePlatformKey}
                           onPlatformSelect={handlePlatformSelect}
                         />
                       ) : null}
@@ -2434,11 +2686,18 @@ Team CollabGlam`;
 
                       {hasSectionAccess('performanceTrend') ? (
                         <PerformanceTrendCard
+                          key={`performance-${activePlatformKey}`}
                           organicTrend={organicTrend}
                           sponsoredTrend={sponsoredTrend}
                           trendLabels={trendLabels}
+                          statHistory={statHistorySource.map(normalizeTrendPoint)}
                           secondaryLabel={secondaryTrendLabel}
                           primaryValue={avgLikes}
+                          secondaryValue={
+                            secondaryTrendLabel === 'Followers'
+                              ? toNumber(selectedReport?.followers)
+                              : avgViews
+                          }
                         />
                       ) : (
                         <FeatureLockedCard title="Performance Trend" plan="starter" />
@@ -2490,7 +2749,10 @@ Team CollabGlam`;
                     ) : null}
 
                     {hasSectionAccess('lookalikeCreators') ? (
-                      <LookalikeCreatorsPanel items={lookalikeCreators} />
+                      <LookalikeCreatorsPanel
+                        items={lookalikeCreators}
+                        platform={activePlatformKey}
+                      />
                     ) : (
                       <FeatureLockedCard title="Lookalike Creators" plan="pro" />
                     )}
@@ -2507,7 +2769,7 @@ Team CollabGlam`;
           toLabel={emailDraft?.toLabel || displayHandle || ''}
           fromName={emailDraft?.fromName || 'CollabGlam'}
           fromEmail={emailDraft?.fromEmail || ''}
-          toAvatar={primaryReport?.picture || ''}
+          toAvatar={selectedReport?.picture || primaryReport?.picture || ''}
           subject={emailDraft?.subject || ''}
           initialBody={emailDraft?.initialBody || ''}
           initialHtmlBody={emailDraft?.initialHtmlBody || ''}
