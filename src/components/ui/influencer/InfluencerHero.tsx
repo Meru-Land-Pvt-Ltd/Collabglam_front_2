@@ -2,23 +2,24 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 
 // ✅ Put your exact filenames here (mix png/jpg is fine)
 const HERO_IMAGES = [
   // "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image1.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image2.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image3.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image4.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image5.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image6.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image7.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image8.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image9.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image10.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image11.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image12.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image13.png",
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image14.png",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image1.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image2.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image3.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image5.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image6.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image7.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image8.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image9.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image10.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image11.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image12.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image13.webp",
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image14.webp",
 ];
 
 const HERO_QUOTES = [
@@ -90,7 +91,9 @@ export function InfluencerHero({
       style={{ isolation: "isolate" }}
     >
       {/* ✅ Grayscale image */}
-      <img
+      <Image
+        width={5000}
+        height={5000}
         src={item.src}
         alt="Influencer hero"
         className={cn(
