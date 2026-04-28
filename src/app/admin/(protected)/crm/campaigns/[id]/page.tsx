@@ -141,6 +141,8 @@ type CsvPreviewColumn = {
   samples: string[];
 };
 
+type CsvPreviewRow = Record<string, string>;
+
 type CampaignDetail = {
   _id: string;
   name: string;
@@ -203,6 +205,13 @@ type ContactRow = {
   instantly?: {
     leadId?: string;
     threadId?: string;
+  };
+  customFields?: Record<string, any>;
+  templateVariables?: Record<string, string>;
+  csvMeta?: {
+    headers?: string[];
+    mappedAt?: string;
+    sourceFileName?: string;
   };
 };
 
@@ -879,6 +888,9 @@ function parseContacts(payload: any): ContactRow[] {
     stage: row?.stage || "",
     launchedAt: row?.launchedAt || "",
     instantly: row?.instantly || {},
+    customFields: row?.customFields || {},
+    templateVariables: row?.templateVariables || {},
+    csvMeta: row?.csvMeta || {},
   }));
 }
 
@@ -1170,6 +1182,17 @@ function bodyToEditorHtml(value = "") {
   return escapeHtml(value).replace(/\n/g, "<br>");
 }
 
+function plainTextFromHtml(value = "") {
+  return String(value || "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(div|p|li)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 type TooltipProps = {
   label: string;
   children: ReactNode;
@@ -1306,6 +1329,9 @@ export default function CampaignDetailPage() {
   const [configuration, setConfiguration] = useState<CampaignConfiguration>(getDefaultConfiguration());
 
   const [selectedScheduleIndex, setSelectedScheduleIndex] = useState(0);
+  const [selectedSequenceStepIndex, setSelectedSequenceStepIndex] = useState(0);
+  const [selectedSequenceVariantIndex, setSelectedSequenceVariantIndex] = useState(0);
+
   const [scheduleTimezoneOptions, setScheduleTimezoneOptions] = useState<TimezoneOption[]>([
     { value: "Asia/Kolkata", label: "Asia/Kolkata" },
   ]);
@@ -1314,6 +1340,7 @@ export default function CampaignDetailPage() {
   const [csvPreviewColumns, setCsvPreviewColumns] = useState<CsvPreviewColumn[]>([]);
   const [csvPreviewFileName, setCsvPreviewFileName] = useState("");
   const [csvPreviewTotalRows, setCsvPreviewTotalRows] = useState(0);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<CsvPreviewRow[]>([]);
 
   const [manualForm, setManualForm] = useState<ManualForm>({
     entityName: "",
@@ -1376,6 +1403,7 @@ export default function CampaignDetailPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("lead_generation_quick_question");
 
   const sequenceEditorRef = useRef<HTMLDivElement | null>(null);
+  const subjectInputRef = useRef<HTMLInputElement | null>(null);
   const savedSelectionRangeRef = useRef<Range | null>(null);
   const selectedLinkElementRef = useRef<HTMLAnchorElement | null>(null);
 
@@ -1401,7 +1429,22 @@ export default function CampaignDetailPage() {
   } | null>(null);
 
   const flowType: CampaignFlowType = campaign?.flowType || "standard_brand";
+  const selectedSequenceStep =
+    configuration.sequences[selectedSequenceStepIndex] || configuration.sequences[0];
+
+  const selectedSequenceVariant =
+    selectedSequenceStep?.variants?.[selectedSequenceVariantIndex] || {
+      subject: "",
+      body: "",
+    };
+
   const [isVariablesMenuOpen, setIsVariablesMenuOpen] = useState(false);
+
+  function closeLinkTools() {
+    setIsLinkToolsOpen(false);
+    setLinkToolsPosition(null);
+    selectedLinkElementRef.current = null;
+  }
 
   useClickOutside(saveMenuRef, () => setIsSaveMenuOpen(false), isSaveMenuOpen);
   useClickOutside(
@@ -1428,6 +1471,7 @@ export default function CampaignDetailPage() {
   function closeLeadImportModal() {
     setIsLeadImportModalOpen(false);
     setLeadImportMode(null);
+    resetCsvImportState();
   }
 
   function openLeadImportMode(mode: Exclude<LeadImportMode, null>) {
@@ -1479,6 +1523,14 @@ export default function CampaignDetailPage() {
     campaign?.instantly?.accountEmails,
     campaign?.instantly?.availableAccountEmails,
   ]);
+
+  function resetCsvImportState() {
+    setCsvFile(null);
+    setCsvPreviewColumns([]);
+    setCsvPreviewRows([]);
+    setCsvPreviewFileName("");
+    setCsvPreviewTotalRows(0);
+  }
 
   async function loadTimezoneOptions(preferredTimezone?: string) {
     const fallbackTimezone = preferredTimezone || configuration.schedule.timezone || "UTC";
@@ -1992,12 +2044,51 @@ export default function CampaignDetailPage() {
     setSelectedScheduleIndex((prev) => Math.max(0, prev - 1));
   }
 
+  function buildLatestConfigurationForSave(): CampaignConfiguration {
+    const domBody = sequenceEditorRef.current?.innerHTML || "";
+    const latestBody = plainTextFromHtml(domBody)
+      ? domBody
+      : selectedSequenceVariant?.body || "";
+
+    const latestSubject =
+      subjectInputRef.current?.value ?? selectedSequenceVariant?.subject ?? "";
+
+    if (!plainTextFromHtml(latestBody)) {
+      throw new Error("Email body is required. Please write the sequence email body before saving or launching.");
+    }
+
+    return {
+      ...configuration,
+      sequences: configuration.sequences.map((step, stepIndex) => {
+        if (stepIndex !== selectedSequenceStepIndex) return step;
+
+        return {
+          ...step,
+          variants: step.variants.map((variant, variantIndex) => {
+            if (variantIndex !== selectedSequenceVariantIndex) return variant;
+
+            return {
+              ...variant,
+              subject: latestSubject,
+              body: latestBody,
+            };
+          }),
+        };
+      }),
+    };
+  }
+
   async function handleSaveConfiguration(syncNow = false) {
     try {
       setSubmittingKey(syncNow ? "save-sync" : "save-config");
 
+      const nextConfiguration =
+        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
+
+      setConfiguration(nextConfiguration);
+
       const payload: any = await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
-        configuration,
+        configuration: nextConfiguration,
         syncNow,
         senderAccountEmail: selectedSenderEmail,
         accountEmails: selectedAccountEmails,
@@ -2005,31 +2096,6 @@ export default function CampaignDetailPage() {
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to save campaign configuration");
-      }
-
-      const returnedCampaign = payload?.data;
-      if (returnedCampaign?._id) {
-        const parsedReturnedCampaign = parseCampaign({ data: returnedCampaign });
-        if (parsedReturnedCampaign) {
-          setCampaign((prev) => ({
-            ...(prev || parsedReturnedCampaign),
-            ...parsedReturnedCampaign,
-            instantly: {
-              ...(prev?.instantly || {}),
-              ...(parsedReturnedCampaign.instantly || {}),
-            },
-          }));
-
-          setSelectedAccountEmails(
-            Array.isArray(returnedCampaign?.instantly?.accountEmails)
-              ? returnedCampaign.instantly.accountEmails.map((item: string) => normalizeEmailValue(item))
-              : []
-          );
-
-          setSelectedSenderEmail(
-            normalizeEmailValue(returnedCampaign?.instantly?.senderAccountEmail || "")
-          );
-        }
       }
 
       setMessage({
@@ -2083,11 +2149,15 @@ export default function CampaignDetailPage() {
       );
 
       const preview = payload?.data;
+
       setCsvFile(file);
       setCsvPreviewColumns(Array.isArray(preview?.columns) ? preview.columns : []);
+      setCsvPreviewRows(Array.isArray(preview?.previewRows) ? preview.previewRows : []);
       setCsvPreviewFileName(preview?.fileName || file.name);
       setCsvPreviewTotalRows(preview?.totalRows || 0);
-      setTemplateVariables(Array.isArray(preview?.templateVariables) ? preview.templateVariables : []);
+      setTemplateVariables(
+        Array.isArray(preview?.templateVariables) ? preview.templateVariables : []
+      );
 
       setMessage({
         type: "success",
@@ -2131,6 +2201,10 @@ export default function CampaignDetailPage() {
         type: "success",
         text: payload?.message || "CSV uploaded successfully",
       });
+
+      resetCsvImportState();
+      setLeadImportMode(null);
+      setIsLeadImportModalOpen(false);
 
       await loadPage(false);
     } catch (error) {
@@ -2209,7 +2283,20 @@ export default function CampaignDetailPage() {
     try {
       setSubmittingKey("launch");
 
+      const latestConfiguration =
+        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
+
+      await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
+        configuration: latestConfiguration,
+        syncNow: false,
+        senderAccountEmail: selectedSenderEmail,
+        accountEmails: selectedAccountEmails,
+      });
+
+      setConfiguration(latestConfiguration);
+
       const route = campaign?.status === "paused" ? "activate" : "launch";
+
       const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/${route}`, {
         senderAccountEmail: selectedSenderEmail,
         accountEmails: selectedAccountEmails,
@@ -2410,12 +2497,124 @@ export default function CampaignDetailPage() {
     }
   }
 
-  function copyTemplateVariable(variable: string) {
-    navigator.clipboard.writeText(variable);
-    setMessage({
-      type: "success",
-      text: `${variable} copied`,
-    });
+  function getContactFieldValue(
+    row: ContactRow,
+    keys: string[],
+    fallback = ""
+  ): string {
+    for (const key of keys) {
+      const customValue = row.customFields?.[key];
+      if (customValue !== undefined && customValue !== null && String(customValue).trim()) {
+        return String(customValue).trim();
+      }
+
+      const templateValue = row.templateVariables?.[key];
+      if (templateValue !== undefined && templateValue !== null && String(templateValue).trim()) {
+        return String(templateValue).trim();
+      }
+    }
+
+    return fallback;
+  }
+
+  function getTemplateValue(row: ContactRow, keys: string[]) {
+    for (const key of keys) {
+      const value = row.templateVariables?.[key] ?? row.customFields?.[key];
+      if (String(value || "").trim()) return String(value).trim();
+    }
+
+    return "";
+  }
+
+  function getEmailLocalPart(email = "") {
+    return String(email || "")
+      .split("@")[0]
+      ?.replace(/[._-]+/g, " ")
+      .trim();
+  }
+
+  function getResolvedLeadName(row: ContactRow) {
+    return (
+      String(row.companyName || "").trim() ||
+      getTemplateValue(row, [
+        "companyName",
+        "company_name",
+        "brandName",
+        "brand",
+        "company",
+        "influencerName",
+        "creatorName",
+        "fullName",
+        "firstName",
+        "name",
+      ]) ||
+      getContactFieldValue(row, [
+        "Company Name",
+        "Company",
+        "Brand",
+        "Brand Name",
+        "Influencer Name",
+        "Creator Name",
+        "Full Name",
+        "Name",
+        "First Name",
+      ]) ||
+      String(row.primaryContact?.name || "").trim() ||
+      getEmailLocalPart(row.primaryContact?.email) ||
+      "Lead Unknown"
+    );
+  }
+
+  function getResolvedContactName(row: ContactRow) {
+    return (
+      String(row.primaryContact?.name || "").trim() ||
+      getTemplateValue(row, [
+        "fullName",
+        "firstName",
+        "name",
+        "contactName",
+        "contact_name",
+      ]) ||
+      getContactFieldValue(row, [
+        "Contact Name",
+        "Full Name",
+        "Name",
+        "First Name",
+        "POC",
+      ]) ||
+      getEmailLocalPart(row.primaryContact?.email) ||
+      "Contact Unknown"
+    );
+  }
+
+  function getResolvedContactMeta(row: ContactRow) {
+    return (
+      String(row.primaryContact?.email || "").trim() ||
+      getTemplateValue(row, [
+        "email",
+        "contactEmail",
+        "contact_email",
+        "linkedinUrl",
+        "linkedin_url",
+        "website",
+        "phone",
+        "username",
+        "handle",
+      ]) ||
+      getContactFieldValue(row, [
+        "Email",
+        "Contact Email",
+        "LinkedIn URL",
+        "Website",
+        "Phone",
+        "Instagram Handle",
+        "TikTok Handle",
+        "YouTube Handle",
+        "Username",
+        "Handle",
+      ]) ||
+      "—"
+    );
   }
 
   const filteredContacts = useMemo(() => {
@@ -2423,11 +2622,22 @@ export default function CampaignDetailPage() {
     if (!query) return contacts;
 
     return contacts.filter((row) => {
+      const dynamicValues = [
+        ...Object.values(row.customFields || {}),
+        ...Object.values(row.templateVariables || {}),
+      ]
+        .map((value) => String(value || ""))
+        .join(" ");
+
       const haystack = [
         row.companyName,
         row.primaryContact?.name,
         row.primaryContact?.email,
         row.stage,
+        getResolvedLeadName(row),
+        getResolvedContactName(row),
+        getResolvedContactMeta(row),
+        dynamicValues,
       ]
         .join(" ")
         .toLowerCase();
@@ -2436,44 +2646,88 @@ export default function CampaignDetailPage() {
     });
   }, [contacts, leadSearch]);
 
+  const baseContactColumns: AdminTableColumn<ContactRow>[] = [
+    {
+      id: "companyName",
+      header: flowType === "ime_influencer" ? "Lead / Influencer" : "Lead",
+      sortable: true,
+      render: (row) => {
+        const resolvedLeadName = getResolvedLeadName(row);
 
-  const contactColumns: AdminTableColumn<ContactRow>[] = useMemo(
-    () => [
-      {
-        id: "companyName",
-        header: "Lead",
-        sortable: true,
-        render: (row) => (
+        return (
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-              {(row.companyName || "L").charAt(0).toUpperCase()}
+              {(resolvedLeadName || "U").charAt(0).toUpperCase()}
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-900">{row.companyName || "—"}</p>
+              <p className="text-sm font-semibold text-slate-900">{resolvedLeadName}</p>
               <p className="mt-1 text-xs text-slate-400">{row._id}</p>
             </div>
           </div>
-        ),
+        );
       },
-      {
-        id: "contactName",
-        header: "Contact",
-        render: (row) => (
+    },
+    {
+      id: "contactName",
+      header: "Contact",
+      render: (row) => {
+        const resolvedName = getResolvedContactName(row);
+        const resolvedMeta = getResolvedContactMeta(row);
+
+        return (
           <div>
-            <p className="text-sm font-medium text-slate-800">
-              {row.primaryContact?.name || "—"}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {row.primaryContact?.email || "—"}
-            </p>
+            <p className="text-sm font-medium text-slate-800">{resolvedName}</p>
+            <p className="mt-1 text-xs text-slate-500">{resolvedMeta}</p>
           </div>
-        ),
+        );
       },
-      {
-        id: "stage",
-        header: "Stage",
-        render: (row) =>
-          isSdrViewer ? (
+    },
+  ];
+
+  const dynamicContactColumns: AdminTableColumn<ContactRow>[] = (campaign?.csvSchema?.columns || [])
+    .filter((column) => column.selectedType !== "ignore")
+    .filter((column) => {
+      return ![
+        "company_name",
+        "first_name",
+        "last_name",
+        "full_name",
+        "email",
+      ].includes(column.selectedType);
+    })
+    .map((column) => ({
+      id: `dynamic-${column.header}`,
+      header: column.header,
+      render: (row: ContactRow) => {
+        const value =
+          row.customFields?.[column.header] ??
+          row.templateVariables?.[column.variableKey] ??
+          "—";
+
+        return (
+          <span className="text-sm text-slate-700">
+            {String(value || "—")}
+          </span>
+        );
+      },
+    }));
+
+  const tailContactColumns: AdminTableColumn<ContactRow>[] = [
+    {
+      id: "stage",
+      header: "Stage",
+      render: (row) =>
+        isSdrViewer ? (
+          <span
+            className={cx(
+              "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
+              getStagePillClasses(row.stage)
+            )}
+          >
+            {row.stage || "—"}
+          </span>
+        ) : (
+          <div className="flex items-center gap-2">
             <span
               className={cx(
                 "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
@@ -2482,54 +2736,48 @@ export default function CampaignDetailPage() {
             >
               {row.stage || "—"}
             </span>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span
-                className={cx(
-                  "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
-                  getStagePillClasses(row.stage)
-                )}
-              >
-                {row.stage || "—"}
-              </span>
-              <select
-                value={row.stage || "new"}
-                onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
-                disabled={submittingKey === `stage-${row._id}`}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-              >
-                {stageOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ),
-      },
-      {
-        id: "launchedAt",
-        header: "Launched",
-        render: (row) => (
-          <span className="text-sm text-slate-600">{formatDate(row.launchedAt)}</span>
+            <select
+              value={row.stage || "new"}
+              onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
+              disabled={submittingKey === `stage-${row._id}`}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
+            >
+              {stageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         ),
-      },
-      {
-        id: "actions",
-        header: "Actions",
-        render: (row) => (
-          <button
-            type="button"
-            onClick={() => openRemoveLead(row)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        ),
-      },
-    ],
-    [submittingKey, isSdrViewer]
-  );
+    },
+    {
+      id: "launchedAt",
+      header: "Launched",
+      render: (row) => (
+        <span className="text-sm text-slate-600">{formatDate(row.launchedAt)}</span>
+      ),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      render: (row) => (
+        <button
+          type="button"
+          onClick={() => openRemoveLead(row)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+    },
+  ];
+
+  const contactColumns: AdminTableColumn<ContactRow>[] = [
+    ...baseContactColumns,
+    ...dynamicContactColumns,
+    ...tailContactColumns,
+  ];
 
   const activeScheduleWindow =
     configuration.schedule.windows[Math.min(selectedScheduleIndex, configuration.schedule.windows.length - 1)] ||
@@ -2685,18 +2933,6 @@ export default function CampaignDetailPage() {
       }
     );
   }, [contacts]);
-
-  const [selectedSequenceStepIndex, setSelectedSequenceStepIndex] = useState(0);
-  const [selectedSequenceVariantIndex, setSelectedSequenceVariantIndex] = useState(0);
-
-  const selectedSequenceStep =
-    configuration.sequences[selectedSequenceStepIndex] || configuration.sequences[0];
-
-  const selectedSequenceVariant =
-    selectedSequenceStep?.variants?.[selectedSequenceVariantIndex] || {
-      subject: "",
-      body: "",
-    };
 
   function updateVariantAt(
     stepIndex: number,
@@ -2884,32 +3120,88 @@ export default function CampaignDetailPage() {
       field: "body" as const,
     };
 
-    setConfiguration((prev) => ({
-      ...prev,
-      sequences: prev.sequences.map((step, index) => {
-        if (index !== target.stepIndex) return step;
+    if (target.field === "subject") {
+      const input = subjectInputRef.current;
+      const currentValue = selectedSequenceVariant.subject || "";
 
-        return {
-          ...step,
-          variants: step.variants.map((variant, variantIndex) => {
-            if (variantIndex !== selectedSequenceVariantIndex) return variant;
+      if (!input) {
+        updateSelectedVariant({
+          subject: `${currentValue}${variable}`,
+        });
+      } else {
+        const start = input.selectionStart ?? currentValue.length;
+        const end = input.selectionEnd ?? start;
 
-            if (target.field === "subject") {
-              return {
-                ...variant,
-                subject: `${variant.subject || ""}${variable}`,
-              };
-            }
+        const nextValue =
+          currentValue.slice(0, start) +
+          variable +
+          currentValue.slice(end);
 
-            return {
-              ...variant,
-              body: `${variant.body || ""}${variable}`,
-            };
-          }),
-        };
-      }),
-    }));
+        updateSelectedVariant({ subject: nextValue });
 
+        requestAnimationFrame(() => {
+          input.focus();
+          const nextCursor = start + variable.length;
+          input.setSelectionRange(nextCursor, nextCursor);
+        });
+      }
+
+      setIsVariablesMenuOpen(false);
+      setMessage({
+        type: "success",
+        text: `${variable} inserted`,
+      });
+      return;
+    }
+
+    const editor = sequenceEditorRef.current;
+
+    if (!editor) {
+      updateSelectedVariant({
+        body: `${selectedSequenceVariant.body || ""}${variable}`,
+      });
+
+      setIsVariablesMenuOpen(false);
+      setMessage({
+        type: "success",
+        text: `${variable} inserted`,
+      });
+      return;
+    }
+
+    editor.focus();
+    restoreEditorSelection();
+
+    const selection = window.getSelection();
+
+    if (!selection || selection.rangeCount === 0) {
+      editor.innerHTML = `${editor.innerHTML || ""}${variable}`;
+      syncEditorBodyToState();
+      saveEditorSelection();
+
+      setIsVariablesMenuOpen(false);
+      setMessage({
+        type: "success",
+        text: `${variable} inserted`,
+      });
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+
+    const textNode = document.createTextNode(variable);
+    range.insertNode(textNode);
+
+    const nextRange = document.createRange();
+    nextRange.setStartAfter(textNode);
+    nextRange.collapse(true);
+
+    selection.removeAllRanges();
+    selection.addRange(nextRange);
+    savedSelectionRangeRef.current = nextRange.cloneRange();
+
+    syncEditorBodyToState();
     setIsVariablesMenuOpen(false);
 
     setMessage({
@@ -2959,12 +3251,6 @@ export default function CampaignDetailPage() {
 
     selection.removeAllRanges();
     selection.addRange(savedSelectionRangeRef.current);
-  }
-
-  function closeLinkTools() {
-    setIsLinkToolsOpen(false);
-    setLinkToolsPosition(null);
-    selectedLinkElementRef.current = null;
   }
 
   function resetLinkEditor() {
@@ -3151,13 +3437,23 @@ export default function CampaignDetailPage() {
   }
 
   useEffect(() => {
-    if (!sequenceEditorRef.current) return;
+    const editor = sequenceEditorRef.current;
+    if (!editor) return;
+
+    if (document.activeElement === editor) return;
 
     const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
-    if (sequenceEditorRef.current.innerHTML !== nextHtml) {
-      sequenceEditorRef.current.innerHTML = nextHtml;
+
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml;
     }
-  }, [selectedSequenceStepIndex, selectedSequenceVariant.body]);
+
+    savedSelectionRangeRef.current = null;
+  }, [
+    selectedSequenceStepIndex,
+    selectedSequenceVariantIndex,
+    selectedSequenceVariant.body,
+  ]);
 
   const flatFilteredTemplates = useMemo(() => {
     return filteredTemplateGroups.flatMap((group) => group.templates);
@@ -3668,7 +3964,6 @@ export default function CampaignDetailPage() {
               ) : filteredContacts.length ? (
                 <div className="px-6 py-6">
                   <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    <div>Lead</div>
                     <div>Stage</div>
                     <div>Launched</div>
                     <div>Thread</div>
@@ -4038,125 +4333,243 @@ export default function CampaignDetailPage() {
                               />
                             </label>
 
-                            {csvPreviewColumns.length > 0 ? (
-                              <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
-                                <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-                                  <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <div>
-                                      <p className="text-sm font-semibold text-slate-900">
-                                        {csvPreviewFileName}
-                                      </p>
-                                      <p className="mt-1 text-xs text-slate-500">
-                                        {csvPreviewTotalRows} rows detected
-                                      </p>
+                            {leadImportMode === "csv" && (
+                              <div className="flex-1 overflow-auto px-5 py-8">
+                                <div className="mx-auto max-w-6xl">
+                                  <div className="mb-6">
+                                    <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+                                      Upload CSV
+                                    </h2>
+                                    <p className="mt-2 text-sm text-slate-500">
+                                      Upload your CSV file, verify column mappings, and import leads into the campaign.
+                                    </p>
+                                  </div>
+
+                                  <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
+                                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                      <div>
+                                        <h3 className="text-base font-semibold text-slate-950">
+                                          CSV Mapping Import
+                                        </h3>
+                                        <p className="mt-1 text-sm text-slate-500">
+                                          Preview the file, map every column, then import.
+                                        </p>
+                                      </div>
+
+                                      {csvPreviewFileName ? (
+                                        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
+                                          <CheckCircle2 className="h-3.5 w-3.5" />
+                                          File processed
+                                        </span>
+                                      ) : null}
                                     </div>
 
-                                    <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                                      <Sparkles className="h-3.5 w-3.5" />
-                                      Variables auto-generated
+                                    <div className="space-y-5">
+                                      <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[28px] border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center transition hover:border-blue-300 hover:bg-blue-50">
+                                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+                                          <Upload className="h-7 w-7" />
+                                        </div>
+
+                                        <div>
+                                          <p className="text-base font-semibold text-slate-800">
+                                            {csvFile ? csvFile.name : "Choose a CSV file"}
+                                          </p>
+                                          <p className="mt-1 text-sm text-slate-500">
+                                            Drop a file here or click to browse
+                                          </p>
+                                        </div>
+
+                                        <input
+                                          type="file"
+                                          accept=".csv"
+                                          className="sr-only"
+                                          onChange={async (e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) await handlePreviewCsv(file);
+                                          }}
+                                        />
+                                      </label>
+
+                                      {csvPreviewColumns.length > 0 ? (
+                                        <>
+                                          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
+                                            <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                                <div>
+                                                  <p className="text-sm font-semibold text-slate-900">
+                                                    {csvPreviewFileName}
+                                                  </p>
+                                                  <p className="mt-1 text-xs text-slate-500">
+                                                    {csvPreviewTotalRows} rows detected
+                                                  </p>
+                                                </div>
+
+                                                <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                                  <Sparkles className="h-3.5 w-3.5" />
+                                                  Variables auto-generated
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            <div className="max-h-[520px] overflow-auto">
+                                              <table className="min-w-full text-left">
+                                                <thead className="sticky top-0 z-10 bg-white">
+                                                  <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                                    <th className="px-5 py-3">Column</th>
+                                                    <th className="px-5 py-3">Type</th>
+                                                    <th className="px-5 py-3">Variable</th>
+                                                    <th className="px-5 py-3">Samples</th>
+                                                  </tr>
+                                                </thead>
+
+                                                <tbody>
+                                                  {csvPreviewColumns.map((column) => (
+                                                    <tr
+                                                      key={column.header}
+                                                      className="border-b border-slate-100 align-top last:border-b-0"
+                                                    >
+                                                      <td className="px-5 py-4">
+                                                        <p className="text-sm font-semibold text-slate-900">
+                                                          {column.header}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-slate-400">
+                                                          Auto-detected: {column.inferredType.replaceAll("_", " ")}
+                                                        </p>
+                                                      </td>
+
+                                                      <td className="px-5 py-4">
+                                                        <select
+                                                          value={column.selectedType}
+                                                          onChange={(e) =>
+                                                            updateCsvPreviewColumn(column.header, {
+                                                              selectedType: e.target.value as CsvColumnType,
+                                                            })
+                                                          }
+                                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                                                        >
+                                                          {csvTypeOptions.map((option) => (
+                                                            <option key={option.value} value={option.value}>
+                                                              {option.label}
+                                                            </option>
+                                                          ))}
+                                                        </select>
+                                                      </td>
+
+                                                      <td className="px-5 py-4">
+                                                        <input
+                                                          value={column.variableKey}
+                                                          onChange={(e) =>
+                                                            updateCsvPreviewColumn(column.header, {
+                                                              variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                                                            })
+                                                          }
+                                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                                                        />
+
+                                                        <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                                                          {`{{${column.variableKey}}}`}
+                                                        </p>
+                                                      </td>
+
+                                                      <td className="px-5 py-4">
+                                                        <div className="space-y-1">
+                                                          {column.samples.map((sample, index) => (
+                                                            <p key={index} className="text-sm text-slate-600">
+                                                              {sample}
+                                                            </p>
+                                                          ))}
+                                                        </div>
+                                                      </td>
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+
+                                            <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                                              <p className="text-xs text-slate-500">
+                                                Review all column mappings before importing.
+                                              </p>
+
+                                              <button
+                                                type="button"
+                                                onClick={handleConfirmCsvImport}
+                                                disabled={submittingKey !== ""}
+                                                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                              >
+                                                <Upload className="h-4 w-4" />
+                                                {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
+                                              </button>
+                                            </div>
+                                          </div>
+
+                                          {csvPreviewRows.length > 0 ? (
+                                            <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
+                                              <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
+                                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                                  <div>
+                                                    <p className="text-sm font-semibold text-slate-900">
+                                                      CSV Row Preview
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-slate-500">
+                                                      Showing first {csvPreviewRows.length} rows from the uploaded file
+                                                    </p>
+                                                  </div>
+
+                                                  <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                                    <Eye className="h-3.5 w-3.5" />
+                                                    Raw CSV preview
+                                                  </span>
+                                                </div>
+                                              </div>
+
+                                              <div className="max-h-[420px] overflow-auto">
+                                                <table className="min-w-full text-left">
+                                                  <thead className="sticky top-0 z-10 bg-white">
+                                                    <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                                                      {csvPreviewColumns.map((column) => (
+                                                        <th key={column.header} className="px-5 py-3 whitespace-nowrap">
+                                                          {column.header}
+                                                        </th>
+                                                      ))}
+                                                    </tr>
+                                                  </thead>
+
+                                                  <tbody>
+                                                    {csvPreviewRows.map((row, rowIndex) => (
+                                                      <tr
+                                                        key={`csv-row-${rowIndex}`}
+                                                        className="border-b border-slate-100 last:border-b-0"
+                                                      >
+                                                        {csvPreviewColumns.map((column) => (
+                                                          <td
+                                                            key={`${rowIndex}-${column.header}`}
+                                                            className="px-5 py-3 align-top text-sm text-slate-700"
+                                                          >
+                                                            {String(row?.[column.header] ?? "—")}
+                                                          </td>
+                                                        ))}
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            </div>
+                                          ) : null}
+                                        </>
+                                      ) : (
+                                        <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-12 text-center">
+                                          <p className="text-base font-semibold text-slate-800">
+                                            Upload a CSV to preview mappings
+                                          </p>
+                                          <p className="mt-1 text-sm text-slate-500">
+                                            Every header will become an available template variable.
+                                          </p>
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
-
-                                <div className="max-h-[520px] overflow-auto">
-                                  <table className="min-w-full text-left">
-                                    <thead className="sticky top-0 z-10 bg-white">
-                                      <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                        <th className="px-5 py-3">Column</th>
-                                        <th className="px-5 py-3">Type</th>
-                                        <th className="px-5 py-3">Variable</th>
-                                        <th className="px-5 py-3">Samples</th>
-                                      </tr>
-                                    </thead>
-
-                                    <tbody>
-                                      {csvPreviewColumns.map((column) => (
-                                        <tr
-                                          key={column.header}
-                                          className="border-b border-slate-100 align-top last:border-b-0"
-                                        >
-                                          <td className="px-5 py-4">
-                                            <p className="text-sm font-semibold text-slate-900">
-                                              {column.header}
-                                            </p>
-                                            <p className="mt-1 text-xs text-slate-400">
-                                              Auto-detected: {column.inferredType.replaceAll("_", " ")}
-                                            </p>
-                                          </td>
-
-                                          <td className="px-5 py-4">
-                                            <select
-                                              value={column.selectedType}
-                                              onChange={(e) =>
-                                                updateCsvPreviewColumn(column.header, {
-                                                  selectedType: e.target.value as CsvColumnType,
-                                                })
-                                              }
-                                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                                            >
-                                              {csvTypeOptions.map((option) => (
-                                                <option key={option.value} value={option.value}>
-                                                  {option.label}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          </td>
-
-                                          <td className="px-5 py-4">
-                                            <input
-                                              value={column.variableKey}
-                                              onChange={(e) =>
-                                                updateCsvPreviewColumn(column.header, {
-                                                  variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
-                                                })
-                                              }
-                                              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                                            />
-
-                                            <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                                              {`{{${column.variableKey}}}`}
-                                            </p>
-                                          </td>
-
-                                          <td className="px-5 py-4">
-                                            <div className="space-y-1">
-                                              {column.samples.map((sample, index) => (
-                                                <p key={index} className="text-sm text-slate-600">
-                                                  {sample}
-                                                </p>
-                                              ))}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-
-                                <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                  <p className="text-xs text-slate-500">
-                                    Review all column mappings before importing.
-                                  </p>
-
-                                  <button
-                                    type="button"
-                                    onClick={handleConfirmCsvImport}
-                                    disabled={submittingKey !== ""}
-                                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    <Upload className="h-4 w-4" />
-                                    {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-12 text-center">
-                                <p className="text-base font-semibold text-slate-800">
-                                  Upload a CSV to preview mappings
-                                </p>
-                                <p className="mt-1 text-sm text-slate-500">
-                                  Every header will become an available template variable.
-                                </p>
                               </div>
                             )}
                           </div>
@@ -4314,140 +4727,138 @@ export default function CampaignDetailPage() {
                             : "border-slate-200"
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleSelectSequenceStep(index)}
-                          className="w-full text-left"
-                        >
-                          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-5">
+                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-5">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSequenceStep(index)}
+                            className="min-w-0 flex-1 text-left"
+                          >
                             <p className="text-[15px] font-semibold text-slate-900">
                               Step {index + 1}
                             </p>
+                          </button>
 
-                            {configuration.sequences.length > 1 ? (
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleRemoveSequenceStepInstantlyStyle(index);
-                                }}
-                                className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            ) : (
-                              <span className="h-6 w-6" />
-                            )}
-                          </div>
-
-                          <div className="px-4 py-4">
-                            <div className="space-y-2.5">
-                              {step.variants.map((variant, variantIndex) => {
-                                const isVariantSelected =
-                                  selectedSequenceStepIndex === index &&
-                                  selectedSequenceVariantIndex === variantIndex;
-
-                                return (
-                                  <div
-                                    key={`${index}-${variantIndex}`}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      handleSelectVariant(index, variantIndex);
-                                    }}
-                                    className={cx(
-                                      "flex items-center gap-3 rounded-xl border px-4 py-3 transition",
-                                      isVariantSelected
-                                        ? "border-blue-200 bg-blue-50"
-                                        : "border-slate-200 bg-white hover:border-slate-300"
-                                    )}
-                                  >
-                                    <div
-                                      className={cx(
-                                        "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
-                                        isVariantSelected
-                                          ? "bg-blue-600 text-white"
-                                          : "bg-slate-200 text-slate-600"
-                                      )}
-                                    >
-                                      {getVariantLabel(variantIndex)}
-                                    </div>
-
-                                    <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
-                                      {variant.subject?.trim()
-                                        ? variant.subject
-                                        : index === 0
-                                          ? "<Empty subject>"
-                                          : "<Previous email's subject>"}
-                                    </p>
-
-                                    {step.variants.length > 1 ? (
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          handleRemoveVariant(index, variantIndex);
-                                        }}
-                                        className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-
+                          {configuration.sequences.length > 1 ? (
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
-                                handleAddVariant(index);
+                                handleRemoveSequenceStepInstantlyStyle(index);
                               }}
-                              className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-700 transition hover:text-blue-600"
+                              className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
                             >
-                              <Plus className="h-4 w-4 text-blue-600" />
-                              Add variant
+                              <Trash2 className="h-4 w-4" />
                             </button>
+                          ) : (
+                            <span className="h-6 w-6" />
+                          )}
+                        </div>
+
+                        <div className="px-4 py-4">
+                          <div className="space-y-2.5">
+                            {step.variants.map((variant, variantIndex) => {
+                              const isVariantSelected =
+                                selectedSequenceStepIndex === index &&
+                                selectedSequenceVariantIndex === variantIndex;
+
+                              return (
+                                <div
+                                  key={`${index}-${variantIndex}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    handleSelectVariant(index, variantIndex);
+                                  }}
+                                  className={cx(
+                                    "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition",
+                                    isVariantSelected
+                                      ? "border-blue-200 bg-blue-50"
+                                      : "border-slate-200 bg-white hover:border-slate-300"
+                                  )}
+                                >
+                                  <div
+                                    className={cx(
+                                      "flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold",
+                                      isVariantSelected
+                                        ? "bg-blue-600 text-white"
+                                        : "bg-slate-200 text-slate-600"
+                                    )}
+                                  >
+                                    {getVariantLabel(variantIndex)}
+                                  </div>
+
+                                  <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">
+                                    {variant.subject?.trim()
+                                      ? variant.subject
+                                      : index === 0
+                                        ? "<Empty subject>"
+                                        : "<Previous email's subject>"}
+                                  </p>
+
+                                  {step.variants.length > 1 ? (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        handleRemoveVariant(index, variantIndex);
+                                      }}
+                                      className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-rose-500"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
                           </div>
 
-                          {nextStep ? (
-                            <div className="border-t border-slate-100 px-4 py-5">
-                              <p className="mb-3 text-sm font-medium text-slate-700">
-                                Send next message in
-                              </p>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleAddVariant(index);
+                            }}
+                            className="mt-4 inline-flex items-center gap-2 text-sm font-medium text-slate-700 transition hover:text-blue-600"
+                          >
+                            <Plus className="h-4 w-4 text-blue-600" />
+                            Add variant
+                          </button>
+                        </div>
 
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={nextStep.delay}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) =>
-                                    updateStep(nextStepIndex!, {
-                                      delay: Number(e.target.value || 0),
-                                    })
-                                  }
-                                  className="h-8 w-[52px] rounded-lg border border-slate-200 px-2 text-sm text-slate-700 outline-none"
-                                />
+                        {nextStep ? (
+                          <div className="border-t border-slate-100 px-4 py-5">
+                            <p className="mb-3 text-sm font-medium text-slate-700">
+                              Send next message in
+                            </p>
 
-                                <select
-                                  value={nextStep.delayUnit}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) =>
-                                    updateStep(nextStepIndex!, {
-                                      delayUnit: e.target.value as CampaignSequenceStep["delayUnit"],
-                                    })
-                                  }
-                                  className="h-8 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none"
-                                >
-                                  <option value="minutes">Minutes</option>
-                                  <option value="hours">Hours</option>
-                                  <option value="days">Days</option>
-                                </select>
-                              </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min={0}
+                                value={nextStep.delay}
+                                onChange={(e) =>
+                                  updateStep(nextStepIndex!, {
+                                    delay: Number(e.target.value || 0),
+                                  })
+                                }
+                                className="h-8 w-[52px] rounded-lg border border-slate-200 px-2 text-sm text-slate-700 outline-none"
+                              />
+
+                              <select
+                                value={nextStep.delayUnit}
+                                onChange={(e) =>
+                                  updateStep(nextStepIndex!, {
+                                    delayUnit: e.target.value as CampaignSequenceStep["delayUnit"],
+                                  })
+                                }
+                                className="h-8 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none"
+                              >
+                                <option value="minutes">Minutes</option>
+                                <option value="hours">Hours</option>
+                                <option value="days">Days</option>
+                              </select>
                             </div>
-                          ) : null}
-                        </button>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -4491,8 +4902,21 @@ export default function CampaignDetailPage() {
 
               <div className="border-b border-slate-200 px-6 py-4">
                 <input
+                  ref={subjectInputRef}
                   value={selectedSequenceVariant.subject || ""}
                   onFocus={() =>
+                    setSequenceInsertTarget({
+                      stepIndex: selectedSequenceStepIndex,
+                      field: "subject",
+                    })
+                  }
+                  onClick={() =>
+                    setSequenceInsertTarget({
+                      stepIndex: selectedSequenceStepIndex,
+                      field: "subject",
+                    })
+                  }
+                  onKeyUp={() =>
                     setSequenceInsertTarget({
                       stepIndex: selectedSequenceStepIndex,
                       field: "subject",
@@ -4568,7 +4992,7 @@ export default function CampaignDetailPage() {
                       <div className="inline-flex h-11 overflow-hidden rounded-xl border border-blue-600 shadow-sm">
                         <button
                           type="button"
-                          onClick={() => handleSaveConfiguration(false)}
+                          onClick={() => handleSaveConfiguration(true)}
                           disabled={submittingKey !== ""}
                           className="inline-flex items-center gap-2 bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
@@ -5336,8 +5760,8 @@ export default function CampaignDetailPage() {
 
             <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
               <p className="text-sm font-medium text-slate-900">Lead</p>
-              <p className="mt-1 text-sm text-rose-700">{removeLead.companyName}</p>
-              <p className="mt-1 text-xs text-rose-600">{removeLead.primaryContact?.email || "—"}</p>
+              <p className="mt-1 text-sm text-rose-700">{getResolvedLeadName(removeLead)}</p>
+              <p className="mt-1 text-xs text-rose-600">{getResolvedContactMeta(removeLead)}</p>
             </div>
 
             <div className="mt-6 flex justify-end gap-3">

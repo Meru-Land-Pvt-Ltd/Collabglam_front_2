@@ -379,7 +379,7 @@ export default function InstantlySidebar() {
   );
 
   return (
-    <aside className="hidden h-[calc(100vh-2rem)] w-[284px] shrink-0 border border-slate-200 bg-[#fbfcfe] xl:flex xl:flex-col">
+    <aside className="hidden h-[calc(100vh-2rem)] w-[248px] shrink-0 border border-slate-200 bg-[#fbfcfe] xl:flex xl:flex-col">
       <div className="flex-1 overflow-y-auto py-5">
         <div className="px-4">
           <div className="mb-3 px-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
