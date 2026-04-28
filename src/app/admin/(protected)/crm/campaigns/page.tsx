@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   adminDelete,
@@ -68,29 +68,29 @@ type CampaignRow = {
   flowType: CampaignFlowType;
   status: CampaignUiStatus;
   sdrId:
-    | string
-    | {
-        _id: string;
-        name?: string;
-        email?: string;
-      }
-    | null;
+  | string
+  | {
+    _id: string;
+    name?: string;
+    email?: string;
+  }
+  | null;
   RHId:
-    | string
-    | {
-        _id: string;
-        name?: string;
-        email?: string;
-      }
-    | null;
+  | string
+  | {
+    _id: string;
+    name?: string;
+    email?: string;
+  }
+  | null;
   IMEId:
-    | string
-    | {
-        _id: string;
-        name?: string;
-        email?: string;
-      }
-    | null;
+  | string
+  | {
+    _id: string;
+    name?: string;
+    email?: string;
+  }
+  | null;
   instantly?: {
     senderAccountEmail?: string;
     accountEmails?: string[];
@@ -195,7 +195,8 @@ function parseCampaignRows(payload: any): CampaignRow[] {
   return rows.map((item: any) => ({
     _id: String(item?._id || ""),
     name: item?.name || "",
-    flowType: item?.flowType === "ime_influencer" ? "ime_influencer" : "standard_brand",
+    flowType:
+      item?.flowType === "ime_influencer" ? "ime_influencer" : "standard_brand",
     status: item?.status === "error" ? "error" : item?.status || "draft",
     sdrId: item?.sdrId || null,
     RHId: item?.RHId || null,
@@ -237,9 +238,11 @@ function getUiStatus(row: CampaignRow): CampaignUiStatus {
 
 function getStatusPillClasses(status: CampaignUiStatus) {
   if (status === "ready") return "border-sky-200 bg-sky-50 text-sky-700";
-  if (status === "launched") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "launched")
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "paused") return "border-amber-200 bg-amber-50 text-amber-700";
-  if (status === "completed") return "border-violet-200 bg-violet-50 text-violet-700";
+  if (status === "completed")
+    return "border-violet-200 bg-violet-50 text-violet-700";
   if (status === "error") return "border-red-200 bg-red-500 text-white";
   return "border-slate-200 bg-slate-50 text-slate-700";
 }
@@ -315,6 +318,44 @@ function downloadBrowserBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function ModalBackdrop({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cx(
+        "fixed inset-0 flex items-start justify-center overflow-y-auto overscroll-contain bg-black/40 px-3 py-4 backdrop-blur-[2px] sm:items-center sm:px-4 sm:py-8",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ModalCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cx(
+        "max-h-[calc(100dvh-2rem)] w-full overflow-y-auto rounded-[28px] border border-slate-200 bg-white shadow-2xl",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 function ActionMenu({
   busy,
   onRename,
@@ -331,7 +372,7 @@ function ActionMenu({
   onShare: () => void;
 }) {
   return (
-    <div className="w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white py-2 shadow-2xl">
+    <div className="max-h-[calc(100dvh-1.5rem)] w-56 overflow-y-auto rounded-2xl border border-slate-200 bg-white py-2 shadow-2xl">
       <button
         type="button"
         disabled={busy}
@@ -568,11 +609,19 @@ export default function InstantlyCampaignsPage() {
             ? "ime_influencer"
             : "standard_brand";
 
-      if (normalizedRole === "super_admin" && flowType === "standard_brand" && !createForm.sdrId) {
+      if (
+        normalizedRole === "super_admin" &&
+        flowType === "standard_brand" &&
+        !createForm.sdrId
+      ) {
         throw new Error("Select an SDR owner");
       }
 
-      if (normalizedRole === "super_admin" && flowType === "ime_influencer" && !createForm.imeId) {
+      if (
+        normalizedRole === "super_admin" &&
+        flowType === "ime_influencer" &&
+        !createForm.imeId
+      ) {
         throw new Error("Select an IME owner");
       }
 
@@ -641,7 +690,9 @@ export default function InstantlyCampaignsPage() {
       setRenameLoading(true);
       setBusyActionId(renameCampaign._id);
 
-      await adminPatch(buildCampaignApiUrl(renameCampaign._id), { name: nextName });
+      await adminPatch(buildCampaignApiUrl(renameCampaign._id), {
+        name: nextName,
+      });
 
       setCampaigns((prev) =>
         prev.map((item) =>
@@ -680,8 +731,12 @@ export default function InstantlyCampaignsPage() {
 
       await adminDelete(buildCampaignApiUrl(deleteCampaign._id));
 
-      setCampaigns((prev) => prev.filter((item) => item._id !== deleteCampaign._id));
-      setSelectedIds((prev) => prev.filter((id) => id !== deleteCampaign._id));
+      setCampaigns((prev) =>
+        prev.filter((item) => item._id !== deleteCampaign._id)
+      );
+      setSelectedIds((prev) =>
+        prev.filter((id) => id !== deleteCampaign._id)
+      );
 
       setMessage({
         type: "success",
@@ -702,7 +757,10 @@ export default function InstantlyCampaignsPage() {
     try {
       setBusyActionId(row._id);
 
-      const response: any = await adminPost(buildCampaignApiUrl(row._id, "/duplicate"), {});
+      const response: any = await adminPost(
+        buildCampaignApiUrl(row._id, "/duplicate"),
+        {}
+      );
       const duplicatedId = response?.data?._id;
 
       await loadPage(false);
@@ -727,7 +785,10 @@ export default function InstantlyCampaignsPage() {
     try {
       setBusyActionId(row._id);
 
-      const response: any = await adminPost(buildCampaignApiUrl(row._id, "/share"), {});
+      const response: any = await adminPost(
+        buildCampaignApiUrl(row._id, "/share"),
+        {}
+      );
 
       const isHttpUrl = (value: unknown): value is string =>
         typeof value === "string" && /^https?:\/\//i.test(value.trim());
@@ -750,12 +811,12 @@ export default function InstantlyCampaignsPage() {
           prev.map((item) =>
             item._id === row._id
               ? {
-                  ...item,
-                  instantly: {
-                    ...(item.instantly || {}),
-                    shareLink: shareUrl,
-                  },
-                }
+                ...item,
+                instantly: {
+                  ...(item.instantly || {}),
+                  shareLink: shareUrl,
+                },
+              }
               : item
           )
         );
@@ -767,7 +828,9 @@ export default function InstantlyCampaignsPage() {
       } else {
         setMessage({
           type: "info",
-          text: response?.message || "Campaign shared, but no share link was returned",
+          text:
+            response?.message ||
+            "Campaign shared, but no share link was returned",
         });
       }
     } catch (error) {
@@ -782,7 +845,9 @@ export default function InstantlyCampaignsPage() {
     try {
       setBusyActionId(row._id);
 
-      const blob = await adminGetBlob(buildCampaignApiUrl(row._id, "/analytics.csv"));
+      const blob = await adminGetBlob(
+        buildCampaignApiUrl(row._id, "/analytics.csv")
+      );
       downloadBrowserBlob(
         blob,
         `${row.name.replace(/\s+/g, "-").toLowerCase()}-analytics.csv`
@@ -854,7 +919,8 @@ export default function InstantlyCampaignsPage() {
 
     const filtered = campaigns.filter((row) => {
       const uiStatus = getUiStatus(row);
-      const matchesStatus = statusFilter === "all" ? true : uiStatus === statusFilter;
+      const matchesStatus =
+        statusFilter === "all" ? true : uiStatus === statusFilter;
 
       let matchesRole = true;
 
@@ -865,7 +931,8 @@ export default function InstantlyCampaignsPage() {
           matchesRole = getAdminEntityId(row.IMEId) === myId;
         } else if (isRhViewer) {
           matchesRole =
-            getAdminEntityId(row.RHId) === myId || row.flowType === "ime_influencer";
+            getAdminEntityId(row.RHId) === myId ||
+            row.flowType === "ime_influencer";
         }
       }
 
@@ -918,378 +985,155 @@ export default function InstantlyCampaignsPage() {
     filteredCampaigns.every((row) => selectedIds.includes(row._id));
 
   return (
-    <div className="space-y-6 pb-8">
-      {message && (
-        <div
-          className={cx(
-            "rounded-2xl border px-4 py-3 text-sm",
-            message.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-            message.type === "error" && "border-rose-200 bg-rose-50 text-rose-700",
-            message.type === "info" && "border-sky-200 bg-sky-50 text-sky-700"
-          )}
-        >
-          {message.text}
-        </div>
-      )}
-
-      <section className="rounded-[30px] border border-slate-200 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="relative w-full max-w-[385px]">
-            <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search..."
-              className="h-12 w-full rounded-full border border-slate-200 bg-white pl-14 pr-5 text-sm text-slate-700 outline-none transition focus:border-slate-300"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative">
-              <Filter className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                className="h-12 min-w-[164px] appearance-none rounded-full border border-slate-200 bg-white pl-11 pr-10 text-sm font-medium text-slate-700 outline-none"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            </div>
-
-            <div className="relative">
-              <ArrowUpDown className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="h-12 min-w-[170px] appearance-none rounded-full border border-slate-200 bg-white pl-11 pr-10 text-sm font-medium text-slate-700 outline-none"
-              >
-                {SORT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            </div>
-
-            {canCreate && (
-              <button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                className="inline-flex h-12 items-center gap-2 rounded-full bg-[#4E78F6] px-6 text-sm font-semibold text-white transition hover:bg-[#436be2]"
-              >
-                <Plus className="h-4 w-4" />
-                Add New
-              </button>
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4 xl:px-5">
+      <div className="mx-auto w-full max-w-[1700px] space-y-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+        {message && (
+          <div
+            className={cx(
+              "rounded-2xl border px-4 py-3 text-sm",
+              message.type === "success" &&
+              "border-emerald-200 bg-emerald-50 text-emerald-700",
+              message.type === "error" &&
+              "border-rose-200 bg-rose-50 text-rose-700",
+              message.type === "info" &&
+              "border-sky-200 bg-sky-50 text-sky-700"
             )}
+          >
+            {message.text}
           </div>
-        </div>
-      </section>
+        )}
 
-      <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-        <div className="px-5 py-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-slate-900">Campaigns</h2>
-
-            <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
-              {filteredCampaigns.length} visible
+        <section className="rounded-[30px] border border-slate-200 bg-white p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)] sm:p-5">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="relative w-full xl:max-w-[385px]">
+              <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search..."
+                className="h-12 w-full rounded-full border border-slate-200 bg-white pl-14 pr-5 text-sm text-slate-700 outline-none transition focus:border-slate-300"
+              />
             </div>
-          </div>
-        </div>
 
-        <div className="space-y-4 p-4 xl:hidden">
-          {loading ? (
-            Array.from({ length: 3 }).map((_, index) => (
-              <div
-                key={index}
-                className="animate-pulse rounded-[26px] border border-slate-200 bg-white p-4"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 h-4 w-4 rounded bg-slate-200" />
-                  <div className="flex-1">
-                    <div className="h-4 w-40 rounded bg-slate-200" />
-                    <div className="mt-3 h-3 w-28 rounded bg-slate-200" />
-                  </div>
-                  <div className="h-8 w-8 rounded-full bg-slate-200" />
-                </div>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  {Array.from({ length: canViewReplyColumns ? 5 : 3 }).map((__, statIndex) => (
-                    <div key={statIndex} className="rounded-2xl bg-slate-50 p-3">
-                      <div className="h-3 w-16 rounded bg-slate-200" />
-                      <div className="mt-3 h-4 w-12 rounded bg-slate-200" />
-                    </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+              <div className="relative w-full sm:w-auto">
+                <Filter className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <select
+                  value={statusFilter}
+                  onChange={(e) =>
+                    setStatusFilter(e.target.value as StatusFilter)
+                  }
+                  className="h-12 w-full appearance-none rounded-full border border-slate-200 bg-white pl-11 pr-10 text-sm font-medium text-slate-700 outline-none sm:min-w-[164px]"
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
                   ))}
-                </div>
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               </div>
-            ))
-          ) : filteredCampaigns.length === 0 ? (
-            <div className="rounded-[26px] border border-dashed border-slate-200 bg-slate-50 px-6 py-14 text-center">
-              <h3 className="text-base font-semibold text-slate-900">No campaigns found</h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Try a different search or create a new campaign.
-              </p>
-            </div>
-          ) : (
-            filteredCampaigns.map((row) => {
-              const uiStatus = getUiStatus(row);
-              const progress = getProgress(row);
-              const busy = busyActionId === row._id;
-              const errorMessage = row.sync?.lastErrorMessage || "";
-              const isLaunched = uiStatus === "launched";
-              const sent = normalizeNumber(row.stats?.totalSent);
-              const clicked = normalizeNumber(row.stats?.totalClicked);
-              const replied = normalizeNumber(row.stats?.totalReplies);
-              const opportunities = normalizeNumber(row.stats?.totalOpportunities);
-              const ownerMeta = getCampaignOwnerMeta(row);
 
-              return (
+              <div className="relative w-full sm:w-auto">
+                <ArrowUpDown className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  className="h-12 w-full appearance-none rounded-full border border-slate-200 bg-white pl-11 pr-10 text-sm font-medium text-slate-700 outline-none sm:min-w-[170px]"
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              </div>
+
+              {canCreate && (
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(true)}
+                  className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#4E78F6] px-6 text-sm font-semibold text-white transition hover:bg-[#436be2] sm:w-auto"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add New
+                </button>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-900">
+                Campaigns
+              </h2>
+
+              <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                {filteredCampaigns.length} visible
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-3 sm:p-4 xl:hidden">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, index) => (
                 <div
-                  key={row._id}
-                  className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                  key={index}
+                  className="animate-pulse rounded-[26px] border border-slate-200 bg-white p-4"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="pt-1">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.includes(row._id)}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setSelectedIds((prev) =>
-                            e.target.checked
-                              ? [...new Set([...prev, row._id])]
-                              : prev.filter((id) => id !== row._id)
-                          );
-                        }}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
+                    <div className="mt-1 h-4 w-4 rounded bg-slate-200" />
+                    <div className="flex-1">
+                      <div className="h-4 w-40 rounded bg-slate-200" />
+                      <div className="mt-3 h-3 w-28 rounded bg-slate-200" />
                     </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => router.push(buildCampaignDetailUrl(row._id))}
-                          className="truncate text-left text-base font-semibold text-slate-900 hover:text-blue-600"
-                        >
-                          {row.name}
-                        </button>
-
-                        <span
-                          className={cx(
-                            "inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold",
-                            getStatusPillClasses(uiStatus)
-                          )}
-                        >
-                          {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
-                        </span>
-
-                        {errorMessage ? (
-                          <span title={errorMessage} className="text-slate-500">
-                            <CircleAlert className="h-4 w-4" />
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-2 space-y-1 text-xs text-slate-500">
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                          <span>{row.instantly?.senderAccountEmail || "No sender assigned"}</span>
-                          <span>{row.instantly?.campaignId || "Not launched yet"}</span>
-                        </div>
-
-                        {canViewOwnerColumn && (
-                          <div>
-                            <span className="font-semibold text-slate-600">{ownerMeta.label}:</span>{" "}
-                            {ownerMeta.value}
-                          </div>
-                        )}
-
-                        {canViewRhOwnerColumn && row.flowType !== "ime_influencer" && (
-                          <div>
-                            <span className="font-semibold text-slate-600">RH:</span>{" "}
-                            {getAdminEntityLabel(row.RHId)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleLaunch(row);
-                        }}
-                        className={cx(
-                          "inline-flex h-9 w-9 items-center justify-center rounded-full transition disabled:opacity-50",
-                          isLaunched
-                            ? "text-amber-600 hover:bg-amber-50"
-                            : "text-emerald-600 hover:bg-emerald-50"
-                        )}
-                        title={isLaunched ? "Pause campaign" : "Launch campaign"}
-                      >
-                        {isLaunched ? (
-                          <Pause className="h-4 w-4" />
-                        ) : (
-                          <Play className="h-4 w-4" />
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={(e) => openActionMenu(e, row)}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
-                        title="Campaign actions"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                    </div>
+                    <div className="h-8 w-8 rounded-full bg-slate-200" />
                   </div>
 
-                  <div className="mt-5">
-                    <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                      <span>Progress</span>
-                      <span className="text-sm font-semibold tabular-nums text-slate-900">{progress}%</span>
-                    </div>
-                    <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-slate-500 transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div
-                    className={cx(
-                      "mt-5 grid gap-3",
-                      canViewReplyColumns ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-3"
-                    )}
-                  >
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        Sent
-                      </p>
-                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
-                        {sent > 0 ? sent : "-"}
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        Click
-                      </p>
-                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">{clicked}</p>
-                    </div>
-
-                    {canViewReplyColumns && (
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                          Replied
-                        </p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
-                          {replied > 0 ? replied : "-"}
-                        </p>
+                  <div className="mt-5 grid grid-cols-2 gap-3">
+                    {Array.from({
+                      length: canViewReplyColumns ? 5 : 3,
+                    }).map((__, statIndex) => (
+                      <div key={statIndex} className="rounded-2xl bg-slate-50 p-3">
+                        <div className="h-3 w-16 rounded bg-slate-200" />
+                        <div className="mt-3 h-4 w-12 rounded bg-slate-200" />
                       </div>
-                    )}
-
-                    {canViewReplyColumns && (
-                      <div className="rounded-2xl bg-slate-50 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                          Opportunities
-                        </p>
-                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
-                          {opportunities}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="rounded-2xl bg-slate-50 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        Status
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-slate-900">
-                        {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
-                      </p>
-                    </div>
+                    ))}
                   </div>
                 </div>
-              );
-            })
-          )}
-        </div>
-
-        <div className="hidden xl:block px-4 pb-4">
-          <div className={desktopMinWidthClass}>
-            <div
-              className="grid items-center px-2 pb-3 text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
-              style={{ gridTemplateColumns: desktopGridTemplateColumns }}
-            >
-              <div className="px-4">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedIds(filteredCampaigns.map((row) => row._id));
-                    } else {
-                      setSelectedIds([]);
-                    }
-                  }}
-                  className="h-4 w-4 rounded border-slate-300"
-                />
+              ))
+            ) : filteredCampaigns.length === 0 ? (
+              <div className="rounded-[26px] border border-dashed border-slate-200 bg-slate-50 px-6 py-14 text-center">
+                <h3 className="text-base font-semibold text-slate-900">
+                  No campaigns found
+                </h3>
+                <p className="mt-2 text-sm text-slate-500">
+                  Try a different search or create a new campaign.
+                </p>
               </div>
+            ) : (
+              filteredCampaigns.map((row) => {
+                const uiStatus = getUiStatus(row);
+                const progress = getProgress(row);
+                const busy = busyActionId === row._id;
+                const errorMessage = row.sync?.lastErrorMessage || "";
+                const isLaunched = uiStatus === "launched";
+                const sent = normalizeNumber(row.stats?.totalSent);
+                const clicked = normalizeNumber(row.stats?.totalClicked);
+                const replied = normalizeNumber(row.stats?.totalReplies);
+                const opportunities = normalizeNumber(row.stats?.totalOpportunities);
+                const ownerMeta = getCampaignOwnerMeta(row);
 
-              <div className="px-4">Name</div>
-              {canViewOwnerColumn && <div className="px-4">Owner</div>}
-              {canViewRhOwnerColumn && <div className="px-4">RH</div>}
-              <div className="px-4">Status</div>
-              <div className="px-4">Progress</div>
-              <div className="px-4">Sent</div>
-              <div className="px-4">Click</div>
-              {canViewReplyColumns && <div className="px-4">Replied</div>}
-              {canViewReplyColumns && <div className="px-4">Opportunities</div>}
-              <div className="px-4 text-right">&nbsp;</div>
-            </div>
-
-            <div className="space-y-3">
-              {loading ? (
-                <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center text-sm text-slate-500">
-                  Loading campaigns...
-                </div>
-              ) : filteredCampaigns.length === 0 ? (
-                <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center">
-                  <h3 className="text-base font-semibold text-slate-900">No campaigns found</h3>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Try a different search or create a new campaign.
-                  </p>
-                </div>
-              ) : (
-                filteredCampaigns.map((row) => {
-                  const uiStatus = getUiStatus(row);
-                  const progress = getProgress(row);
-                  const busy = busyActionId === row._id;
-                  const errorMessage = row.sync?.lastErrorMessage || "";
-                  const isLaunched = uiStatus === "launched";
-                  const sent = normalizeNumber(row.stats?.totalSent);
-                  const clicked = normalizeNumber(row.stats?.totalClicked);
-                  const replied = normalizeNumber(row.stats?.totalReplies);
-                  const opportunities = normalizeNumber(row.stats?.totalOpportunities);
-                  const ownerMeta = getCampaignOwnerMeta(row);
-
-                  return (
-                    <div
-                      key={row._id}
-                      className="grid items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-slate-300 hover:shadow-sm"
-                      style={{ gridTemplateColumns: desktopGridTemplateColumns }}
-                    >
-                      <div className="px-4 py-7">
+                return (
+                  <div
+                    key={row._id}
+                    className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="pt-1">
                         <input
                           type="checkbox"
                           checked={selectedIds.includes(row._id)}
@@ -1305,46 +1149,26 @@ export default function InstantlyCampaignsPage() {
                         />
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => router.push(buildCampaignDetailUrl(row._id))}
-                        className="min-w-0 px-4 py-7 text-left"
-                      >
-                        <p className="truncate text-[1.05rem] font-semibold text-slate-900">
-                          {row.name}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-slate-500">
-                          {row.instantly?.senderAccountEmail || "No sender assigned"}
-                        </p>
-                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              router.push(buildCampaignDetailUrl(row._id))
+                            }
+                            className="max-w-full truncate text-left text-base font-semibold text-slate-900 hover:text-blue-600"
+                          >
+                            {row.name}
+                          </button>
 
-                      {canViewOwnerColumn && (
-                        <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
-                          <p className="truncate font-semibold text-slate-900">{ownerMeta.value}</p>
-                          <p className="mt-1 text-xs text-slate-500">{ownerMeta.label} owner</p>
-                        </div>
-                      )}
-
-                      {canViewRhOwnerColumn && (
-                        <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
-                          <p className="truncate font-semibold text-slate-900">
-                            {row.flowType === "ime_influencer" ? "—" : getAdminEntityLabel(row.RHId)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {row.flowType === "ime_influencer" ? "Not applicable" : "Revenue head"}
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="px-4 py-7">
-                        <div className="flex items-center gap-2">
                           <span
                             className={cx(
-                              "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                              "inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold",
                               getStatusPillClasses(uiStatus)
                             )}
                           >
-                            {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
+                            {uiStatus.charAt(0).toUpperCase() +
+                              uiStatus.slice(1)}
                           </span>
 
                           {errorMessage ? (
@@ -1353,39 +1177,40 @@ export default function InstantlyCampaignsPage() {
                             </span>
                           ) : null}
                         </div>
-                      </div>
 
-                      <div className="px-4 py-7">
-                        <p className="text-[1.05rem] font-semibold tabular-nums text-slate-900">{progress}%</p>
-                        <div className="mt-3 h-1.5 w-[72px] overflow-hidden rounded-full bg-slate-200">
-                          <div
-                            className="h-full rounded-full bg-slate-500 transition-all"
-                            style={{ width: `${progress}%` }}
-                          />
+                        <div className="mt-2 space-y-1 text-xs text-slate-500">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <span>
+                              {row.instantly?.senderAccountEmail ||
+                                "No sender assigned"}
+                            </span>
+                            <span>
+                              {row.instantly?.campaignId || "Not launched yet"}
+                            </span>
+                          </div>
+
+                          {canViewOwnerColumn && (
+                            <div>
+                              <span className="font-semibold text-slate-600">
+                                {ownerMeta.label}:
+                              </span>{" "}
+                              {ownerMeta.value}
+                            </div>
+                          )}
+
+                          {canViewRhOwnerColumn &&
+                            row.flowType !== "ime_influencer" && (
+                              <div>
+                                <span className="font-semibold text-slate-600">
+                                  RH:
+                                </span>{" "}
+                                {getAdminEntityLabel(row.RHId)}
+                              </div>
+                            )}
                         </div>
                       </div>
 
-                      <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
-                        {sent > 0 ? sent : "-"}
-                      </div>
-
-                      <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
-                        {clicked}
-                      </div>
-
-                      {canViewReplyColumns && (
-                        <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
-                          {replied > 0 ? replied : "-"}
-                        </div>
-                      )}
-
-                      {canViewReplyColumns && (
-                        <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
-                          {opportunities}
-                        </div>
-                      )}
-
-                      <div className="flex items-center justify-end gap-2 px-4 py-7">
+                      <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
                           disabled={busy}
@@ -1419,294 +1244,624 @@ export default function InstantlyCampaignsPage() {
                         </button>
                       </div>
                     </div>
-                  );
-                })
-              )}
+
+                    <div className="mt-5">
+                      <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                        <span>Progress</span>
+                        <span className="text-sm font-semibold tabular-nums text-slate-900">
+                          {progress}%
+                        </span>
+                      </div>
+                      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className="h-full rounded-full bg-slate-500 transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div
+                      className={cx(
+                        "mt-5 grid gap-3",
+                        canViewReplyColumns
+                          ? "grid-cols-2 sm:grid-cols-5"
+                          : "grid-cols-3"
+                      )}
+                    >
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Sent
+                        </p>
+                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
+                          {sent > 0 ? sent : "-"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Click
+                        </p>
+                        <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
+                          {clicked}
+                        </p>
+                      </div>
+
+                      {canViewReplyColumns && (
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            Replied
+                          </p>
+                          <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
+                            {replied > 0 ? replied : "-"}
+                          </p>
+                        </div>
+                      )}
+
+                      {canViewReplyColumns && (
+                        <div className="rounded-2xl bg-slate-50 p-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            Opportunities
+                          </p>
+                          <p className="mt-2 text-lg font-semibold tabular-nums text-slate-900">
+                            {opportunities}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="rounded-2xl bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Status
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">
+                          {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden px-4 pb-4 xl:block">
+            <div className="overflow-x-auto pb-2">
+              <div className={cx(desktopMinWidthClass, "pr-2")}>
+                <div
+                  className="grid items-center px-2 pb-3 text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400"
+                  style={{ gridTemplateColumns: desktopGridTemplateColumns }}
+                >
+                  <div className="px-4">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(filteredCampaigns.map((row) => row._id));
+                        } else {
+                          setSelectedIds([]);
+                        }
+                      }}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                  </div>
+
+                  <div className="px-4">Name</div>
+                  {canViewOwnerColumn && <div className="px-4">Owner</div>}
+                  {canViewRhOwnerColumn && <div className="px-4">RH</div>}
+                  <div className="px-4">Status</div>
+                  <div className="px-4">Progress</div>
+                  <div className="px-4">Sent</div>
+                  <div className="px-4">Click</div>
+                  {canViewReplyColumns && <div className="px-4">Replied</div>}
+                  {canViewReplyColumns && (
+                    <div className="px-4">Opportunities</div>
+                  )}
+                  <div className="px-4 text-right">&nbsp;</div>
+                </div>
+
+                <div className="space-y-3">
+                  {loading ? (
+                    <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center text-sm text-slate-500">
+                      Loading campaigns...
+                    </div>
+                  ) : filteredCampaigns.length === 0 ? (
+                    <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-14 text-center">
+                      <h3 className="text-base font-semibold text-slate-900">
+                        No campaigns found
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-500">
+                        Try a different search or create a new campaign.
+                      </p>
+                    </div>
+                  ) : (
+                    filteredCampaigns.map((row) => {
+                      const uiStatus = getUiStatus(row);
+                      const progress = getProgress(row);
+                      const busy = busyActionId === row._id;
+                      const errorMessage = row.sync?.lastErrorMessage || "";
+                      const isLaunched = uiStatus === "launched";
+                      const sent = normalizeNumber(row.stats?.totalSent);
+                      const clicked = normalizeNumber(row.stats?.totalClicked);
+                      const replied = normalizeNumber(row.stats?.totalReplies);
+                      const opportunities = normalizeNumber(
+                        row.stats?.totalOpportunities
+                      );
+                      const ownerMeta = getCampaignOwnerMeta(row);
+
+                      return (
+                        <div
+                          key={row._id}
+                          className="grid items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-slate-300 hover:shadow-sm"
+                          style={{
+                            gridTemplateColumns: desktopGridTemplateColumns,
+                          }}
+                        >
+                          <div className="px-4 py-7">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(row._id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedIds((prev) =>
+                                  e.target.checked
+                                    ? [...new Set([...prev, row._id])]
+                                    : prev.filter((id) => id !== row._id)
+                                );
+                              }}
+                              className="h-4 w-4 rounded border-slate-300"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              router.push(buildCampaignDetailUrl(row._id))
+                            }
+                            className="min-w-0 px-4 py-7 text-left"
+                          >
+                            <p className="truncate text-[1.05rem] font-semibold text-slate-900">
+                              {row.name}
+                            </p>
+                            <p className="mt-1 truncate text-xs text-slate-500">
+                              {row.instantly?.senderAccountEmail ||
+                                "No sender assigned"}
+                            </p>
+                          </button>
+
+                          {canViewOwnerColumn && (
+                            <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                              <p className="truncate font-semibold text-slate-900">
+                                {ownerMeta.value}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {ownerMeta.label} owner
+                              </p>
+                            </div>
+                          )}
+
+                          {canViewRhOwnerColumn && (
+                            <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
+                              <p className="truncate font-semibold text-slate-900">
+                                {row.flowType === "ime_influencer"
+                                  ? "—"
+                                  : getAdminEntityLabel(row.RHId)}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {row.flowType === "ime_influencer"
+                                  ? "Not applicable"
+                                  : "Revenue head"}
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="px-4 py-7">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cx(
+                                  "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                                  getStatusPillClasses(uiStatus)
+                                )}
+                              >
+                                {uiStatus.charAt(0).toUpperCase() +
+                                  uiStatus.slice(1)}
+                              </span>
+
+                              {errorMessage ? (
+                                <span
+                                  title={errorMessage}
+                                  className="text-slate-500"
+                                >
+                                  <CircleAlert className="h-4 w-4" />
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div className="px-4 py-7">
+                            <p className="text-[1.05rem] font-semibold tabular-nums text-slate-900">
+                              {progress}%
+                            </p>
+                            <div className="mt-3 h-1.5 w-[72px] overflow-hidden rounded-full bg-slate-200">
+                              <div
+                                className="h-full rounded-full bg-slate-500 transition-all"
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
+                            {sent > 0 ? sent : "-"}
+                          </div>
+
+                          <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
+                            {clicked}
+                          </div>
+
+                          {canViewReplyColumns && (
+                            <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
+                              {replied > 0 ? replied : "-"}
+                            </div>
+                          )}
+
+                          {canViewReplyColumns && (
+                            <div className="px-4 py-7 text-[1.05rem] font-medium tabular-nums text-slate-900">
+                              {opportunities}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-end gap-2 px-4 py-7">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleLaunch(row);
+                              }}
+                              className={cx(
+                                "inline-flex h-9 w-9 items-center justify-center rounded-full transition disabled:opacity-50",
+                                isLaunched
+                                  ? "text-amber-600 hover:bg-amber-50"
+                                  : "text-emerald-600 hover:bg-emerald-50"
+                              )}
+                              title={
+                                isLaunched ? "Pause campaign" : "Launch campaign"
+                              }
+                            >
+                              {isLaunched ? (
+                                <Pause className="h-4 w-4" />
+                              ) : (
+                                <Play className="h-4 w-4" />
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={(e) => openActionMenu(e, row)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+                              title="Campaign actions"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {openMenu && (
-        <div
-          ref={menuRef}
-          className="fixed z-[80]"
-          style={{
-            top: openMenu.top,
-            left: openMenu.left,
-          }}
-        >
-          <ActionMenu
-            busy={busyActionId === openMenu.row._id}
-            onRename={() => openRenameCampaign(openMenu.row)}
-            onDelete={() => openDeleteCampaign(openMenu.row)}
-            onDuplicate={() => handleDuplicateCampaign(openMenu.row)}
-            onDownload={() => handleDownloadAnalytics(openMenu.row)}
-            onShare={() => handleShareCampaign(openMenu.row)}
-          />
-        </div>
-      )}
+        {openMenu && (
+          <div
+            ref={menuRef}
+            className="fixed z-[100]"
+            style={{
+              top: openMenu.top,
+              left: openMenu.left,
+            }}
+          >
+            <ActionMenu
+              busy={busyActionId === openMenu.row._id}
+              onRename={() => openRenameCampaign(openMenu.row)}
+              onDelete={() => openDeleteCampaign(openMenu.row)}
+              onDuplicate={() => handleDuplicateCampaign(openMenu.row)}
+              onDownload={() => handleDownloadAnalytics(openMenu.row)}
+              onShare={() => handleShareCampaign(openMenu.row)}
+            />
+          </div>
+        )}
 
-      {createOpen && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Quick Create
-                </p>
-                <h3 className="mt-2 text-xl font-bold text-slate-900">Create Campaign</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  The detail page will let you edit sequence, leads, sender accounts, sync, and launch.
-                </p>
+        {createOpen && (
+          <ModalBackdrop className="z-[110]">
+            <ModalCard className="max-w-lg p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Quick Create
+                  </p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-900">
+                    Create Campaign
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    The detail page will let you edit sequence, leads, sender
+                    accounts, sync, and launch.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setCreateOpen(false)}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
+              <div className="mt-6 space-y-4">
+                {isSuperAdmin ? (
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-800">
+                      Campaign Flow
+                    </label>
+                    <select
+                      value={createForm.flowType}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          flowType: e.target.value as CampaignFlowType,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    >
+                      <option value="standard_brand">
+                        Standard Brand (SDR → RH → BME)
+                      </option>
+                      <option value="ime_influencer">
+                        IME Influencer (IME direct)
+                      </option>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Campaign Flow
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-800">
+                      {fixedFlowType === "ime_influencer"
+                        ? "IME Influencer"
+                        : "Standard Brand"}
+                    </p>
+                  </div>
+                )}
 
-            <div className="mt-6 space-y-4">
-              {isSuperAdmin ? (
+                {isSuperAdmin && createForm.flowType === "standard_brand" && (
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-800">
+                      SDR Owner
+                    </label>
+                    <select
+                      value={createForm.sdrId}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          sdrId: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    >
+                      <option value="">Select SDR</option>
+                      {sdrOptions.map((admin) => (
+                        <option key={admin._id} value={admin._id}>
+                          {labelForAdmin(admin)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {isSuperAdmin && createForm.flowType === "ime_influencer" && (
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-800">
+                      IME Owner
+                    </label>
+                    <select
+                      value={createForm.imeId}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          imeId: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                    >
+                      <option value="">Select IME</option>
+                      {imeOptions.map((admin) => (
+                        <option key={admin._id} value={admin._id}>
+                          {labelForAdmin(admin)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div>
                   <label className="mb-2 block text-sm font-medium text-slate-800">
-                    Campaign Flow
+                    Campaign Name
                   </label>
-                  <select
-                    value={createForm.flowType}
+                  <input
+                    value={createForm.name}
                     onChange={(e) =>
                       setCreateForm((prev) => ({
                         ...prev,
-                        flowType: e.target.value as CampaignFlowType,
+                        name: e.target.value,
                       }))
                     }
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="standard_brand">Standard Brand (SDR → RH → BME)</option>
-                    <option value="ime_influencer">IME Influencer (IME direct)</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    Campaign Flow
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-slate-800">
-                    {fixedFlowType === "ime_influencer" ? "IME Influencer" : "Standard Brand"}
-                  </p>
-                </div>
-              )}
-
-              {isSuperAdmin && createForm.flowType === "standard_brand" && (
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-800">
-                    SDR Owner
-                  </label>
-                  <select
-                    value={createForm.sdrId}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, sdrId: e.target.value }))
+                    placeholder={
+                      createForm.flowType === "ime_influencer"
+                        ? "Creator outreach campaign"
+                        : "Spring brand outreach campaign"
                     }
                     className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="">Select SDR</option>
-                    {sdrOptions.map((admin) => (
-                      <option key={admin._id} value={admin._id}>
-                        {labelForAdmin(admin)}
-                      </option>
-                    ))}
-                  </select>
+                  />
                 </div>
-              )}
+              </div>
 
-              {isSuperAdmin && createForm.flowType === "ime_influencer" && (
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCreateOpen(false)}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCreateCampaign}
+                  disabled={createLoading}
+                  className="rounded-2xl bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {createLoading ? "Creating..." : "Create Campaign"}
+                </button>
+              </div>
+            </ModalCard>
+          </ModalBackdrop>
+        )}
+
+        {renameOpen && renameCampaign && (
+          <ModalBackdrop className="z-[115]">
+            <ModalCard className="max-w-md p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-800">
-                    IME Owner
-                  </label>
-                  <select
-                    value={createForm.imeId}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, imeId: e.target.value }))
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
-                  >
-                    <option value="">Select IME</option>
-                    {imeOptions.map((admin) => (
-                      <option key={admin._id} value={admin._id}>
-                        {labelForAdmin(admin)}
-                      </option>
-                    ))}
-                  </select>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Campaign Action
+                  </p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-900">
+                    Rename Campaign
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Update the campaign name for this outreach workflow.
+                  </p>
                 </div>
-              )}
 
-              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameOpen(false);
+                    setRenameCampaign(null);
+                    setRenameValue("");
+                  }}
+                  className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-6">
                 <label className="mb-2 block text-sm font-medium text-slate-800">
                   Campaign Name
                 </label>
                 <input
-                  value={createForm.name}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, name: e.target.value }))
-                  }
-                  placeholder={
-                    createForm.flowType === "ime_influencer"
-                      ? "Creator outreach campaign"
-                      : "Spring brand outreach campaign"
-                  }
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  placeholder="Enter campaign name"
                   className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
+                  autoFocus
                 />
               </div>
-            </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setCreateOpen(false)}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenameOpen(false);
+                    setRenameCampaign(null);
+                    setRenameValue("");
+                  }}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
 
-              <button
-                type="button"
-                onClick={handleCreateCampaign}
-                disabled={createLoading}
-                className="rounded-2xl bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {createLoading ? "Creating..." : "Create Campaign"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                <button
+                  type="button"
+                  onClick={handleRenameCampaign}
+                  disabled={renameLoading}
+                  className="rounded-2xl bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
+                >
+                  {renameLoading ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </ModalCard>
+          </ModalBackdrop>
+        )}
 
-      {renameOpen && renameCampaign && (
-        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Campaign Action
+        {deleteOpen && deleteCampaign && (
+          <ModalBackdrop className="z-[120]">
+            <ModalCard className="max-w-md p-5 sm:p-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Campaign Action
+                  </p>
+                  <h3 className="mt-2 text-xl font-bold text-slate-900">
+                    Delete Campaign
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    This will permanently delete this campaign and cannot be
+                    undone.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteCampaign(null);
+                  }}
+                  className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
+                <p className="text-sm font-medium text-slate-900">
+                  Campaign Name
                 </p>
-                <h3 className="mt-2 text-xl font-bold text-slate-900">Rename Campaign</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Update the campaign name for this outreach workflow.
+                <p className="mt-1 text-sm text-rose-700">
+                  {deleteCampaign.name}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameOpen(false);
-                  setRenameCampaign(null);
-                  setRenameValue("");
-                }}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteOpen(false);
+                    setDeleteCampaign(null);
+                  }}
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
 
-            <div className="mt-6">
-              <label className="mb-2 block text-sm font-medium text-slate-800">
-                Campaign Name
-              </label>
-              <input
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                placeholder="Enter campaign name"
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none"
-                autoFocus
-              />
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameOpen(false);
-                  setRenameCampaign(null);
-                  setRenameValue("");
-                }}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleRenameCampaign}
-                disabled={renameLoading}
-                className="rounded-2xl bg-black px-5 py-2.5 text-sm font-medium text-white disabled:opacity-60"
-              >
-                {renameLoading ? "Saving..." : "Save Changes"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {deleteOpen && deleteCampaign && (
-        <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                  Campaign Action
-                </p>
-                <h3 className="mt-2 text-xl font-bold text-slate-900">Delete Campaign</h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  This will permanently delete this campaign and cannot be undone.
-                </p>
+                <button
+                  type="button"
+                  onClick={handleDeleteCampaign}
+                  disabled={deleteLoading}
+                  className="rounded-2xl bg-rose-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60"
+                >
+                  {deleteLoading ? "Deleting..." : "Delete Campaign"}
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteOpen(false);
-                  setDeleteCampaign(null);
-                }}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4">
-              <p className="text-sm font-medium text-slate-900">Campaign Name</p>
-              <p className="mt-1 text-sm text-rose-700">{deleteCampaign.name}</p>
-            </div>
-
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setDeleteOpen(false);
-                  setDeleteCampaign(null);
-                }}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDeleteCampaign}
-                disabled={deleteLoading}
-                className="rounded-2xl bg-rose-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-rose-700 disabled:opacity-60"
-              >
-                {deleteLoading ? "Deleting..." : "Delete Campaign"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            </ModalCard>
+          </ModalBackdrop>
+        )}
+      </div>
     </div>
   );
 }

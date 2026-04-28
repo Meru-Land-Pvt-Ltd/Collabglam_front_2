@@ -3,8 +3,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { adminGet, adminPatch, adminPost, getApiErrorMessage } from "@/lib/api";
+import {
+  Activity,
+  BarChart3,
+  CheckCircle2,
+  ChevronRight,
+  Flame,
+  Inbox,
+  Loader2,
+  Mail,
+  PauseCircle,
+  PlayCircle,
+  Save,
+  Search,
+  Send,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 
-// --- Types ---
 type Role = "sdr" | "bme" | "revenue_head" | "ime" | "super_admin";
 
 type MailboxAccount = {
@@ -109,23 +125,33 @@ type AccountDetailPayload = {
 
 type TabKey = "warmup" | "settings" | "campaigns";
 
-// --- Utilities ---
+type WarmupChartPoint = {
+  label: string;
+  sent: number;
+  received: number;
+  savedFromSpam: number;
+};
+
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
 function getProviderLabel(provider?: string) {
   const normalized = String(provider || "").trim().toLowerCase();
+
   if (normalized === "google") return "Google Workspace";
   if (normalized === "microsoft") return "Microsoft 365";
   if (!normalized) return "Unknown Provider";
+
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function formatDate(value?: string | null) {
   if (!value) return "—";
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "—";
+
   return parsed.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -140,40 +166,407 @@ function formatValue(value?: number | string | null) {
 
 function getStatusChip(status?: string) {
   const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "active") return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20";
-  if (normalized === "paused") return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20";
-  return "bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/20";
+
+  if (normalized === "active") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalized === "paused") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
 function getCampaignStatusChip(status?: string) {
   const normalized = String(status || "").trim().toLowerCase();
-  if (normalized === "launched") return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20";
-  if (normalized === "ready") return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/20";
-  if (normalized === "paused") return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20";
-  if (normalized === "completed") return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/20";
-  return "bg-gray-50 text-gray-600 ring-1 ring-inset ring-gray-500/20";
+
+  if (normalized === "launched") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (normalized === "ready") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  if (normalized === "paused") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (normalized === "completed") {
+    return "border-violet-200 bg-violet-50 text-violet-700";
+  }
+
+  return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
-// --- Components ---
+function getFlowLabel(flowType?: string) {
+  if (flowType === "ime_influencer") return "IME Influencer";
+  if (flowType === "standard_brand") return "Standard Brand";
+  return flowType || "Campaign";
+}
+
+function getInitial(email?: string) {
+  return String(email || "M").trim().charAt(0).toUpperCase() || "M";
+}
+
 function MetricCard({
   label,
   value,
   subtext,
+  icon,
+  tone = "slate",
 }: {
   label: string;
   value: string | number;
   subtext?: string;
+  icon?: React.ReactNode;
+  tone?: "slate" | "blue" | "green" | "violet" | "amber";
 }) {
+  const toneClasses = {
+    slate: "bg-slate-950 text-white",
+    blue: "bg-blue-600 text-white",
+    green: "bg-emerald-600 text-white",
+    violet: "bg-violet-600 text-white",
+    amber: "bg-amber-500 text-white",
+  };
+
   return (
-    <div className="flex flex-col justify-center rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">{label}</p>
-      <p className="mt-2 truncate text-2xl font-semibold text-gray-900">{value}</p>
-      {subtext && <p className="mt-1 text-xs text-gray-500">{subtext}</p>}
+    <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-slate-100" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+            {label}
+          </p>
+
+          <p className="mt-2 truncate text-2xl font-bold tracking-tight text-slate-950">
+            {value}
+          </p>
+
+          {subtext ? (
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+              {subtext}
+            </p>
+          ) : null}
+        </div>
+
+        {icon ? (
+          <div
+            className={cx(
+              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-sm",
+              toneClasses[tone]
+            )}
+          >
+            {icon}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
 
-// --- Main Page ---
+function EmptyState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center">
+      <div>
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+          <Inbox className="h-5 w-5" />
+        </div>
+
+        <h3 className="mt-4 text-base font-bold text-slate-950">{title}</h3>
+        <p className="mt-1 max-w-sm text-sm text-slate-500">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+      {children}
+    </label>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  value: string | number;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+    />
+  );
+}
+
+function ToggleRow({
+  checked,
+  onChange,
+  title,
+  description,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 transition hover:bg-slate-50">
+      <div>
+        <p className="text-sm font-semibold text-slate-900">{title}</p>
+        {description ? (
+          <p className="mt-0.5 text-xs text-slate-500">{description}</p>
+        ) : null}
+      </div>
+
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 shrink-0 rounded border-slate-300 text-slate-950 focus:ring-slate-900"
+      />
+    </label>
+  );
+}
+
+function WarmupChart({
+  data,
+  enabled,
+}: {
+  data: WarmupChartPoint[];
+  enabled: boolean;
+}) {
+  const safeData = data.length
+    ? data
+    : [
+        {
+          label: "No Data",
+          sent: 0,
+          received: 0,
+          savedFromSpam: 0,
+        },
+      ];
+
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const activePoint = safeData[activeIndex] || safeData[0];
+
+  const maxValue = useMemo(() => {
+    const values = safeData.flatMap((item) => [
+      Number(item.sent || 0),
+      Number(item.received || 0),
+      Number(item.savedFromSpam || 0),
+    ]);
+
+    return Math.max(...values, 1);
+  }, [safeData]);
+
+  const getHeight = (value: number) => {
+    if (!value) return "8px";
+    return `${Math.max((value / maxValue) * 150, 14)}px`;
+  };
+
+  const totals = useMemo(() => {
+    return safeData.reduce(
+      (acc, item) => {
+        acc.sent += Number(item.sent || 0);
+        acc.received += Number(item.received || 0);
+        acc.savedFromSpam += Number(item.savedFromSpam || 0);
+        return acc;
+      },
+      {
+        sent: 0,
+        received: 0,
+        savedFromSpam: 0,
+      }
+    );
+  }, [safeData]);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white">
+            <BarChart3 className="h-4 w-4" />
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-slate-950">
+              Warmup Performance
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Hover or tap a day to view exact values.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+            <span className="h-2 w-2 rounded-full bg-blue-500" />
+            Sent
+          </span>
+
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Received
+          </span>
+
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+            <span className="h-2 w-2 rounded-full bg-violet-500" />
+            Saved
+          </span>
+
+          <span
+            className={cx(
+              "inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold",
+              enabled
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-slate-100 text-slate-600"
+            )}
+          >
+            {enabled ? "Active" : "Inactive"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mb-5 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              Total Sent
+            </p>
+            <p className="mt-1 text-xl font-bold text-blue-600">
+              {totals.sent}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              Received
+            </p>
+            <p className="mt-1 text-xl font-bold text-emerald-600">
+              {totals.received}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              Saved
+            </p>
+            <p className="mt-1 text-xl font-bold text-violet-600">
+              {totals.savedFromSpam}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            Selected Day
+          </p>
+          <p className="mt-1 truncate text-sm font-bold text-slate-950">
+            {activePoint.label || "—"}
+          </p>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg bg-blue-50 px-2 py-2">
+              <p className="text-[10px] font-semibold text-blue-600">Sent</p>
+              <p className="text-sm font-bold text-blue-700">
+                {activePoint.sent}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-emerald-50 px-2 py-2">
+              <p className="text-[10px] font-semibold text-emerald-600">
+                Received
+              </p>
+              <p className="text-sm font-bold text-emerald-700">
+                {activePoint.received}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-violet-50 px-2 py-2">
+              <p className="text-[10px] font-semibold text-violet-600">
+                Saved
+              </p>
+              <p className="text-sm font-bold text-violet-700">
+                {activePoint.savedFromSpam}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl bg-slate-50 p-4">
+        <div className="flex min-w-[560px] items-end gap-4">
+          {safeData.map((item, index) => {
+            const sent = Number(item.sent || 0);
+            const received = Number(item.received || 0);
+            const savedFromSpam = Number(item.savedFromSpam || 0);
+            const isActive = index === activeIndex;
+
+            return (
+              <button
+                key={`${item.label}-${index}`}
+                type="button"
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onClick={() => setActiveIndex(index)}
+                className={cx(
+                  "flex min-w-[70px] flex-1 flex-col items-center rounded-xl px-2 py-3 outline-none transition",
+                  isActive ? "bg-white shadow-sm ring-1 ring-slate-200" : ""
+                )}
+              >
+                <div className="flex h-[170px] items-end justify-center gap-1.5">
+                  <span
+                    className="w-3 rounded-t-full bg-blue-500 transition-all"
+                    style={{ height: getHeight(sent) }}
+                  />
+                  <span
+                    className="w-3 rounded-t-full bg-emerald-500 transition-all"
+                    style={{ height: getHeight(received) }}
+                  />
+                  <span
+                    className="w-3 rounded-t-full bg-violet-500 transition-all"
+                    style={{ height: getHeight(savedFromSpam) }}
+                  />
+                </div>
+
+                <span
+                  className={cx(
+                    "mt-3 max-w-[90px] truncate text-center text-[11px] font-bold",
+                    isActive ? "text-slate-950" : "text-slate-500"
+                  )}
+                >
+                  {item.label || "—"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MyAccountsPage() {
   const router = useRouter();
 
@@ -184,8 +577,10 @@ export default function MyAccountsPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [payload, setPayload] = useState<MyAccountsListPayload["data"] | null>(null);
-  const [detail, setDetail] = useState<AccountDetailPayload["data"] | null>(null);
+  const [payload, setPayload] =
+    useState<MyAccountsListPayload["data"] | null>(null);
+  const [detail, setDetail] =
+    useState<AccountDetailPayload["data"] | null>(null);
 
   const [selectedEmail, setSelectedEmail] = useState("");
   const [search, setSearch] = useState("");
@@ -215,7 +610,8 @@ export default function MyAccountsPage() {
       setLoadingList(true);
       setError("");
 
-      const response = await adminGet<MyAccountsListPayload>("/outreach/mailboxes/my-accounts");
+      const response =
+        await adminGet<MyAccountsListPayload>("/outreach/mailboxes/my-accounts");
 
       if (!response?.success) {
         throw new Error(response?.message || "Failed to load accounts");
@@ -224,7 +620,9 @@ export default function MyAccountsPage() {
       const nextPayload = response.data || null;
       setPayload(nextPayload);
 
-      const defaultEmail = nextPayload?.primaryEmail || nextPayload?.accounts?.[0]?.email || "";
+      const defaultEmail =
+        nextPayload?.primaryEmail || nextPayload?.accounts?.[0]?.email || "";
+
       setSelectedEmail((prev) => prev || defaultEmail);
     } catch (err) {
       const message = await getApiErrorMessage(err, "Failed to load accounts");
@@ -260,22 +658,34 @@ export default function MyAccountsPage() {
         firstName: nextDetail?.settings?.firstName || "",
         lastName: nextDetail?.settings?.lastName || "",
         signature: nextDetail?.settings?.signature || "",
-        tags: Array.isArray(nextDetail?.settings?.tags) ? nextDetail.settings.tags.join(", ") : "",
+        tags: Array.isArray(nextDetail?.settings?.tags)
+          ? nextDetail.settings.tags.join(", ")
+          : "",
         dailyLimit: Number(nextDetail?.settings?.dailyLimit || 0),
         minimumWaitTime: Number(nextDetail?.settings?.minimumWaitTime || 1),
         campaignSlowRamp: Boolean(nextDetail?.settings?.campaignSlowRamp),
         replyToAddress: nextDetail?.settings?.replyToAddress || "",
-        dailyInboxPlacementTestLimit: Number(nextDetail?.settings?.dailyInboxPlacementTestLimit || 10),
-        customTrackingDomain: nextDetail?.settings?.customTrackingDomain || "",
-        enableCustomTrackingDomain: Boolean(nextDetail?.settings?.enableCustomTrackingDomain),
+        dailyInboxPlacementTestLimit: Number(
+          nextDetail?.settings?.dailyInboxPlacementTestLimit || 10
+        ),
+        customTrackingDomain:
+          nextDetail?.settings?.customTrackingDomain || "",
+        enableCustomTrackingDomain: Boolean(
+          nextDetail?.settings?.enableCustomTrackingDomain
+        ),
         warmupFilterTag: nextDetail?.settings?.warmupFilterTag || "",
         increasePerDay: Number(nextDetail?.settings?.increasePerDay || 1),
-        dailyWarmupLimit: Number(nextDetail?.settings?.dailyWarmupLimit || 10),
+        dailyWarmupLimit: Number(
+          nextDetail?.settings?.dailyWarmupLimit || 10
+        ),
         disableSlowWarmup: Boolean(nextDetail?.settings?.disableSlowWarmup),
         replyRate: Number(nextDetail?.settings?.replyRate || 30),
       });
     } catch (err) {
-      const message = await getApiErrorMessage(err, "Failed to load account details");
+      const message = await getApiErrorMessage(
+        err,
+        "Failed to load account details"
+      );
       setError(message);
       setDetail(null);
     } finally {
@@ -283,29 +693,47 @@ export default function MyAccountsPage() {
     }
   }, []);
 
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
-  useEffect(() => { if (selectedEmail) loadDetails(selectedEmail); }, [selectedEmail, loadDetails]);
+  useEffect(() => {
+    loadAccounts();
+  }, [loadAccounts]);
 
-  const handleSetPrimary = useCallback(async (email: string) => {
-    try {
-      setSubmittingEmail(email);
-      setError("");
-      setSuccess("");
+  useEffect(() => {
+    if (selectedEmail) loadDetails(selectedEmail);
+  }, [selectedEmail, loadDetails]);
 
-      const response = await adminPost<MyAccountsListPayload>("/outreach/mailboxes/my-accounts/primary", { email });
+  const handleSetPrimary = useCallback(
+    async (email: string) => {
+      try {
+        setSubmittingEmail(email);
+        setError("");
+        setSuccess("");
 
-      if (!response?.success) throw new Error(response?.message || "Failed to update primary mailbox");
+        const response = await adminPost<MyAccountsListPayload>(
+          "/outreach/mailboxes/my-accounts/primary",
+          { email }
+        );
 
-      setSuccess("Primary mailbox updated successfully.");
-      await loadAccounts();
-      await loadDetails(email);
-    } catch (err) {
-      const message = await getApiErrorMessage(err, "Failed to update primary mailbox");
-      setError(message);
-    } finally {
-      setSubmittingEmail("");
-    }
-  }, [loadAccounts, loadDetails]);
+        if (!response?.success) {
+          throw new Error(
+            response?.message || "Failed to update primary mailbox"
+          );
+        }
+
+        setSuccess("Primary mailbox updated successfully.");
+        await loadAccounts();
+        await loadDetails(email);
+      } catch (err) {
+        const message = await getApiErrorMessage(
+          err,
+          "Failed to update primary mailbox"
+        );
+        setError(message);
+      } finally {
+        setSubmittingEmail("");
+      }
+    },
+    [loadAccounts, loadDetails]
+  );
 
   const handlePauseResume = useCallback(async () => {
     if (!detail?.account?.email) return;
@@ -316,18 +744,32 @@ export default function MyAccountsPage() {
       setSuccess("");
 
       const endpoint = detail.account.isPaused
-        ? `/outreach/mailboxes/my-accounts/${encodeURIComponent(detail.account.email)}/resume`
-        : `/outreach/mailboxes/my-accounts/${encodeURIComponent(detail.account.email)}/pause`;
+        ? `/outreach/mailboxes/my-accounts/${encodeURIComponent(
+            detail.account.email
+          )}/resume`
+        : `/outreach/mailboxes/my-accounts/${encodeURIComponent(
+            detail.account.email
+          )}/pause`;
 
-      const response = await adminPost(endpoint, {});
+      const response: any = await adminPost(endpoint, {});
 
-      if (!response?.success) throw new Error(response?.message || "Failed to update account status");
+      if (!response?.success) {
+        throw new Error(response?.message || "Failed to update account status");
+      }
 
-      setSuccess(detail.account.isPaused ? "Mailbox resumed successfully." : "Mailbox paused successfully.");
+      setSuccess(
+        detail.account.isPaused
+          ? "Mailbox resumed successfully."
+          : "Mailbox paused successfully."
+      );
+
       await loadAccounts();
       await loadDetails(detail.account.email);
     } catch (err) {
-      const message = await getApiErrorMessage(err, "Failed to update account status");
+      const message = await getApiErrorMessage(
+        err,
+        "Failed to update account status"
+      );
       setError(message);
     } finally {
       setSubmittingEmail("");
@@ -343,14 +785,25 @@ export default function MyAccountsPage() {
       setSuccess("");
 
       const endpoint = detail.warmup.enabled
-        ? `/outreach/mailboxes/my-accounts/${encodeURIComponent(detail.account.email)}/warmup/disable`
-        : `/outreach/mailboxes/my-accounts/${encodeURIComponent(detail.account.email)}/warmup/enable`;
+        ? `/outreach/mailboxes/my-accounts/${encodeURIComponent(
+            detail.account.email
+          )}/warmup/disable`
+        : `/outreach/mailboxes/my-accounts/${encodeURIComponent(
+            detail.account.email
+          )}/warmup/enable`;
 
-      const response = await adminPost(endpoint, {});
+      const response: any = await adminPost(endpoint, {});
 
-      if (!response?.success) throw new Error(response?.message || "Failed to update warmup");
+      if (!response?.success) {
+        throw new Error(response?.message || "Failed to update warmup");
+      }
 
-      setSuccess(detail.warmup.enabled ? "Warmup disabled successfully." : "Warmup enabled successfully.");
+      setSuccess(
+        detail.warmup.enabled
+          ? "Warmup disabled successfully."
+          : "Warmup enabled successfully."
+      );
+
       await loadAccounts();
       await loadDetails(detail.account.email);
     } catch (err) {
@@ -369,9 +822,16 @@ export default function MyAccountsPage() {
       setError("");
       setSuccess("");
 
-      const response = await adminPatch(`/outreach/mailboxes/my-accounts/${encodeURIComponent(detail.account.email)}/settings`, settingsForm);
+      const response: any = await adminPatch(
+        `/outreach/mailboxes/my-accounts/${encodeURIComponent(
+          detail.account.email
+        )}/settings`,
+        settingsForm
+      );
 
-      if (!response?.success) throw new Error(response?.message || "Failed to save settings");
+      if (!response?.success) {
+        throw new Error(response?.message || "Failed to save settings");
+      }
 
       setSuccess("Mailbox settings updated successfully.");
       await loadAccounts();
@@ -385,471 +845,882 @@ export default function MyAccountsPage() {
   }, [detail, settingsForm, loadAccounts, loadDetails]);
 
   const accounts = payload?.accounts || [];
-  const role = payload?.role || "";
   const canSelectPrimary = Boolean(payload?.canSelectPrimary);
 
   const filteredAccounts = useMemo(() => {
     const query = search.trim().toLowerCase();
+
     if (!query) return accounts;
+
     return accounts.filter((item) => {
       const haystack = [item.email, item.provider].join(" ").toLowerCase();
       return haystack.includes(query);
     });
   }, [accounts, search]);
 
-  const primaryAccount = useMemo(() => accounts.find((item) => item.isPrimary) || accounts[0] || null, [accounts]);
+  const primaryAccount = useMemo(
+    () => accounts.find((item) => item.isPrimary) || accounts[0] || null,
+    [accounts]
+  );
 
-  const chartMax = useMemo(() => {
-    const values = detail?.warmup?.chart?.flatMap((item) => [item.sent, item.received]) || [1];
-    return Math.max(...values, 1);
-  }, [detail]);
+  const totalSentToday = useMemo(
+    () =>
+      accounts.reduce(
+        (sum, item) => sum + Number(item.emailsSentToday || 0),
+        0
+      ),
+    [accounts]
+  );
 
   return (
-    <div className="flex flex-col space-y-6 font-sans">
-      
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Email Accounts</h1>
-          <p className="mt-1 text-sm text-gray-500">Manage settings, warmup status, and campaigns for your mailboxes.</p>
-        </div>
-      </div>
-
-      {/* Alerts */}
-      {error && <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-800">{error}</div>}
-      {success && <div className="rounded-md border border-green-200 bg-green-50 p-4 text-sm font-medium text-green-800">{success}</div>}
-
-      {/* Top Metrics */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <MetricCard label="Total Accounts" value={loadingList ? "—" : payload?.totalAccounts ?? 0} />
-        <MetricCard label="Primary Mailbox" value={loadingList ? "Loading..." : primaryAccount?.email || "None"} />
-        <MetricCard 
-          label="Primary Selection" 
-          value={canSelectPrimary ? "Enabled" : "Locked"} 
-          subtext={canSelectPrimary ? "Available for SDR and IME" : "Single active mailbox for this role"} 
-        />
-      </div>
-
-      {/* Main Split Layout */}
-      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)] items-start">
-        
-        {/* Left Pane: Account List */}
-        <div className="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm h-[600px]">
-          <div className="border-b border-gray-200 px-5 py-4">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-gray-900">Assigned Mailboxes</h2>
-              <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-600">{filteredAccounts.length}</span>
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain bg-slate-50 px-3 py-4 font-sans sm:px-4 lg:px-5">
+      <div className="mx-auto w-full max-w-full space-y-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+                Email Accounts
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Manage mailbox settings, warmup, sending limits, and linked
+                campaigns.
+              </p>
             </div>
-            <div className="relative">
-              <svg className="absolute left-3 top-2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search emails..."
-                className="w-full rounded-md border border-gray-300 bg-white py-1.5 pl-9 pr-3 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-              />
-            </div>
-          </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50 sticky top-0 z-10">
-                <tr>
-                  <th scope="col" className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500">Email</th>
-                  <th scope="col" className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500">Sent Today</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
-                {loadingList ? (
-                  Array.from({ length: 4 }).map((_, index) => (
-                    <tr key={index}>
-                      <td className="px-5 py-4"><div className="h-4 w-32 animate-pulse rounded bg-gray-200" /></td>
-                      <td className="px-5 py-4 text-right"><div className="h-4 w-12 animate-pulse rounded bg-gray-200 ml-auto" /></td>
-                    </tr>
-                  ))
-                ) : filteredAccounts.length === 0 ? (
-                  <tr>
-                    <td colSpan={2} className="px-5 py-10 text-center text-sm text-gray-500">No accounts found</td>
-                  </tr>
-                ) : (
-                  filteredAccounts.map((account) => {
-                    const active = selectedEmail === account.email;
-                    const sentToday = Number(account.emailsSentToday || 0);
-                    const dailyLimit = Number(account.instantlyMeta?.dailyLimit || 0);
-
-                    return (
-                      <tr
-  key={account.email}
-  onClick={() => setSelectedEmail(account.email)}
-  className={cx(
-    "cursor-pointer transition-colors",
-    active ? "bg-gray-50" : "hover:bg-gray-50/50" // Removed 'relative' from here
-  )}
->
-  {/* Apply relative here, and change the indicator from <td> to <div> */}
-  <td className="px-5 py-4 whitespace-nowrap relative">
-    {active && <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#1a1a1a]" />}
-    
-    <div className="flex items-center gap-2">
-      <p className={cx("truncate text-sm font-semibold", active ? "text-gray-900" : "text-gray-700")}>
-        {account.email}
-      </p>
-      {account.isPrimary && (
-        <span className="rounded-md bg-[#1a1a1a] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-          Primary
-        </span>
-      )}
-    </div>
-    <p className="mt-0.5 text-[11px] text-gray-500">{getProviderLabel(account.provider)}</p>
-  </td>
-  <td className="px-5 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
-    {dailyLimit > 0 ? `${sentToday} / ${dailyLimit}` : formatValue(sentToday)}
-  </td>
-</tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+            {detail?.account?.email ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  Selected Mailbox
+                </p>
+                <p className="mt-1 max-w-[320px] truncate text-sm font-bold text-slate-950">
+                  {detail.account.email}
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Right Pane: Detail View */}
-        <div className="flex flex-col rounded-xl border border-gray-200 bg-white shadow-sm min-h-[600px]">
-          {!selectedEmail || !detail ? (
-            <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-gray-500">
-              {loadingDetail ? "Loading account details..." : "Select an account to view details"}
-            </div>
-          ) : (
-            <>
-              {/* Detail Header */}
-              <div className="border-b border-gray-200 px-6 pt-5 pb-0">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-5">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <h2 className="truncate text-xl font-bold text-gray-900">{detail.account.email}</h2>
-                      <span className={cx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", getStatusChip(detail.account.statusLabel))}>
-                        {detail.account.statusLabel}
-                      </span>
-                      {detail.account.isPrimary && (
-                        <span className="inline-flex items-center rounded-md bg-[#1a1a1a] px-2 py-0.5 text-xs font-bold text-white uppercase tracking-wider">
-                          Primary
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-500">
-                      {getProviderLabel(detail.account.provider)} &bull; Assigned {formatDate(detail.account.assignedAt)}
-                    </p>
-                  </div>
+        {error ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+            {error}
+          </div>
+        ) : null}
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {canSelectPrimary && !detail.account.isPrimary && (
-                      <button
-                        type="button"
-                        onClick={() => handleSetPrimary(detail.account.email)}
-                        disabled={submittingEmail === detail.account.email}
-                        className="inline-flex items-center justify-center rounded-md border border-[#1a1a1a] bg-white px-3 py-1.5 text-sm font-medium text-[#1a1a1a] shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                      >
-                        {submittingEmail === detail.account.email ? "Updating..." : "Set as Primary"}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handlePauseResume}
-                      disabled={submittingEmail === detail.account.email}
-                      className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                    >
-                      {submittingEmail === detail.account.email ? "..." : detail.account.isPaused ? "Resume Mailbox" : "Pause Mailbox"}
-                    </button>
-                  </div>
+        {success ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+            {success}
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <MetricCard
+            label="Total Accounts"
+            value={loadingList ? "—" : payload?.totalAccounts ?? 0}
+            subtext="Assigned sender mailboxes"
+            icon={<Mail className="h-5 w-5" />}
+          />
+
+          <MetricCard
+            label="Primary Mailbox"
+            value={loadingList ? "Loading..." : primaryAccount?.email || "None"}
+            subtext="Default sender account"
+            icon={<ShieldCheck className="h-5 w-5" />}
+            tone="blue"
+          />
+
+          <MetricCard
+            label="Sent Today"
+            value={loadingList ? "—" : totalSentToday}
+            subtext="Across all assigned accounts"
+            icon={<Send className="h-5 w-5" />}
+            tone="green"
+          />
+
+          {/* <MetricCard
+            label="Primary Selection"
+            value={canSelectPrimary ? "Enabled" : "Locked"}
+            subtext={
+              canSelectPrimary
+                ? "You can update primary mailbox"
+                : "Managed by role or system"
+            }
+            icon={<Settings className="h-5 w-5" />}
+            tone="amber"
+          /> */}
+        </div>
+
+        <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="min-h-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
+            <div className="border-b border-slate-200 p-4">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-950">
+                    Assigned Mailboxes
+                  </h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Select an account to manage.
+                  </p>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex gap-6 -mb-px">
-                  {(["warmup", "settings", "campaigns"] as TabKey[]).map((tab) => (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => setActiveTab(tab)}
-                      className={cx(
-                        "whitespace-nowrap border-b-2 py-3 text-sm font-semibold capitalize transition-colors focus:outline-none",
-                        activeTab === tab
-                          ? "border-[#1a1a1a] text-[#1a1a1a]"
-                          : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-                      )}
-                    >
-                      {tab}
-                    </button>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+                  {filteredAccounts.length}
+                </span>
+              </div>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search emails..."
+                  className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                />
+              </div>
+            </div>
+
+            <div className="max-h-[420px] overflow-y-auto p-3 sm:max-h-[520px] lg:h-[calc(100%-121px)] lg:max-h-none">
+              {loadingList ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="h-24 animate-pulse rounded-2xl bg-slate-100"
+                    />
                   ))}
                 </div>
-              </div>
+              ) : filteredAccounts.length === 0 ? (
+                <EmptyState
+                  title="No accounts found"
+                  description="Try another email or provider search term."
+                />
+              ) : (
+                <div className="space-y-2">
+                  {filteredAccounts.map((account) => {
+                    const active = selectedEmail === account.email;
+                    const sentToday = Number(account.emailsSentToday || 0);
+                    const dailyLimit = Number(
+                      account.instantlyMeta?.dailyLimit || 0
+                    );
 
-              {/* Tab Content */}
-              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/30">
-                {activeTab === "warmup" && (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                      <div>
-                        <h3 className="text-sm font-bold text-gray-900">Warmup Status</h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Started on <span className="font-semibold text-gray-700">{formatDate(detail.warmup.startedOn)}</span>
-                        </p>
-                      </div>
+                    return (
                       <button
+                        key={account.email}
                         type="button"
-                        onClick={handleWarmupToggle}
-                        disabled={submittingEmail === detail.account.email}
+                        onClick={() => setSelectedEmail(account.email)}
                         className={cx(
-                          "inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-semibold shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 transition-colors",
-                          detail.warmup.enabled
-                            ? "bg-white border border-red-200 text-red-600 hover:bg-red-50 focus:ring-red-500"
-                            : "bg-[#1a1a1a] text-white hover:bg-black focus:ring-[#1a1a1a]"
+                          "group w-full rounded-2xl border p-3 text-left transition-all",
+                          active
+                            ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-200"
+                            : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
                         )}
                       >
-                        {submittingEmail === detail.account.email ? "Updating..." : detail.warmup.enabled ? "Disable Warmup" : "Enable Warmup"}
-                      </button>
-                    </div>
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={cx(
+                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                              active
+                                ? "bg-white text-slate-950"
+                                : "bg-slate-100 text-slate-700"
+                            )}
+                          >
+                            {getInitial(account.email)}
+                          </div>
 
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <MetricCard label="Received" value={detail.warmup.summary.received} />
-                      <MetricCard label="Sent" value={detail.warmup.summary.sent} />
-                      <MetricCard label="Saved from Spam" value={detail.warmup.summary.savedFromSpam} />
-                    </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="truncate text-sm font-bold">
+                                {account.email}
+                              </p>
 
-                    <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-                      <div className="flex items-center justify-between mb-6">
-                        <div>
-                          <h3 className="text-sm font-bold text-gray-900">Warmup Performance</h3>
-                          <p className="text-xs text-gray-500">Past 7 daily data points</p>
-                        </div>
-                        <span className={cx("inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider", detail.warmup.enabled ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800")}>
-                          {detail.warmup.enabled ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-7 gap-2 items-end h-[200px] mt-4">
-                        {(detail.warmup.chart || []).map((item, index) => {
-                          const sentHeight = `${Math.max((item.sent / chartMax) * 160, 8)}px`;
-                          return (
-                            <div key={`${item.label}-${index}`} className="flex flex-col items-center justify-end h-full gap-2">
-                              <div className="w-8 rounded-t bg-green-500 transition-all hover:bg-green-400" style={{ height: sentHeight }} title={`Sent: ${item.sent}`} />
-                              <span className="text-[10px] font-medium text-gray-500">{item.label || "—"}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "settings" && (
-                  <div className="space-y-8 max-w-3xl">
-                    
-                    <section>
-                      <h3 className="text-sm font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">Sender Details</h3>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">First Name</label>
-                          <input
-                            value={settingsForm.firstName}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, firstName: e.target.value }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Last Name</label>
-                          <input
-                            value={settingsForm.lastName}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, lastName: e.target.value }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Signature</label>
-                          <textarea
-                            value={settingsForm.signature}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, signature: e.target.value }))}
-                            rows={4}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a] resize-y"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Tags (Comma separated)</label>
-                          <input
-                            value={settingsForm.tags}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, tags: e.target.value }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                            placeholder="sales, primary, outbound"
-                          />
-                        </div>
-                      </div>
-                    </section>
-
-                    <section>
-                      <h3 className="text-sm font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">Campaign Settings</h3>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Daily Campaign Limit</label>
-                          <input
-                            type="number"
-                            value={settingsForm.dailyLimit}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, dailyLimit: Number(e.target.value || 0) }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Min. Wait Time (mins)</label>
-                          <input
-                            type="number"
-                            value={settingsForm.minimumWaitTime}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, minimumWaitTime: Number(e.target.value || 0) }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div className="sm:col-span-2">
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Custom Tracking Domain</label>
-                          <input
-                            value={settingsForm.customTrackingDomain}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, customTrackingDomain: e.target.value }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                            placeholder="track.yourdomain.com"
-                          />
-                        </div>
-                      </div>
-                      
-                      <div className="mt-4 space-y-3">
-                        <label className="flex items-center gap-3 bg-white p-3 border border-gray-200 rounded-md shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={settingsForm.campaignSlowRamp}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, campaignSlowRamp: e.target.checked }))}
-                            className="h-4 w-4 rounded border-gray-300 text-[#1a1a1a] focus:ring-[#1a1a1a]"
-                          />
-                          <span className="text-sm font-medium text-gray-900">Enable Campaign Slow Ramp</span>
-                        </label>
-                        <label className="flex items-center gap-3 bg-white p-3 border border-gray-200 rounded-md shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={settingsForm.enableCustomTrackingDomain}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, enableCustomTrackingDomain: e.target.checked }))}
-                            className="h-4 w-4 rounded border-gray-300 text-[#1a1a1a] focus:ring-[#1a1a1a]"
-                          />
-                          <span className="text-sm font-medium text-gray-900">Use Custom Tracking Domain</span>
-                        </label>
-                      </div>
-                    </section>
-
-                    <section>
-                      <h3 className="text-sm font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">Warmup Config</h3>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Daily Limit</label>
-                          <input
-                            type="number"
-                            value={settingsForm.dailyWarmupLimit}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, dailyWarmupLimit: Number(e.target.value || 0) }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Increase Per Day</label>
-                          <input
-                            type="number"
-                            value={settingsForm.increasePerDay}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, increasePerDay: Number(e.target.value || 0) }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-700 mb-1">Target Reply Rate (%)</label>
-                          <input
-                            type="number"
-                            value={settingsForm.replyRate}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, replyRate: Number(e.target.value || 0) }))}
-                            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#1a1a1a]"
-                          />
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <label className="flex items-center gap-3 bg-white p-3 border border-gray-200 rounded-md shadow-sm cursor-pointer hover:bg-gray-50 transition-colors">
-                          <input
-                            type="checkbox"
-                            checked={settingsForm.disableSlowWarmup}
-                            onChange={(e) => setSettingsForm((prev) => ({ ...prev, disableSlowWarmup: e.target.checked }))}
-                            className="h-4 w-4 rounded border-gray-300 text-[#1a1a1a] focus:ring-[#1a1a1a]"
-                          />
-                          <span className="text-sm font-medium text-gray-900">Disable Slow Warmup Phase</span>
-                        </label>
-                      </div>
-                    </section>
-
-                    <div className="pt-4 flex justify-end border-t border-gray-200">
-                      <button
-                        type="button"
-                        onClick={handleSaveSettings}
-                        disabled={savingSettings}
-                        className="inline-flex items-center justify-center rounded-md bg-[#1a1a1a] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-black focus:outline-none focus:ring-2 focus:ring-[#1a1a1a] focus:ring-offset-2 disabled:opacity-50 transition-colors"
-                      >
-                        {savingSettings ? "Saving..." : "Save Settings"}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "campaigns" && (
-                  <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th scope="col" className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500">Campaign Details</th>
-                          <th scope="col" className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500">Status</th>
-                          <th scope="col" className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-gray-500">Created</th>
-                          <th scope="col" className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-gray-500">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
-                        {(detail.campaigns || []).length === 0 ? (
-                          <tr>
-                            <td colSpan={4} className="px-5 py-12 text-center text-sm text-gray-500">
-                              No campaigns linked to this mailbox.
-                            </td>
-                          </tr>
-                        ) : (
-                          detail.campaigns.map((campaign) => (
-                            <tr key={campaign._id} className="hover:bg-gray-50 transition-colors">
-                              <td className="px-5 py-4">
-                                <p className="text-sm font-semibold text-gray-900">{campaign.name}</p>
-                                <p className="text-xs text-gray-500 mt-0.5">{campaign.flowType}</p>
-                              </td>
-                              <td className="px-5 py-4 whitespace-nowrap">
-                                <span className={cx("inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium", getCampaignStatusChip(campaign.status))}>
-                                  {campaign.statusLabel}
-                                </span>
-                              </td>
-                              <td className="px-5 py-4 whitespace-nowrap text-sm text-gray-600">
-                                {formatDate(campaign.createdAt)}
-                              </td>
-                              <td className="px-5 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                <button
-                                  type="button"
-                                  onClick={() => router.push(`/admin/crm/campaigns/${campaign._id}`)}
-                                  className="text-[#1a1a1a] hover:underline hover:text-black font-semibold"
+                              {account.isPrimary ? (
+                                <span
+                                  className={cx(
+                                    "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                                    active
+                                      ? "bg-white/15 text-white"
+                                      : "bg-slate-950 text-white"
+                                  )}
                                 >
-                                  View
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                                  Primary
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <p
+                              className={cx(
+                                "mt-1 text-xs",
+                                active ? "text-slate-300" : "text-slate-500"
+                              )}
+                            >
+                              {getProviderLabel(account.provider)}
+                            </p>
+
+                            <div
+                              className={cx(
+                                "mt-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs",
+                                active ? "bg-white/10" : "bg-slate-50"
+                              )}
+                            >
+                              <span
+                                className={
+                                  active ? "text-slate-300" : "text-slate-500"
+                                }
+                              >
+                                Sent today
+                              </span>
+                              <span className="font-bold">
+                                {dailyLimit > 0
+                                  ? `${sentToday} / ${dailyLimit}`
+                                  : formatValue(sentToday)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <ChevronRight
+                            className={cx(
+                              "mt-2 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5",
+                              active ? "text-white" : "text-slate-400"
+                            )}
+                          />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {!selectedEmail || (!detail && !loadingDetail) ? (
+              <div className="flex min-h-[420px] items-center justify-center p-4 sm:min-h-[620px] sm:p-8">
+                <EmptyState
+                  title="Select an account"
+                  description="Choose a mailbox from the left panel to view warmup, settings, and campaign details."
+                />
               </div>
-            </>
-          )}
+            ) : loadingDetail ? (
+              <div className="flex min-h-[420px] items-center justify-center p-8 text-center sm:min-h-[620px]">
+                <div>
+                  <Loader2 className="mx-auto h-7 w-7 animate-spin text-slate-400" />
+                  <p className="mt-3 text-sm font-semibold text-slate-600">
+                    Loading account details...
+                  </p>
+                </div>
+              </div>
+            ) : detail ? (
+              <>
+                <div className="border-b border-slate-200 p-4 pb-0 sm:p-5 sm:pb-0">
+                  <div className="mb-5 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        <span
+                          className={cx(
+                            "inline-flex rounded-full border px-3 py-1 text-xs font-bold",
+                            getStatusChip(detail.account.statusLabel)
+                          )}
+                        >
+                          {detail.account.statusLabel}
+                        </span>
+
+                        {detail.account.isPrimary ? (
+                          <span className="inline-flex rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
+                            Primary
+                          </span>
+                        ) : null}
+
+                        {detail.warmup.enabled ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                            <Flame className="h-3.5 w-3.5" />
+                            Warmup On
+                          </span>
+                        ) : (
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+                            Warmup Off
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="truncate text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
+                        {detail.account.email}
+                      </h2>
+
+                      <p className="mt-2 text-sm text-slate-500">
+                        {getProviderLabel(detail.account.provider)} • Assigned{" "}
+                        {formatDate(detail.account.assignedAt)}
+                      </p>
+                    </div>
+
+                    <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:shrink-0">
+                      {canSelectPrimary && !detail.account.isPrimary ? (
+                        <button
+                          type="button"
+                          onClick={() => handleSetPrimary(detail.account.email)}
+                          disabled={submittingEmail === detail.account.email}
+                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-950 bg-white px-4 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {submittingEmail === detail.account.email
+                            ? "Updating..."
+                            : "Set Primary"}
+                        </button>
+                      ) : null}
+
+                      {/* <button
+                        type="button"
+                        onClick={handlePauseResume}
+                        disabled={submittingEmail === detail.account.email}
+                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {detail.account.isPaused ? (
+                          <PlayCircle className="h-4 w-4" />
+                        ) : (
+                          <PauseCircle className="h-4 w-4" />
+                        )}
+                        {submittingEmail === detail.account.email
+                          ? "Updating..."
+                          : detail.account.isPaused
+                            ? "Resume Mailbox"
+                            : "Pause Mailbox"}
+                      </button> */}
+                    </div>
+                  </div>
+
+                  <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-4">
+                    {[
+                      {
+                        key: "warmup" as TabKey,
+                        label: "Warmup",
+                        icon: <Activity className="h-4 w-4" />,
+                      },
+                      {
+                        key: "settings" as TabKey,
+                        label: "Settings",
+                        icon: <Settings className="h-4 w-4" />,
+                      },
+                      {
+                        key: "campaigns" as TabKey,
+                        label: "Campaigns",
+                        icon: <BarChart3 className="h-4 w-4" />,
+                      },
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        type="button"
+                        onClick={() => setActiveTab(tab.key)}
+                        className={cx(
+                          "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-bold transition sm:px-4 sm:text-sm",
+                          activeTab === tab.key
+                            ? "bg-slate-950 text-white shadow-sm"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-950"
+                        )}
+                      >
+                        {tab.icon}
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="min-h-[420px] bg-slate-50/60 p-3 sm:p-4 lg:p-5">
+                  {activeTab === "warmup" && (
+                    <div className="space-y-5">
+                      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <h3 className="text-base font-bold text-slate-950">
+                            Warmup Status
+                          </h3>
+                          <p className="mt-1 text-sm text-slate-500">
+                            Started on{" "}
+                            <span className="font-bold text-slate-700">
+                              {formatDate(detail.warmup.startedOn)}
+                            </span>
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleWarmupToggle}
+                          disabled={submittingEmail === detail.account.email}
+                          className={cx(
+                            "inline-flex h-11 w-full items-center justify-center rounded-xl px-5 text-sm font-bold transition disabled:opacity-50 sm:w-auto",
+                            detail.warmup.enabled
+                              ? "border border-rose-200 bg-white text-rose-600 hover:bg-rose-50"
+                              : "bg-slate-950 text-white hover:bg-black"
+                          )}
+                        >
+                          {submittingEmail === detail.account.email
+                            ? "Updating..."
+                            : detail.warmup.enabled
+                              ? "Disable Warmup"
+                              : "Enable Warmup"}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <MetricCard
+                          label="Received"
+                          value={detail.warmup.summary.received}
+                          icon={<Inbox className="h-5 w-5" />}
+                          tone="green"
+                        />
+                        <MetricCard
+                          label="Sent"
+                          value={detail.warmup.summary.sent}
+                          icon={<Send className="h-5 w-5" />}
+                          tone="blue"
+                        />
+                        <MetricCard
+                          label="Saved from Spam"
+                          value={detail.warmup.summary.savedFromSpam}
+                          icon={<ShieldCheck className="h-5 w-5" />}
+                          tone="slate"
+                        />
+                      </div>
+
+                      <WarmupChart
+                        data={detail.warmup.chart || []}
+                        enabled={detail.warmup.enabled}
+                      />
+                    </div>
+                  )}
+
+                  {activeTab === "settings" && (
+                    <div className="mx-auto max-w-5xl space-y-5">
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="mb-5 flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white">
+                            <Mail className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-slate-950">
+                              Sender Details
+                            </h3>
+                            <p className="text-sm text-slate-500">
+                              Basic identity and reply settings.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <FieldLabel>First Name</FieldLabel>
+                            <TextInput
+                              value={settingsForm.firstName}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  firstName: value,
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Last Name</FieldLabel>
+                            <TextInput
+                              value={settingsForm.lastName}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  lastName: value,
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Reply To Address</FieldLabel>
+                            <TextInput
+                              value={settingsForm.replyToAddress}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  replyToAddress: value,
+                                }))
+                              }
+                              placeholder="reply@company.com"
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Tags</FieldLabel>
+                            <TextInput
+                              value={settingsForm.tags}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  tags: value,
+                                }))
+                              }
+                              placeholder="sales, primary, outbound"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <FieldLabel>Signature</FieldLabel>
+                            <textarea
+                              value={settingsForm.signature}
+                              onChange={(event) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  signature: event.target.value,
+                                }))
+                              }
+                              rows={5}
+                              className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
+                            />
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="mb-5 flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+                            <Send className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-slate-950">
+                              Campaign Settings
+                            </h3>
+                            <p className="text-sm text-slate-500">
+                              Configure sending behavior and tracking.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <FieldLabel>Daily Campaign Limit</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={settingsForm.dailyLimit}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  dailyLimit: Number(value || 0),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Min. Wait Time</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={settingsForm.minimumWaitTime}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  minimumWaitTime: Number(value || 0),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Inbox Placement Test Limit</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={
+                                settingsForm.dailyInboxPlacementTestLimit
+                              }
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  dailyInboxPlacementTestLimit: Number(
+                                    value || 0
+                                  ),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Custom Tracking Domain</FieldLabel>
+                            <TextInput
+                              value={settingsForm.customTrackingDomain}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  customTrackingDomain: value,
+                                }))
+                              }
+                              placeholder="track.yourdomain.com"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <ToggleRow
+                            checked={settingsForm.campaignSlowRamp}
+                            onChange={(checked) =>
+                              setSettingsForm((prev) => ({
+                                ...prev,
+                                campaignSlowRamp: checked,
+                              }))
+                            }
+                            title="Enable Campaign Slow Ramp"
+                            description="Gradually increase sending volume."
+                          />
+
+                          <ToggleRow
+                            checked={settingsForm.enableCustomTrackingDomain}
+                            onChange={(checked) =>
+                              setSettingsForm((prev) => ({
+                                ...prev,
+                                enableCustomTrackingDomain: checked,
+                              }))
+                            }
+                            title="Use Custom Tracking Domain"
+                            description="Track clicks with your own domain."
+                          />
+                        </div>
+                      </section>
+
+                      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                        <div className="mb-5 flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+                            <Flame className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-slate-950">
+                              Warmup Config
+                            </h3>
+                            <p className="text-sm text-slate-500">
+                              Control warmup pace and reply target.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                          <div>
+                            <FieldLabel>Daily Warmup Limit</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={settingsForm.dailyWarmupLimit}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  dailyWarmupLimit: Number(value || 0),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Increase Per Day</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={settingsForm.increasePerDay}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  increasePerDay: Number(value || 0),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Target Reply Rate %</FieldLabel>
+                            <TextInput
+                              type="number"
+                              value={settingsForm.replyRate}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  replyRate: Number(value || 0),
+                                }))
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <FieldLabel>Warmup Filter Tag</FieldLabel>
+                            <TextInput
+                              value={settingsForm.warmupFilterTag}
+                              onChange={(value) =>
+                                setSettingsForm((prev) => ({
+                                  ...prev,
+                                  warmupFilterTag: value,
+                                }))
+                              }
+                              placeholder="warmup"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5">
+                          <ToggleRow
+                            checked={settingsForm.disableSlowWarmup}
+                            onChange={(checked) =>
+                              setSettingsForm((prev) => ({
+                                ...prev,
+                                disableSlowWarmup: checked,
+                              }))
+                            }
+                            title="Disable Slow Warmup Phase"
+                            description="Use direct warmup settings without gradual ramp."
+                          />
+                        </div>
+                      </section>
+
+                      <div className="sticky bottom-3 z-10 flex justify-stretch sm:justify-end">
+                        <button
+                          type="button"
+                          onClick={handleSaveSettings}
+                          disabled={savingSettings}
+                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 text-sm font-bold text-white shadow-xl shadow-slate-300 transition hover:bg-black disabled:opacity-60 sm:w-auto"
+                        >
+                          {savingSettings ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Save className="h-4 w-4" />
+                          )}
+                          {savingSettings ? "Saving..." : "Save Settings"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeTab === "campaigns" && (
+                    <div className="space-y-4">
+                      {(detail.campaigns || []).length === 0 ? (
+                        <EmptyState
+                          title="No linked campaigns"
+                          description="This mailbox is not connected to any campaign yet."
+                        />
+                      ) : (
+                        <>
+                          <div className="grid gap-3 lg:hidden">
+                            {detail.campaigns.map((campaign) => (
+                              <div
+                                key={campaign._id}
+                                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <h3 className="truncate text-sm font-bold text-slate-950">
+                                      {campaign.name}
+                                    </h3>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      {getFlowLabel(campaign.flowType)}
+                                    </p>
+                                  </div>
+
+                                  <span
+                                    className={cx(
+                                      "shrink-0 rounded-full border px-3 py-1 text-xs font-bold",
+                                      getCampaignStatusChip(campaign.status)
+                                    )}
+                                  >
+                                    {campaign.statusLabel}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 flex items-center justify-between gap-3">
+                                  <p className="text-xs text-slate-500">
+                                    Created{" "}
+                                    <span className="font-semibold text-slate-700">
+                                      {formatDate(campaign.createdAt)}
+                                    </span>
+                                  </p>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      router.push(
+                                        `/admin/crm/campaigns/${campaign._id}`
+                                      )
+                                    }
+                                    className="text-sm font-bold text-slate-950 hover:underline"
+                                  >
+                                    View
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
+                            <div className="overflow-x-auto">
+                              <table className="min-w-full divide-y divide-slate-200">
+                                <thead className="bg-slate-50">
+                                  <tr>
+                                    <th className="px-5 py-4 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                                      Campaign
+                                    </th>
+                                    <th className="px-5 py-4 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                                      Status
+                                    </th>
+                                    <th className="px-5 py-4 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                                      Created
+                                    </th>
+                                    <th className="px-5 py-4 text-right text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                                      Action
+                                    </th>
+                                  </tr>
+                                </thead>
+
+                                <tbody className="divide-y divide-slate-100 bg-white">
+                                  {detail.campaigns.map((campaign) => (
+                                    <tr
+                                      key={campaign._id}
+                                      className="transition hover:bg-slate-50"
+                                    >
+                                      <td className="px-5 py-4">
+                                        <p className="text-sm font-bold text-slate-950">
+                                          {campaign.name}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          {getFlowLabel(campaign.flowType)}
+                                        </p>
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4">
+                                        <span
+                                          className={cx(
+                                            "inline-flex rounded-full border px-3 py-1 text-xs font-bold",
+                                            getCampaignStatusChip(
+                                              campaign.status
+                                            )
+                                          )}
+                                        >
+                                          {campaign.statusLabel}
+                                        </span>
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 text-sm font-medium text-slate-600">
+                                        {formatDate(campaign.createdAt)}
+                                      </td>
+
+                                      <td className="whitespace-nowrap px-5 py-4 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            router.push(
+                                              `/admin/crm/campaigns/${campaign._id}`
+                                            )
+                                          }
+                                          className="inline-flex h-9 items-center justify-center rounded-xl bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-black"
+                                        >
+                                          View
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </section>
         </div>
       </div>
     </div>

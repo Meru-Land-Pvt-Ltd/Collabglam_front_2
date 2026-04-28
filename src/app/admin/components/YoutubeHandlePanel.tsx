@@ -1,25 +1,56 @@
 'use client';
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ExternalLink, Mail, RefreshCw, Search, X, Download, Info } from 'lucide-react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import {
+  ChevronDown,
+  ExternalLink,
+  Filter,
+  Info,
+  Mail,
+  RefreshCw,
+  Search,
+  X,
+} from 'lucide-react';
 import swal from 'sweetalert';
-import { post } from '@/lib/api';
+import { get, post } from '@/lib/api';
 import { Checkbox } from '@/components/animate-ui/components/radix/checkbox';
+
+type FolderOption = {
+  _id: string;
+  title: string;
+  slug?: string;
+  description?: string;
+  itemCount?: number;
+};
+
+type FolderListResponse = {
+  success: boolean;
+  data: FolderOption[];
+};
 
 type VideoItem = {
   _id?: string;
   videoId?: string;
   title?: string;
+  description?: string;
   publishedAt?: string;
   viewCount?: number;
   likeCount?: number;
   commentCount?: number;
-  duration?: string; // ISO 8601, e.g. PT16M5S
+  duration?: string;
+  videoUrl?: string | null;
+  thumbnails?: {
+    default?: { url?: string; width?: number; height?: number };
+    medium?: { url?: string; width?: number; height?: number };
+    high?: { url?: string; width?: number; height?: number };
+  } | null;
 };
 
 type InfluencerProfileDoc = {
   _id?: string;
-
   handleId: string;
   platform?: string;
   handle?: string;
@@ -40,7 +71,6 @@ type InfluencerProfileDoc = {
 
   instagramHandle?: string | null;
 
-  // ✅ manual fields
   email?: string | null;
   lastSponsor?: string | null;
   managedByAgency?: boolean | null;
@@ -83,14 +113,8 @@ type GetAllResponse = {
   limit: number;
   total: number;
   hasNext: boolean;
+  sortBy?: string;
   data: InfluencerProfileDoc[];
-};
-
-type SyncResponse = {
-  status: string;
-  handle: string;
-  handleId: string;
-  data: InfluencerProfileDoc;
 };
 
 type UpdateManualResponse = {
@@ -99,23 +123,243 @@ type UpdateManualResponse = {
   data: InfluencerProfileDoc;
 };
 
-type InfluencerFilters = {
-  // NOTE: kept API keys as followersMin/followersMax to avoid backend break;
-  // UI shows them as "Subscribers".
-  followersMin?: string;
-  followersMax?: string;
-
-  // Country multi-select
-  countries?: string[];
-
-  // Optional legacy (not used in UI)
-  country?: string;
-
-  category?: string;
-  categories?: string[];
+type PreviewResponse = {
+  status: string;
+  mode: 'preview';
+  stored: false;
+  data: InfluencerProfileDoc;
 };
 
-type SortMode = 'engagement_upload' | 'engagement' | 'uploads' | 'created';
+type SaveProfileResponse = {
+  status: string;
+  mode?: 'handle';
+  stored?: true;
+  handle?: string;
+  handleId: string;
+  data: InfluencerProfileDoc;
+};
+
+type GlobalSearchVideo = {
+  videoId?: string;
+  title?: string;
+  description?: string;
+  publishedAt?: string;
+  channelId?: string;
+  channelTitle?: string;
+  thumbnails?: {
+    default?: { url?: string; width?: number; height?: number };
+    medium?: { url?: string; width?: number; height?: number };
+    high?: { url?: string; width?: number; height?: number };
+  } | null;
+  viewCount?: number | null;
+  likeCount?: number | null;
+  commentCount?: number | null;
+  videoUrl?: string | null;
+};
+
+type GlobalSearchRecommendation = {
+  channelId?: string | null;
+  title?: string;
+  description?: string;
+  handle?: string | null;
+  customUrl?: string | null;
+  country?: string | null;
+  thumbnails?: {
+    default?: { url?: string; width?: number; height?: number };
+    medium?: { url?: string; width?: number; height?: number };
+    high?: { url?: string; width?: number; height?: number };
+  } | null;
+  subscriberCount?: number | null;
+  totalViewCount?: number | null;
+  totalVideoCount?: number | null;
+  topicLabels?: string[];
+  bannerUrl?: string | null;
+  channelUrl?: string | null;
+  matchedByDirectChannelSearch?: boolean;
+  matchedVideos?: GlobalSearchVideo[];
+  score?: number;
+
+  avgViewsLast15?: number | null;
+  engagementRateLast15?: number | null;
+  uploadFrequencyPerWeek?: number | null;
+  avgDaysBetweenUploads?: number | null;
+  lastUploadAt?: string | null;
+  lastVideoId?: string | null;
+  lastVideoTitle?: string | null;
+  channelCreatedAt?: string | null;
+  keywords?: string;
+  defaultLanguage?: string | null;
+  instagramHandle?: string | null;
+};
+
+type GlobalSearchData = {
+  query: string;
+  channelsFound: number;
+  videoHits: number;
+  nextPageToken?: string | null;
+  hasMore?: boolean;
+  recommendations: GlobalSearchRecommendation[];
+};
+
+type GlobalSearchResponse = {
+  status: string;
+  mode: 'global';
+  stored: false;
+  query: string;
+  data: GlobalSearchData;
+};
+
+type FolderDetailItem = {
+  handle?: string | null;
+};
+
+type FolderDetailResponse = {
+  success: boolean;
+  data?: {
+    items?: FolderDetailItem[];
+  };
+};
+
+type ImportYoutubeToFolderResponse = {
+  success: boolean;
+  message?: string;
+  added?: number;
+  skipped?: number;
+  alreadyAdded?: string[];
+  total?: number;
+  data?: any;
+};
+
+type SavedSortValue =
+  | 'relevance'
+  | 'subscribers_desc'
+  | 'subscribers_asc'
+  | 'avg_views_desc'
+  | 'avg_views_asc'
+  | 'engagement_desc'
+  | 'recent_upload'
+  | 'uploads_per_week'
+  | 'newest';
+
+type InfluencerFilters = {
+  subscriberRange: string;
+  countries: string[];
+  category: string;
+  avgViewsMin: string;
+  lastUploadDays: string;
+  sortBy: SavedSortValue;
+};
+
+type SubscriberRangeOption = {
+  value: string;
+  label: string;
+  min?: number | null;
+  max?: number | null;
+};
+
+const SUBSCRIBER_RANGES: SubscriberRangeOption[] = [
+  { value: '', label: 'All' },
+  { value: '1k_10k', label: '1K – 10K', min: 1000, max: 10000 },
+  { value: '10k_50k', label: '10K – 50K', min: 10000, max: 50000 },
+  { value: '50k_100k', label: '50K – 100K', min: 50000, max: 100000 },
+  { value: '100k_500k', label: '100K – 500K', min: 100000, max: 500000 },
+  { value: '500k_1m', label: '500K – 1M', min: 500000, max: 1000000 },
+  { value: '1m_5m', label: '1M – 5M', min: 1000000, max: 5000000 },
+  { value: '5m_10m', label: '5M – 10M', min: 5000000, max: 10000000 },
+  { value: '10m_plus', label: '10M+', min: 10000000, max: null },
+];
+
+function normalizeFolderHandle(input?: string | null) {
+  return String(input || '')
+    .replace(/^@/, '')
+    .trim()
+    .toLowerCase();
+}
+
+const COUNTRY_OPTIONS: Array<{ code: string; name: string }> = [
+  { code: 'IN', name: 'India' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'MX', name: 'Mexico' },
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'SA', name: 'Saudi Arabia' },
+  { code: 'JP', name: 'Japan' },
+  { code: 'KR', name: 'South Korea' },
+];
+
+const CATEGORY_OPTIONS = [
+  'Entertainment',
+  'Lifestyle',
+  'Technology',
+  'Gaming',
+  'Education',
+  'Finance',
+  'Business',
+  'Food',
+  'Travel',
+  'Fitness',
+  'Health',
+  'Beauty',
+  'Fashion',
+  'Parenting',
+  'Comedy',
+  'Music',
+  'News',
+  'Sports',
+  'Automotive',
+  'Pets',
+  'DIY',
+  'Vlogging',
+  'Podcast',
+  'Review',
+  'Unboxing',
+  'Tutorial',
+];
+
+const AVG_VIEWS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: '1000', label: '1K+' },
+  { value: '5000', label: '5K+' },
+  { value: '10000', label: '10K+' },
+  { value: '25000', label: '25K+' },
+  { value: '50000', label: '50K+' },
+  { value: '100000', label: '100K+' },
+  { value: '250000', label: '250K+' },
+  { value: '500000', label: '500K+' },
+  { value: '1000000', label: '1M+' },
+];
+
+const LAST_UPLOAD_OPTIONS = [
+  { value: '', label: 'Any time' },
+  { value: '7', label: 'Last 7 days' },
+  { value: '14', label: 'Last 14 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '60', label: 'Last 60 days' },
+  { value: '90', label: 'Last 90 days' },
+];
+
+const SORT_OPTIONS: Array<{ value: SavedSortValue; label: string }> = [
+  { value: 'relevance', label: 'Relevance' },
+  { value: 'subscribers_desc', label: 'Subscribers (High to Low)' },
+  { value: 'subscribers_asc', label: 'Subscribers (Low to High)' },
+  { value: 'avg_views_desc', label: 'Average Views (High to Low)' },
+  { value: 'avg_views_asc', label: 'Average Views (Low to High)' },
+  { value: 'engagement_desc', label: 'Engagement Rate (High to Low)' },
+  { value: 'recent_upload', label: 'Recent Upload' },
+  { value: 'uploads_per_week', label: 'Uploads per Week' },
+  { value: 'newest', label: 'Newest Channels' },
+];
 
 function showErr(message: string) {
   return swal({
@@ -128,21 +372,40 @@ function showErr(message: string) {
 function normalizeHandle(input: string) {
   const s = (input || '').trim();
   if (!s) return '';
-  const m = s.match(/@([A-Za-z0-9._\-]+)/);
+  const m = s.match(/@([A-Za-z0-9._-]+)/);
   if (m?.[1]) return `@${m[1]}`;
-  if (/^[A-Za-z0-9._\-]+$/.test(s)) return `@${s}`;
+  if (/^[A-Za-z0-9._-]+$/.test(s)) return `@${s}`;
   return s.startsWith('@') ? s : `@${s}`;
 }
 
 function isValidHandle(h: string) {
-  return /^@[A-Za-z0-9._\-]+$/.test(h);
+  return /^@[A-Za-z0-9._-]+$/.test(h);
+}
+
+function getSearchIntent(input: string) {
+  const raw = (input || '').trim();
+  if (!raw) return { raw: '', isHandle: false, handle: '' };
+
+  const explicitHandle = raw.startsWith('@') || /youtube\.com\/@/i.test(raw);
+  if (!explicitHandle) {
+    return { raw, isHandle: false, handle: '' };
+  }
+
+  const handle = normalizeHandle(raw);
+  return {
+    raw,
+    isHandle: isValidHandle(handle),
+    handle: isValidHandle(handle) ? handle : '',
+  };
 }
 
 function buildSavedSearchText(raw: string) {
-  const v = (raw || '').trim();
-  if (!v) return '';
-  const isHandleish = v.startsWith('@') || /^[A-Za-z0-9._\-]+$/.test(v);
-  return isHandleish ? normalizeHandle(v) : v;
+  const parsed = getSearchIntent(raw);
+  return parsed.isHandle ? parsed.handle : parsed.raw;
+}
+
+function asList<T>(d: any): T[] {
+  return Array.isArray(d) ? d : [];
 }
 
 function formatNumber(n?: number | null) {
@@ -161,7 +424,6 @@ function formatBool(b?: boolean | null) {
   return 'Unknown';
 }
 
-/** force IST formatting */
 function formatDate(iso?: string | null, timeZone = 'Asia/Kolkata') {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -177,18 +439,23 @@ function formatDate(iso?: string | null, timeZone = 'Asia/Kolkata') {
   }).format(d);
 }
 
-function asList<T>(d: any): T[] {
-  return Array.isArray(d) ? d : [];
-}
-
-/** ✅ Card key/id for expand/scroll/UI (can fallback) */
 function getCardId(p: InfluencerProfileDoc) {
-  return p.handleId || p._id || p.channelId || p.handle || Math.random().toString(36).slice(2);
+  return (
+    p.handleId ||
+    p._id ||
+    p.channelId ||
+    p.handle ||
+    [p.title, p.createdAt, p.updatedAt].filter(Boolean).join('-') ||
+    'profile'
+  );
 }
 
-/** ✅ Selection id MUST be stable and exportable -> handleId only */
-function getSelectId(p: InfluencerProfileDoc) {
-  return p.handleId || '';
+function getSelectionKey(p: InfluencerProfileDoc) {
+  return p.handleId || p.channelId || p.handle || '';
+}
+
+function getLiveSelectionKey(item: GlobalSearchRecommendation) {
+  return item.channelId || item.handle || '';
 }
 
 function ytVideoUrl(videoId?: string) {
@@ -197,62 +464,35 @@ function ytVideoUrl(videoId?: string) {
 }
 
 function ytChannelUrl(p: InfluencerProfileDoc) {
-  if (p.handle) return `https://www.youtube.com/${p.handle.replace(/^@/, '@')}`;
+  if (p.handle) {
+    const handle = p.handle.startsWith('@') ? p.handle : `@${p.handle}`;
+    return `https://www.youtube.com/${handle}`;
+  }
   if (p.channelId) return `https://www.youtube.com/channel/${p.channelId}`;
   return '';
 }
 
-function toDateInputValue(iso?: string | null) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function parseFollowUps(text: string) {
-  const raw = (text || '')
-    .split(/[\n,]+/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const cleaned: string[] = [];
-  for (const d of raw) {
-    if (/^\d{4}-\d{2}-\d{2}/.test(d)) cleaned.push(d);
+function ytChannelUrlFromHandleOrId(handle?: string | null, channelId?: string | null) {
+  if (handle) {
+    const normalized = handle.startsWith('@') ? handle : `@${handle}`;
+    return `https://www.youtube.com/${normalized}`;
   }
-  return Array.from(new Set(cleaned));
+  if (channelId) return `https://www.youtube.com/channel/${channelId}`;
+  return '';
 }
 
-function splitCsvOrSpace(v: string): string[] {
-  return (v || '')
-    .split(/[,\n]/g)
-    .map((x) => x.trim())
-    .filter(Boolean);
+function getThumbUrl(
+  thumbnails?:
+    | {
+      default?: { url?: string };
+      medium?: { url?: string };
+      high?: { url?: string };
+    }
+    | null,
+) {
+  return thumbnails?.high?.url || thumbnails?.medium?.url || thumbnails?.default?.url || '';
 }
 
-function chipText(filters: InfluencerFilters) {
-  const chips: string[] = [];
-
-  if (filters.followersMin || filters.followersMax) {
-    chips.push(`Subscribers: ${filters.followersMin || '0'} - ${filters.followersMax || '∞'}`);
-  }
-
-  const cs = filters.countries?.length
-    ? filters.countries
-    : filters.country
-      ? [filters.country]
-      : [];
-  if (cs.length) chips.push(`Country: ${cs.join(', ')}`);
-
-  const cats = filters.categories?.length ? filters.categories : filters.category ? [filters.category] : [];
-  if (cats.length) chips.push(`Category: ${cats.join(', ')}`);
-
-  return chips;
-}
-
-/** ✅ Topic helpers: show labels as clean category names */
 function topicFromUrl(url: string) {
   try {
     const last = (url || '').split('/').pop() || '';
@@ -263,7 +503,6 @@ function topicFromUrl(url: string) {
 }
 
 function cleanTopicLabel(s: string) {
-  // "Lifestyle (sociology)" -> "Lifestyle"
   return String(s || '')
     .replace(/\s*\(.*?\)\s*$/, '')
     .trim();
@@ -273,113 +512,73 @@ function getTopicNames(p: InfluencerProfileDoc) {
   const labels = asList<string>(p.topicLabels).filter(Boolean).map(cleanTopicLabel);
   if (labels.length) return Array.from(new Set(labels));
 
-  const cats = asList<string>(p.topicCategories).filter(Boolean).map(topicFromUrl).map(cleanTopicLabel);
+  const cats = asList<string>(p.topicCategories)
+    .filter(Boolean)
+    .map(topicFromUrl)
+    .map(cleanTopicLabel);
+
   return Array.from(new Set(cats));
 }
 
-function numOrNegInf(v: any) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
-}
-
-function sortProfiles(list: InfluencerProfileDoc[], mode: SortMode) {
-  const arr = [...(list || [])];
-
-  if (mode === 'created') {
-    arr.sort((a, b) => {
-      const ta = new Date(a.createdAt || 0).getTime() || 0;
-      const tb = new Date(b.createdAt || 0).getTime() || 0;
-      return tb - ta;
-    });
-    return arr;
-  }
-
-  if (mode === 'uploads') {
-    arr.sort((a, b) => numOrNegInf(b.uploadFrequencyPerWeek) - numOrNegInf(a.uploadFrequencyPerWeek));
-    return arr;
-  }
-
-  // engagement OR engagement+uploads
-  arr.sort((a, b) => {
-    const e = numOrNegInf(b.engagementRateLast15) - numOrNegInf(a.engagementRateLast15);
-    if (e !== 0) return e;
-    if (mode === 'engagement_upload') {
-      return numOrNegInf(b.uploadFrequencyPerWeek) - numOrNegInf(a.uploadFrequencyPerWeek);
-    }
-    return 0;
-  });
-  return arr;
-}
-
-function sortToApi(mode: SortMode) {
-  if (mode === 'uploads') return { sortBy: 'uploadFrequencyPerWeek', sortOrder: 'desc' as const };
-  if (mode === 'created') return { sortBy: 'createdAt', sortOrder: 'desc' as const };
-  // engagement_upload and engagement
-  return { sortBy: 'engagementRateLast15', sortOrder: 'desc' as const };
-}
-
-/** --- Country list for dropdown (common) --- */
-const COUNTRY_OPTIONS: Array<{ code: string; name: string }> = [
-  { code: 'US', name: 'United States' },
-  { code: 'IN', name: 'India' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'CA', name: 'Canada' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'NZ', name: 'New Zealand' },
-  { code: 'IE', name: 'Ireland' },
-  { code: 'DE', name: 'Germany' },
-  { code: 'FR', name: 'France' },
-  { code: 'IT', name: 'Italy' },
-  { code: 'ES', name: 'Spain' },
-  { code: 'NL', name: 'Netherlands' },
-  { code: 'BE', name: 'Belgium' },
-  { code: 'CH', name: 'Switzerland' },
-  { code: 'AT', name: 'Austria' },
-  { code: 'SE', name: 'Sweden' },
-  { code: 'NO', name: 'Norway' },
-  { code: 'DK', name: 'Denmark' },
-  { code: 'FI', name: 'Finland' },
-  { code: 'PL', name: 'Poland' },
-  { code: 'CZ', name: 'Czechia' },
-  { code: 'PT', name: 'Portugal' },
-  { code: 'RO', name: 'Romania' },
-  { code: 'GR', name: 'Greece' },
-  { code: 'TR', name: 'Turkey' },
-  { code: 'UA', name: 'Ukraine' },
-  { code: 'RU', name: 'Russia' },
-  { code: 'BR', name: 'Brazil' },
-  { code: 'AR', name: 'Argentina' },
-  { code: 'CL', name: 'Chile' },
-  { code: 'CO', name: 'Colombia' },
-  { code: 'MX', name: 'Mexico' },
-  { code: 'PE', name: 'Peru' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'EG', name: 'Egypt' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'SA', name: 'Saudi Arabia' },
-  { code: 'AE', name: 'United Arab Emirates' },
-  { code: 'IL', name: 'Israel' },
-  { code: 'SG', name: 'Singapore' },
-  { code: 'MY', name: 'Malaysia' },
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'TH', name: 'Thailand' },
-  { code: 'VN', name: 'Vietnam' },
-  { code: 'JP', name: 'Japan' },
-  { code: 'KR', name: 'South Korea' },
-  { code: 'HK', name: 'Hong Kong' },
-  { code: 'TW', name: 'Taiwan' },
-  { code: 'CN', name: 'China' },
-  { code: 'PK', name: 'Pakistan' },
-  { code: 'BD', name: 'Bangladesh' },
-  { code: 'LK', name: 'Sri Lanka' },
-  { code: 'NP', name: 'Nepal' },
-];
-
 function countryLabel(code: string) {
   const c = COUNTRY_OPTIONS.find((x) => x.code === code);
-  return c ? `${c.code} — ${c.name}` : code;
+  return c ? `${c.name} (${c.code})` : code;
+}
+
+function chipText(filters: InfluencerFilters) {
+  const chips: string[] = [];
+
+  if (filters.subscriberRange) {
+    const range = SUBSCRIBER_RANGES.find((x) => x.value === filters.subscriberRange);
+    if (range) chips.push(`Subscribers: ${range.label}`);
+  }
+
+  if (filters.countries?.length) chips.push(`Country: ${filters.countries.join(', ')}`);
+  if (filters.category) chips.push(`Category: ${filters.category}`);
+
+  if (filters.avgViewsMin) {
+    const v = AVG_VIEWS_OPTIONS.find((x) => x.value === filters.avgViewsMin);
+    if (v) chips.push(`Avg Views: ${v.label}`);
+  }
+
+  if (filters.lastUploadDays) {
+    const v = LAST_UPLOAD_OPTIONS.find((x) => x.value === filters.lastUploadDays);
+    if (v) chips.push(`Last Upload: ${v.label}`);
+  }
+
+  const s = SORT_OPTIONS.find((x) => x.value === filters.sortBy);
+  if (s) chips.push(`Sort: ${s.label}`);
+
+  return chips;
+}
+
+function sortLabel(sortBy: SavedSortValue) {
+  const found = SORT_OPTIONS.find((x) => x.value === sortBy);
+  return found?.label || 'Relevance';
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-5 py-4">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        {label}
+      </div>
+      <div className="mt-2 break-words text-3xl font-bold tracking-tight text-slate-900 xl:text-4xl">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, mono }: { label: string; value: any; mono?: boolean }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <span className="text-slate-600">{label}:</span>
+      <span className={`text-right font-medium text-slate-900 ${mono ? 'font-mono text-xs' : ''}`}>
+        {String(value)}
+      </span>
+    </div>
+  );
 }
 
 function MultiCountrySelect({
@@ -392,14 +591,13 @@ function MultiCountrySelect({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const btnRef = useRef<HTMLButtonElement | null>(null);
-
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return COUNTRY_OPTIONS;
     return COUNTRY_OPTIONS.filter(
-      (c) => c.code.toLowerCase().includes(s) || c.name.toLowerCase().includes(s)
+      (c) => c.code.toLowerCase().includes(s) || c.name.toLowerCase().includes(s),
     );
   }, [q]);
 
@@ -411,7 +609,7 @@ function MultiCountrySelect({
     const r = el.getBoundingClientRect();
     setPos({
       left: r.left,
-      top: r.bottom + 8, // gap
+      top: r.bottom + 8,
       width: r.width,
     });
   }
@@ -429,14 +627,12 @@ function MultiCountrySelect({
     updatePos();
 
     const onReflow = () => updatePos();
-
-    // capture scroll on any parent container too
-    window.addEventListener('scroll', onReflow, true);
-    window.addEventListener('resize', onReflow);
-
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+
+    window.addEventListener('scroll', onReflow, true);
+    window.addEventListener('resize', onReflow);
     window.addEventListener('keydown', onKey);
 
     return () => {
@@ -449,72 +645,70 @@ function MultiCountrySelect({
   const overlay =
     open && pos && typeof document !== 'undefined'
       ? createPortal(
-          <div className="fixed inset-0 z-[9999]">
-            {/* backdrop (click to close) */}
-            <div className="absolute inset-0 bg-black/10" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 z-[9999]">
+          <div className="absolute inset-0 bg-black/10" onClick={() => setOpen(false)} />
 
-            {/* panel */}
-            <div
-              className="fixed rounded-xl border border-slate-200 bg-white shadow-2xl overflow-hidden"
-              style={{
-                left: pos.left,
-                top: pos.top,
-                width: pos.width,
-                maxHeight: 'min(70vh, 520px)',
-              }}
-            >
-              <div className="p-3 border-b border-slate-200">
-                <input
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search"
-                  autoFocus
-                />
-                <div className="mt-2 flex items-center justify-between">
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-slate-700 hover:underline"
-                    onClick={() => onChange([])}
-                  >
-                    Clear
-                  </button>
-                  <span className="text-xs text-slate-500">{value.length} selected</span>
-                </div>
-              </div>
-
-              <div className="max-h-[420px] overflow-auto p-2">
-                {filtered.map((c) => {
-                  const checked = value.includes(c.code);
-                  return (
-                    <label
-                      key={c.code}
-                      className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
-                    >
-                      <Checkbox checked={checked} onCheckedChange={() => toggle(c.code)} />
-                      <span className="text-sm text-slate-800">{countryLabel(c.code)}</span>
-                    </label>
-                  );
-                })}
-
-                {!filtered.length ? (
-                  <div className="px-2 py-6 text-center text-sm text-slate-500">No countries found</div>
-                ) : null}
-              </div>
-
-              <div className="p-3 border-t border-slate-200 bg-slate-50">
+          <div
+            className="fixed overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: pos.left,
+              top: pos.top,
+              width: pos.width,
+              maxHeight: 'min(70vh, 520px)',
+            }}
+          >
+            <div className="border-b border-slate-200 p-3">
+              <input
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search country"
+                autoFocus
+              />
+              <div className="mt-2 flex items-center justify-between">
                 <button
                   type="button"
-                  className="w-full px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold"
-                  onClick={() => setOpen(false)}
+                  className="text-xs font-semibold text-slate-700 hover:underline"
+                  onClick={() => onChange([])}
                 >
-                  Done
+                  Clear
                 </button>
+                <span className="text-xs text-slate-500">{value.length} selected</span>
               </div>
             </div>
-          </div>,
-          document.body
-        )
+
+            <div className="max-h-[420px] overflow-auto p-2">
+              {filtered.map((c) => {
+                const checked = value.includes(c.code);
+                return (
+                  <label
+                    key={c.code}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50"
+                  >
+                    <Checkbox checked={checked} onCheckedChange={() => toggle(c.code)} />
+                    <span className="text-sm text-slate-800">{countryLabel(c.code)}</span>
+                  </label>
+                );
+              })}
+
+              {!filtered.length ? (
+                <div className="px-2 py-6 text-center text-sm text-slate-500">No countries found</div>
+              ) : null}
+            </div>
+
+            <div className="border-t border-slate-200 bg-slate-50 p-3">
+              <button
+                type="button"
+                className="w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                onClick={() => setOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )
       : null;
 
   return (
@@ -522,7 +716,7 @@ function MultiCountrySelect({
       <button
         ref={btnRef}
         type="button"
-        className="w-full px-3 py-3 border border-slate-300 rounded-xl bg-white text-left flex items-center justify-between gap-2 hover:bg-slate-50"
+        className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-3 text-left hover:bg-slate-50"
         onClick={() => {
           setOpen((v) => {
             const next = !v;
@@ -531,8 +725,8 @@ function MultiCountrySelect({
           });
         }}
       >
-        <span className="text-sm text-slate-800 truncate">{summary}</span>
-        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className="truncate text-sm text-slate-800">{summary}</span>
+        <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {overlay}
@@ -540,63 +734,732 @@ function MultiCountrySelect({
   );
 }
 
-export default function YoutubeHandlePanel() {
+function FolderSelect({
+  folders,
+  value,
+  onChange,
+}: {
+  folders: FolderOption[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
+
+  const selectedFolder = folders.find((f) => f._id === value);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return folders;
+
+    return folders.filter((f) =>
+      [f.title, f.slug, f.description]
+        .filter(Boolean)
+        .some((x) => String(x).toLowerCase().includes(s))
+    );
+  }, [q, folders]);
+
+  function updatePos() {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setPos({
+      left: r.left,
+      top: r.bottom + 8,
+      width: r.width,
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    updatePos();
+
+    const onReflow = () => updatePos();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+
+    window.addEventListener('scroll', onReflow, true);
+    window.addEventListener('resize', onReflow);
+    window.addEventListener('keydown', onKey);
+
+    return () => {
+      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const overlay =
+    open && pos && typeof document !== 'undefined'
+      ? createPortal(
+        <div className="fixed inset-0 z-[9999]">
+          <div className="absolute inset-0 bg-black/10" onClick={() => setOpen(false)} />
+
+          <div
+            className="fixed overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+            style={{
+              left: pos.left,
+              top: pos.top,
+              width: pos.width,
+              maxHeight: 'min(70vh, 520px)',
+            }}
+          >
+            <div className="border-b border-slate-200 p-3">
+              <input
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search folder"
+                autoFocus
+              />
+
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-slate-700 hover:underline"
+                  onClick={() => onChange('')}
+                >
+                  Clear
+                </button>
+                <span className="text-xs text-slate-500">
+                  {value ? '1 selected' : 'No folder selected'}
+                </span>
+              </div>
+            </div>
+
+            <div className="max-h-[420px] overflow-auto p-2">
+              {filtered.map((folder) => {
+                const checked = value === folder._id;
+
+                return (
+                  <button
+                    key={folder._id}
+                    type="button"
+                    onClick={() => {
+                      onChange(folder._id);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-start justify-between gap-3 rounded-lg px-3 py-3 text-left hover:bg-slate-50 ${checked ? 'bg-blue-50' : ''
+                      }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">
+                        {folder.title}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {folder.itemCount || 0} influencers
+                      </div>
+                    </div>
+
+                    {checked ? (
+                      <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] text-white">
+                        Selected
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+
+              {!filtered.length ? (
+                <div className="px-2 py-6 text-center text-sm text-slate-500">
+                  No folders found
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )
+      : null;
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className="flex min-w-[260px] items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-left hover:bg-slate-50"
+        onClick={() => {
+          setOpen((v) => {
+            const next = !v;
+            if (!v && next) updatePos();
+            return next;
+          });
+        }}
+      >
+        <span className="truncate text-sm text-slate-800">
+          {selectedFolder ? selectedFolder.title : 'Select folder'}
+        </span>
+        <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {overlay}
+    </>
+  );
+}
+
+function GlobalSearchCard({
+  item,
+  savedProfile,
+  onOpenSaved,
+  onViewDetails,
+  loading,
+  selected,
+  onToggleSelect,
+}: {
+  item: GlobalSearchRecommendation;
+  savedProfile?: InfluencerProfileDoc;
+  onOpenSaved: (id: string) => void;
+  onViewDetails: (payload: { handle?: string; channelId?: string }) => void;
+  loading?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (checked: boolean) => void;
+}) {
+  const thumb = getThumbUrl(item.thumbnails);
+  const channelUrl = item.channelUrl || ytChannelUrlFromHandleOrId(item.handle, item.channelId);
+  const topics = asList<string>(item.topicLabels).filter(Boolean);
+  const matchedVideos = asList<GlobalSearchVideo>(item.matchedVideos).slice(0, 4);
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <div className="p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            {onToggleSelect ? (
+              <div className="pt-1">
+                <Checkbox checked={!!selected} onCheckedChange={(v: any) => onToggleSelect(!!v)} />
+              </div>
+            ) : null}
+
+            <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-slate-200 ring-4 ring-slate-100">
+              {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : null}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-2xl font-bold leading-tight text-slate-900">
+                  {item.title || item.handle || '—'}
+                </h3>
+
+                {item.country ? (
+                  <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
+                    {item.country}
+                  </span>
+                ) : null}
+
+                {item.matchedByDirectChannelSearch ? (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700">
+                    Channel Match
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <div className="text-lg font-semibold text-blue-600">{item.handle || 'No public handle'}</div>
+
+                {savedProfile?.handleId ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
+                    Already Saved
+                  </span>
+                ) : null}
+              </div>
+
+              {topics.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {topics.slice(0, 5).map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                  {topics.length > 5 ? (
+                    <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] text-white">
+                      +{topics.length - 5} Categories
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {item.description ? (
+                <p className="mt-4 line-clamp-3 text-sm leading-6 text-slate-600">{item.description}</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row xl:w-[230px] xl:flex-col">
+            {item.channelId ? (
+              <Link
+                href={`/mediakit/${encodeURIComponent(item.channelId)}?platform=${encodeURIComponent(
+                  'youtube',
+                )}&handle=${encodeURIComponent(String(item.handle || ''))}`}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+              >
+                <Info className="h-4 w-4" />
+                Load Advanced Insights
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-400"
+              >
+                <Info className="h-4 w-4" />
+                Load Advanced Insights
+              </button>
+            )}
+
+            {savedProfile?.handleId ? (
+              <button
+                type="button"
+                className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                onClick={() => onOpenSaved(savedProfile.handleId)}
+              >
+                Open Saved Profile
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                onClick={() =>
+                  onViewDetails({
+                    handle: item.handle || undefined,
+                    channelId: item.channelId || undefined,
+                  })
+                }
+                disabled={loading}
+              >
+                View Details
+              </button>
+            )}
+
+            {channelUrl ? (
+              <a
+                href={channelUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+              >
+                <ExternalLink className="h-4 w-4" />
+                View Channel
+              </a>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <MetricCard label="Subscribers" value={formatNumber(item.subscriberCount)} />
+          <MetricCard label="Total Views" value={formatNumber(item.totalViewCount)} />
+          <MetricCard label="Total Videos" value={formatNumber(item.totalVideoCount)} />
+          <MetricCard label="Matched Videos" value={String(matchedVideos.length || 0)} />
+        </div>
+      </div>
+
+      <div className="border-t border-slate-200 bg-slate-50/80 p-6">
+        <div className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Matched Videos</div>
+
+        {!matchedVideos.length ? (
+          <div className="text-sm text-slate-500">No matched videos were returned for this creator.</div>
+        ) : (
+          <div className="space-y-3">
+            {matchedVideos.map((video) => {
+              const vThumb = getThumbUrl(video.thumbnails);
+              const url = video.videoUrl || ytVideoUrl(video.videoId);
+
+              return (
+                <a
+                  key={video.videoId || `${video.title}-${video.publishedAt}`}
+                  href={url || '#'}
+                  target={url ? '_blank' : undefined}
+                  rel={url ? 'noreferrer' : undefined}
+                  className={`block rounded-2xl border border-slate-200 bg-white p-4 transition-all ${url ? 'hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-md' : ''
+                    }`}
+                >
+                  <div className="flex gap-4">
+                    <div className="h-20 w-36 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                      {vThumb ? <img src={vThumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : null}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="line-clamp-2 text-sm font-semibold text-slate-900">
+                            {video.title || 'Untitled video'}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {formatDate(video.publishedAt)} • {formatNumber(video.viewCount)} views
+                          </div>
+                        </div>
+
+                        {url ? (
+                          <div className="shrink-0 text-blue-600">
+                            <ExternalLink className="h-4 w-4" />
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {video.description ? (
+                        <p className="mt-2 line-clamp-2 text-sm text-slate-600">{video.description}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PreviewSidebar({
+  open,
+  loading,
+  saving,
+  data,
+  savedProfile,
+  onClose,
+  onSave,
+  onOpenSaved,
+}: {
+  open: boolean;
+  loading: boolean;
+  saving: boolean;
+  data: InfluencerProfileDoc | null;
+  savedProfile?: InfluencerProfileDoc;
+  onClose: () => void;
+  onSave: () => void;
+  onOpenSaved: (handleId: string) => void;
+}) {
+  if (!open) return null;
+
+  const thumb =
+    data?.thumbnails?.high?.url ||
+    data?.thumbnails?.medium?.url ||
+    data?.thumbnails?.default?.url ||
+    '';
+
+  const banner = data?.bannerUrl || '';
+  const topics = data ? getTopicNames(data) : [];
+  const channelUrl = data ? ytChannelUrl(data) : '';
+
+  return (
+    <div className="fixed inset-0 z-[130]">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+
+      <div className="absolute right-0 top-0 flex h-full w-full max-w-[820px] flex-col border-l border-slate-200 bg-white shadow-2xl">
+        <div className="relative border-b border-slate-200">
+          {banner ? (
+            <div className="h-36 w-full overflow-hidden bg-slate-200">
+              <img src={banner} alt="" className="h-full w-full object-cover" />
+            </div>
+          ) : (
+            <div className="h-24 w-full bg-gradient-to-r from-slate-100 via-slate-50 to-slate-100" />
+          )}
+
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-xl bg-white/90 p-2 shadow-sm hover:bg-white"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X className="h-5 w-5 text-slate-700" />
+          </button>
+
+          <div className="px-6 pb-5">
+            <div className="-mt-10 flex items-start gap-4">
+              <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl border-4 border-white bg-slate-200 shadow-md">
+                {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : null}
+              </div>
+
+              <div className="min-w-0 flex-1 pt-12">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate text-2xl font-bold text-slate-900">{data?.title || data?.handle || '—'}</h3>
+
+                  {data?.country ? (
+                    <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11px] text-blue-700">
+                      {data.country}
+                    </span>
+                  ) : null}
+
+                  {savedProfile?.handleId ? (
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-700">
+                      Already Saved
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className="mt-1 text-base font-semibold text-blue-600">{data?.handle || '—'}</div>
+
+                {topics.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {topics.slice(0, 6).map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto bg-slate-50/70 p-5">
+          {loading || !data ? (
+            <div className="px-6 py-16 text-center text-slate-500">
+              <RefreshCw className="mx-auto mb-3 h-8 w-8 animate-spin" />
+              Loading creator details...
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+                <MetricCard label="Subscribers" value={formatNumber(data.subscriberCount)} />
+                <MetricCard label="Avg Views" value={formatNumber(data.avgViewsLast15)} />
+                <MetricCard label="Engagement" value={formatPercent(data.engagementRateLast15)} />
+                <MetricCard
+                  label="Uploads / Week"
+                  value={data.uploadFrequencyPerWeek != null ? String(data.uploadFrequencyPerWeek) : '—'}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Channel Overview
+                  </div>
+
+                  <div className="space-y-3">
+                    <Row label="Handle" value={data.handle || '—'} />
+                    <Row label="Channel ID" value={data.channelId || '—'} mono />
+                    <Row label="Country" value={data.country || '—'} />
+                    <Row label="Language" value={data.defaultLanguage || '—'} />
+                    <Row label="Instagram" value={data.instagramHandle || '—'} />
+                    <Row label="Total Views" value={formatNumber(data.totalViewCount)} />
+                    <Row label="Total Videos" value={formatNumber(data.totalVideoCount)} />
+                    <Row label="Last Upload" value={formatDate(data.lastUploadAt)} />
+                    <Row label="Last Video" value={data.lastVideoTitle || '—'} />
+                  </div>
+
+                  {channelUrl ? (
+                    <div className="mt-4 border-t border-slate-200 pt-4">
+                      <a
+                        href={channelUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open channel
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    About Creator
+                  </div>
+
+                  <p className="whitespace-pre-line text-sm leading-6 text-slate-600">{data.description || '—'}</p>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-white px-5 py-4">
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Latest Videos</div>
+                </div>
+
+                <div className="bg-slate-50/50 p-5">
+                  {!data.lastVideos?.length ? (
+                    <div className="text-sm text-slate-500">No recent videos found.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {data.lastVideos.slice(0, 8).map((video) => {
+                        const vThumb = getThumbUrl(video.thumbnails);
+                        const videoUrl = video.videoUrl || (video.videoId ? ytVideoUrl(video.videoId) : '');
+
+                        return (
+                          <a
+                            key={video.videoId || video.title}
+                            href={videoUrl || '#'}
+                            target={videoUrl ? '_blank' : undefined}
+                            rel={videoUrl ? 'noreferrer' : undefined}
+                            className={`block rounded-2xl border border-slate-200 bg-white p-4 transition-all ${videoUrl ? 'hover:border-blue-300 hover:bg-blue-50/30 hover:shadow-md' : ''
+                              }`}
+                          >
+                            <div className="flex gap-4">
+                              <div className="h-24 w-40 shrink-0 overflow-hidden rounded-xl bg-slate-200">
+                                {vThumb ? (
+                                  <img src={vThumb} alt="" className="h-full w-full object-cover" loading="lazy" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+                                    No image
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="line-clamp-2 text-sm font-semibold text-slate-900">
+                                      {video.title || 'Untitled video'}
+                                    </div>
+
+                                    <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1">
+                                        {formatDate(video.publishedAt)}
+                                      </span>
+                                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1">
+                                        {formatNumber(video.viewCount)} views
+                                      </span>
+                                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1">
+                                        {formatNumber(video.likeCount)} likes
+                                      </span>
+                                      <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1">
+                                        {formatNumber(video.commentCount)} comments
+                                      </span>
+                                      {video.duration ? (
+                                        <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-1">
+                                          {video.duration}
+                                        </span>
+                                      ) : null}
+                                    </div>
+
+                                    {video.description ? (
+                                      <p className="mt-3 line-clamp-2 text-sm text-slate-600">{video.description}</p>
+                                    ) : null}
+                                  </div>
+
+                                  {videoUrl ? (
+                                    <div className="shrink-0 text-blue-600">
+                                      <ExternalLink className="h-4 w-4" />
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-4">
+          {savedProfile?.handleId ? (
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+              onClick={() => onOpenSaved(savedProfile.handleId)}
+            >
+              Open Saved Profile
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              onClick={onSave}
+              disabled={loading || saving || !data}
+            >
+              {saving ? 'Saving...' : 'Save Profile'}
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function Page() {
+  const router = useRouter();
+  const params = useParams();
+
   const [profiles, setProfiles] = useState<InfluencerProfileDoc[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [saveEmailModalOpen, setSaveEmailModalOpen] = useState(false);
+  const [previewEmail, setPreviewEmail] = useState('');
 
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
   const [total, setTotal] = useState(0);
   const [hasNext, setHasNext] = useState(false);
 
-  // ✅ selection (keyed by handleId only)
-  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
-
-  // Handle search (sync/open)
   const [query, setQuery] = useState('');
   const [searchHint, setSearchHint] = useState('');
   const [searchLoading, setSearchLoading] = useState(false);
-
-  // List state
   const [listLoading, setListLoading] = useState(false);
 
-  // ✅ Filters (draft + active)
+  const [globalResult, setGlobalResult] = useState<GlobalSearchData | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewSaving, setPreviewSaving] = useState(false);
+  const [previewData, setPreviewData] = useState<InfluencerProfileDoc | null>(null);
+  const [globalVisibleCount, setGlobalVisibleCount] = useState(10);
+  const [globalNextPageToken, setGlobalNextPageToken] = useState<string | null>(null);
+  const [globalHasMore, setGlobalHasMore] = useState(false);
+  const [globalLoadingMore, setGlobalLoadingMore] = useState(false);
+
   const [filtersDraft, setFiltersDraft] = useState<InfluencerFilters>({
-    followersMin: '1000',      // ✅ Subscribers min default
-    followersMax: '1000000',   // ✅ Subscribers max default (1M)
-    countries: [],             // ✅ Country multi-select
-    category: '',
-  });
-  const [filtersActive, setFiltersActive] = useState<InfluencerFilters>({
-    followersMin: '1000',
-    followersMax: '1000000',
+    subscriberRange: '',
     countries: [],
     category: '',
+    avgViewsMin: '',
+    lastUploadDays: '',
+    sortBy: 'relevance',
   });
 
-  // ✅ Sorting (draft + active)
-  const [sortModeDraft, setSortModeDraft] = useState<SortMode>('engagement_upload');
-  const [sortModeActive, setSortModeActive] = useState<SortMode>('engagement_upload');
+  const [filtersActive, setFiltersActive] = useState<InfluencerFilters>({
+    subscriberRange: '',
+    countries: [],
+    category: '',
+    avgViewsMin: '',
+    lastUploadDays: '',
+    sortBy: 'relevance',
+  });
 
-  // ✅ CSV download (filtered)
-  const [downloadLimit, setDownloadLimit] = useState('500');
-  const [downloadLoading, setDownloadLoading] = useState(false);
-
-  // ✅ Details modal
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [detailsHandleId, setDetailsHandleId] = useState('');
   const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsForm, setDetailsForm] = useState({ email: '' });
 
-  const [detailsForm, setDetailsForm] = useState({
-    email: '',
-    lastSponsor: '',
-    managedByAgency: 'unknown' as 'unknown' | 'yes' | 'no',
-    topAudienceCountry: '',
-    averageAudienceAge: '',
-    lastContactedAt: '',
-    followUpDates: '',
-    workingHandle: '',
-  });
+  const searchParams = useSearchParams();
+  const campaignId = (searchParams.get('campaignId') || searchParams.get('id') || '').trim();
+  const folderId = String(
+    params?.folderId || searchParams.get('folderId') || ''
+  ).trim();
+
+  const hasFolderId = Boolean(folderId);
+
+  const [folders, setFolders] = useState<FolderOption[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState('');
+
+  const activeTargetFolderId = folderId || selectedFolderId || '';
+  const [activeFolderHandles, setActiveFolderHandles] = useState<string[]>([]);
+
+  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
   const profilesByHandle = useMemo(() => {
     const map = new Map<string, InfluencerProfileDoc>();
@@ -607,108 +1470,155 @@ export default function YoutubeHandlePanel() {
     return map;
   }, [profiles]);
 
-  const normalizedQuery = useMemo(() => normalizeHandle(query), [query]);
+  const searchIntent = useMemo(() => getSearchIntent(query), [query]);
+  const activeChips = useMemo(() => chipText(filtersActive), [filtersActive]);
+  const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
 
   const existingProfile = useMemo(() => {
-    if (!normalizedQuery || !isValidHandle(normalizedQuery)) return undefined;
-    return profilesByHandle.get(normalizedQuery.toLowerCase());
-  }, [normalizedQuery, profilesByHandle]);
+    if (!searchIntent.isHandle || !searchIntent.handle) return undefined;
+    return profilesByHandle.get(searchIntent.handle.toLowerCase());
+  }, [searchIntent, profilesByHandle]);
 
-  function buildFilterPayload(f: InfluencerFilters): InfluencerFilters {
-    const out: InfluencerFilters = {};
+  const typeSearchRef = useRef<any>(null);
+  const filtersActiveRef = useRef(filtersActive);
 
-    if (String(f.followersMin || '').trim()) out.followersMin = String(f.followersMin).trim();
-    if (String(f.followersMax || '').trim()) out.followersMax = String(f.followersMax).trim();
+  const visibleLiveRecommendations = useMemo(
+    () => globalResult?.recommendations.slice(0, globalVisibleCount) || [],
+    [globalResult, globalVisibleCount],
+  );
 
-    // ✅ prefer multi-select countries
-    if (Array.isArray(f.countries) && f.countries.length) {
-      out.countries = f.countries;
-    } else {
-      // legacy fallback
-      const cRaw = String(f.country || '').trim();
-      if (cRaw) {
-        const parts = splitCsvOrSpace(cRaw);
-        if (parts.length > 1) out.countries = parts;
-        else out.country = parts[0];
-      }
-    }
-
-    const catRaw = String(f.category || '').trim();
-    if (catRaw) {
-      const parts = splitCsvOrSpace(catRaw);
-      if (parts.length > 1) out.categories = parts;
-      else out.category = parts[0];
-    }
-
-    return out;
+  function savedRowKey(p: InfluencerProfileDoc) {
+    return `saved:${getSelectionKey(p)}`;
   }
 
-  function toggleSelect(handleId: string, checked: boolean) {
-    setSelectedIds((prev) => ({ ...prev, [handleId]: checked }));
+  function liveRowKey(item: GlobalSearchRecommendation) {
+    return `live:${getLiveSelectionKey(item)}`;
+  }
+
+  function toggleSelect(key: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      if (checked) next[key] = true;
+      else delete next[key];
+      return next;
+    });
   }
 
   function clearSelection() {
     setSelectedIds({});
   }
 
-  function selectAllOnPage(list: InfluencerProfileDoc[]) {
-    const next: Record<string, boolean> = {};
-    for (const it of list) {
-      const hid = getSelectId(it);
-      if (hid) next[hid] = true;
-    }
-    setSelectedIds((prev) => ({ ...prev, ...next }));
-  }
-
-  function clearSelectionOnPage(list: InfluencerProfileDoc[]) {
+  function selectAllSaved(list: InfluencerProfileDoc[]) {
     setSelectedIds((prev) => {
       const next = { ...prev };
-      for (const it of list) {
-        const hid = getSelectId(it);
-        if (hid) delete next[hid];
+      for (const item of list) {
+        const key = savedRowKey(item);
+        if (key !== 'saved:') next[key] = true;
       }
       return next;
     });
   }
 
-  const selectedHandleIds = useMemo(() => {
-    return Object.entries(selectedIds)
-      .filter(([, v]) => v)
-      .map(([hid]) => hid);
-  }, [selectedIds]);
+  const selectedYoutubeUsers = useMemo(() => buildSelectedYoutubeUsers(), [profiles, visibleLiveRecommendations, selectedIds]);
 
-  const selectedCount = useMemo(() => selectedHandleIds.length, [selectedHandleIds]);
+  const activeFolderHandleSet = useMemo(() => {
+    return new Set(activeFolderHandles);
+  }, [activeFolderHandles]);
 
-  const selectableOnPage = useMemo(() => profiles.filter((p) => !!getSelectId(p)), [profiles]);
+  const selectedAlreadyAddedCount = useMemo(() => {
+    if (!activeTargetFolderId) return 0;
 
-  const allOnPageSelected = useMemo(() => {
-    if (!selectableOnPage.length) return false;
-    return selectableOnPage.every((it) => !!selectedIds[getSelectId(it)]);
-  }, [selectableOnPage, selectedIds]);
+    return selectedYoutubeUsers.filter((user) => {
+      const handle = normalizeFolderHandle(user.handle || user.username);
+      return !!handle && activeFolderHandleSet.has(handle);
+    }).length;
+  }, [activeTargetFolderId, selectedYoutubeUsers, activeFolderHandleSet]);
 
-  const someOnPageSelected = useMemo(() => {
-    if (!selectableOnPage.length) return false;
-    return selectableOnPage.some((it) => !!selectedIds[getSelectId(it)]);
-  }, [selectableOnPage, selectedIds]);
+  const selectedNewCount = useMemo(() => {
+    return Math.max(0, selectedYoutubeUsers.length - selectedAlreadyAddedCount);
+  }, [selectedYoutubeUsers.length, selectedAlreadyAddedCount]);
 
-  const headerCheckState = useMemo(() => {
-    if (allOnPageSelected) return true;
-    if (someOnPageSelected) return 'indeterminate';
-    return false;
-  }, [allOnPageSelected, someOnPageSelected]);
+  const disableAddToFolder = useMemo(() => {
+    return !!activeTargetFolderId && selectedYoutubeUsers.length > 0 && selectedNewCount === 0;
+  }, [activeTargetFolderId, selectedYoutubeUsers.length, selectedNewCount]);
 
-  /** ✅ refs for debounced “type search” */
-  const typeSearchRef = useRef<any>(null);
-  const filtersActiveRef = useRef(filtersActive);
-  const sortModeActiveRef = useRef(sortModeActive);
+  async function loadActiveFolderHandles(targetFolderId: string) {
+    if (!targetFolderId) {
+      setActiveFolderHandles([]);
+      return;
+    }
+
+    try {
+      const resp = await get<FolderDetailResponse>(`/pitch-folders/${targetFolderId}`);
+
+      const handles = Array.isArray(resp?.data?.items)
+        ? resp.data.items
+          .map((item) => normalizeFolderHandle(item?.handle))
+          .filter(Boolean)
+        : [];
+
+      setActiveFolderHandles(Array.from(new Set(handles)));
+    } catch {
+      setActiveFolderHandles([]);
+    }
+  }
+
+  useEffect(() => {
+    void loadActiveFolderHandles(activeTargetFolderId);
+  }, [activeTargetFolderId]);
+
+  function clearAllSaved(list: InfluencerProfileDoc[]) {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      for (const item of list) delete next[savedRowKey(item)];
+      return next;
+    });
+  }
+
+  function selectAllLive(list: GlobalSearchRecommendation[]) {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      for (const item of list) {
+        const key = liveRowKey(item);
+        if (key !== 'live:') next[key] = true;
+      }
+      return next;
+    });
+  }
+
+  function clearAllLive(list: GlobalSearchRecommendation[]) {
+    setSelectedIds((prev) => {
+      const next = { ...prev };
+      for (const item of list) delete next[liveRowKey(item)];
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (folderId) {
+      setSelectedFolderId(folderId);
+    }
+  }, [folderId]);
+
+  useEffect(() => {
+    loadFolders();
+  }, []);
+
+  async function loadFolders() {
+    setFoldersLoading(true);
+    try {
+      const resp = await get<FolderListResponse>('/pitch-folders/list');
+      setFolders(Array.isArray(resp?.data) ? resp.data : []);
+    } catch (e: any) {
+      await showErr(e?.message || 'Failed to load folders.');
+    } finally {
+      setFoldersLoading(false);
+    }
+  }
 
   useEffect(() => {
     filtersActiveRef.current = filtersActive;
   }, [filtersActive]);
-
-  useEffect(() => {
-    sortModeActiveRef.current = sortModeActive;
-  }, [sortModeActive]);
 
   useEffect(() => {
     return () => {
@@ -716,41 +1626,120 @@ export default function YoutubeHandlePanel() {
     };
   }, []);
 
+  useEffect(() => {
+    if (filterModalOpen || detailsModalOpen || previewOpen || saveEmailModalOpen) {
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = '';
+      };
+    }
+
+    document.body.style.overflow = '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [filterModalOpen, detailsModalOpen, previewOpen, saveEmailModalOpen]);
+
+  function buildFilterPayload(f: InfluencerFilters) {
+    const out: Record<string, any> = {
+      sortBy: f.sortBy || 'relevance',
+    };
+
+    if (f.subscriberRange) {
+      const range = SUBSCRIBER_RANGES.find((x) => x.value === f.subscriberRange);
+      if (range?.min != null) out.followersMin = range.min;
+      if (range?.max != null) out.followersMax = range.max;
+      out.subscriberRange = f.subscriberRange;
+    }
+
+    if (Array.isArray(f.countries) && f.countries.length) out.countries = f.countries;
+    if (f.category) out.category = f.category;
+    if (f.avgViewsMin) out.avgViewsMin = Number(f.avgViewsMin);
+    if (f.lastUploadDays) out.lastUploadDays = Number(f.lastUploadDays);
+
+    return out;
+  }
+
+  function buildSelectedYoutubeUsers() {
+    const selectedSaved = profiles.filter((p) => selectedIds[savedRowKey(p)]);
+    const selectedLive = visibleLiveRecommendations.filter((item) => selectedIds[liveRowKey(item)]);
+
+    const rawUsersFromSaved = selectedSaved.map((x) => ({
+      sourceRefId: x.handleId || x.channelId || x.handle,
+      platform: 'youtube',
+      fullname: x.title,
+      username: String(x.handle || '').replace(/^@/, ''),
+      handle: x.handle,
+      userId: x.channelId,
+      channelId: x.channelId,
+      followers: x.subscriberCount,
+      url: ytChannelUrl(x),
+      picture: getThumbUrl(x.thumbnails),
+      categories: getTopicNames(x),
+      bio: x.description,
+      country: x.country,
+      state: null,
+      city: null,
+      language: x.defaultLanguage,
+      engagementRate: x.engagementRateLast15,
+    }));
+
+    const rawUsersFromLive = selectedLive.map((x) => ({
+      sourceRefId: x.channelId || x.handle,
+      platform: 'youtube',
+      fullname: x.title,
+      username: String(x.handle || '').replace(/^@/, ''),
+      handle: x.handle,
+      userId: x.channelId,
+      channelId: x.channelId,
+      followers: x.subscriberCount,
+      url: x.channelUrl || ytChannelUrlFromHandleOrId(x.handle, x.channelId),
+      picture: getThumbUrl(x.thumbnails),
+      categories: asList<string>(x.topicLabels).filter(Boolean),
+      bio: x.description,
+      country: x.country,
+      state: null,
+      city: null,
+      language: x.defaultLanguage,
+      engagementRate: x.engagementRateLast15,
+    }));
+
+    return Array.from(
+      new Map(
+        [...rawUsersFromSaved, ...rawUsersFromLive]
+          .filter((x) => x.sourceRefId)
+          .map((x) => [String(x.sourceRefId), x]),
+      ).values(),
+    );
+  }
+
   async function loadSaved(
     p = 1,
     active: InfluencerFilters = filtersActive,
     searchText = '',
-    sortMode: SortMode = sortModeActive,
   ) {
     setListLoading(true);
     try {
-      const filterPayload = buildFilterPayload(active);
-      const apiSort = sortToApi(sortMode);
-
       const resp = await post<GetAllResponse>('/youtube/getall', {
         page: p,
         limit,
         search: searchText || '',
-        sortBy: apiSort.sortBy,
-        sortOrder: apiSort.sortOrder,
         includeRaw: false,
         includeVideos: false,
-        ...filterPayload,
+        ...buildFilterPayload(active),
       });
 
       if (resp?.status !== 'ok') throw new Error('Failed to load saved data');
 
-      const list = sortProfiles(asList<InfluencerProfileDoc>(resp.data), sortMode);
-
-      setProfiles(list);
+      setProfiles(asList<InfluencerProfileDoc>(resp.data));
       setTotal(resp.total || 0);
       setHasNext(!!resp.hasNext);
       setPage(resp.page || p);
 
-      const typed = buildSavedSearchText(searchText || '');
-      if (typed && isValidHandle(typed) && Array.isArray(resp.data) && resp.data.length === 1) {
+      const parsed = getSearchIntent(searchText || '');
+      if (parsed.isHandle && Array.isArray(resp.data) && resp.data.length === 1) {
         const one = resp.data[0];
-        if ((one.handle || '').toLowerCase() === typed.toLowerCase() && one.handleId) {
+        if ((one.handle || '').toLowerCase() === parsed.handle.toLowerCase() && one.handleId) {
           openAndScrollTo(one.handleId);
         }
       }
@@ -761,26 +1750,307 @@ export default function YoutubeHandlePanel() {
     }
   }
 
+  async function runGlobalSearch(
+    rawQuery: string,
+    active: InfluencerFilters = filtersActiveRef.current,
+  ) {
+    setSearchLoading(true);
+    try {
+      const resp = await post<GlobalSearchResponse>('/youtube/search', {
+        query: rawQuery,
+        channelLimit: 50,
+        videoLimit: 50,
+        pageToken: '',
+        ...buildFilterPayload(active),
+      });
+
+      if (resp?.status !== 'ok') throw new Error('Global search failed');
+
+      setGlobalResult(resp.data);
+      setGlobalVisibleCount(10);
+      setGlobalNextPageToken(resp.data.nextPageToken || null);
+      setGlobalHasMore(!!resp.data.hasMore);
+
+      setSearchHint(
+        resp.data.recommendations?.length
+          ? `Found ${formatNumber(resp.data.channelsFound)} creators in this batch. Filters are applied to live search too.`
+          : 'No live YouTube results found.',
+      );
+    } catch (e: any) {
+      await showErr(e?.message || 'Failed to search YouTube.');
+    } finally {
+      setSearchLoading(false);
+    }
+  }
+
+  async function loadMoreGlobalResults() {
+    if (!globalResult) return;
+
+    const currentlyShown = globalVisibleCount;
+    const alreadyLoaded = globalResult.recommendations.length;
+
+    if (currentlyShown < alreadyLoaded) {
+      setGlobalVisibleCount((v) => Math.min(v + 10, alreadyLoaded));
+      return;
+    }
+
+    if (!globalNextPageToken || !globalHasMore) return;
+
+    setGlobalLoadingMore(true);
+    try {
+      const resp = await post<GlobalSearchResponse>('/youtube/search', {
+        query: globalResult.query,
+        channelLimit: 50,
+        videoLimit: 50,
+        pageToken: globalNextPageToken,
+        ...buildFilterPayload(filtersActiveRef.current),
+      });
+
+      if (resp?.status !== 'ok') throw new Error('Failed to load more search results');
+
+      const nextItems = asList<GlobalSearchRecommendation>(resp.data.recommendations);
+
+      setGlobalResult((prev) => {
+        if (!prev) return prev;
+
+        const seen = new Set(prev.recommendations.map((x) => `${x.channelId || ''}::${x.handle || ''}`));
+        const merged = [...prev.recommendations];
+
+        for (const item of nextItems) {
+          const key = `${item.channelId || ''}::${item.handle || ''}`;
+          if (!seen.has(key)) {
+            merged.push(item);
+            seen.add(key);
+          }
+        }
+
+        return {
+          ...prev,
+          channelsFound: merged.length,
+          videoHits: resp.data.videoHits || prev.videoHits,
+          nextPageToken: resp.data.nextPageToken || null,
+          hasMore: !!resp.data.hasMore,
+          recommendations: merged,
+        };
+      });
+
+      setGlobalVisibleCount((v) => v + 10);
+      setGlobalNextPageToken(resp.data.nextPageToken || null);
+      setGlobalHasMore(!!resp.data.hasMore);
+    } catch (e: any) {
+      await showErr(e?.message || 'Failed to load more results.');
+    } finally {
+      setGlobalLoadingMore(false);
+    }
+  }
+
+  async function openPreview(payload: { handle?: string; channelId?: string }) {
+    setPreviewLoading(true);
+    setPreviewOpen(true);
+    setPreviewData(null);
+
+    try {
+      const resp = await post<PreviewResponse>('/youtube/profile/preview', {
+        ...payload,
+        videosLimit: 15,
+      });
+
+      if (resp?.status !== 'ok' || !resp?.data) throw new Error('Failed to load preview');
+      setPreviewData(resp.data);
+    } catch (e: any) {
+      setPreviewOpen(false);
+      setPreviewData(null);
+      await showErr(e?.message || 'Failed to load creator details.');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function savePreviewProfile(emailValue?: string) {
+    if (!previewData) return;
+
+    const email = String(emailValue || '').trim().toLowerCase();
+
+    if (!email) {
+      await showErr('Please enter email before saving profile.');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      await showErr('Enter a valid email.');
+      return;
+    }
+
+    setPreviewSaving(true);
+    try {
+      const resp = await post<SaveProfileResponse>('/youtube/profile/sync', {
+        handle: previewData.handle || undefined,
+        channelId: previewData.channelId || undefined,
+        email,
+      });
+
+      if (resp?.status !== 'ok' || !resp?.data?.handleId) {
+        throw new Error('Failed to save profile');
+      }
+
+      upsertProfile(resp.data);
+
+      setSaveEmailModalOpen(false);
+      setPreviewEmail('');
+      setPreviewOpen(false);
+      setPreviewData(null);
+
+      await loadSaved(1, filtersActiveRef.current, buildSavedSearchText(query));
+      openAndScrollTo(resp.data.handleId);
+    } catch (e: any) {
+      await showErr(e?.message || 'Failed to save profile.');
+    } finally {
+      setPreviewSaving(false);
+    }
+  }
+
+  async function handlePrimaryAddAction() {
+    try {
+      const rawUsers = buildSelectedYoutubeUsers();
+
+      if (!rawUsers.length) {
+        await showErr('Select at least 1 creator.');
+        return;
+      }
+
+      const payloadUsers = rawUsers.map((user) => ({
+        ...user,
+        channelId: user.channelId || user.userId || null,
+      }));
+
+      const targetFolderId = folderId || selectedFolderId || '';
+      const targetFolder = folders.find((f) => f._id === targetFolderId);
+      const targetFolderName = targetFolder?.title || activeFolderName || 'folder';
+
+      if (targetFolderId && selectedNewCount === 0) {
+        await swal({
+          title: 'Already Added',
+          text: `All selected creators are already added in ${targetFolderName}.`,
+          icon: 'info',
+        });
+        return;
+      }
+
+      if (folderId) {
+        const resp = await post<ImportYoutubeToFolderResponse>(`/pitch-folders/${folderId}/import-youtube`, {
+          rawUsers: payloadUsers,
+        });
+
+        const added = Number(resp?.added || 0);
+        const skipped = Number(resp?.skipped ?? Math.max(0, payloadUsers.length - added));
+
+        await swal({
+          title: added > 0 ? 'Done' : 'Already Added',
+          text:
+            added > 0 && skipped > 0
+              ? `${added} creator${added === 1 ? '' : 's'} added to ${targetFolderName}. ${skipped} already added.`
+              : added > 0
+                ? `${added} creator${added === 1 ? '' : 's'} added to ${targetFolderName}.`
+                : `${skipped} creator${skipped === 1 ? '' : 's'} already added in ${targetFolderName}.`,
+          icon: added > 0 ? 'success' : 'info',
+        });
+
+        clearSelection();
+        await loadActiveFolderHandles(folderId);
+        return;
+      }
+
+      if (selectedFolderId) {
+        const resp = await post<ImportYoutubeToFolderResponse>(`/pitch-folders/${selectedFolderId}/import-youtube`, {
+          rawUsers: payloadUsers,
+        });
+
+        const added = Number(resp?.added || 0);
+        const skipped = Number(resp?.skipped ?? Math.max(0, payloadUsers.length - added));
+
+        await swal({
+          title: added > 0 ? 'Done' : 'Already Added',
+          text:
+            added > 0 && skipped > 0
+              ? `${added} creator${added === 1 ? '' : 's'} added to ${targetFolderName}. ${skipped} already added.`
+              : added > 0
+                ? `${added} creator${added === 1 ? '' : 's'} added to ${targetFolderName}.`
+                : `${skipped} creator${skipped === 1 ? '' : 's'} already added in ${targetFolderName}.`,
+          icon: added > 0 ? 'success' : 'info',
+        });
+
+        clearSelection();
+        await loadActiveFolderHandles(selectedFolderId);
+        return;
+      }
+
+      if (campaignId) {
+        await post('/pipeline/bulk-add', {
+          campaignId,
+          modashIds: [],
+          rawUsers: payloadUsers,
+        });
+
+        await swal({
+          title: 'Done',
+          text: 'Added to outreach pipeline.',
+          icon: 'success',
+        });
+
+        clearSelection();
+        return;
+      }
+
+      await showErr('No folder or campaign selected.');
+    } catch (e: any) {
+      await showErr(e?.message || 'Failed to add creators.');
+    }
+  }
+
+  const activeFolderName = useMemo(() => {
+    if (folderId) {
+      return folders.find((f) => f._id === folderId)?.title || 'Folder';
+    }
+
+    if (selectedFolderId) {
+      return folders.find((f) => f._id === selectedFolderId)?.title || 'Folder';
+    }
+
+    return '';
+  }, [folderId, selectedFolderId, folders]);
+
+  const primaryActionLabel = useMemo(() => {
+    if (folderId) return `Add on ${activeFolderName || 'Folder'}`;
+    if (selectedFolderId) return `Add on ${activeFolderName || 'Folder'}`;
+    if (campaignId) return 'Add to Outreach';
+    return 'Apply';
+  }, [folderId, selectedFolderId, campaignId, activeFolderName, selectedCount, selectedNewCount]);
+
   useEffect(() => {
-    loadSaved(1, filtersActive, '', sortModeActive);
+    loadSaved(1, filtersActive, '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     const raw = query.trim();
+
     if (!raw) {
       setSearchHint('');
       return;
     }
 
-    const maybeHandle = buildSavedSearchText(raw);
-    if (isValidHandle(maybeHandle)) {
-      const existing = profilesByHandle.get(maybeHandle.toLowerCase());
-      setSearchHint(existing ? 'Already saved. (Auto search is ON) Press Open Profile to scroll to it.' : 'Not saved yet. Press Search & Save.');
-    } else {
-      setSearchHint('Auto search is ON. Keep typing to filter saved influencers.');
+    if (searchIntent.isHandle) {
+      const existing = profilesByHandle.get(searchIntent.handle.toLowerCase());
+      setSearchHint(
+        existing
+          ? 'Handle already saved. Search will open the saved profile.'
+          : 'Explicit handle detected. Search will fetch full creator details first. You can save after preview.',
+      );
+      return;
     }
-  }, [query, profilesByHandle]);
+
+    setSearchHint('Keyword search runs live on YouTube. Use View Details to fetch full creator data, then save only if needed.');
+  }, [query, searchIntent, profilesByHandle]);
 
   function upsertProfile(doc: InfluencerProfileDoc) {
     setProfiles((prev) => {
@@ -809,56 +2079,39 @@ export default function YoutubeHandlePanel() {
 
   function openDetailsModal(p: InfluencerProfileDoc) {
     setDetailsHandleId(p.handleId);
-
-    setDetailsForm({
-      email: p.email || '',
-      lastSponsor: p.lastSponsor || '',
-      managedByAgency: p.managedByAgency === true ? 'yes' : p.managedByAgency === false ? 'no' : 'unknown',
-      topAudienceCountry: p.topAudienceCountry || '',
-      averageAudienceAge: p.averageAudienceAge != null ? String(p.averageAudienceAge) : '',
-      lastContactedAt: toDateInputValue(p.lastContactedAt),
-      followUpDates: Array.isArray(p.followUpDates) ? p.followUpDates.map((x) => toDateInputValue(x)).filter(Boolean).join(', ') : '',
-      workingHandle: p.workingHandle || '',
-    });
-
+    setDetailsForm({ email: p.email || '' });
     setDetailsModalOpen(true);
   }
 
   async function onSearch(e: React.FormEvent) {
     e.preventDefault();
 
-    const h = normalizeHandle(query);
-    if (!h || !isValidHandle(h)) {
-      await showErr('Please enter a valid handle like @MrBeast (or MrBeast).');
+    const raw = query.trim();
+    if (!raw) {
+      await showErr('Please enter a handle or keyword.');
       return;
     }
 
-    const existing = profilesByHandle.get(h.toLowerCase());
-    if (existing?.handleId) {
-      openAndScrollTo(existing.handleId);
+    clearSelection();
+
+    if (searchIntent.isHandle) {
+      if (existingProfile?.handleId) {
+        setGlobalResult(null);
+        openAndScrollTo(existingProfile.handleId);
+        return;
+      }
+
+      await openPreview({ handle: searchIntent.handle });
       return;
     }
 
-    setSearchLoading(true);
-    try {
-      const resp = await post<SyncResponse>('/youtube/handel-data', { handle: h, videosLimit: 15 });
-      if (resp?.status !== 'ok' || !resp?.data?.handleId) throw new Error('Sync failed');
-
-      upsertProfile(resp.data);
-      openAndScrollTo(resp.data.handleId);
-      setSearchHint('Fetched & saved. Expanded below.');
-      setQuery(h);
-    } catch (e: any) {
-      await showErr(e?.message || 'Failed to fetch from YouTube.');
-    } finally {
-      setSearchLoading(false);
-    }
+    await runGlobalSearch(raw);
   }
 
   async function saveDetails() {
     const payload: any = { handleId: detailsHandleId };
-
     const email = detailsForm.email.trim();
+
     if (email) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.toLowerCase())) {
         await showErr('Enter a valid email.');
@@ -869,30 +2122,9 @@ export default function YoutubeHandlePanel() {
       payload.email = null;
     }
 
-    payload.lastSponsor = detailsForm.lastSponsor.trim() || null;
-    payload.topAudienceCountry = detailsForm.topAudienceCountry.trim() || null;
-    payload.workingHandle = detailsForm.workingHandle.trim() || null;
-
-    payload.managedByAgency =
-      detailsForm.managedByAgency === 'yes' ? true : detailsForm.managedByAgency === 'no' ? false : null;
-
-    if (detailsForm.averageAudienceAge.trim()) {
-      const n = Number(detailsForm.averageAudienceAge.trim());
-      if (!Number.isFinite(n) || n < 0 || n > 120) {
-        await showErr('Average audience age must be 0–120.');
-        return;
-      }
-      payload.averageAudienceAge = n;
-    } else {
-      payload.averageAudienceAge = null;
-    }
-
-    payload.lastContactedAt = detailsForm.lastContactedAt ? detailsForm.lastContactedAt : null;
-    payload.followUpDates = parseFollowUps(detailsForm.followUpDates);
-
     setDetailsSaving(true);
     try {
-      const resp = await post<UpdateManualResponse>('/youtube/profile/update-manual', payload);
+      const resp = await post<UpdateManualResponse>('/youtube/update-manual', payload);
       if (resp?.status !== 'ok') throw new Error('Failed to save details');
       upsertProfile(resp.data);
       setDetailsModalOpen(false);
@@ -906,702 +2138,600 @@ export default function YoutubeHandlePanel() {
   function applyFilters() {
     const next = { ...filtersDraft };
     setFiltersActive(next);
+    filtersActiveRef.current = next;
+    clearSelection();
 
-    const sortNext = sortModeDraft;
-    setSortModeActive(sortNext);
+    loadSaved(1, next, buildSavedSearchText(query));
 
-    loadSaved(1, next, buildSavedSearchText(query), sortNext);
+    if (query.trim() && !searchIntent.isHandle) {
+      runGlobalSearch(query.trim(), next);
+    }
+
+    setFilterModalOpen(false);
   }
 
   function clearFilters() {
     const empty: InfluencerFilters = {
-      followersMin: '1000',
-      followersMax: '1000000',
+      subscriberRange: '',
       countries: [],
       category: '',
+      avgViewsMin: '',
+      lastUploadDays: '',
+      sortBy: 'relevance',
     };
+
     setFiltersDraft(empty);
     setFiltersActive(empty);
+    filtersActiveRef.current = empty;
+    clearSelection();
 
-    setSortModeDraft('engagement_upload');
-    setSortModeActive('engagement_upload');
+    loadSaved(1, empty, buildSavedSearchText(query));
 
-    loadSaved(1, empty, buildSavedSearchText(query), 'engagement_upload');
-  }
-
-  const activeChips = useMemo(() => chipText(buildFilterPayload(filtersActive)), [filtersActive]);
-
-  async function downloadCsv() {
-    const n = parseInt(downloadLimit, 10);
-    if (!Number.isFinite(n) || n <= 0) {
-      await showErr('Enter a valid download count (e.g. 500).');
-      return;
+    if (query.trim() && !searchIntent.isHandle) {
+      runGlobalSearch(query.trim(), empty);
     }
 
-    setDownloadLoading(true);
-    try {
-      const filterPayload = buildFilterPayload(filtersActive);
-      const apiSort = sortToApi(sortModeActive);
-
-      const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
-      const url = API_BASE ? `${API_BASE}/youtube/export-csv` : `/youtube/export-csv`;
-
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          limit: n,
-          sortBy: apiSort.sortBy,
-          sortOrder: apiSort.sortOrder,
-          search: buildSavedSearchText(query) || '',
-          ...filterPayload,
-        }),
-      });
-
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(txt || `Export failed (${resp.status})`);
-      }
-
-      const blob = await resp.blob();
-
-      let filename = '';
-      const cd = resp.headers.get('content-disposition') || '';
-      const m = cd.match(/filename="([^"]+)"/i);
-      if (m?.[1]) filename = m[1];
-
-      if (!filename) {
-        const ts = new Date();
-        const stamp = `${ts.getFullYear()}${String(ts.getMonth() + 1).padStart(2, '0')}${String(ts.getDate()).padStart(2, '0')}_${String(
-          ts.getHours(),
-        ).padStart(2, '0')}${String(ts.getMinutes()).padStart(2, '0')}${String(ts.getSeconds()).padStart(2, '0')}`;
-        filename = `influencers_${stamp}.csv`;
-      }
-
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (e: any) {
-      await showErr(e?.message || 'Failed to download CSV.');
-    } finally {
-      setDownloadLoading(false);
-    }
-  }
-
-  async function downloadSelectedCsv() {
-    if (!selectedHandleIds.length) {
-      await showErr('Select at least 1 influencer.');
-      return;
-    }
-
-    setDownloadLoading(true);
-    try {
-      const apiSort = sortToApi(sortModeActive);
-
-      const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || '').replace(/\/$/, '');
-      const url = API_BASE ? `${API_BASE}/youtube/export-csv` : `/youtube/export-csv`;
-
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          handleIds: selectedHandleIds,
-          sortBy: apiSort.sortBy,
-          sortOrder: apiSort.sortOrder,
-        }),
-      });
-
-      if (!resp.ok) {
-        const txt = await resp.text().catch(() => '');
-        throw new Error(txt || `Export failed (${resp.status})`);
-      }
-
-      const blob = await resp.blob();
-
-      let filename = '';
-      const cd = resp.headers.get('content-disposition') || '';
-      const m = cd.match(/filename="([^"]+)"/i);
-      if (m?.[1]) filename = m[1];
-      if (!filename) filename = `selected_influencers_${selectedHandleIds.length}.csv`;
-
-      const blobUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(blobUrl);
-    } catch (e: any) {
-      await showErr(e?.message || 'Failed to download selected CSV.');
-    } finally {
-      setDownloadLoading(false);
-    }
+    setFilterModalOpen(false);
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Header */}
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">YouTube Influencer Profiles</h1>
+          <h1 className="mb-2 text-3xl font-bold text-slate-900">YouTube Influencer Profiles</h1>
           <p className="text-slate-600">
-            Saved list loads from DB. Type to search saved influencers. Press Search to fetch &amp; save from YouTube.
+            Search YouTube globally, preview full creator data, save the creators you want, and add selected creators to outreach when a campaign is active.
           </p>
         </div>
 
-        {/* Search + Filters card */}
-        <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-slate-50 px-6 py-5">
-            <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Search Influencer</h2>
-                <p className="text-sm text-slate-600 mt-0.5">
-                  ✅ Auto-search saved influencers while typing. Use Search &amp; Save only when not saved.
+                <h2 className="text-2xl font-bold text-slate-900">Discovery</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Use keywords for live YouTube search. Use <span className="font-semibold">@handle</span> when you want to save a creator.
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex flex-wrap items-center gap-2">
                 {activeChips.length ? (
                   <>
-                    {activeChips.slice(0, 4).map((c) => (
+                    {activeChips.slice(0, 5).map((c) => (
                       <span
                         key={c}
-                        className="text-xs px-3 py-1 rounded-full bg-white text-slate-700 border border-slate-200 shadow-[0_1px_0_rgba(0,0,0,0.03)]"
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow-[0_1px_0_rgba(0,0,0,0.03)]"
                       >
                         {c}
                       </span>
                     ))}
-                    {activeChips.length > 4 ? (
-                      <span className="text-xs px-3 py-1 rounded-full bg-slate-900 text-white">
-                        +{activeChips.length - 4}
+                    {activeChips.length > 5 ? (
+                      <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-white">
+                        +{activeChips.length - 5}
                       </span>
                     ) : null}
                   </>
                 ) : (
-                  <span className="text-xs px-3 py-1 rounded-full bg-white text-slate-600 border border-slate-200">
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-600">
                     No active filters
                   </span>
                 )}
+
+                {campaignId ? (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+                    Outreach mode active
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
 
-          <form onSubmit={onSearch} className="p-6 space-y-5">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
-              <div className="lg:col-span-7">
-                <label className="text-xs font-medium text-slate-600 mb-2 block">
-                  YouTube Handle (auto-search saved)
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    className="w-full pl-12 pr-4 py-3.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
-                    value={query}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setQuery(v);
+          <form onSubmit={onSearch} className="p-6">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+              <div className="grid grid-cols-1 items-end gap-3 lg:grid-cols-12">
+                <div className="lg:col-span-7">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Search keywords or explicit handles
+                  </label>
 
-                      // ✅ Debounced DB search for saved influencers
-                      if (typeSearchRef.current) clearTimeout(typeSearchRef.current);
+                  <div className="relative">
+                    <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      className="w-full rounded-xl border border-slate-300 bg-white py-3.5 pl-12 pr-4 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      value={query}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setQuery(v);
 
-                      typeSearchRef.current = setTimeout(() => {
-                        const searchText = buildSavedSearchText(v);
-                        if (!searchText) {
-                          loadSaved(1, filtersActiveRef.current, '', sortModeActiveRef.current);
-                          return;
-                        }
-                        loadSaved(1, filtersActiveRef.current, searchText, sortModeActiveRef.current);
-                      }, 350);
+                        if (typeSearchRef.current) clearTimeout(typeSearchRef.current);
+
+                        typeSearchRef.current = setTimeout(() => {
+                          const searchText = buildSavedSearchText(v);
+                          loadSaved(1, filtersActiveRef.current, searchText);
+                        }, 350);
+                      }}
+                      placeholder="e.g. powerstation reviews, tech creator, @MrBeast"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:col-span-5">
+                  <button
+                    className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    type="submit"
+                    disabled={searchLoading}
+                  >
+                    {searchLoading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Searching…
+                      </>
+                    ) : searchIntent.isHandle ? (
+                      existingProfile ? 'Open Profile' : 'Preview Creator'
+                    ) : (
+                      'Search'
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 font-semibold text-slate-800 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => {
+                      clearSelection();
+                      loadSaved(1, filtersActive, buildSavedSearchText(query));
                     }}
-                    placeholder="e.g. @MrBeast"
-                  />
-                </div>
-              </div>
-
-              <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  className="w-full h-[52px] px-5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  type="submit"
-                  disabled={searchLoading}
-                  title={existingProfile ? 'Open saved influencer' : 'Fetch from YouTube and save'}
-                >
-                  {searchLoading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Searching…
-                    </>
-                  ) : existingProfile ? (
-                    'Open Profile'
-                  ) : (
-                    'Search & Save'
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className="w-full h-[52px] px-5 rounded-lg font-semibold border border-slate-300 text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  onClick={() => loadSaved(1, filtersActive, buildSavedSearchText(query), sortModeActive)}
-                  disabled={listLoading}
-                  title="Reload list from database (keeps current typed search)"
-                >
-                  <RefreshCw className={`w-4 h-4 ${listLoading ? 'animate-spin' : ''}`} />
-                  Refresh List
-                </button>
-              </div>
-            </div>
-
-            {searchHint ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex gap-3 items-start">
-                <div className="mt-0.5">
-                  <Info className="w-5 h-5 text-slate-500" />
-                </div>
-                <p className="text-sm text-slate-700">{searchHint}</p>
-              </div>
-            ) : null}
-
-            {/* Filters */}
-            <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-              <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">Filters</div>
-                  <div className="text-xs text-slate-600 mt-0.5">Country is multi-select. Subscribers range default: 1K–1M.</div>
-                </div>
-
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    className="px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={clearFilters}
                     disabled={listLoading}
                   >
-                    Clear
+                    <RefreshCw className={`h-4 w-4 ${listLoading ? 'animate-spin' : ''}`} />
+                    Refresh Saved
                   </button>
+
                   <button
                     type="button"
-                    className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={applyFilters}
-                    disabled={listLoading}
+                    className="flex h-[52px] w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 font-semibold text-slate-800 transition-colors hover:bg-slate-50"
+                    onClick={() => setFilterModalOpen(true)}
                   >
-                    Apply Filters
+                    <Filter className="h-4 w-4" />
+                    Filters
                   </button>
                 </div>
               </div>
 
-              <div className="p-5">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  {/* Subscribers Min */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="text-[11px] font-semibold text-slate-600 mb-2 block uppercase tracking-wide">
-                      Subscribers Min
-                    </label>
-                    <input
-                      className="w-full px-3 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                      value={filtersDraft.followersMin || ''}
-                      onChange={(e) => setFiltersDraft((p) => ({ ...p, followersMin: e.target.value }))}
-                      placeholder="1000"
-                      inputMode="numeric"
-                      min={0}
-                      max={1000000}
-                    />
-                    <p className="text-[11px] text-slate-500 mt-2">Default: 1,000</p>
+              {searchHint ? (
+                <div className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <div className="mt-0.5">
+                    <Info className="h-5 w-5 text-slate-500" />
                   </div>
-
-                  {/* Subscribers Max */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="text-[11px] font-semibold text-slate-600 mb-2 block uppercase tracking-wide">
-                      Subscribers Max
-                    </label>
-                    <input
-                      className="w-full px-3 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                      value={filtersDraft.followersMax || ''}
-                      onChange={(e) => setFiltersDraft((p) => ({ ...p, followersMax: e.target.value }))}
-                      placeholder="1000000"
-                      inputMode="numeric"
-                      min={0}
-                      max={1000000}
-                    />
-                    <p className="text-[11px] text-slate-500 mt-2">Default: 1,000,000</p>
-                  </div>
-
-                  {/* Country multi-select */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="text-[11px] font-semibold text-slate-600 mb-2 block uppercase tracking-wide">
-                      Country (Multi-select)
-                    </label>
-                    <MultiCountrySelect
-                      value={filtersDraft.countries || []}
-                      onChange={(next) => setFiltersDraft((p) => ({ ...p, countries: next }))}
-                    />
-                    <p className="text-[11px] text-slate-500 mt-2">Pick multiple (US, IN, GB…)</p>
-                  </div>
-
-                  {/* Category */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="text-[11px] font-semibold text-slate-600 mb-2 block uppercase tracking-wide">
-                      Category
-                    </label>
-                    <input
-                      className="w-full px-3 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                      value={filtersDraft.category || ''}
-                      onChange={(e) => setFiltersDraft((p) => ({ ...p, category: e.target.value }))}
-                      placeholder="Entertainment or Lifestyle"
-                    />
-                    <p className="text-[11px] text-slate-500 mt-2">
-                      Multiple: <span className="font-mono">Entertainment,Lifestyle</span>
-                    </p>
-                  </div>
-
-                  {/* Sort */}
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <label className="text-[11px] font-semibold text-slate-600 mb-2 block uppercase tracking-wide">
-                      Sort
-                    </label>
-                    <select
-                      className="w-full px-3 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                      value={sortModeDraft}
-                      onChange={(e) => setSortModeDraft(e.target.value as SortMode)}
-                    >
-                      <option value="engagement_upload">Engagement ↓ then Uploads/week ↓</option>
-                      <option value="engagement">Engagement ↓</option>
-                      <option value="uploads">Uploads/week ↓</option>
-                      <option value="created">Newest (CreatedAt) ↓</option>
-                    </select>
-                    <p className="text-[11px] text-slate-500 mt-2">Default: Engagement + Uploads/week</p>
-                  </div>
+                  <p className="text-sm text-slate-700">{searchHint}</p>
                 </div>
-
-                {/* ✅ CSV row */}
-                <div className="mt-5 pt-5 border-t border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="relative">
-                      <input
-                        className="w-[150px] px-3 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white pr-14"
-                        value={downloadLimit}
-                        onChange={(e) => setDownloadLimit(e.target.value)}
-                        placeholder="500"
-                        inputMode="numeric"
-                        title="How many rows to export"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">rows</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center gap-2"
-                      onClick={downloadCsv}
-                      disabled={downloadLoading}
-                      title="Download CSV with active filters + typed search"
-                    >
-                      <Download className="w-4 h-4" />
-                      {downloadLoading ? 'Downloading…' : 'Download CSV'}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm flex items-center gap-2"
-                      onClick={downloadSelectedCsv}
-                      disabled={downloadLoading || selectedCount === 0}
-                      title="Download CSV for selected influencers only"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download Selected ({selectedCount})
-                    </button>
-
-                    {selectedCount ? (
-                      <button
-                        type="button"
-                        className="px-4 py-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 text-sm font-semibold transition-colors"
-                        onClick={clearSelection}
-                        disabled={downloadLoading}
-                        title="Clear selected influencers"
-                      >
-                        Clear Selection
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
+              ) : null}
             </div>
           </form>
         </div>
 
-        {/* List */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-start justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-slate-600">
-                <b className="text-slate-900">{formatNumber(total)}</b> total
-              </span>
-              {selectedCount ? (
-                <span className="text-xs px-3 py-1 rounded-full bg-emerald-600 text-white">Selected: {selectedCount}</span>
-              ) : null}
+        {globalResult ? (
+          <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 bg-white px-6 py-5">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">Live YouTube Results for “{globalResult.query}”</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {formatNumber(globalResult.channelsFound)} creators • {formatNumber(globalResult.videoHits)} matched videos
+                </p>
+              </div>
 
-              {activeChips.length ? (
-                <div className="flex flex-wrap gap-2 items-center">
-                  {activeChips.map((c) => (
-                    <span key={c} className="text-xs px-3 py-1 rounded-full bg-slate-100 text-slate-700 border">
-                      {c}
-                    </span>
-                  ))}
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <Checkbox
+                    checked={
+                      visibleLiveRecommendations.length
+                        ? visibleLiveRecommendations.every((item) => !!selectedIds[liveRowKey(item)])
+                          ? (true as any)
+                          : visibleLiveRecommendations.some((item) => !!selectedIds[liveRowKey(item)])
+                            ? ('indeterminate' as any)
+                            : (false as any)
+                        : (false as any)
+                    }
+                    onCheckedChange={(v: any) => {
+                      const checked = !!v;
+                      checked ? selectAllLive(visibleLiveRecommendations) : clearAllLive(visibleLiveRecommendations);
+                    }}
+                  />
+                  Select visible
+                </label>
+
+                {selectedCount ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!folderId ? (
+                        <FolderSelect
+                          folders={folders}
+                          value={selectedFolderId}
+                          onChange={setSelectedFolderId}
+                        />
+                      ) : null}
+
+                      <button
+                        type="button"
+                        className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={handlePrimaryAddAction}
+                        disabled={
+                          foldersLoading ||
+                          disableAddToFolder ||
+                          (!folderId && !selectedFolderId && !campaignId)
+                        }
+                      >
+                        {primaryActionLabel}
+                      </button>
+                    </div>
+
+                    {(folderId || selectedFolderId) && selectedAlreadyAddedCount > 0 ? (
+                      <div className="text-xs font-medium text-amber-700">
+                        {selectedAlreadyAddedCount} selected creator{selectedAlreadyAddedCount === 1 ? '' : 's'} already in this folder.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={() => {
+                    clearAllLive(visibleLiveRecommendations);
+                    setGlobalResult(null);
+                  }}
+                >
+                  Clear Results
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-slate-50/70 p-5">
+              {!globalResult.recommendations?.length ? (
+                <div className="px-6 py-10 text-center text-slate-500">No live results found.</div>
+              ) : (
+                <div className="space-y-5">
+                  {visibleLiveRecommendations.map((item) => {
+                    const saved = item.handle ? profilesByHandle.get(String(item.handle).toLowerCase()) : undefined;
+                    return (
+                      <GlobalSearchCard
+                        key={item.channelId || item.handle || item.title}
+                        item={item}
+                        savedProfile={saved}
+                        onOpenSaved={(id) => openAndScrollTo(id)}
+                        onViewDetails={(payload) => openPreview(payload)}
+                        loading={searchLoading}
+                        selected={!!selectedIds[liveRowKey(item)]}
+                        onToggleSelect={(checked) => toggleSelect(liveRowKey(item), checked)}
+                      />
+                    );
+                  })}
+
+                  {globalResult.recommendations.length > 10 || globalHasMore ? (
+                    <div className="flex justify-center pt-4">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                        onClick={loadMoreGlobalResults}
+                        disabled={globalLoadingMore}
+                      >
+                        {globalLoadingMore ? 'Loading...' : 'Load More'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 bg-white px-6 py-5">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">
+                {formatNumber(total)} Saved Creator Result{total === 1 ? '' : 's'}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                This section is your saved database. Typing in the search box filters these saved creators too.
+              </p>
+            </div>
+
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-xs text-white">Sort: {sortLabel(filtersActive.sortBy)}</span>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-slate-50 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                checked={
+                  profiles.length
+                    ? profiles.every((p) => !!selectedIds[savedRowKey(p)])
+                      ? (true as any)
+                      : profiles.some((p) => !!selectedIds[savedRowKey(p)])
+                        ? ('indeterminate' as any)
+                        : (false as any)
+                    : (false as any)
+                }
+                onCheckedChange={(v: any) => {
+                  const checked = !!v;
+                  checked ? selectAllSaved(profiles) : clearAllSaved(profiles);
+                }}
+              />
+              <span className="text-sm font-medium text-slate-700">Select saved creators</span>
+
+              {selectedCount ? (
+                <span className="text-sm text-slate-600">
+                  Selected <b>{selectedCount}</b>
+                </span>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+
+              {selectedCount ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {!folderId ? (
+                    <FolderSelect
+                      folders={folders}
+                      value={selectedFolderId}
+                      onChange={setSelectedFolderId}
+                    />
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                    onClick={handlePrimaryAddAction}
+                    disabled={foldersLoading || (!folderId && !selectedFolderId && !campaignId)}
+                  >
+                    {primaryActionLabel}
+                  </button>
                 </div>
               ) : null}
-
-              <span className="text-xs px-3 py-1 rounded-full bg-slate-900 text-white">
-                Sort: {sortModeActive === 'engagement_upload'
-                  ? 'Engagement + Uploads'
-                  : sortModeActive === 'engagement'
-                    ? 'Engagement'
-                    : sortModeActive === 'uploads'
-                      ? 'Uploads/week'
-                      : 'Newest'}
-              </span>
             </div>
           </div>
 
-          {/* Table header */}
-          <div className="px-6 py-3 bg-slate-50 border-b border-slate-200">
-            <div className="grid grid-cols-12 items-center gap-3">
-              <div className="col-span-1 flex items-center">
-                <Checkbox
-                  checked={headerCheckState as any}
-                  onCheckedChange={(v: any) => {
-                    const checked = !!v;
-                    checked ? selectAllOnPage(profiles) : clearSelectionOnPage(profiles);
-                  }}
-                />
+          <div className="bg-slate-50/70 p-5">
+            {listLoading && profiles.length === 0 ? (
+              <div className="px-6 py-12 text-center text-slate-500">
+                <RefreshCw className="mx-auto mb-2 h-8 w-8 animate-spin" />
+                Loading profiles...
               </div>
+            ) : null}
 
-              <div className="col-span-9">
-                <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Handle</div>
+            {!listLoading && profiles.length === 0 ? (
+              <div className="px-6 py-12 text-center text-slate-500">
+                No matching saved profiles. Use keywords for live search, or use an explicit @handle to save from YouTube.
               </div>
+            ) : null}
 
-              <div className="col-span-2 text-right">
-                <div className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">Actions</div>
-              </div>
-            </div>
-          </div>
+            <div className="space-y-5">
+              {profiles.map((p) => {
+                const cardId = getCardId(p);
+                const isOpen = !!expanded[cardId];
+                const thumb = getThumbUrl(p.thumbnails);
+                const channelUrl = ytChannelUrl(p);
+                const topics = getTopicNames(p);
+                const selectionKey = savedRowKey(p);
+                const checked = !!selectedIds[selectionKey];
 
-          {listLoading && profiles.length === 0 ? (
-            <div className="px-6 py-12 text-center text-slate-500">
-              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2" />
-              Loading profiles...
-            </div>
-          ) : null}
-
-          {!listLoading && profiles.length === 0 ? (
-            <div className="px-6 py-12 text-center text-slate-500">
-              No matching saved profiles. Type a handle or press Search &amp; Save.
-            </div>
-          ) : null}
-
-          <div className="divide-y divide-slate-200">
-            {profiles.map((p) => {
-              const cardId = getCardId(p);
-              const selectId = getSelectId(p);
-              const isOpen = !!expanded[cardId];
-              const checked = selectId ? !!selectedIds[selectId] : false;
-
-              const thumb = p.thumbnails?.default?.url || p.thumbnails?.medium?.url || p.thumbnails?.high?.url;
-              const channelUrl = ytChannelUrl(p);
-
-              const topics = getTopicNames(p);
-
-              return (
-                <div key={cardId} id={`card-${cardId}`} className="hover:bg-slate-50 transition-colors">
-                  <div className="px-6 py-4">
-                    <div className="grid grid-cols-12 items-start gap-3">
-                      {/* checkbox */}
-                      <div className="col-span-1 pt-2">
-                        <Checkbox
-                          checked={checked}
-                          disabled={!selectId}
-                          onCheckedChange={(v: any) => {
-                            if (!selectId) return;
-                            toggleSelect(selectId, !!v);
-                          }}
-                        />
-                      </div>
-
-                      {/* handle column */}
-                      <div className="col-span-9 min-w-0">
-                        <div className="flex items-center gap-3 mb-3">
-                          <div className="w-10 h-10 rounded-full overflow-hidden bg-slate-200 shrink-0">
-                            {thumb ? <img src={thumb} alt="" className="w-full h-full object-cover" loading="lazy" /> : null}
+                return (
+                  <div
+                    key={cardId}
+                    id={`card-${cardId}`}
+                    className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                  >
+                    <div className="p-6">
+                      <div className="flex flex-col gap-5 xl:flex-row xl:items-start">
+                        <div className="flex min-w-0 flex-1 items-start gap-4">
+                          <div className="pt-2">
+                            <Checkbox checked={checked} onCheckedChange={(v: any) => toggleSelect(selectionKey, !!v)} />
                           </div>
 
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <h3 className="text-lg font-semibold text-slate-900 truncate">{p.handle || '—'}</h3>
+                          <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-slate-200 ring-4 ring-slate-100">
+                            {thumb ? <img src={thumb} alt="" className="h-full w-full object-cover" loading="lazy" /> : null}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="truncate text-3xl font-bold leading-tight text-slate-900">
+                                {p.title || p.handle || '—'}
+                              </h3>
+
                               {p.platform ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded-full border border-slate-300 text-slate-600">
+                                <span className="rounded-full border border-slate-300 px-2 py-0.5 text-[10px] text-slate-600">
                                   {p.platform}
                                 </span>
                               ) : null}
+
+                              {p.country ? (
+                                <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700">
+                                  {p.country}
+                                </span>
+                              ) : null}
                             </div>
-                            <div className="text-sm text-slate-600 truncate">{p.title || '—'}</div>
-                          </div>
-                        </div>
 
-                        {/* metrics */}
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-3">
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1">Country</div>
-                            <div className="text-sm font-medium text-slate-900">{p.country || '—'}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1">Subscribers</div>
-                            <div className="text-sm font-medium text-slate-900">{formatNumber(p.subscriberCount)}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1">Avg Views (15)</div>
-                            <div className="text-sm font-medium text-slate-900">{formatNumber(p.avgViewsLast15)}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1">Engagement</div>
-                            <div className="text-sm font-medium text-slate-900">{formatPercent(p.engagementRateLast15)}</div>
-                          </div>
-                          <div className="hidden lg:block">
-                            <div className="text-xs text-slate-500 mb-1">Uploads/week</div>
-                            <div className="text-sm font-medium text-slate-900">
-                              {p.uploadFrequencyPerWeek != null ? p.uploadFrequencyPerWeek : '—'}
+                            <div className="mt-2 flex flex-wrap items-center gap-3">
+                              <div className="text-lg font-semibold text-blue-600">{p.handle || '—'}</div>
+
+                              {p.lastSponsor ? (
+                                <span className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs text-orange-700">
+                                  Last Sponsor: {p.lastSponsor}
+                                </span>
+                              ) : null}
+
+                              {p.managedByAgency != null ? (
+                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs text-slate-700">
+                                  Agency: {formatBool(p.managedByAgency)}
+                                </span>
+                              ) : null}
                             </div>
-                          </div>
-                          <div className="hidden lg:block">
-                            <div className="text-xs text-slate-500 mb-1">Email</div>
-                            <div className="text-sm font-medium text-slate-900 truncate">{p.email || '—'}</div>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-                          <span>Synced: {formatDate(p.syncedAt)}</span>
-                          {p.lastSponsor ? <span>Last Sponsor: {p.lastSponsor}</span> : null}
-                          {p.managedByAgency != null ? <span>Agency: {formatBool(p.managedByAgency)}</span> : null}
-                        </div>
-
-                        {/* Topic labels */}
-                        {topics.length ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            {topics.slice(0, 4).map((t) => (
-                              <span
-                                key={t}
-                                className="text-[11px] px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200"
-                                title={t}
-                              >
-                                {t}
-                              </span>
-                            ))}
-                            {topics.length > 4 ? (
-                              <span className="text-[11px] px-2.5 py-1 rounded-full bg-slate-900 text-white">
-                                +{topics.length - 4}
-                              </span>
+                            {topics.length ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {topics.slice(0, 5).map((t) => (
+                                  <span
+                                    key={t}
+                                    className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[11px] text-slate-700"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                                {topics.length > 5 ? (
+                                  <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] text-white">
+                                    +{topics.length - 5} Categories
+                                  </span>
+                                ) : null}
+                              </div>
                             ) : null}
+
+                            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-500">
+                              <span>Synced: {formatDate(p.syncedAt)}</span>
+                              <span>Last Upload: {formatDate(p.lastUploadAt)}</span>
+                              <span>Email: {p.email || '—'}</span>
+                            </div>
                           </div>
-                        ) : null}
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:flex-row xl:w-[230px] xl:flex-col">
+                          {p.channelId ? (
+                            <Link
+                              href={`/mediakit/${encodeURIComponent(p.channelId)}?platform=${encodeURIComponent(
+                                String(p.platform || 'youtube').toLowerCase(),
+                              )}&handle=${encodeURIComponent(String(p.handle || ''))}${campaignId ? `&campaignId=${encodeURIComponent(campaignId)}` : ''
+                                }`}
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                            >
+                              <Info className="h-4 w-4" />
+                              Load Advanced Insights
+                            </Link>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled
+                              className="flex w-full cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-400"
+                            >
+                              <Info className="h-4 w-4" />
+                              Load Advanced Insights
+                            </button>
+                          )}
+
+                          {channelUrl ? (
+                            <a
+                              href={channelUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                              View Channel
+                            </a>
+                          ) : null}
+
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+                            onClick={() => openDetailsModal(p)}
+                          >
+                            <Mail className="h-4 w-4" />
+                            Update Email
+                          </button>
+
+                          <button
+                            type="button"
+                            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-100"
+                            onClick={() => toggleExpand(cardId)}
+                          >
+                            {isOpen ? 'Hide Intelligence' : 'Show Intelligence'}
+                            <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                          </button>
+                        </div>
                       </div>
 
-                      {/* actions */}
-                      <div className="col-span-2 flex items-center justify-end gap-2">
-                        {channelUrl ? (
-                          <a
-                            href={channelUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-                            title="Open channel"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            Channel
-                          </a>
-                        ) : null}
-
-                        <button
-                          type="button"
-                          className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-                          onClick={() => openDetailsModal(p)}
-                        >
-                          <Mail className="w-4 h-4" />
-                          Add
-                        </button>
-
-                        <button
-                          type="button"
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                          onClick={() => toggleExpand(cardId)}
-                          aria-expanded={isOpen}
-                          aria-label="Expand"
-                        >
-                          <ChevronDown className={`w-5 h-5 text-slate-600 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                        </button>
+                      <div className="mt-6 grid grid-cols-2 gap-4 xl:grid-cols-4">
+                        <MetricCard label="Subscriber Base" value={formatNumber(p.subscriberCount)} />
+                        <MetricCard label="Avg. View Velocity" value={formatNumber(p.avgViewsLast15)} />
+                        <MetricCard label="Audience Engagement" value={formatPercent(p.engagementRateLast15)} />
+                        <MetricCard
+                          label="Content Frequency"
+                          value={p.uploadFrequencyPerWeek != null ? `${p.uploadFrequencyPerWeek}/wk` : '—'}
+                        />
                       </div>
                     </div>
 
                     {isOpen ? (
-                      <div className="mt-6 pt-6 border-t border-slate-200 space-y-6">
-                        {p.bannerUrl ? (
-                          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                            <img src={p.bannerUrl} alt="" className="w-full h-40 object-cover" loading="lazy" />
-                          </div>
-                        ) : null}
+                      <div className="border-t border-slate-200 bg-slate-50/80 p-6">
+                        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                            <div className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Channel Intelligence
+                            </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                          <div className="bg-slate-50 rounded-xl p-4">
-                            <h4 className="font-semibold text-slate-900 mb-3">Channel Details</h4>
-                            <div className="space-y-2 text-sm">
-                              <Row label="Language" value={p.defaultLanguage || '—'} />
-                              <Row label="Channel ID" value={p.channelId || '—'} mono />
+                            <div className="space-y-3">
+                              <Row label="Operating Language" value={p.defaultLanguage || '—'} />
+                              <Row label="Verified Contact Email" value={p.email || '—'} />
+                              <Row label="Content Ecosystem" value={topics.length ? topics.join(', ') : '—'} />
+                              <Row label="Total Lifetime Views" value={formatNumber(p.totalViewCount)} />
                               <Row label="Total Videos" value={formatNumber(p.totalVideoCount)} />
-                              <Row label="Total Views" value={formatNumber(p.totalViewCount)} />
                               <Row label="Instagram" value={p.instagramHandle || '—'} />
-                              <Row label="Categories" value={topics.length ? topics.join(', ') : '—'} />
-                              <Row label="Last upload" value={formatDate(p.lastUploadAt)} />
-                              <Row label="Last video" value={p.lastVideoTitle || '—'} />
-
-                              {p.lastVideoId ? (
-                                <div className="pt-2">
-                                  <a
-                                    href={ytVideoUrl(p.lastVideoId)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700"
-                                  >
-                                    <ExternalLink className="w-4 h-4" />
-                                    Watch latest video
-                                  </a>
-                                </div>
-                              ) : null}
+                              <Row label="Last Video" value={p.lastVideoTitle || '—'} />
+                              <Row label="Latest Video Link" value={p.lastVideoId ? 'Available' : '—'} />
                             </div>
+
+                            {p.lastVideoId ? (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                <a
+                                  href={ytVideoUrl(p.lastVideoId)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                  Watch latest video
+                                </a>
+                              </div>
+                            ) : null}
                           </div>
 
-                          <div className="bg-slate-50 rounded-xl p-4">
-                            <h4 className="font-semibold text-slate-900 mb-3">Metrics</h4>
-                            <div className="space-y-2 text-sm">
-                              <Row label="Subscribers" value={formatNumber(p.subscriberCount)} />
-                              <Row label="Avg Views (last 15)" value={formatNumber(p.avgViewsLast15)} />
-                              <Row label="Engagement (last 15)" value={formatPercent(p.engagementRateLast15)} />
-                              <Row label="Uploads/week" value={p.uploadFrequencyPerWeek ?? '—'} />
-                              <Row label="Avg days between uploads" value={p.avgDaysBetweenUploads ?? '—'} />
-                              <Row label="Created" value={formatDate(p.createdAt)} />
-                              <Row label="Updated" value={formatDate(p.updatedAt)} />
-                              <Row label="Synced" value={formatDate(p.syncedAt)} />
+                          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                            <div className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Market Reliability
                             </div>
+
+                            <div className="space-y-3">
+                              <Row label="Account Creation" value={formatDate(p.createdAt)} />
+                              <Row
+                                label="Upload Consistency"
+                                value={p.avgDaysBetweenUploads != null ? `${p.avgDaysBetweenUploads} days gap` : '—'}
+                              />
+                              <Row label="Market Category" value={p.country || '—'} />
+                              <Row label="Top Audience Country" value={p.topAudienceCountry || '—'} />
+                              <Row
+                                label="Average Audience Age"
+                                value={p.averageAudienceAge != null ? String(p.averageAudienceAge) : '—'}
+                              />
+                              <Row label="Managed by Agency" value={formatBool(p.managedByAgency)} />
+                              <Row label="Last Contacted" value={formatDate(p.lastContactedAt)} />
+                              <Row label="Working Handle" value={p.workingHandle || '—'} />
+                            </div>
+
+                            {p.description ? (
+                              <div className="mt-4 border-t border-slate-200 pt-4">
+                                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                  Summary
+                                </div>
+                                <p className="whitespace-pre-line text-sm leading-6 text-slate-600">{p.description}</p>
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </div>
                     ) : null}
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
 
-          {/* Pagination */}
-          <div className="px-6 py-4 border-t border-slate-200 bg-white flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 bg-white px-6 py-4">
             <div className="text-sm text-slate-600">
               Page <span className="font-semibold text-slate-900">{page}</span>
               {total ? (
@@ -1614,15 +2744,16 @@ export default function YoutubeHandlePanel() {
 
             <div className="flex gap-2">
               <button
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => loadSaved(Math.max(1, page - 1), filtersActive, buildSavedSearchText(query), sortModeActive)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => loadSaved(Math.max(1, page - 1), filtersActive, buildSavedSearchText(query))}
                 disabled={listLoading || page <= 1}
               >
                 Previous
               </button>
+
               <button
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => loadSaved(page + 1, filtersActive, buildSavedSearchText(query), sortModeActive)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => loadSaved(page + 1, filtersActive, buildSavedSearchText(query))}
                 disabled={listLoading || !hasNext}
               >
                 Next
@@ -1632,141 +2763,291 @@ export default function YoutubeHandlePanel() {
         </div>
       </div>
 
-      {/* Details Modal */}
-      {detailsModalOpen ? (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
-            <div className="flex items-center justify-between p-6 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900">Add / Update Details</h3>
+      {filterModalOpen ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-6 py-5">
+              <div>
+                <h3 className="text-xl font-semibold text-slate-900">Search Parameters</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Refine your saved-database search with production-ready dropdown filters.
+                </p>
+              </div>
+
               <button
-                onClick={() => setDetailsModalOpen(false)}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                aria-label="Close"
+                type="button"
+                className="rounded-lg p-2 transition-colors hover:bg-slate-100"
+                onClick={() => setFilterModalOpen(false)}
+                aria-label="Close filters"
               >
-                <X className="w-5 h-5 text-slate-600" />
+                <X className="h-5 w-5 text-slate-600" />
               </button>
             </div>
 
-            <div className="p-6 space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Email Address</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.email}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, email: e.target.value }))}
-                    placeholder="brand@domain.com"
-                    type="email"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Working Handle</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.workingHandle}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, workingHandle: e.target.value }))}
-                    placeholder="@mrbeast_official"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Last Sponsor</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.lastSponsor}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, lastSponsor: e.target.value }))}
-                    placeholder="Brand name"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Managed by Agency?</label>
+            <div className="p-6">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Subscribers Range
+                  </label>
                   <select
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-white"
-                    value={detailsForm.managedByAgency}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, managedByAgency: e.target.value as any }))}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    value={filtersDraft.subscriberRange}
+                    onChange={(e) => setFiltersDraft((p) => ({ ...p, subscriberRange: e.target.value }))}
                   >
-                    <option value="unknown">Unknown</option>
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
+                    {SUBSCRIBER_RANGES.map((opt) => (
+                      <option key={opt.value || 'all'} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Top Audience Country</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.topAudienceCountry}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, topAudienceCountry: e.target.value }))}
-                    placeholder="US / IN / UK ..."
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Country
+                  </label>
+                  <MultiCountrySelect
+                    value={filtersDraft.countries || []}
+                    onChange={(next) => setFiltersDraft((p) => ({ ...p, countries: next }))}
                   />
                 </div>
 
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Average Audience Age</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.averageAudienceAge}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, averageAudienceAge: e.target.value }))}
-                    placeholder="24"
-                    inputMode="numeric"
-                  />
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Category
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    value={filtersDraft.category}
+                    onChange={(e) => setFiltersDraft((p) => ({ ...p, category: e.target.value }))}
+                  >
+                    <option value="">All</option>
+                    {CATEGORY_OPTIONS.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div>
-                  <label className="text-sm text-slate-600 mb-1 block">Last Contacted Date</label>
-                  <input
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    value={detailsForm.lastContactedAt}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, lastContactedAt: e.target.value }))}
-                    type="date"
-                  />
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Average Views
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    value={filtersDraft.avgViewsMin}
+                    onChange={(e) => setFiltersDraft((p) => ({ ...p, avgViewsMin: e.target.value }))}
+                  >
+                    {AVG_VIEWS_OPTIONS.map((opt) => (
+                      <option key={opt.value || 'all'} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
-                <div className="md:col-span-2">
-                  <label className="text-sm text-slate-600 mb-1 block">Follow-up Dates</label>
-                  <textarea
-                    className="w-full px-4 py-3 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all min-h-[90px]"
-                    value={detailsForm.followUpDates}
-                    onChange={(e) => setDetailsForm((p) => ({ ...p, followUpDates: e.target.value }))}
-                    placeholder="2026-02-26, 2026-03-02 (comma or new line separated)"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Tip: Use <span className="font-mono">YYYY-MM-DD</span>. Separate by comma or new line.
-                  </p>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Last Upload
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    value={filtersDraft.lastUploadDays}
+                    onChange={(e) => setFiltersDraft((p) => ({ ...p, lastUploadDays: e.target.value }))}
+                  >
+                    {LAST_UPLOAD_OPTIONS.map((opt) => (
+                      <option key={opt.value || 'any'} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Sort By
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 outline-none focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                    value={filtersDraft.sortBy}
+                    onChange={(e) =>
+                      setFiltersDraft((p) => ({
+                        ...p,
+                        sortBy: e.target.value as SavedSortValue,
+                      }))
+                    }
+                  >
+                    {SORT_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-3 p-6 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4">
               <button
-                className="flex-1 px-4 py-3 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-xl transition-colors"
-                onClick={() => setDetailsModalOpen(false)}
+                type="button"
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                onClick={clearFilters}
+                disabled={listLoading}
               >
-                Cancel
+                Clear All
               </button>
+
               <button
-                className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={saveDetails}
-                disabled={detailsSaving}
+                type="button"
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                onClick={applyFilters}
+                disabled={listLoading}
               >
-                {detailsSaving ? 'Saving...' : 'Save Details'}
+                Apply Filters
               </button>
             </div>
           </div>
         </div>
       ) : null}
-    </div>
-  );
-}
 
-/** Small UI helper for label/value rows */
-function Row({ label, value, mono }: { label: string; value: any; mono?: boolean }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span className="text-slate-600">{label}:</span>
-      <span className={`font-medium text-slate-900 text-right ${mono ? 'font-mono text-xs' : ''}`}>{String(value)}</span>
+      {detailsModalOpen ? (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 p-6">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Update Email</h3>
+                <p className="mt-1 text-sm text-slate-500">Update the creator email address.</p>
+              </div>
+
+              <button
+                onClick={() => setDetailsModalOpen(false)}
+                className="rounded-lg p-2 transition-colors hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-slate-600" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              <label className="mb-2 block text-sm text-slate-600">Email Address</label>
+              <input
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                value={detailsForm.email}
+                onChange={(e) => setDetailsForm({ email: e.target.value })}
+                placeholder="brand@domain.com"
+                type="email"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-3 border-t border-slate-200 p-6">
+              <button
+                className="flex-1 rounded-xl border border-slate-300 px-4 py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                onClick={() => setDetailsModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-3 font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={saveDetails}
+                disabled={detailsSaving}
+              >
+                {detailsSaving ? 'Saving...' : 'Update Email'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {saveEmailModalOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 p-5">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Save Profile</h3>
+                <p className="mt-1 text-sm text-slate-500">Enter email before saving this creator to database.</p>
+              </div>
+
+              <button
+                type="button"
+                className="rounded-lg p-2 transition-colors hover:bg-slate-100"
+                onClick={() => {
+                  if (previewSaving) return;
+                  setSaveEmailModalOpen(false);
+                }}
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-slate-600" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              <label className="mb-2 block text-sm text-slate-600">Email Address</label>
+              <input
+                type="email"
+                value={previewEmail}
+                onChange={(e) => setPreviewEmail(e.target.value)}
+                placeholder="brand@domain.com"
+                className="w-full rounded-xl border border-slate-300 px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                autoFocus
+              />
+
+              {previewData?.handle ? (
+                <div className="mt-3 text-xs text-slate-500">
+                  Saving profile for <span className="font-semibold text-slate-700">{previewData.handle}</span>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex gap-3 border-t border-slate-200 bg-slate-50 p-5">
+              <button
+                type="button"
+                className="flex-1 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                onClick={() => setSaveEmailModalOpen(false)}
+                disabled={previewSaving}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => savePreviewProfile(previewEmail)}
+                disabled={previewSaving}
+              >
+                {previewSaving ? 'Saving...' : 'Save Profile'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <PreviewSidebar
+        open={previewOpen}
+        loading={previewLoading}
+        saving={previewSaving}
+        data={previewData}
+        savedProfile={previewData?.handle ? profilesByHandle.get(previewData.handle.toLowerCase()) : undefined}
+        onClose={() => {
+          setPreviewOpen(false);
+          setPreviewData(null);
+          setSaveEmailModalOpen(false);
+          setPreviewEmail('');
+        }}
+        onSave={() => {
+          setPreviewEmail(previewData?.email || '');
+          setSaveEmailModalOpen(true);
+        }}
+        onOpenSaved={(id) => {
+          setPreviewOpen(false);
+          setPreviewData(null);
+          setSaveEmailModalOpen(false);
+          setPreviewEmail('');
+          openAndScrollTo(id);
+        }}
+      />
     </div>
   );
 }

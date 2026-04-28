@@ -39,7 +39,7 @@ import { HiOutlineRefresh } from "react-icons/hi";
 
 /* ========================= Types ========================= */
 
-type TabKey = "details" | "applicants" | "deliverables";
+type TabKey = "details" | "applicants" | "deliverables" | "pitchFolder";
 type ReviewStatus = "pending" | "approved" | "revision";
 
 interface ProductImage {
@@ -328,6 +328,57 @@ type MilestoneRow = {
 type MilestonesByInfluencerResponse = {
   message?: string;
   milestones?: MilestoneRow[];
+};
+
+type PitchFolderCampaignActivation = {
+  active?: boolean;
+  campaignId?: string;
+  campaignsId?: string;
+  influencerId?: string | null;
+  activeAt?: string | null;
+};
+
+type PitchFolderItem = {
+  _id: string;
+  provider?: string;
+  name?: string;
+  handle?: string;
+  followers?: number | null;
+  primaryLink?: string;
+  links?: string[];
+  niche?: string[];
+  email?: string;
+  country?: string;
+  selectionReason?: string;
+  goodFit?: boolean | null;
+  influencerRateCard?: string;
+  platformRateCard?: string;
+  rateCardCurrency?: string;
+  shippingAddress?: string;
+  comments?: string;
+  createdInfluencerId?: string | null;
+  linkedInfluencer?: { influencerId?: string | null } | null;
+  campaignActivation?: PitchFolderCampaignActivation | null;
+};
+
+type AssignedPitchFolder = {
+  _id: string;
+  title?: string;
+  description?: string;
+  assignedCampaign?: {
+    campaignId?: string;
+    campaignsId?: string;
+    campaignTitle?: string;
+    brandName?: string;
+    assignedAt?: string | null;
+  } | null;
+  items?: PitchFolderItem[];
+};
+
+type AssignedPitchFolderResponse = {
+  success?: boolean;
+  data?: AssignedPitchFolder | null;
+  message?: string;
 };
 
 /* ========================= Utils ========================= */
@@ -778,6 +829,45 @@ function buildApplicantSearchText(inf: InfluencerApplicant) {
     .toLowerCase();
 }
 
+function buildPitchFolderItemSearchText(item: PitchFolderItem) {
+  return [
+    item.name,
+    item.handle,
+    item.provider,
+    item.email,
+    item.country,
+    Array.isArray(item.niche) ? item.niche.join(" ") : "",
+    item.selectionReason,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function getPitchFolderItemActive(item: PitchFolderItem) {
+  return !!item.campaignActivation?.active || !!item.campaignActivation?.activeAt;
+}
+
+function getPitchFolderItemProfileUrl(item: PitchFolderItem) {
+  const direct = normalizeUrl(item.primaryLink);
+  if (direct) return direct;
+
+  const firstLink = Array.isArray(item.links) && item.links.length
+    ? normalizeUrl(item.links[0])
+    : "";
+  if (firstLink) return firstLink;
+
+  const username = String(item.handle || "").trim().replace(/^@+/, "");
+  if (!username) return "";
+
+  const platform = normalizePlatform(item.provider);
+  if (platform === "youtube") return "https://www.youtube.com/@" + username;
+  if (platform === "instagram") return "https://www.instagram.com/" + username + "/";
+  if (platform === "tiktok") return "https://www.tiktok.com/@" + username;
+
+  return "";
+}
+
 function sortApplicantsClient(
   list: InfluencerApplicant[],
   sortField: string,
@@ -1164,6 +1254,11 @@ export default function ViewCampaignPage() {
     draftUrl: "",
   });
 
+  const [pitchFolderLoading, setPitchFolderLoading] = useState(false);
+  const [pitchFolderError, setPitchFolderError] = useState<string | null>(null);
+  const [assignedPitchFolder, setAssignedPitchFolder] = useState<AssignedPitchFolder | null>(null);
+  const [pitchFolderSearch, setPitchFolderSearch] = useState("");
+
   useEffect(() => {
     try {
       const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
@@ -1391,6 +1486,31 @@ export default function ViewCampaignPage() {
     }
   }, [effectiveCampaignId]);
 
+
+  const fetchAssignedPitchFolder = useCallback(async () => {
+    if (!effectiveCampaignId) return;
+
+    setPitchFolderLoading(true);
+    setPitchFolderError(null);
+
+    try {
+      const response = await get<AssignedPitchFolderResponse | AssignedPitchFolder>(
+        `/pitch-folders/campaign/${effectiveCampaignId}`
+      );
+
+      const data = (response as AssignedPitchFolderResponse)?.data ??
+        (response as AssignedPitchFolder);
+
+      setAssignedPitchFolder(data?._id ? data : null);
+    } catch (err: any) {
+      const message = err?.response?.data?.error || err?.message || "Failed to load assigned pitch folder.";
+      setAssignedPitchFolder(null);
+      setPitchFolderError(message);
+    } finally {
+      setPitchFolderLoading(false);
+    }
+  }, [effectiveCampaignId]);
+
   useEffect(() => {
     if (activeTab === "applicants") fetchApplicants();
   }, [activeTab, fetchApplicants]);
@@ -1398,6 +1518,11 @@ export default function ViewCampaignPage() {
   useEffect(() => {
     if (activeTab === "deliverables") fetchDeliverables();
   }, [activeTab, fetchDeliverables]);
+
+
+  useEffect(() => {
+    if (activeTab === "pitchFolder") fetchAssignedPitchFolder();
+  }, [activeTab, fetchAssignedPitchFolder]);
 
   const handleDownloadContract = async (contractId?: string) => {
     if (!contractId) return;
@@ -1845,6 +1970,26 @@ export default function ViewCampaignPage() {
     [deliverables]
   );
 
+
+  const pitchFolderItems = useMemo(
+    () => Array.isArray(assignedPitchFolder?.items) ? assignedPitchFolder.items : [],
+    [assignedPitchFolder?.items]
+  );
+
+  const filteredPitchFolderItems = useMemo(() => {
+    const q = pitchFolderSearch.trim().toLowerCase();
+    if (!q) return pitchFolderItems;
+
+    return pitchFolderItems.filter((item) =>
+      buildPitchFolderItemSearchText(item).includes(q)
+    );
+  }, [pitchFolderItems, pitchFolderSearch]);
+
+  const pitchFolderActiveCount = useMemo(
+    () => pitchFolderItems.filter(getPitchFolderItemActive).length,
+    [pitchFolderItems]
+  );
+
   const filteredDeliverables = useMemo(() => {
     let list = [...deliverables];
 
@@ -2159,6 +2304,12 @@ export default function ViewCampaignPage() {
                 active={activeTab === "deliverables"}
                 onClick={() => setActiveTab("deliverables")}
                 count={deliverables.length || undefined}
+              />
+              <Tab
+                label="Pitch Folder"
+                active={activeTab === "pitchFolder"}
+                onClick={() => setActiveTab("pitchFolder")}
+                count={pitchFolderItems.length || undefined}
               />
             </div>
           </div>
@@ -2755,6 +2906,220 @@ export default function ViewCampaignPage() {
                   showingTo={applicantShowingTo}
                   totalItems={applicantTotalItems}
                 />
+              </div>
+            </div>
+          )}
+
+          {activeTab === "pitchFolder" && (
+            <div className="space-y-3">
+              <div className="overflow-hidden rounded-[28px] border border-stone-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-4 border-b border-stone-200 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-stone-900">
+                      Assigned Pitch Folder
+                    </h2>
+                    <p className="mt-1 text-sm text-stone-500">
+                      All influencers from the pitch folder assigned to this campaign are visible here for every admin.
+                    </p>
+                    {assignedPitchFolder ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Pill className="bg-stone-900 text-white ring-stone-900">
+                          {assignedPitchFolder.title || "Pitch Folder"}
+                        </Pill>
+                        <Pill className="bg-emerald-600 text-white ring-emerald-600">
+                          {pitchFolderActiveCount} Active
+                        </Pill>
+                        <Pill className="bg-stone-100 text-stone-700 ring-stone-200">
+                          {pitchFolderItems.length} Total
+                        </Pill>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={fetchAssignedPitchFolder}
+                    disabled={pitchFolderLoading}
+                    className="inline-flex h-11 items-center justify-center rounded-[10px] border border-[#161719] bg-[linear-gradient(90deg,#111214_0%,#17181a_35%,#232427_100%)] px-4 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <HiOutlineRefresh
+                      className={`mr-2 h-4 w-4 ${pitchFolderLoading ? "animate-spin" : ""}`}
+                    />
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="px-5 py-6">
+                  <div className="relative max-w-xl">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+                    <Input
+                      value={pitchFolderSearch}
+                      onChange={(e) => setPitchFolderSearch(e.target.value)}
+                      placeholder="Search pitch folder influencers..."
+                      className="h-11 rounded-[10px] border-stone-200 pl-9 text-sm text-stone-700"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
+                <div className="flex flex-col gap-2 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-800">
+                      Pitch Folder Influencers
+                    </p>
+                    <p className="text-xs text-stone-400">
+                      Showing {filteredPitchFolderItems.length} of {pitchFolderItems.length} pitch folder influencer
+                      {pitchFolderItems.length === 1 ? "" : "s"}.
+                    </p>
+                  </div>
+                </div>
+
+                {pitchFolderError ? (
+                  <div className="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
+                    {pitchFolderError}
+                  </div>
+                ) : null}
+
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[1120px]">
+                    <TableHeader>
+                      <TableRow className="border-stone-100 bg-stone-50/70 hover:bg-stone-50">
+                        {[
+                          "Influencer",
+                          "Platform",
+                          "Niche",
+                          "Country",
+                          "Followers",
+                          "Selection Reason",
+                          "Fit",
+                          "Campaign",
+                          "Profile",
+                        ].map((h) => (
+                          <TableHead
+                            key={h}
+                            className="h-9 px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400"
+                          >
+                            {h}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+
+                    <TableBody>
+                      {pitchFolderLoading ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                            Loading pitch folder influencers…
+                          </TableCell>
+                        </TableRow>
+                      ) : !assignedPitchFolder ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                            No pitch folder is assigned to this campaign yet.
+                          </TableCell>
+                        </TableRow>
+                      ) : filteredPitchFolderItems.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                            No pitch folder influencers match the current search.
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredPitchFolderItems.map((item) => {
+                          const profileUrl = getPitchFolderItemProfileUrl(item);
+                          const platformIcon = getPlatformIcon(item.provider);
+                          const isActive = getPitchFolderItemActive(item);
+
+                          return (
+                            <TableRow key={item._id} className="border-stone-100 hover:bg-stone-50/60">
+                              <TableCell className="px-4 py-3">
+                                <div className="min-w-0">
+                                  <p className="truncate text-xs font-semibold text-stone-900">
+                                    {item.name || "—"}
+                                  </p>
+                                  <p className="truncate text-[11px] text-stone-400">
+                                    {item.handle || "—"}
+                                  </p>
+                                  <p className="mt-1 truncate text-[11px] text-stone-400">
+                                    {item.email || "—"}
+                                  </p>
+                                </div>
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3">
+                                <div className="flex items-center justify-center">
+                                  {platformIcon ? (
+                                    <img
+                                      src={platformIcon}
+                                      alt={prettify(item.provider)}
+                                      title={prettify(item.provider)}
+                                      className="h-4 w-4 object-contain"
+                                    />
+                                  ) : (
+                                    <span className="text-xs text-stone-300">—</span>
+                                  )}
+                                </div>
+                              </TableCell>
+
+                              <TableCell className="max-w-[180px] px-4 py-3 text-xs text-stone-600">
+                                <span className="line-clamp-2">
+                                  {Array.isArray(item.niche) && item.niche.length ? item.niche.join(", ") : "—"}
+                                </span>
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3 text-xs text-stone-600">
+                                {item.country || "—"}
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3 text-xs font-semibold tabular-nums text-stone-800">
+                                {formatCompactNumber(item.followers)}
+                              </TableCell>
+
+                              <TableCell className="max-w-[260px] px-4 py-3 text-xs text-stone-600">
+                                <span className="line-clamp-2">
+                                  {item.selectionReason || "—"}
+                                </span>
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3">
+                                {item.goodFit ? (
+                                  <Pill className="bg-rose-600 text-white ring-rose-600">Good Fit</Pill>
+                                ) : (
+                                  <Pill className="bg-stone-100 text-stone-600 ring-stone-200">Not Marked</Pill>
+                                )}
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3">
+                                {isActive ? (
+                                  <Pill className="bg-emerald-600 text-white ring-emerald-600">Already Active</Pill>
+                                ) : (
+                                  <Pill className="bg-stone-100 text-stone-600 ring-stone-200">Not Active</Pill>
+                                )}
+                              </TableCell>
+
+                              <TableCell className="px-4 py-3">
+                                {profileUrl ? (
+                                  <a
+                                    href={profileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 underline underline-offset-2 transition-colors hover:text-black"
+                                  >
+                                    Open
+                                    <ArrowUpRight className="h-2.5 w-2.5" />
+                                  </a>
+                                ) : (
+                                  <span className="text-xs text-stone-300">—</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </div>
           )}
