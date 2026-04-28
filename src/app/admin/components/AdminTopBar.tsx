@@ -126,7 +126,7 @@ export default function AdminTopBar() {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 lg:gap-4">
+      {/* <div className="flex shrink-0 items-center gap-3 lg:gap-4">
         <Link
           href="/admin/settings"
           className="hidden h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 md:flex"
@@ -155,7 +155,7 @@ export default function AdminTopBar() {
             className="h-full w-full object-cover"
           />
         </div>
-      </div>
+      </div> */}
     </header>
   );
 }

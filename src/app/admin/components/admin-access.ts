@@ -137,19 +137,19 @@ export const ADMIN_MODULES: AdminModule[] = [
       "sdr-crm",
     ],
   },
-  {
-    key: "invitations",
-    label: "Invitations",
-    href: "/admin/invitations",
-    icon: Bell,
-    aliases: [
-      "invitation",
-      "invite",
-      "invites",
-      "campaign-invitations",
-      "campaign-invites",
-    ],
-  },
+  // {
+  //   key: "invitations",
+  //   label: "Invitations",
+  //   href: "/admin/invitations",
+  //   icon: Bell,
+  //   aliases: [
+  //     "invitation",
+  //     "invite",
+  //     "invites",
+  //     "campaign-invitations",
+  //     "campaign-invites",
+  //   ],
+  // },
   {
     key: "team-discussions",
     label: "Team Discussions",
@@ -189,13 +189,13 @@ export const ADMIN_MODULES: AdminModule[] = [
     href: "/admin/brand-details",
     icon: UserCog,
   },
-  {
-    key: "settings",
-    label: "Settings",
-    href: "/admin/settings",
-    icon: SlidersHorizontal,
-    aliases: ["setting"],
-  },
+  // {
+  //   key: "settings",
+  //   label: "Settings",
+  //   href: "/admin/settings",
+  //   icon: SlidersHorizontal,
+  //   aliases: ["setting"],
+  // },
   {
     key: "documents",
     label: "Documents",
