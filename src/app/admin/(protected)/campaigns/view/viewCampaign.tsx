@@ -2020,10 +2020,10 @@ export default function ViewCampaignPage() {
   );
 
   return (
-    <div className="min-h-screen bg-stone-50 pb-16">
+    <div className="min-h-screen pb-16">
       <div className="w-full px-2 pt-4 sm:px-4 lg:px-5">
         <div
-          className={`sticky top-3 z-20 w-full overflow-hidden rounded-[1rem] border border-[#202124] shadow-lg ${DARK_GRADIENT}`}
+          className={`z-20 w-full overflow-hidden rounded-[1rem] border border-[#202124] shadow-lg ${DARK_GRADIENT}`}
         >
           <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4">
             <div className="flex items-center gap-2 text-white/85">

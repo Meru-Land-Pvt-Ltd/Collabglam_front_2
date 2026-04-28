@@ -1,23 +1,11 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import {
-  Activity,
-  CreditCard,
-  FileText,
-  Image as ImageIcon,
-  Pencil,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import type { BrandDetail, BrandTab } from "./types";
 import { formatDate, getOverviewTeam } from "./utils";
-import { InfoRow, SectionCard, StatusPill } from "./shared";
+import { SectionCard, StatusPill } from "./shared";
 import AdminTable, {
   type AdminTableColumn,
   type AdminTableExpandable,
@@ -81,35 +69,89 @@ function renderStatusPill(status: OnboardingStatus | "Assigned" | "Unassigned") 
   return <StatusPill label={status} tone="warning" />;
 }
 
-function OverviewMetric({
-  title,
+function formatPlanDisplayName(value?: string) {
+  const rawValue = String(value || "").trim();
+
+  if (!rawValue || rawValue === "—") return "—";
+
+  const normalized = rawValue.toLowerCase().replace(/[\s-]+/g, "_");
+
+  const planNameMap: Record<string, string> = {
+    free: "Free",
+    basic: "Basic",
+    starter: "Starter",
+    standard: "Standard",
+    premium: "Premium",
+    pro: "Pro",
+    enterprise: "Enterprise",
+    fully_paid: "Fully Paid",
+    fully_managed: "Fully Managed",
+    active: "Active",
+    expired: "Expired",
+    archived: "Archived",
+    monthly: "Monthly",
+    annual: "Annual",
+  };
+
+  if (planNameMap[normalized]) {
+    return planNameMap[normalized];
+  }
+
+  return normalized
+    .split("_")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function BrandProfileListRow({
+  field,
   value,
-  hint,
-  icon: Icon,
 }: {
-  title: string;
+  field: string;
   value: React.ReactNode;
-  hint: string;
-  icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <Card className="rounded-[24px] border border-black/10 bg-white shadow-none">
-      <CardContent className="flex items-center justify-between p-5">
+    <div className="grid grid-cols-[minmax(120px,0.9fr)_minmax(140px,1.1fr)] items-center gap-4 border-b border-black/6 py-3.5 last:border-b-0">
+      <p className="text-[11px] font-black uppercase tracking-[0.16em] text-black/45">
+        {field}
+      </p>
+
+      <div className="break-words text-right text-sm font-semibold leading-6 text-[#1a1a1a]">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function BrandProfileList({ rows }: { rows: BrandInfoRow[] }) {
+  const leftRows = rows.slice(0, 5);
+  const rightRows = rows.slice(5, 11);
+
+  return (
+    <div className="rounded-[28px] border border-black/10 bg-white px-5 py-4 shadow-sm">
+      <div className="grid gap-x-10 xl:grid-cols-2">
         <div>
-          <p className="text-[11px] font-black uppercase tracking-[0.18em] text-black/40">
-            {title}
-          </p>
-          <div className="mt-2 text-[22px] font-black leading-none text-[#1a1a1a]">
-            {value}
-          </div>
-          <p className="mt-2 text-xs font-medium text-black/50">{hint}</p>
+          {leftRows.map((row) => (
+            <BrandProfileListRow
+              key={row.id}
+              field={row.field}
+              value={row.value}
+            />
+          ))}
         </div>
 
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-black/[0.04] text-black/65">
-          <Icon className="h-5 w-5" />
+        <div>
+          {rightRows.map((row) => (
+            <BrandProfileListRow
+              key={row.id}
+              field={row.field}
+              value={row.value}
+            />
+          ))}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
@@ -125,9 +167,13 @@ export function BrandOverviewTab({
   onAddTeam?: () => void;
   onManageTeam?: () => void;
 }) {
-  const [expandedOnboardingRowId, setExpandedOnboardingRowId] = useState<string | null>("Page 1");
+  const [expandedOnboardingRowId, setExpandedOnboardingRowId] =
+    useState<string | null>("Page 1");
 
-  const currentPlanName = brand.subscription?.planName || brand.planName || "—";
+  const currentPlanName = formatPlanDisplayName(
+    brand.subscription?.planName || brand.planName
+  );
+
   const teamRowsRaw = getOverviewTeam(brand);
 
   const onboardingSections = useMemo<OnboardingSection[]>(
@@ -160,26 +206,6 @@ export function BrandOverviewTab({
     [brand]
   );
 
-  const completedPagesCount = onboardingSections.filter(
-    (section) => getPageStatus(section.skipped, section.items) === "Completed"
-  ).length;
-
-  const totalOnboardingQuestions = onboardingSections.reduce(
-    (sum, section) => sum + section.items.length,
-    0
-  );
-
-  const totalOnboardingAnswers = onboardingSections.reduce(
-    (sum, section) =>
-      sum + section.items.reduce((inner, item) => inner + (item.answers?.length || 0), 0),
-    0
-  );
-
-  const assignedTeamCount = useMemo(
-    () => teamRowsRaw.filter((item) => item.value !== "Unassigned").length,
-    [teamRowsRaw]
-  );
-
   const profilePictureStatus: OnboardingStatus = brand.isProfilePicSkip
     ? "Skipped"
     : brand.profilePic
@@ -210,7 +236,9 @@ export function BrandOverviewTab({
         skippedLabel: brand.isProfilePicSkip ? "Yes" : "No",
         responsesCount: brand.profilePic ? 1 : 0,
         updatedAt:
-          brand.isProfilePicSkip || brand.profilePic ? formatDate(brand.updatedAt) : "—",
+          brand.isProfilePicSkip || brand.profilePic
+            ? formatDate(brand.updatedAt)
+            : "—",
         items: [],
       },
     ],
@@ -219,39 +247,49 @@ export function BrandOverviewTab({
 
   const brandInfoRows = useMemo<BrandInfoRow[]>(
     () => [
-      { id: "brandName", field: "Brand Name", value: brand.brandName || "—" },
-      { id: "contactName", field: "Contact Name", value: brand.name || "—" },
-      { id: "email", field: "Contact Email", value: brand.email || "—" },
-      { id: "proxyEmail", field: "Proxy Email", value: brand.proxyEmail || "—" },
-      { id: "industry", field: "Industry", value: brand.industry || "—" },
-      { id: "companySize", field: "Company Size", value: brand.companySize || "—" },
+      {
+        id: "contactName",
+        field: "Contact Name",
+        value: brand.name || "—",
+      },
+      {
+        id: "email",
+        field: "Contact Email",
+        value: brand.email || "—",
+      },
+      {
+        id: "proxyEmail",
+        field: "Proxy Email",
+        value: brand.proxyEmail || "—",
+      },
+      {
+        id: "industry",
+        field: "Industry",
+        value: brand.industry || "—",
+      },
+      {
+        id: "companySize",
+        field: "Company Size",
+        value: brand.companySize || "—",
+      },
       {
         id: "accountStatus",
         field: "Account Status",
-        value: brand.subscriptionExpired ? (
-          <StatusPill label="Expired" tone="danger" />
-        ) : (
-          <StatusPill label={brand.subscription?.status || "Active"} tone="success" />
-        ),
+        value: brand.subscriptionExpired
+          ? "Expired"
+          : formatPlanDisplayName(brand.subscription?.status || "Active"),
       },
       {
         id: "assignmentStatus",
         field: "Assignment Status",
-        value: brand.assignmentStatus || (brand.subscriptionExpired ? "Expired" : "Active"),
-      },
-      {
-        id: "subscriptionPlan",
-        field: "Subscription Plan",
-        value: (
-          <span className="inline-flex rounded-full border border-black/10 bg-black/[0.04] px-3 py-1 text-xs font-black text-[#1a1a1a]">
-            {currentPlanName}
-          </span>
-        ),
+        value:
+          brand.assignmentStatus ||
+          (brand.subscriptionExpired ? "Expired" : "Active"),
       },
       {
         id: "billingCycle",
         field: "Billing Cycle",
-        value: brand.subscription?.billingCycle || "—",
+        value: formatPlanDisplayName(brand.subscription?.billingCycle || "—"),
       },
       {
         id: "subscriptionStarted",
@@ -280,27 +318,6 @@ export function BrandOverviewTab({
 
   const commonHeaderClass =
     "text-[11px] font-black uppercase tracking-[0.14em] text-black/45";
-
-  const brandInfoColumns = useMemo<AdminTableColumn<BrandInfoRow>[]>(
-    () => [
-      {
-        id: "field",
-        header: "Field",
-        widthClassName: "w-[34%]",
-        headerClassName: commonHeaderClass,
-        cellClassName: "text-sm font-bold text-black/45",
-        render: (row) => row.field,
-      },
-      {
-        id: "value",
-        header: "Value",
-        headerClassName: commonHeaderClass,
-        cellClassName: "text-sm font-semibold text-[#1a1a1a]",
-        render: (row) => row.value,
-      },
-    ],
-    []
-  );
 
   const onboardingMetaColumns = useMemo<AdminTableColumn<OnboardingMetaRow>[]>(
     () => [
@@ -453,155 +470,71 @@ export function BrandOverviewTab({
   );
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <OverviewMetric
-          title="Plan"
-          value={currentPlanName}
-          hint="Current subscription plan"
-          icon={CreditCard}
-        />
-        <OverviewMetric
-          title="Wallet"
-          value={`$${Number(brand.walletBalance || 0).toFixed(2)}`}
-          hint="Available brand balance"
-          icon={Wallet}
-        />
-        <OverviewMetric
-          title="Team Assigned"
-          value={`${assignedTeamCount}/${teamRowsRaw.length || 0}`}
-          hint="Assigned team roles"
-          icon={Users}
-        />
-        <OverviewMetric
-          title="Onboarding"
-          value={`${completedPagesCount}/3`}
-          hint={`${totalOnboardingAnswers} answers across ${totalOnboardingQuestions} questions`}
-          icon={ShieldCheck}
-        />
-      </div>
+    <div className="space-y-5">
+      <SectionCard
+        title="Brand Profile"
+        description="Core account, billing, and contact details."
+      >
+        <BrandProfileList rows={brandInfoRows} />
+      </SectionCard>
 
-      <div className="grid gap-6 xl:grid-cols-[1.55fr,0.95fr]">
-        <div className="space-y-6">
-          <SectionCard
-            title="Brand Profile"
-            description="Core account, billing, and contact details."
-          >
-            <AdminTable<BrandInfoRow>
-              data={brandInfoRows}
-              columns={brandInfoColumns}
-              rowKey={(row) => row.id}
-              tableClassName="min-w-full"
-              headerRowClassName="border-black/6"
-              bodyClassName="[&_tr:last-child]:border-b-0"
-              emptyTitle="No brand info found"
-              emptyDescription="Brand details are not available right now."
-              rowClassName={() => "hover:bg-black/[0.02]"}
-            />
-          </SectionCard>
-
-          <SectionCard
-            title="Onboarding Overview"
-            description="Expandable onboarding summary with questions and answers inside the admin table."
-          >
-            <AdminTable<OnboardingMetaRow>
-              data={onboardingMetaRows}
-              columns={onboardingMetaColumns}
-              rowKey={(row) => row.id}
-              expandable={onboardingExpandable}
-              tableClassName="min-w-full"
-              headerRowClassName="border-black/6"
-              bodyClassName="[&_tr:last-child]:border-b-0"
-              emptyTitle="No onboarding summary found"
-              emptyDescription="Onboarding summary data is not available."
-              rowClassName={(_, __, isExpanded) =>
-                isExpanded ? "bg-black/[0.02]" : "hover:bg-black/[0.02]"
-              }
-            />
-          </SectionCard>
-
-          <SectionCard
-            title="Assigned Team"
-            description="Team ownership and assignment status managed directly from Overview."
-            action={
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  className="rounded-full bg-[#1a1a1a] text-white hover:bg-black"
-                  onClick={onAddTeam}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Team
-                </Button>
-                <Button
-                  variant="outline"
-                  className="rounded-full border-black/10 text-[#1a1a1a] hover:bg-[#1a1a1a] hover:text-white"
-                  onClick={onManageTeam}
-                >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  Manage
-                </Button>
-              </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        <SectionCard
+          title="Onboarding Overview"
+          description="Expandable onboarding summary with questions and answers inside the admin table."
+        >
+          <AdminTable<OnboardingMetaRow>
+            data={onboardingMetaRows}
+            columns={onboardingMetaColumns}
+            rowKey={(row) => row.id}
+            expandable={onboardingExpandable}
+            tableClassName="min-w-full"
+            headerRowClassName="border-black/6"
+            bodyClassName="[&_tr:last-child]:border-b-0"
+            emptyTitle="No onboarding summary found"
+            emptyDescription="Onboarding summary data is not available."
+            rowClassName={(_, __, isExpanded) =>
+              isExpanded ? "bg-black/[0.02]" : "hover:bg-black/[0.02]"
             }
-          >
-            <AdminTable<TeamRow>
-              data={teamRows}
-              columns={teamColumns}
-              rowKey={(row) => row.id}
-              tableClassName="min-w-full"
-              headerRowClassName="border-black/6"
-              bodyClassName="[&_tr:last-child]:border-b-0"
-              emptyTitle="No team members found"
-              emptyDescription="No team assignments are available yet. Use Add Team to assign owners directly from Overview."
-              rowClassName={() => "hover:bg-black/[0.02]"}
-            />
-          </SectionCard>
-        </div>
+          />
+        </SectionCard>
 
-        <div className="space-y-6">
-          <SectionCard
-            title="Status Center"
-            description="A concise operational snapshot without repeating the full profile."
-          >
-            <div className="grid gap-3 p-5">
-              <InfoRow
-                label="Plan Health"
-                value={
-                  brand.subscriptionExpired ? (
-                    <StatusPill label="Expired" tone="danger" />
-                  ) : (
-                    <StatusPill label="Healthy" tone="success" />
-                  )
-                }
-                icon={ShieldCheck}
-              />
-              <InfoRow
-                label="Auto Renew"
-                value={brand.subscription?.autoRenew ? "Enabled" : "Disabled"}
-                icon={RefreshCw}
-              />
-              <InfoRow
-                label="Profile Picture"
-                value={renderStatusPill(profilePictureStatus)}
-                icon={ImageIcon}
-              />
-              <InfoRow
-                label="Failed Login Attempts"
-                value={brand.failedLoginAttempts ?? 0}
-                icon={Activity}
-              />
-              <InfoRow
-                label="Created Date"
-                value={formatDate(brand.createdAt)}
-                icon={FileText}
-              />
-              <InfoRow
-                label="Last Updated"
-                value={formatDate(brand.updatedAt)}
-                icon={Activity}
-              />
-            </div>
-          </SectionCard>
-        </div>
+        <SectionCard
+          title="Assigned Team"
+          description="Team ownership and assignment status managed directly from Overview."
+          // action={
+          //   <div className="flex flex-wrap gap-2">
+          //     <Button
+          //       className="rounded-full bg-[#1a1a1a] text-white shadow-sm hover:bg-black"
+          //       onClick={onAddTeam}
+          //     >
+          //       <Plus className="mr-2 h-4 w-4" />
+          //       Add Team
+          //     </Button>
+
+          //     <Button
+          //       variant="outline"
+          //       className="rounded-full border-black/10 bg-white text-[#1a1a1a] shadow-sm hover:bg-[#1a1a1a] hover:text-white"
+          //       onClick={onManageTeam}
+          //     >
+          //       <Pencil className="mr-2 h-4 w-4" />
+          //       Manage
+          //     </Button>
+          //   </div>
+          // }
+        >
+          <AdminTable<TeamRow>
+            data={teamRows}
+            columns={teamColumns}
+            rowKey={(row) => row.id}
+            tableClassName="min-w-full"
+            headerRowClassName="border-black/6"
+            bodyClassName="[&_tr:last-child]:border-b-0"
+            emptyTitle="No team members found"
+            emptyDescription="No team assignments are available yet. Use Add Team to assign owners directly from Overview."
+            rowClassName={() => "hover:bg-black/[0.02]"}
+          />
+        </SectionCard>
       </div>
     </div>
   );
