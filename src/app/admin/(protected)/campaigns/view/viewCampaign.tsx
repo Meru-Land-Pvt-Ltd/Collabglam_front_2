@@ -338,6 +338,15 @@ type PitchFolderCampaignActivation = {
   activeAt?: string | null;
 };
 
+type PitchFolderRateCardHistoryEntry = {
+  _id?: string;
+  field?: "influencerRateCard" | "platformRateCard" | string;
+  previousValue?: string;
+  newValue?: string;
+  changedAt?: string | null;
+  changedByAdminId?: string | null;
+};
+
 type PitchFolderItem = {
   _id: string;
   provider?: string;
@@ -354,6 +363,7 @@ type PitchFolderItem = {
   influencerRateCard?: string;
   platformRateCard?: string;
   rateCardCurrency?: string;
+  rateCardHistory?: PitchFolderRateCardHistoryEntry[];
   shippingAddress?: string;
   comments?: string;
   createdInfluencerId?: string | null;
@@ -838,6 +848,15 @@ function buildPitchFolderItemSearchText(item: PitchFolderItem) {
     item.country,
     Array.isArray(item.niche) ? item.niche.join(" ") : "",
     item.selectionReason,
+    item.shippingAddress,
+    item.comments,
+    item.influencerRateCard,
+    item.platformRateCard,
+    Array.isArray(item.rateCardHistory)
+      ? item.rateCardHistory
+        .map((entry) => [entry.field, entry.newValue, entry.previousValue].filter(Boolean).join(" "))
+        .join(" ")
+      : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -866,6 +885,58 @@ function getPitchFolderItemProfileUrl(item: PitchFolderItem) {
   if (platform === "tiktok") return "https://www.tiktok.com/@" + username;
 
   return "";
+}
+
+function getPitchFolderShippingAddress(item: PitchFolderItem) {
+  return String(item.shippingAddress || item.comments || "").trim();
+}
+
+function getLatestPitchFolderRateCard(item: PitchFolderItem) {
+  const history = Array.isArray(item.rateCardHistory)
+    ? [...item.rateCardHistory].sort((a, b) => {
+      const aTime = a.changedAt ? new Date(a.changedAt).getTime() : 0;
+      const bTime = b.changedAt ? new Date(b.changedAt).getTime() : 0;
+      return bTime - aTime;
+    })
+    : [];
+
+  const latest = history.find((entry) => String(entry.newValue || "").trim());
+
+  if (latest) {
+    return {
+      label:
+        latest.field === "influencerRateCard"
+          ? "Influencer Rate Card"
+          : latest.field === "platformRateCard"
+            ? "Platform Rate Card"
+            : prettify(latest.field || "Rate Card"),
+      value: String(latest.newValue || "").trim(),
+      changedAt: latest.changedAt || null,
+      currency: item.rateCardCurrency || "USD",
+    };
+  }
+
+  const platformRateCard = String(item.platformRateCard || "").trim();
+  if (platformRateCard) {
+    return {
+      label: "Platform Rate Card",
+      value: platformRateCard,
+      changedAt: null,
+      currency: item.rateCardCurrency || "USD",
+    };
+  }
+
+  const influencerRateCard = String(item.influencerRateCard || "").trim();
+  if (influencerRateCard) {
+    return {
+      label: "Influencer Rate Card",
+      value: influencerRateCard,
+      changedAt: null,
+      currency: item.rateCardCurrency || "USD",
+    };
+  }
+
+  return null;
 }
 
 function sortApplicantsClient(
@@ -2982,7 +3053,7 @@ export default function ViewCampaignPage() {
                 ) : null}
 
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[1120px]">
+                  <Table className="min-w-[1500px]">
                     <TableHeader>
                       <TableRow className="border-stone-100 bg-stone-50/70 hover:bg-stone-50">
                         {[
@@ -2992,6 +3063,8 @@ export default function ViewCampaignPage() {
                           "Country",
                           "Followers",
                           "Selection Reason",
+                          "Shipping Address",
+                          "Rate Card",
                           "Fit",
                           "Campaign",
                           "Profile",
@@ -3009,19 +3082,19 @@ export default function ViewCampaignPage() {
                     <TableBody>
                       {pitchFolderLoading ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                          <TableCell colSpan={11} className="py-14 text-center text-xs text-stone-400">
                             Loading pitch folder influencers…
                           </TableCell>
                         </TableRow>
                       ) : !assignedPitchFolder ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                          <TableCell colSpan={11} className="py-14 text-center text-xs text-stone-400">
                             No pitch folder is assigned to this campaign yet.
                           </TableCell>
                         </TableRow>
                       ) : filteredPitchFolderItems.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={9} className="py-14 text-center text-xs text-stone-400">
+                          <TableCell colSpan={11} className="py-14 text-center text-xs text-stone-400">
                             No pitch folder influencers match the current search.
                           </TableCell>
                         </TableRow>
@@ -3030,6 +3103,8 @@ export default function ViewCampaignPage() {
                           const profileUrl = getPitchFolderItemProfileUrl(item);
                           const platformIcon = getPlatformIcon(item.provider);
                           const isActive = getPitchFolderItemActive(item);
+                          const shippingAddress = getPitchFolderShippingAddress(item);
+                          const latestRateCard = getLatestPitchFolderRateCard(item);
 
                           return (
                             <TableRow key={item._id} className="border-stone-100 hover:bg-stone-50/60">
@@ -3080,6 +3155,37 @@ export default function ViewCampaignPage() {
                                 <span className="line-clamp-2">
                                   {item.selectionReason || "—"}
                                 </span>
+                              </TableCell>
+
+                              <TableCell className="max-w-[260px] px-4 py-3 text-xs text-stone-600">
+                                <span className="line-clamp-3 whitespace-pre-wrap">
+                                  {shippingAddress || "—"}
+                                </span>
+                              </TableCell>
+
+                              <TableCell className="max-w-[300px] px-4 py-3 text-xs text-stone-600">
+                                {latestRateCard ? (
+                                  <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <Pill className="bg-stone-900 text-white ring-stone-900">
+                                        {latestRateCard.label}
+                                      </Pill>
+                                      <Pill className="bg-stone-100 text-stone-600 ring-stone-200">
+                                        {latestRateCard.currency}
+                                      </Pill>
+                                    </div>
+                                    <p className="line-clamp-3 whitespace-pre-wrap leading-5 text-stone-600">
+                                      {latestRateCard.value}
+                                    </p>
+                                    {latestRateCard.changedAt ? (
+                                      <p className="text-[10px] font-medium text-stone-400">
+                                        Latest change: {formatDateShort(latestRateCard.changedAt)}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-stone-300">—</span>
+                                )}
                               </TableCell>
 
                               <TableCell className="px-4 py-3">

@@ -2046,9 +2046,9 @@ export default function CampaignDetailPage() {
 
   function buildLatestConfigurationForSave(): CampaignConfiguration {
     const domBody = sequenceEditorRef.current?.innerHTML || "";
-    const latestBody = plainTextFromHtml(domBody)
-      ? domBody
-      : selectedSequenceVariant?.body || "";
+    const domPlainBody = plainTextFromHtml(domBody);
+
+    const latestBody = domPlainBody || selectedSequenceVariant?.body || "";
 
     const latestSubject =
       subjectInputRef.current?.value ?? selectedSequenceVariant?.subject ?? "";
