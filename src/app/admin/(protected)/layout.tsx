@@ -7,7 +7,7 @@ import AdminTopBar from "../components/AdminTopBar";
 
 function isInstantlyRoute(pathname: string) {
   const normalized = String(pathname || "").toLowerCase();
-  return normalized.includes("/admin") && normalized.includes("instantly");
+  return normalized.includes("/admin") && normalized.includes("crm");
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {

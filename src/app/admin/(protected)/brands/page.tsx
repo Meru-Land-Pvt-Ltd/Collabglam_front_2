@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   Users,
   Briefcase,
-  CalendarDays,
   CheckCircle2,
   XCircle,
   Clock3,
@@ -20,6 +19,8 @@ import {
   Plus,
   Pencil,
   Image as ImageIcon,
+  UserCheck,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { adminGet, adminPost } from "@/lib/api";
@@ -41,7 +42,8 @@ const outfit = Outfit({
 
 type BrandStatus = "active" | "expired" | "archived";
 type BillingCycle = "monthly" | "annual";
-type AssignRole = "RH" | "BME" | "IME";
+type AssignRole = "RH" | "BME";
+type BrandAssignmentScope = "all" | "my_assigned";
 
 type SortField =
   | "name"
@@ -91,17 +93,34 @@ interface ApiBrand {
   subscription?: ApiSubscription;
   subscriptionExpired?: boolean;
 
+  isAdminCreated?: boolean;
+  signupCompleted?: boolean;
+  createdByAdmin?: string | null;
+  adminCreatedRole?: string;
+  adminCreatedAt?: string | null;
+  signupCompletedAt?: string | null;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  createdByLabel?: string;
+  createdBySource?: "admin" | "brand";
+  currentStatus?: "pending_signup" | "active";
+  currentStatusLabel?: string;
+  currentStatusSubLabel?: string;
+
   assignedRm?: string;
   assignedBm?: string;
-  assignedIm?: string;
-
   assignedRh?: string;
   assignedBme?: string;
-  assignedIme?: string;
 
   RHId?: string;
   bdmId?: string;
-  idmId?: string;
+}
+
+interface EmployeeParentAdmin {
+  _id?: string;
+  name?: string;
+  email?: string;
+  role?: string;
 }
 
 interface Employee {
@@ -111,7 +130,9 @@ interface Employee {
   role?: string;
   status?: string;
   teamType?: string;
-  parentAdmin?: string;
+  parentAdmin?: string | EmployeeParentAdmin | null;
+  parentAdminId?: string;
+  revenueHeadName?: string;
 }
 
 interface BrandListResponse {
@@ -127,6 +148,12 @@ interface BrandListResponse {
 interface EmployeeListResponse {
   success: boolean;
   data: Employee[];
+}
+
+interface CreateBrandResponse {
+  success: boolean;
+  message: string;
+  brand?: ApiBrand;
 }
 
 interface BrandRow {
@@ -151,13 +178,36 @@ interface BrandRow {
   features: ApiFeature[];
   internalCredits: { used: number; resetsAt: string | null };
 
+  isAdminCreated: boolean;
+  signupCompleted: boolean;
+  createdByAdmin: string | null;
+  adminCreatedRole: string;
+  adminCreatedAt: string;
+  signupCompletedAt: string;
+  createdByAdminName: string;
+  createdByAdminEmail: string;
+  createdByLabel: string;
+  createdBySource: "admin" | "brand";
+  currentStatus: "pending_signup" | "active";
+  currentStatusLabel: string;
+  currentStatusSubLabel: string;
+
   assignedRh: string;
   assignedBme: string;
-  assignedIme: string;
 
   RHId: string;
   bdmId: string;
-  idmId: string;
+}
+
+interface StoredAdmin {
+  _id?: string;
+  adminId?: string;
+  id?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  access?: any[];
+  permissions?: any[];
 }
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -191,8 +241,17 @@ function useDebouncedValue<T>(value: T, delay = 400) {
   return debouncedValue;
 }
 
+function normalizeRole(value?: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function getStoredAdminId(admin: StoredAdmin) {
+  return String(admin?._id || admin?.adminId || admin?.id || "").trim();
+}
+
 function formatDate(value?: string) {
   if (!value) return "—";
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
 
@@ -205,11 +264,27 @@ function formatDate(value?: string) {
 
 function formatMoney(value: number) {
   if (!value) return "Free";
-  return `$${value.toLocaleString()}`;
+  return `${value.toLocaleString()}`;
+}
+
+function formatRoleLabel(role?: string) {
+  const normalized = normalizeRole(role);
+
+  if (normalized === "super_admin") return "Super Admin";
+  if (normalized === "revenue_head") return "RH";
+  if (normalized === "bme") return "BME";
+  if (normalized === "ime") return "IME";
+  if (normalized === "sdr") return "SDR";
+
+  return normalized ? normalized.replace(/_/g, " ").toUpperCase() : "Admin";
 }
 
 function canManageCampaigns(brand: BrandRow) {
-  const normalizedPlan = brand.planName.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const normalizedPlan = brand.planName
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+
   return normalizedPlan === "fully_paid" || normalizedPlan === "fully_managed";
 }
 
@@ -219,9 +294,51 @@ function getStatusFromApi(brand: ApiBrand): BrandStatus {
   return "active";
 }
 
+function getCreatedByInfo(brand: BrandRow) {
+  if (brand.createdBySource === "admin" || brand.isAdminCreated) {
+    return {
+      label:
+        brand.createdByLabel ||
+        brand.createdByAdminName ||
+        brand.createdByAdminEmail ||
+        "Admin",
+      subLabel: formatRoleLabel(brand.adminCreatedRole),
+      badge: "Admin",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    };
+  }
+
+  return {
+    label: "Brand",
+    subLabel: "Self signup",
+    badge: "Brand",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
+function getBrandCurrentStatus(brand: BrandRow) {
+  if (
+    brand.currentStatus === "pending_signup" ||
+    (brand.isAdminCreated && !brand.signupCompleted)
+  ) {
+    return {
+      label: brand.currentStatusLabel || "Pending Signup",
+      subLabel: brand.currentStatusSubLabel || "Admin-created placeholder",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  return {
+    label: brand.currentStatusLabel || "Active",
+    subLabel: brand.currentStatusSubLabel || "Signup completed",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
 function mapBrand(brand: ApiBrand): BrandRow {
   const subscription = brand.subscription ?? {};
   const billingCycle = subscription.billingCycle ?? "monthly";
+
   const amountPaid =
     billingCycle === "annual"
       ? subscription.annualCost ?? 0
@@ -247,15 +364,47 @@ function mapBrand(brand: ApiBrand): BrandRow {
     industry: brand.industry || "—",
     profilePic: brand.profilePic || "",
     features: subscription.features ?? [],
-    internalCredits: subscription.internalCredits ?? { used: 0, resetsAt: null },
+    internalCredits: subscription.internalCredits ?? {
+      used: 0,
+      resetsAt: null,
+    },
+
+    isAdminCreated: brand.isAdminCreated === true,
+    signupCompleted: brand.signupCompleted !== false,
+    createdByAdmin: brand.createdByAdmin || null,
+    adminCreatedRole: brand.adminCreatedRole || "",
+    adminCreatedAt: brand.adminCreatedAt || "",
+    signupCompletedAt: brand.signupCompletedAt || "",
+    createdByAdminName: brand.createdByAdminName || "",
+    createdByAdminEmail: brand.createdByAdminEmail || "",
+    createdByLabel:
+      brand.createdByLabel ||
+      brand.createdByAdminName ||
+      brand.createdByAdminEmail ||
+      (brand.isAdminCreated ? "Admin" : "Brand"),
+    createdBySource:
+      brand.createdBySource || (brand.isAdminCreated ? "admin" : "brand"),
+    currentStatus:
+      brand.currentStatus ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "pending_signup"
+        : "active"),
+    currentStatusLabel:
+      brand.currentStatusLabel ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "Pending Signup"
+        : "Active"),
+    currentStatusSubLabel:
+      brand.currentStatusSubLabel ||
+      (brand.isAdminCreated === true && brand.signupCompleted === false
+        ? "Admin-created placeholder"
+        : "Signup completed"),
 
     assignedRh: brand.assignedRh || brand.assignedRm || "",
     assignedBme: brand.assignedBme || brand.assignedBm || "",
-    assignedIme: brand.assignedIme || brand.assignedIm || "",
 
     RHId: brand.RHId || "",
     bdmId: brand.bdmId || "",
-    idmId: brand.idmId || "",
   };
 }
 
@@ -289,24 +438,23 @@ function roleMeta(role: AssignRole) {
         label: "RH",
         payloadKey: "RHId",
         emptyLabel: "Assign RH",
+        changeLabel: "Change RH",
       };
+
     case "BME":
       return {
         label: "BME",
         payloadKey: "bdmId",
         emptyLabel: "Assign BME",
+        changeLabel: "Change BME",
       };
-    case "IME":
-      return {
-        label: "IME",
-        payloadKey: "idmId",
-        emptyLabel: "Assign IME",
-      };
+
     default:
       return {
         label: "RH",
         payloadKey: "RHId",
         emptyLabel: "Assign RH",
+        changeLabel: "Change RH",
       };
   }
 }
@@ -315,11 +463,29 @@ function isDataUrlImage(value?: string) {
   return !!value && /^data:image\//i.test(value);
 }
 
+function getEmployeeParentAdminId(employee: Employee) {
+  if (employee.parentAdminId) {
+    return String(employee.parentAdminId);
+  }
+
+  const parent = employee.parentAdmin;
+
+  if (!parent) return "";
+
+  if (typeof parent === "string") {
+    return parent;
+  }
+
+  return String(parent._id || "");
+}
+
 function groupEmployeesByParent(employees: Employee[]) {
   return employees.reduce<Record<string, Employee[]>>((acc, employee) => {
-    const key = String(employee.parentAdmin || "");
+    const key = getEmployeeParentAdminId(employee);
+
     if (!key) return acc;
     if (!acc[key]) acc[key] = [];
+
     acc[key].push(employee);
     return acc;
   }, {});
@@ -330,6 +496,10 @@ function buildEmployeeNameMap(employees: Employee[]) {
     acc[employee._id] = employee.name;
     return acc;
   }, {});
+}
+
+function isCurrentRhBrand(brand: BrandRow, adminId: string) {
+  return Boolean(adminId && brand.RHId && String(brand.RHId) === adminId);
 }
 
 const BrandAvatar = React.memo(function BrandAvatar({
@@ -371,11 +541,7 @@ const StatusBadge = React.memo(function StatusBadge({
   status: BrandStatus;
 }) {
   const Icon =
-    status === "active"
-      ? CheckCircle2
-      : status === "archived"
-        ? XCircle
-        : Clock3;
+    status === "active" ? CheckCircle2 : status === "archived" ? XCircle : Clock3;
 
   return (
     <span
@@ -407,9 +573,12 @@ const SummaryCard = React.memo(function SummaryCard({
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
             {title}
           </p>
-          <h3 className="mt-2 text-2xl font-extrabold text-slate-900">{value}</h3>
+          <h3 className="mt-2 text-2xl font-extrabold text-slate-900">
+            {value}
+          </h3>
           <p className="mt-1 text-xs font-medium text-slate-500">{hint}</p>
         </div>
+
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
           <Icon className="h-5 w-5" />
         </div>
@@ -426,8 +595,13 @@ const FeatureUsage = React.memo(function FeatureUsage({
   if (!feature.limit || feature.limit <= 0) return null;
 
   const percent = Math.min(100, Math.round((feature.used / feature.limit) * 100));
+
   const tone =
-    percent >= 90 ? "bg-rose-500" : percent >= 70 ? "bg-amber-500" : "bg-emerald-500";
+    percent >= 90
+      ? "bg-rose-500"
+      : percent >= 70
+        ? "bg-amber-500"
+        : "bg-emerald-500";
 
   return (
     <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3">
@@ -435,12 +609,17 @@ const FeatureUsage = React.memo(function FeatureUsage({
         <p className="text-[11px] font-semibold text-slate-600">
           {FEATURE_LABELS[feature.key] || feature.key.replace(/_/g, " ")}
         </p>
+
         <p className="text-[11px] font-extrabold text-slate-900">
           {feature.used}/{feature.limit}
         </p>
       </div>
+
       <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div className={`h-full rounded-full ${tone}`} style={{ width: `${percent}%` }} />
+        <div
+          className={`h-full rounded-full ${tone}`}
+          style={{ width: `${percent}%` }}
+        />
       </div>
     </div>
   );
@@ -448,15 +627,26 @@ const FeatureUsage = React.memo(function FeatureUsage({
 
 const BrandIdentityCell = React.memo(function BrandIdentityCell({
   brand,
+  isMine,
 }: {
   brand: BrandRow;
+  isMine?: boolean;
 }) {
   return (
     <div className="flex min-w-[260px] items-center gap-3">
       <BrandAvatar name={brand.name} profilePic={brand.profilePic} size="sm" />
 
       <div className="min-w-0">
-        <p className="truncate text-sm font-extrabold text-slate-900">{brand.name}</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-sm font-extrabold text-slate-900">
+            {brand.name}
+          </p>
+          {isMine ? (
+            <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-700">
+              Mine
+            </span>
+          ) : null}
+        </div>
 
         <div className="mt-1 flex flex-col gap-1 text-xs font-medium text-slate-500">
           <span className="flex items-center gap-1.5 truncate">
@@ -475,19 +665,107 @@ const BrandIdentityCell = React.memo(function BrandIdentityCell({
   );
 });
 
-const PlanCell = React.memo(function PlanCell({
-  brand,
-}: {
-  brand: BrandRow;
-}) {
+const PlanCell = React.memo(function PlanCell({ brand }: { brand: BrandRow }) {
   return (
     <div className="space-y-1">
       <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-extrabold text-slate-800">
         {brand.planName}
       </span>
+
       <p className="text-[11px] font-medium text-slate-500">
         {formatMoney(brand.amountPaid)} · {brand.billingCycle}
       </p>
+    </div>
+  );
+});
+
+const CreatedByCell = React.memo(function CreatedByCell({
+  brand,
+}: {
+  brand: BrandRow;
+}) {
+  const createdBy = getCreatedByInfo(brand);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${createdBy.className}`}
+      >
+        {createdBy.badge}
+      </span>
+      <span className="max-w-[150px] truncate text-xs font-semibold text-slate-600">
+        {createdBy.label}
+      </span>
+      <span className="text-[10px] font-medium text-slate-400">
+        {createdBy.subLabel}
+      </span>
+    </div>
+  );
+});
+
+const CurrentStatusCell = React.memo(function CurrentStatusCell({
+  brand,
+}: {
+  brand: BrandRow;
+}) {
+  const currentStatus = getBrandCurrentStatus(brand);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <span
+        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${currentStatus.className}`}
+      >
+        {currentStatus.label}
+      </span>
+      <span className="text-[10px] font-medium text-slate-400">
+        {currentStatus.subLabel}
+      </span>
+    </div>
+  );
+});
+
+const TeamCell = React.memo(function TeamCell({
+  brand,
+  isMine,
+}: {
+  brand: BrandRow;
+  isMine?: boolean;
+}) {
+  return (
+    <div className="min-w-[230px] space-y-2">
+      <div className="flex flex-wrap gap-1.5">
+        {brand.assignedRh ? (
+          <span
+            className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${isMine
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+          >
+            RH: {brand.assignedRh}
+          </span>
+        ) : (
+          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
+            RH Unassigned
+          </span>
+        )}
+
+        {brand.assignedBme ? (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-bold text-slate-700">
+            BME: {brand.assignedBme}
+          </span>
+        ) : (
+          <span className="rounded-full border border-dashed border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-400">
+            BME Pending
+          </span>
+        )}
+      </div>
+
+      {isMine ? (
+        <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+          <UserCheck className="h-3.5 w-3.5" />
+          Assigned to your RH account
+        </p>
+      ) : null}
     </div>
   );
 });
@@ -533,6 +811,7 @@ const AssigneeCell = React.memo(function AssigneeCell({
 
   const handleSave = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+
     if (!selected) return;
 
     try {
@@ -548,18 +827,10 @@ const AssigneeCell = React.memo(function AssigneeCell({
     }
   };
 
-  if (currentValue) {
-    return (
-      <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-extrabold text-slate-700">
-        {currentValue}
-      </span>
-    );
-  }
-
   if (disabled) {
     return (
       <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-400">
-        {disabledLabel || `No ${meta.label} available`}
+        {currentValue || disabledLabel || `No ${meta.label} available`}
       </span>
     );
   }
@@ -572,10 +843,22 @@ const AssigneeCell = React.memo(function AssigneeCell({
           event.stopPropagation();
           setOpen(true);
         }}
-        className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:border-slate-500 hover:text-slate-800"
+        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${currentValue
+            ? "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400 hover:text-slate-950"
+            : "border-dashed border-slate-300 text-slate-500 hover:border-slate-500 hover:text-slate-800"
+          }`}
       >
-        <Plus className="h-3.5 w-3.5" />
-        {meta.emptyLabel}
+        {currentValue ? (
+          <>
+            {currentValue}
+            <Pencil className="h-3 w-3" />
+          </>
+        ) : (
+          <>
+            <Plus className="h-3.5 w-3.5" />
+            {meta.emptyLabel}
+          </>
+        )}
       </button>
     );
   }
@@ -584,10 +867,10 @@ const AssigneeCell = React.memo(function AssigneeCell({
     <div
       ref={ref}
       onClick={(event) => event.stopPropagation()}
-      className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl"
+      className="min-w-[240px] rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl"
     >
       <p className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-        Select {meta.label}
+        {currentValue ? meta.changeLabel : `Select ${meta.label}`}
       </p>
 
       <select
@@ -607,7 +890,9 @@ const AssigneeCell = React.memo(function AssigneeCell({
         ))}
       </select>
 
-      {error ? <p className="mt-2 text-[11px] font-semibold text-rose-600">{error}</p> : null}
+      {error ? (
+        <p className="mt-2 text-[11px] font-semibold text-rose-600">{error}</p>
+      ) : null}
 
       <div className="mt-3 flex gap-2">
         <Button
@@ -668,16 +953,22 @@ const AssigneePanelCard = React.memo(function AssigneePanelCard({
       <div className="mt-2 min-h-[44px]">
         {currentValue ? (
           <>
-            <p className="text-sm font-extrabold text-slate-900">{currentValue}</p>
-            <p className="mt-1 text-xs font-medium text-slate-500">
-              {employeeId ? `Mapped ID: ${employeeId}` : "Assigned"}
+            <p className="text-sm font-extrabold text-slate-900">
+              {currentValue}
             </p>
+            {employeeId ? (
+              <p className="mt-1 text-[11px] font-medium text-slate-400">
+                ID: {employeeId}
+              </p>
+            ) : null}
           </>
         ) : (
           <>
             <p className="text-sm font-semibold text-slate-400">Not assigned</p>
             <p className="mt-1 text-xs font-medium text-slate-500">
-              {disabled ? disabledLabel || "Assignment unavailable" : "Ready to assign"}
+              {disabled
+                ? disabledLabel || "Assignment unavailable"
+                : "Ready to assign"}
             </p>
           </>
         )}
@@ -703,24 +994,35 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
   rhOptions,
   getScopedExecOptions,
   onAssignSave,
+  canEditAssignments,
+  isMine,
 }: {
   brand: BrandRow;
   rhOptions: Employee[];
-  getScopedExecOptions: (role: "BME" | "IME", brand: BrandRow) => Employee[];
+  getScopedExecOptions: (role: "BME", brand: BrandRow) => Employee[];
   onAssignSave: (brandId: string, role: AssignRole, employeeId: string) => Promise<void>;
+  canEditAssignments: boolean;
+  isMine?: boolean;
 }) {
   const usageFeatures = brand.features.filter((item) => item.limit > 0);
   const brandBmeOptions = getScopedExecOptions("BME", brand);
-  const brandImeOptions = getScopedExecOptions("IME", brand);
 
   return (
     <div className="space-y-5">
+      {isMine ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+          This brand is assigned to your Revenue Head account. Campaigns under this brand will be visible in your Campaign page.
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         {[
           { label: "Contact", value: brand.contactName },
           { label: "Industry", value: brand.industry },
           { label: "Company Size", value: brand.companySize },
           { label: "Proxy Email", value: brand.proxyEmail || "—" },
+          { label: "Created By", value: getCreatedByInfo(brand).label },
+          { label: "Current Status", value: getBrandCurrentStatus(brand).label },
           {
             label: "Billing",
             value: brand.billingCycle === "annual" ? "Annual" : "Monthly",
@@ -734,20 +1036,33 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
               {item.label}
             </p>
-            <p className="mt-2 text-sm font-extrabold text-slate-900">{item.value}</p>
+            <p className="mt-2 text-sm font-extrabold text-slate-900">
+              {item.value}
+            </p>
           </div>
         ))}
       </div>
 
       <Card className="rounded-2xl border border-slate-200 bg-white shadow-none">
         <div className="p-4">
-          <div className="mb-4">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-              Assigned Team
-            </p>
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                Assigned Team
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                Brand-level assignment is RH + BME only. IME assignment happens from Campaign page.
+              </p>
+            </div>
+
+            {!canEditAssignments ? (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
+                View only
+              </span>
+            ) : null}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <AssigneePanelCard
               title="Assigned RH"
               currentValue={brand.assignedRh}
@@ -756,6 +1071,8 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
               role="RH"
               options={rhOptions}
               onSave={onAssignSave}
+              disabled={!canEditAssignments}
+              disabledLabel="Only Super Admin or RH can update assignment"
             />
 
             <AssigneePanelCard
@@ -766,20 +1083,18 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
               role="BME"
               options={brandBmeOptions}
               onSave={onAssignSave}
-              disabled={!brand.RHId || (!brand.assignedBme && brandBmeOptions.length === 0)}
-              disabledLabel={!brand.RHId ? "Assign RH first" : "No BME under RH"}
-            />
-
-            <AssigneePanelCard
-              title="Assigned IME"
-              currentValue={brand.assignedIme}
-              employeeId={brand.idmId}
-              brandId={brand._id}
-              role="IME"
-              options={brandImeOptions}
-              onSave={onAssignSave}
-              disabled={!brand.RHId || (!brand.assignedIme && brandImeOptions.length === 0)}
-              disabledLabel={!brand.RHId ? "Assign RH first" : "No IME under RH"}
+              disabled={
+                !canEditAssignments ||
+                !brand.RHId ||
+                (!brand.assignedBme && brandBmeOptions.length === 0)
+              }
+              disabledLabel={
+                !canEditAssignments
+                  ? "Only Super Admin or RH can update assignment"
+                  : !brand.RHId
+                    ? "Assign RH first"
+                    : "No BME under RH"
+              }
             />
           </div>
         </div>
@@ -941,12 +1256,7 @@ const BrandActionButtons = React.memo(function BrandActionButtons({
           disabled={createDisabled}
         />
 
-        <ActionIconButton
-          icon={Pencil}
-          tooltip={reviewDisabled ? disabledReason : "Review campaigns"}
-          href={`/admin/brands/review-campaigns?brandId=${brand._id}`}
-          disabled={reviewDisabled}
-        />
+
       </div>
     </TooltipProvider>
   );
@@ -971,33 +1281,66 @@ const AdminBrandPage: NextPage = () => {
 
   const [rhOptions, setRhOptions] = useState<Employee[]>([]);
   const [bmeOptions, setBmeOptions] = useState<Employee[]>([]);
-  const [imeOptions, setImeOptions] = useState<Employee[]>([]);
 
   const [canEditBrands, setCanEditBrands] = useState(false);
 
+  const [adminRole, setAdminRole] = useState("");
+  const [currentAdminId, setCurrentAdminId] = useState("");
+  const [currentAdminName, setCurrentAdminName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createBrandName, setCreateBrandName] = useState("");
+  const [createEmail, setCreateEmail] = useState("");
+  const [creatingBrand, setCreatingBrand] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const requestIdRef = useRef(0);
+
+  const isRevenueHead = adminRole === "revenue_head";
+  const isSuperAdmin = adminRole === "super_admin";
+  const isBme = adminRole === "bme";
+  const canEditAssignments = isSuperAdmin || isRevenueHead;
+
+  const assignmentScope: BrandAssignmentScope = isRevenueHead
+    ? "my_assigned"
+    : "all";
 
   useEffect(() => {
     try {
-      const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
+      const storedAdmin: StoredAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
       const permissions = storedAdmin?.permissions ?? storedAdmin?.access ?? [];
 
-      const allowed = permissions.some(
-        (item: any) =>
-          String(item?.key || "")
-            .toLowerCase()
-            .replace(/[\s_-]+/g, "") === "brands" && item?.isEdit === true
-      );
+      const role = normalizeRole(storedAdmin?.role);
+      const adminId = getStoredAdminId(storedAdmin);
 
-      setCanEditBrands(allowed);
+      setAdminRole(role);
+      setCurrentAdminId(adminId);
+      setCurrentAdminName(String(storedAdmin?.name || storedAdmin?.email || ""));
+
+const allowed = permissions.some((item: any) => {
+  const key = String(item?.key || "")
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  return ["brand", "brands"].includes(key) && item?.isEdit === true;
+});
+
+setCanEditBrands(allowed);
     } catch {
+      setAdminRole("");
+      setCurrentAdminId("");
+      setCurrentAdminName("");
       setCanEditBrands(false);
     }
   }, []);
 
+  const canCreateBrand = useMemo(
+    () => ["super_admin", "revenue_head", "bme"].includes(adminRole),
+    [adminRole]
+  );
+
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, assignmentScope]);
 
   const fetchBrands = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -1011,6 +1354,7 @@ const AdminBrandPage: NextPage = () => {
         search: debouncedSearch,
         sortBy,
         sortOrder,
+        assignmentScope,
       });
 
       if (requestId !== requestIdRef.current) return;
@@ -1037,19 +1381,62 @@ const AdminBrandPage: NextPage = () => {
         setLoading(false);
       }
     }
-  }, [page, pageSize, debouncedSearch, sortBy, sortOrder]);
+  }, [page, pageSize, debouncedSearch, sortBy, sortOrder, assignmentScope]);
+
+  const handleCreateBrand = useCallback(async () => {
+    const brandName = createBrandName.trim();
+    const email = createEmail.trim().toLowerCase();
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!canCreateBrand) {
+      setCreateError("Only Super Admin, RH, or BME can create brands.");
+      return;
+    }
+
+    if (!brandName) {
+      setCreateError("Brand name is required.");
+      return;
+    }
+
+    if (!emailRx.test(email)) {
+      setCreateError("Valid email is required.");
+      return;
+    }
+
+    try {
+      setCreatingBrand(true);
+      setCreateError(null);
+
+      await adminPost<CreateBrandResponse>("/admin/brand/create", {
+        brandName,
+        email,
+      });
+
+      setCreateOpen(false);
+      setCreateBrandName("");
+      setCreateEmail("");
+
+      if (page !== 1) {
+        setPage(1);
+      } else {
+        await fetchBrands();
+      }
+    } catch (err: any) {
+      setCreateError(err?.message || "Failed to create brand.");
+    } finally {
+      setCreatingBrand(false);
+    }
+  }, [canCreateBrand, createBrandName, createEmail, fetchBrands, page]);
 
   const fetchAssignees = useCallback(async () => {
     try {
-      const [rhResponse, bmeResponse, imeResponse] = await Promise.all([
+      const [rhResponse, bmeResponse] = await Promise.all([
         adminGet<EmployeeListResponse>("/admins/get-rm-list"),
         adminGet<EmployeeListResponse>("/admins/get-executive-list?role=bme"),
-        adminGet<EmployeeListResponse>("/admins/get-executive-list?role=ime"),
       ]);
 
       if (rhResponse.success) setRhOptions(rhResponse.data ?? []);
       if (bmeResponse.success) setBmeOptions(bmeResponse.data ?? []);
-      if (imeResponse.success) setImeOptions(imeResponse.data ?? []);
     } catch (err) {
       console.error("Failed to fetch assignees", err);
     }
@@ -1065,28 +1452,31 @@ const AdminBrandPage: NextPage = () => {
 
   const rhNameMap = useMemo(() => buildEmployeeNameMap(rhOptions), [rhOptions]);
   const bmeNameMap = useMemo(() => buildEmployeeNameMap(bmeOptions), [bmeOptions]);
-  const imeNameMap = useMemo(() => buildEmployeeNameMap(imeOptions), [imeOptions]);
 
-  const bmeOptionsByRh = useMemo(() => groupEmployeesByParent(bmeOptions), [bmeOptions]);
-  const imeOptionsByRh = useMemo(() => groupEmployeesByParent(imeOptions), [imeOptions]);
+  const bmeOptionsByRh = useMemo(
+    () => groupEmployeesByParent(bmeOptions),
+    [bmeOptions]
+  );
 
   const getScopedExecOptions = useCallback(
-    (role: "BME" | "IME", brand: BrandRow) => {
-      if (!brand.RHId) return [];
-      const key = String(brand.RHId);
+    (role: "BME", brand: BrandRow) => {
+      const rhId = String(brand.RHId || "").trim();
+
+      if (!rhId) return [];
 
       if (role === "BME") {
-        return bmeOptionsByRh[key] ?? [];
+        return bmeOptionsByRh[rhId] ?? [];
       }
 
-      return imeOptionsByRh[key] ?? [];
+      return [];
     },
-    [bmeOptionsByRh, imeOptionsByRh]
+    [bmeOptionsByRh]
   );
 
   const handleSort = useCallback(
     (field: string) => {
       const typedField = field as SortField;
+
       setPage(1);
 
       if (typedField === sortBy) {
@@ -1119,29 +1509,19 @@ const AdminBrandPage: NextPage = () => {
               assignedRh: rhNameMap[employeeId] || employeeId,
               RHId: employeeId,
               assignedBme: "",
-              assignedIme: "",
               bdmId: "",
-              idmId: "",
-            };
-          }
-
-          if (role === "BME") {
-            return {
-              ...brand,
-              assignedBme: bmeNameMap[employeeId] || employeeId,
-              bdmId: employeeId,
             };
           }
 
           return {
             ...brand,
-            assignedIme: imeNameMap[employeeId] || employeeId,
-            idmId: employeeId,
+            assignedBme: bmeNameMap[employeeId] || employeeId,
+            bdmId: employeeId,
           };
         })
       );
     },
-    [rhNameMap, bmeNameMap, imeNameMap]
+    [rhNameMap, bmeNameMap]
   );
 
   const handleToggleExpand = useCallback((brandId: string) => {
@@ -1158,6 +1538,13 @@ const AdminBrandPage: NextPage = () => {
       active: brands.filter((item) => item.status === "active").length,
       expired: brands.filter((item) => item.status === "expired").length,
       archived: brands.filter((item) => item.status === "archived").length,
+      pendingSignup: brands.filter((item) => item.currentStatus === "pending_signup").length,
+      adminCreated: brands.filter(
+        (item) => item.createdBySource === "admin" || item.isAdminCreated
+      ).length,
+      brandCreated: brands.filter(
+        (item) => item.createdBySource === "brand" && !item.isAdminCreated
+      ).length,
     }),
     [brands]
   );
@@ -1166,10 +1553,29 @@ const AdminBrandPage: NextPage = () => {
     () => ({
       rh: brands.filter((item) => Boolean(item.assignedRh)).length,
       bme: brands.filter((item) => Boolean(item.assignedBme)).length,
-      ime: brands.filter((item) => Boolean(item.assignedIme)).length,
+      myRh: brands.filter((item) => isCurrentRhBrand(item, currentAdminId)).length,
+      unassignedRh: brands.filter((item) => !item.RHId).length,
     }),
-    [brands]
+    [brands, currentAdminId]
   );
+
+  const scopeTitle = useMemo(() => {
+    if (isRevenueHead || isBme) return "Assigned Brands";
+    return "Brands";
+  }, [isRevenueHead, isBme]);
+
+  const scopeHint = useMemo(() => {
+    if (isRevenueHead) {
+      return `Showing brands assigned to ${currentAdminName || "your RH account"
+        }.`;
+    }
+
+    if (isBme) {
+      return "Showing brands assigned to your BME account.";
+    }
+
+    return "Showing brands based on your admin access.";
+  }, [isRevenueHead, isBme, currentAdminName]);
 
   const columns = useMemo<AdminTableColumn<BrandRow>[]>(
     () => [
@@ -1178,8 +1584,24 @@ const AdminBrandPage: NextPage = () => {
         header: "Brand",
         sortable: true,
         sortField: "name",
-        widthClassName: "min-w-[280px]",
-        render: (brand) => <BrandIdentityCell brand={brand} />,
+        widthClassName: "min-w-[300px]",
+        render: (brand) => (
+          <BrandIdentityCell
+            brand={brand}
+            isMine={isRevenueHead && isCurrentRhBrand(brand, currentAdminId)}
+          />
+        ),
+      },
+      {
+        id: "team",
+        header: "Assigned Team",
+        widthClassName: "min-w-[260px]",
+        render: (brand) => (
+          <TeamCell
+            brand={brand}
+            isMine={isRevenueHead && isCurrentRhBrand(brand, currentAdminId)}
+          />
+        ),
       },
       {
         id: "planName",
@@ -1203,6 +1625,20 @@ const AdminBrandPage: NextPage = () => {
         ),
       },
       {
+        id: "createdBy",
+        header: "Created By",
+        align: "center",
+        widthClassName: "min-w-[170px]",
+        render: (brand) => <CreatedByCell brand={brand} />,
+      },
+      {
+        id: "currentStatus",
+        header: "Current Status",
+        align: "center",
+        widthClassName: "min-w-[170px]",
+        render: (brand) => <CurrentStatusCell brand={brand} />,
+      },
+      {
         id: "expiresAt",
         header: "Expires",
         sortable: true,
@@ -1223,7 +1659,7 @@ const AdminBrandPage: NextPage = () => {
         render: (brand) => <StatusBadge status={brand.status} />,
       },
     ],
-    []
+    [currentAdminId, isRevenueHead]
   );
 
   const expandable = useMemo(
@@ -1236,10 +1672,21 @@ const AdminBrandPage: NextPage = () => {
           rhOptions={rhOptions}
           getScopedExecOptions={getScopedExecOptions}
           onAssignSave={handleAssignSave}
+          canEditAssignments={canEditAssignments}
+          isMine={isRevenueHead && isCurrentRhBrand(brand, currentAdminId)}
         />
       ),
     }),
-    [expandedId, handleToggleExpand, rhOptions, getScopedExecOptions, handleAssignSave]
+    [
+      expandedId,
+      handleToggleExpand,
+      rhOptions,
+      getScopedExecOptions,
+      handleAssignSave,
+      canEditAssignments,
+      currentAdminId,
+      isRevenueHead,
+    ]
   );
 
   const actions = useMemo(
@@ -1255,7 +1702,7 @@ const AdminBrandPage: NextPage = () => {
 
   return (
     <div className={`${outfit.className} min-h-screen bg-slate-50`}>
-      <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
+      <div className="mx-auto flex w-full max-w-[1560px] flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
         <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1265,73 +1712,121 @@ const AdminBrandPage: NextPage = () => {
               </div>
 
               <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
-                Admin Brand Management
+                Brand Management
               </h1>
 
-              <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-slate-600">
-                Manage brands, review subscription health, assign RH, BME, and IME,
-                and render brand avatars directly from profilePic data URLs.
-              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
+                  Role: {formatRoleLabel(adminRole)}
+                </span>
+                {currentAdminName ? (
+                  <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
+                    {currentAdminName}
+                  </span>
+                ) : null}
+                {isRevenueHead ? (
+                  <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                    RH brand view enabled
+                  </span>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                className="rounded-2xl"
+                onClick={() => {
+                  setCreateOpen(true);
+                  setCreateError(null);
+                }}
+                disabled={!canCreateBrand}
+                title={
+                  canCreateBrand
+                    ? "Create brand"
+                    : "Only Super Admin, RH, or BME can create brands"
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create Brand
+              </Button>
+
               <Button
                 variant="outline"
                 className="rounded-2xl"
                 onClick={fetchBrands}
                 disabled={loading}
               >
-                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                />
                 Refresh
               </Button>
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {/* <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <SummaryCard
-            title="Total Brands"
+            title={scopeTitle}
             value={total}
             icon={Building2}
-            hint="All matched brands from current query"
+            hint={scopeHint}
           />
           <SummaryCard
             title="Active Plans"
             value={statusCounts.active}
             icon={CheckCircle2}
-            hint="Brands currently active on this page"
+            hint="Active brands on this page"
+          />
+          <SummaryCard
+            title="My RH Brands"
+            value={isRevenueHead ? assignedCounts.myRh : assignedCounts.rh}
+            icon={UserCheck}
+            hint={isRevenueHead ? "Brands mapped to your RH account" : "Brands with RH mapped"}
+          />
+          <SummaryCard
+            title="Unassigned RH"
+            value={assignedCounts.unassignedRh}
+            icon={Clock3}
+            hint="Loaded brands without RH"
           />
           <SummaryCard
             title="RH Assigned"
             value={assignedCounts.rh}
             icon={Users}
-            hint="Brands with RH already mapped"
+            hint="Loaded brands with RH mapped"
           />
           <SummaryCard
             title="BME Assigned"
             value={assignedCounts.bme}
             icon={Briefcase}
-            hint="Brands with BME assigned"
+            hint="Loaded brands with BME mapped"
           />
-          <SummaryCard
-            title="IME Assigned"
-            value={assignedCounts.ime}
-            icon={CalendarDays}
-            hint="Brands with IME assigned"
-          />
-        </div>
+        </div> */}
 
         <Card className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-4 md:p-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative w-full max-w-xl">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search by brand, email, plan, or assignee..."
-                  className="h-11 rounded-2xl border-slate-200 bg-slate-50 pl-11 text-sm font-medium shadow-none focus-visible:ring-0"
-                />
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 text-slate-500" />
+                    <p className="text-sm font-black text-slate-900">Brand View</p>
+                  </div>
+                  <p className="mt-1 text-xs font-medium text-slate-500">
+                    {scopeHint}
+                  </p>
+                </div>
+
+                <div className="relative w-full max-w-xl">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search by brand, email, plan, creator, RH, or BME..."
+                    className="h-11 rounded-2xl border-slate-200 bg-slate-50 pl-11 text-sm font-medium shadow-none focus-visible:ring-0"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -1340,9 +1835,6 @@ const AdminBrandPage: NextPage = () => {
                 </span>
                 <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
                   {statusCounts.expired} Expired
-                </span>
-                <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
-                  {statusCounts.archived} Archived
                 </span>
               </div>
             </div>
@@ -1356,7 +1848,7 @@ const AdminBrandPage: NextPage = () => {
             loadingRows={Math.min(pageSize, 8)}
             error={error}
             emptyTitle="No brands found"
-            emptyDescription="Try adjusting the search, filters, or refresh the data."
+            emptyDescription="Try adjusting the search, brand view, or refresh the data."
             sortBy={sortBy}
             sortOrder={sortOrder}
             onSort={handleSort}
@@ -1375,12 +1867,102 @@ const AdminBrandPage: NextPage = () => {
               showSummary: true,
             }}
             className="w-full"
-            tableClassName="min-w-[1200px]"
+            tableClassName="min-w-[1620px]"
             headerRowClassName="border-slate-200 hover:bg-transparent"
             bodyClassName="[&_tr:last-child]:border-b-0"
           />
         </Card>
       </div>
+
+      {createOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-950">
+                  Create Brand
+                </h2>
+                <p className="mt-1 text-sm font-medium leading-6 text-slate-500">
+                  Add a brand with only brand name and email. BME-created brands are automatically assigned to that BME and its RH.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateOpen(false);
+                  setCreateError(null);
+                }}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              >
+                <XCircle className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                  Brand Name
+                </label>
+                <Input
+                  value={createBrandName}
+                  onChange={(event) => {
+                    setCreateBrandName(event.target.value);
+                    setCreateError(null);
+                  }}
+                  placeholder="Enter brand name"
+                  className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                  Email
+                </label>
+                <Input
+                  value={createEmail}
+                  onChange={(event) => {
+                    setCreateEmail(event.target.value);
+                    setCreateError(null);
+                  }}
+                  placeholder="brand@example.com"
+                  className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
+                />
+              </div>
+
+              {createError ? (
+                <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {createError}
+                </p>
+              ) : null}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-2xl"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setCreateError(null);
+                  }}
+                  disabled={creatingBrand}
+                >
+                  Cancel
+                </Button>
+
+                <Button
+                  type="button"
+                  className="rounded-2xl"
+                  onClick={handleCreateBrand}
+                  disabled={creatingBrand}
+                >
+                  {creatingBrand ? "Creating..." : "Create Brand"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };

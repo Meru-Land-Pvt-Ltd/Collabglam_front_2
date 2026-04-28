@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import swal from "sweetalert";
 import { useRouter, useSearchParams } from "next/navigation";
 import { get, post } from "@/lib/api";
 import { resolveFileList } from "@/lib/files";
@@ -342,6 +343,22 @@ const SECONDARY_BUTTON =
 
 const DELIVERABLES_PER_PAGE = 10;
 
+function showErr(message: string) {
+  return swal({
+    title: "Error",
+    text: message || "Something went wrong.",
+    icon: "error",
+  });
+}
+
+function showSuccess(message: string) {
+  return swal({
+    title: "Success",
+    text: message,
+    icon: "success",
+  });
+}
+
 const formatDate = (iso?: string | null) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -508,11 +525,10 @@ function PaginationBar({
               key={page}
               type="button"
               onClick={() => onPageChange(page)}
-              className={`inline-flex h-9 w-9 items-center justify-center text-sm font-semibold shadow-sm transition ${
-                isActive
-                  ? "rounded-full bg-[#0f172a] text-white"
-                  : "rounded-full border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-              }`}
+              className={`inline-flex h-9 w-9 items-center justify-center text-sm font-semibold shadow-sm transition ${isActive
+                ? "rounded-full bg-[#0f172a] text-white"
+                : "rounded-full border border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+                }`}
             >
               {page}
             </button>
@@ -597,21 +613,21 @@ function mapDeliverables(items: DeliverableApi[]): DeliverableRow[] {
   for (const item of items || []) {
     const deliverableId = String(
       item.delieverableApprovalId ||
-        item.deliverableApprovalId ||
-        item._id ||
-        item.id ||
-        ""
+      item.deliverableApprovalId ||
+      item._id ||
+      item.id ||
+      ""
     );
 
     if (!deliverableId) continue;
 
     const influencerName = String(
       item.influencerName ||
-        item.influencer?.fullName ||
-        item.influencer?.name ||
-        item.username ||
-        item.influencerHandle ||
-        "—"
+      item.influencer?.fullName ||
+      item.influencer?.name ||
+      item.username ||
+      item.influencerHandle ||
+      "—"
     );
 
     const urls = Array.isArray(item.url) ? item.url : [];
@@ -827,10 +843,10 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
   const influencer = item?.influencer || item?.influencerDetails || item?.user || {};
   const rawStatus = String(
     item?.status ||
-      item?.invitationStatus ||
-      item?.lifecycleStatus ||
-      item?.state ||
-      ""
+    item?.invitationStatus ||
+    item?.lifecycleStatus ||
+    item?.state ||
+    ""
   ).toLowerCase();
 
   const defaultInvited =
@@ -850,10 +866,10 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
   return {
     influencerId: String(
       item?.influencerId ||
-        influencer?._id ||
-        influencer?.influencerId ||
-        influencer?.id ||
-        ""
+      influencer?._id ||
+      influencer?.influencerId ||
+      influencer?.id ||
+      ""
     ),
     name:
       item?.name ||
@@ -887,17 +903,17 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
     categoryIds: item?.categoryIds || influencer?.categoryIds || [],
     audienceSize: Number(
       item?.audienceSize ??
-        item?.followers ??
-        influencer?.audienceSize ??
-        influencer?.followers ??
-        0
+      item?.followers ??
+      influencer?.audienceSize ??
+      influencer?.followers ??
+      0
     ),
     engagementRate: Number(
       item?.engagementRate ??
-        item?.er ??
-        influencer?.engagementRate ??
-        influencer?.er ??
-        0
+      item?.er ??
+      influencer?.engagementRate ??
+      influencer?.er ??
+      0
     ),
     influencerTierResolved:
       item?.influencerTierResolved ||
@@ -967,9 +983,8 @@ const Tab = ({
     {label}
     {count !== undefined && (
       <span
-        className={`rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums ${
-          active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500"
-        }`}
+        className={`rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums ${active ? "bg-stone-900 text-white" : "bg-stone-100 text-stone-500"
+          }`}
       >
         {count}
       </span>
@@ -1014,9 +1029,8 @@ const Pill = ({
   className?: string;
 }) => (
   <span
-    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-      className || "bg-stone-100 text-stone-600 ring-stone-200"
-    }`}
+    className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${className || "bg-stone-100 text-stone-600 ring-stone-200"
+      }`}
   >
     {children}
   </span>
@@ -1134,6 +1148,22 @@ export default function ViewCampaignPage() {
   });
   const [isSavingMilestone, setIsSavingMilestone] = useState(false);
 
+  const [showDeliverableModal, setShowDeliverableModal] = useState(false);
+  const [selectedDeliverableInf, setSelectedDeliverableInf] =
+    useState<InfluencerApplicant | null>(null);
+
+  const [deliverableMilestones, setDeliverableMilestones] = useState<MilestoneRow[]>([]);
+  const [deliverableMilestonesLoading, setDeliverableMilestonesLoading] = useState(false);
+  const [isSavingDeliverable, setIsSavingDeliverable] = useState(false);
+
+  const [deliverableForm, setDeliverableForm] = useState({
+    milestoneHistoryId: "",
+    title: "",
+    description: "",
+    draftLabel: "Draft",
+    draftUrl: "",
+  });
+
   useEffect(() => {
     try {
       const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
@@ -1141,12 +1171,12 @@ export default function ViewCampaignPage() {
       setCanEditCampaigns(
         Array.isArray(permissions)
           ? permissions.some(
-              (item: any) =>
-                String(item?.key || "")
-                  .toLowerCase()
-                  .replace(/[\s_-]+/g, "") === "campaigns" &&
-                item?.isEdit === true
-            )
+            (item: any) =>
+              String(item?.key || "")
+                .toLowerCase()
+                .replace(/[\s_-]+/g, "") === "campaigns" &&
+              item?.isEdit === true
+          )
           : false
       );
     } catch {
@@ -1279,19 +1309,7 @@ export default function ViewCampaignPage() {
     setApplicantError(null);
 
     try {
-      if (isAdminCreatedCampaign) {
-        await fetchAdminCreatedCampaignApplicants();
-        return;
-      }
-
-      const {
-        meta: m,
-        influencers: list,
-        applicantCount: cnt,
-        statusCounts: counts,
-        isContracted: contractedFlag,
-        contractId,
-      } = await post<ApplyListResponse>("apply/list", {
+      const applyResponse = await post<ApplyListResponse>("apply/list", {
         campaignId: effectiveCampaignId,
         page: applicantPage,
         limit: applicantLimit,
@@ -1299,14 +1317,33 @@ export default function ViewCampaignPage() {
         sortField,
         sortOrder,
         filterStatus: applicantStatusFilter === "all" ? "" : applicantStatusFilter,
+        // Pitch folder assignment is for fully-managed/admin campaigns, so
+        // old ApplyCampaign rows without isActive flags must still display as Active.
+        forceActiveForManaged: true,
       });
 
-      setApplicantMeta(m || null);
-      setApplicants(Array.isArray(list) ? list : []);
-      setApplicantCount(Number(cnt || 0));
-      setStatusCounts(counts || {});
-      setIsContracted(Number(contractedFlag || 0));
-      setTopLevelContractId(String(contractId || ""));
+      const list = Array.isArray(applyResponse?.influencers)
+        ? applyResponse.influencers
+        : [];
+      const counts = applyResponse?.statusCounts || {};
+      const applyTotal = Number(
+        applyResponse?.applicantCount || counts.total || list.length || 0
+      );
+
+      // Pitch-folder assignment stores influencers in ApplyCampaign, even for
+      // admin-created / fully-managed campaigns. Only fall back to invitations
+      // when there is no ApplyCampaign record for this campaign yet.
+      if (applyTotal > 0 || list.length > 0 || !isAdminCreatedCampaign) {
+        setApplicantMeta(applyResponse?.meta || null);
+        setApplicants(list);
+        setApplicantCount(applyTotal);
+        setStatusCounts(counts);
+        setIsContracted(Number(applyResponse?.isContracted || 0));
+        setTopLevelContractId(String(applyResponse?.contractId || ""));
+        return;
+      }
+
+      await fetchAdminCreatedCampaignApplicants();
     } catch (err: any) {
       setApplicantError(err?.message || "Failed to load applicants.");
       setApplicants([]);
@@ -1386,7 +1423,7 @@ export default function ViewCampaignPage() {
       link.remove();
       window.URL.revokeObjectURL(objectUrl);
     } catch (err: any) {
-      window.alert(err?.message || "Failed to download contract.");
+      await showErr(err?.message || "Failed to download contract.");
     }
   };
 
@@ -1394,13 +1431,13 @@ export default function ViewCampaignPage() {
     event?.preventDefault();
 
     if (!campaign?.brandId || !effectiveCampaignId) {
-      window.alert("Campaign details are incomplete.");
+      await showErr("Campaign details are incomplete.");
       return;
     }
 
     const amount = Number(fundAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      window.alert("Please enter a valid amount greater than 0.");
+      await showErr("Please enter a valid amount greater than 0.");
       return;
     }
 
@@ -1420,9 +1457,9 @@ export default function ViewCampaignPage() {
       setFundNote("");
       setIsFundsModalOpen(false);
       await loadCampaign();
-      window.alert("Funds added successfully.");
+      await showSuccess("Funds added successfully.");
     } catch (err: any) {
-      window.alert(err?.message || "Failed to add campaign funds.");
+      await showErr(err?.message || "Failed to add campaign funds.");
     } finally {
       setAddingFunds(false);
     }
@@ -1501,12 +1538,12 @@ export default function ViewCampaignPage() {
 
   const handleSaveMilestone = async () => {
     if (!selectedInf?.influencerId) {
-      window.alert("Influencer not found.");
+      await showErr("Influencer not found.");
       return;
     }
 
     if (!campaignId || !brandId) {
-      window.alert("Campaign or brand information is missing.");
+      await showErr("Campaign or brand information is missing.");
       return;
     }
 
@@ -1515,12 +1552,12 @@ export default function ViewCampaignPage() {
     const amountNum = Number(milestoneForm.amount);
 
     if (!title) {
-      window.alert("Please enter milestone title.");
+      await showErr("Please enter milestone title.");
       return;
     }
 
     if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      window.alert("Please enter a valid amount.");
+      await showErr("Please enter a valid amount.");
       return;
     }
 
@@ -1558,16 +1595,167 @@ export default function ViewCampaignPage() {
         keepOpen: true,
       });
 
-      window.alert("Milestone added");
+      await showSuccess("Milestone added successfully.");
     } catch (err: any) {
       console.error(err);
-      window.alert(
+      await showErr(
         err?.response?.data?.message ||
-          err?.message ||
-          "Failed to create milestone."
+        err?.message ||
+        "Failed to create milestone."
       );
     } finally {
       setIsSavingMilestone(false);
+    }
+  };
+
+  const handleOpenDeliverableModal = async (inf: InfluencerApplicant) => {
+    if (!inf.influencerId) {
+      await showErr("Influencer not found.");
+      return;
+    }
+
+    if (!campaignId || !brandId) {
+      await showErr("Campaign or brand information is missing.");
+      return;
+    }
+
+    setSelectedDeliverableInf(inf);
+    setDeliverableForm({
+      milestoneHistoryId: "",
+      title: "",
+      description: "",
+      draftLabel: "Draft",
+      draftUrl: "",
+    });
+
+    setDeliverableMilestones([]);
+    setDeliverableMilestonesLoading(true);
+    setShowDeliverableModal(true);
+
+    try {
+      const response = await post<MilestonesByInfluencerResponse>(
+        "/milestone/byInfluencer",
+        { influencerId: inf.influencerId }
+      );
+
+      const filtered = (response?.milestones || []).filter(
+        (item) => String(item.campaignId || "") === String(effectiveCampaignId)
+      );
+
+      setDeliverableMilestones(filtered);
+
+      if (filtered.length === 1) {
+        const only = filtered[0];
+        setDeliverableForm((prev) => ({
+          ...prev,
+          milestoneHistoryId: String(
+            only.milestoneHistoryId || only._id || only.milestoneId || ""
+          ),
+          title: getMilestoneDisplayTitle(only),
+        }));
+      }
+    } catch (err: any) {
+      await showErr(err?.message || "Failed to load milestones.");
+    } finally {
+      setDeliverableMilestonesLoading(false);
+    }
+  };
+
+  const handleCloseDeliverableModal = () => {
+    if (isSavingDeliverable) return;
+
+    setShowDeliverableModal(false);
+    setSelectedDeliverableInf(null);
+    setDeliverableMilestones([]);
+    setDeliverableForm({
+      milestoneHistoryId: "",
+      title: "",
+      description: "",
+      draftLabel: "Draft",
+      draftUrl: "",
+    });
+  };
+
+  const handleSaveAdminDeliverable = async () => {
+    if (!selectedDeliverableInf?.influencerId) {
+      await showErr("Influencer not found.");
+      return;
+    }
+
+    if (!campaignId || !brandId) {
+      await showErr("Campaign or brand information is missing.");
+      return;
+    }
+
+    const milestoneHistoryId = deliverableForm.milestoneHistoryId.trim();
+    const title = deliverableForm.title.trim();
+    const description = deliverableForm.description.trim();
+    const draftLabel = deliverableForm.draftLabel.trim() || "Draft";
+    const draftUrl = deliverableForm.draftUrl.trim();
+
+    if (!milestoneHistoryId) {
+      await showErr("Please select milestone.");
+      return;
+    }
+
+    if (!title) {
+      await showErr("Please enter deliverable title.");
+      return;
+    }
+
+    if (!draftUrl) {
+      await showErr("Please enter deliverable URL.");
+      return;
+    }
+
+    try {
+      setIsSavingDeliverable(true);
+
+      await post("/deliverable/admin/create", {
+        brandId,
+        campaignId,
+        influencerId: selectedDeliverableInf.influencerId,
+        milestoneHistoryId,
+        title,
+        description,
+        url: [
+          {
+            label: draftLabel,
+            url: draftUrl,
+          },
+        ],
+      });
+
+      const savedApplicant = selectedDeliverableInf;
+
+      setShowDeliverableModal(false);
+      setSelectedDeliverableInf(null);
+      setDeliverableMilestones([]);
+      setDeliverableForm({
+        milestoneHistoryId: "",
+        title: "",
+        description: "",
+        draftLabel: "Draft",
+        draftUrl: "",
+      });
+
+      await fetchDeliverables();
+      await fetchMilestonesForApplicant(savedApplicant, {
+        force: true,
+        keepOpen: true,
+      });
+
+      setActiveTab("deliverables");
+      await showSuccess("Deliverable added on behalf of influencer.");
+    } catch (err: any) {
+      console.error(err);
+      await showErr(
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to create deliverable."
+      );
+    } finally {
+      setIsSavingDeliverable(false);
     }
   };
 
@@ -1725,8 +1913,8 @@ export default function ViewCampaignPage() {
       : Math.min(safeDeliverablePage * DELIVERABLES_PER_PAGE, deliverableTotalItems);
 
   const baseApplicants = useMemo(() => {
-    return isAdminCreatedCampaign ? applicants : applicants.filter(isApplicantActive);
-  }, [applicants, isAdminCreatedCampaign]);
+    return applicants.filter(isApplicantActive);
+  }, [applicants]);
 
   const visibleApplicants = useMemo(() => {
     return baseApplicants.filter((inf) => {
@@ -1964,11 +2152,7 @@ export default function ViewCampaignPage() {
                 label="Applicants"
                 active={activeTab === "applicants"}
                 onClick={() => setActiveTab("applicants")}
-                count={
-                  isAdminCreatedCampaign
-                    ? statusCounts.total || undefined
-                    : statusCounts.active || undefined
-                }
+                count={statusCounts.active || statusCounts.total || undefined}
               />
               <Tab
                 label="Deliverables"
@@ -2293,19 +2477,15 @@ export default function ViewCampaignPage() {
                 <div className="flex flex-col gap-2 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-sm font-semibold text-stone-800">
-                      {isAdminCreatedCampaign
-                        ? "Invited Influencers"
-                        : "Active Influencers"}
+                      Active Influencers
                     </p>
                     <p className="text-xs text-stone-400">
                       Showing {visibleApplicants.length} result
                       {visibleApplicants.length === 1 ? "" : "s"} on this page
-                      {isAdminCreatedCampaign
-                        ? statusCounts.total !== undefined
-                          ? ` • ${statusCounts.total} invited total`
-                          : ""
-                        : statusCounts.active !== undefined
-                          ? ` • ${statusCounts.active} active total`
+                      {statusCounts.active !== undefined
+                        ? ` • ${statusCounts.active} active total`
+                        : statusCounts.total !== undefined
+                          ? ` • ${statusCounts.total} total`
                           : ""}
                       .
                     </p>
@@ -2432,14 +2612,24 @@ export default function ViewCampaignPage() {
                                 <TableCell className="px-4 py-3">
                                   <div className="flex flex-wrap items-center gap-2">
                                     {isAdminCreatedCampaign ? (
-                                      <button
-                                        type="button"
-                                        className="rounded-full border-black bg-white px-4 text-black hover:bg-gray-100 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
-                                        onClick={() => handleAddMilestone(inf)}
-                                        disabled={!inf.influencerId || isBudgetLocked || !brandId}
-                                      >
-                                        Add Milestone
-                                      </button>
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="rounded-full border-black bg-white px-4 text-black hover:bg-gray-100 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
+                                          onClick={() => handleAddMilestone(inf)}
+                                          disabled={!inf.influencerId || isBudgetLocked || !brandId}
+                                        >
+                                          Add Milestone
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="rounded-full border-black bg-black px-4 text-white hover:bg-gray-800 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
+                                          onClick={() => handleOpenDeliverableModal(inf)}
+                                          disabled={!inf.influencerId || !brandId || !campaignId}
+                                        >
+                                          Add Deliverable
+                                        </button>
+                                      </>
                                     ) : rowContractId ? (
                                       <button
                                         type="button"
@@ -2454,9 +2644,8 @@ export default function ViewCampaignPage() {
                                     <button
                                       type="button"
                                       onClick={() => fetchMilestonesForApplicant(inf)}
-                                      className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${
-                                        isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
-                                      }`}
+                                      className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
+                                        }`}
                                     >
                                       View Milestones
                                       {isMilestoneOpen ? (
@@ -3080,6 +3269,196 @@ export default function ViewCampaignPage() {
           ) : null}
         </div>
       </div>
+      {showDeliverableModal && selectedDeliverableInf ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between border-b border-gray-200 bg-gray-100 px-6 py-4">
+              <div className="text-black">
+                <p className="text-xs uppercase tracking-wide text-black/70">
+                  Add deliverable on behalf of influencer
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-black">
+                  {selectedDeliverableInf.name || selectedDeliverableInf.handle || "Influencer"}
+                </h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCloseDeliverableModal}
+                className="ml-3 text-lg leading-none text-black/80 hover:text-black"
+                aria-label="Close"
+                disabled={isSavingDeliverable}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-5">
+              <div className="space-y-1">
+                <label
+                  htmlFor="deliverableMilestone"
+                  className="text-sm font-medium text-stone-700"
+                >
+                  Milestone
+                </label>
+
+                <select
+                  id="deliverableMilestone"
+                  value={deliverableForm.milestoneHistoryId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const selectedMilestone = deliverableMilestones.find(
+                      (item) =>
+                        String(item.milestoneHistoryId || item._id || item.milestoneId || "") ===
+                        selectedId
+                    );
+
+                    setDeliverableForm((prev) => ({
+                      ...prev,
+                      milestoneHistoryId: selectedId,
+                      title: prev.title || (selectedMilestone ? getMilestoneDisplayTitle(selectedMilestone) : ""),
+                    }));
+                  }}
+                  disabled={deliverableMilestonesLoading}
+                  className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-black disabled:opacity-60"
+                >
+                  <option value="">
+                    {deliverableMilestonesLoading ? "Loading milestones..." : "Select milestone"}
+                  </option>
+
+                  {deliverableMilestones.map((item, index) => {
+                    const value = String(
+                      item.milestoneHistoryId || item._id || item.milestoneId || ""
+                    );
+
+                    if (!value) return null;
+
+                    return (
+                      <option key={`${value}-${index}`} value={value}>
+                        {getMilestoneDisplayTitle(item)} · ${formatMoney(item.amount)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="deliverableTitle"
+                  className="text-sm font-medium text-stone-700"
+                >
+                  Deliverable Title
+                </label>
+
+                <Input
+                  id="deliverableTitle"
+                  value={deliverableForm.title}
+                  onChange={(e) =>
+                    setDeliverableForm((prev) => ({
+                      ...prev,
+                      title: e.target.value,
+                    }))
+                  }
+                  placeholder="Enter deliverable title"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label
+                  htmlFor="deliverableDesc"
+                  className="text-sm font-medium text-stone-700"
+                >
+                  Description
+                </label>
+
+                <textarea
+                  id="deliverableDesc"
+                  value={deliverableForm.description}
+                  onChange={(e) =>
+                    setDeliverableForm((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }))
+                  }
+                  placeholder="Enter deliverable description"
+                  rows={3}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[160px_1fr]">
+                <div className="space-y-1">
+                  <label
+                    htmlFor="deliverableDraftLabel"
+                    className="text-sm font-medium text-stone-700"
+                  >
+                    Draft Label
+                  </label>
+
+                  <Input
+                    id="deliverableDraftLabel"
+                    value={deliverableForm.draftLabel}
+                    onChange={(e) =>
+                      setDeliverableForm((prev) => ({
+                        ...prev,
+                        draftLabel: e.target.value,
+                      }))
+                    }
+                    placeholder="Draft"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="deliverableDraftUrl"
+                    className="text-sm font-medium text-stone-700"
+                  >
+                    Deliverable URL
+                  </label>
+
+                  <Input
+                    id="deliverableDraftUrl"
+                    value={deliverableForm.draftUrl}
+                    onChange={(e) =>
+                      setDeliverableForm((prev) => ({
+                        ...prev,
+                        draftUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="https://drive.google.com/..."
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+                This deliverable will be submitted as pending review, on behalf of the selected influencer.
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-3">
+              <button
+                onClick={handleCloseDeliverableModal}
+                className="border-gray-300 text-black hover:bg-white border rounded-md px-4 py-2 text-sm"
+                disabled={isSavingDeliverable}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleSaveAdminDeliverable}
+                disabled={
+                  !selectedDeliverableInf?.influencerId ||
+                  isSavingDeliverable ||
+                  deliverableMilestonesLoading
+                }
+                className="bg-black text-white hover:bg-gray-800 disabled:opacity-60 rounded-md px-4 py-2 text-sm"
+              >
+                {isSavingDeliverable ? "Saving..." : "Add Deliverable"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -5,12 +5,12 @@ import Link from "next/link";
 import { post } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
-  HiOutlineRefresh, HiOutlineEye, HiChevronUp, HiChevronDown,
-  HiChevronLeft, HiChevronRight, HiOutlineClipboardList,
+  HiOutlineRefresh, HiChevronUp, HiChevronDown,
+  HiChevronLeft, HiChevronRight,
 } from "react-icons/hi";
 import {
   Activity, ArrowUpRight, BadgeCheck, CalendarDays, CircleHelp,
-  Globe2, Layers3, Search, TrendingUp, Users,
+  Globe2, Layers3, Search, TrendingUp, Users, Plus, XCircle, Clock3,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,27 @@ interface NamedEntity { _id?: string; name: string; }
 interface SocialProfile { provider?: string; handle?: string; username?: string; followers?: number; url?: string; picture?: string; }
 interface Onboarding { route?: string; page1Done?: boolean; page2Done?: boolean; page3Done?: boolean; ispage2Skip?: boolean; ispage3Skip?: boolean; }
 interface Influencer {
-  _id: string; influencerId?: string; email: string; name: string;
+  _id: string; email: string; name: string;
   country?: NamedEntity | null; languages?: NamedEntity[]; categories?: NamedEntity[];
   proxyEmail?: string; primaryPlatform?: string | null; socialProfiles?: SocialProfile[];
   onboarding?: Onboarding; createdAt?: string; updatedAt?: string;
+  isAdminCreated?: boolean;
+  signupCompleted?: boolean;
+  createdByAdmin?: string | null;
+  adminCreatedRole?: string;
+  adminCreatedAt?: string | null;
+  signupCompletedAt?: string | null;
+  createdByAdminName?: string;
+  createdByAdminEmail?: string;
+  createdByLabel?: string;
+  createdBySource?: "admin" | "influencer";
+  currentStatus?: "pending_signup" | "active";
+  currentStatusLabel?: string;
+  currentStatusSubLabel?: string;
 }
 interface GetListResponse { page: number; limit: number; total: number; pages?: number; count?: number; influencers: Influencer[]; }
+interface CreateInfluencerResponse { success: boolean; message: string; influencer?: Influencer; }
+type CreateInfluencerPlatform = "youtube" | "instagram" | "tiktok";
 
 interface TrendPoint {
   label: string; shortLabel: string; value: number;
@@ -42,18 +57,19 @@ type OnboardingFilter = "all" | "completed" | "inProgress";
 type PlatformKey = Exclude<PlatformFilter, "all">;
 
 const API_ENDPOINT = "/admin/influencer/list";
+const CREATE_INFLUENCER_ENDPOINT = "/admin/influencer/create";
 const DEFAULT_LIMIT = 10;
 const FETCH_LIMIT = 200;
 const MAX_FETCH_PAGES = 20;
 const ROW_OPTIONS = [10, 20, 50, 100] as const;
 
-const HEADERS: { key: SortField | "country" | "categories" | "onboarding" | "contact"; label: string; sortable?: boolean; align?: "left" | "center" | "right"; }[] = [
+const HEADERS: { key: SortField | "country" | "categories" | "onboarding" | "contact" | "createdBy" | "currentStatus"; label: string; sortable?: boolean; align?: "left" | "center" | "right"; }[] = [
   { key: "name", label: "Influencer", sortable: true, align: "left" },
   { key: "contact", label: "Contact", align: "left" },
   { key: "primaryPlatform", label: "Platform", sortable: true, align: "center" },
-  { key: "createdAt", label: "Signup", sortable: true, align: "center" },
-  { key: "country", label: "Country", align: "center" },
-  { key: "categories", label: "Categories", align: "center" },
+  { key: "createdAt", label: "Created", sortable: true, align: "center" },
+  { key: "createdBy", label: "Created By", align: "center" },
+  { key: "currentStatus", label: "Current Status", align: "center" },
   { key: "onboarding", label: "Onboarding", align: "center" },
 ];
 
@@ -149,6 +165,57 @@ function getCountryName(inf: Influencer) { return inf.country?.name || "???"; }
 function getCategoryNames(inf: Influencer) { return inf.categories?.map(i => i.name).filter(Boolean) || []; }
 function getLanguageNames(inf: Influencer) { return inf.languages?.map(i => i.name).filter(Boolean) || []; }
 function getSocialProfileCount(inf: Influencer) { return inf.socialProfiles?.length || 0; }
+function getPrimaryUsername(inf: Influencer) {
+  const primary = normalizePlatform(inf.primaryPlatform);
+  const primaryProfile = inf.socialProfiles?.find(profile => normalizePlatform(profile.provider) === primary);
+  const fallbackProfile = primaryProfile || inf.socialProfiles?.[0];
+  return fallbackProfile?.handle || fallbackProfile?.username || "";
+}
+function formatRoleLabel(role?: string) {
+  const r = String(role || "").trim().toLowerCase();
+  if (r === "super_admin") return "Super Admin";
+  if (r === "revenue_head") return "RH";
+  if (r === "bme") return "BME";
+  if (r === "ime") return "IME";
+  if (r === "sdr") return "SDR";
+  return r ? r.replace(/_/g, " ").toUpperCase() : "Admin";
+}
+function getCreatedByInfo(inf: Influencer) {
+  const isAdmin = inf.createdBySource === "admin" || inf.isAdminCreated === true;
+  const roleLabel = formatRoleLabel(inf.adminCreatedRole);
+  const adminName = inf.createdByAdminName || inf.createdByLabel || inf.createdByAdminEmail || "Admin";
+
+  if (isAdmin) {
+    return {
+      label: adminName,
+      subLabel: roleLabel,
+      badge: "Admin",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    };
+  }
+
+  return {
+    label: "Influencer",
+    subLabel: "Self signup",
+    badge: "Self",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+function getInfluencerCurrentStatus(inf: Influencer) {
+  if (inf.currentStatus === "pending_signup" || (inf.isAdminCreated === true && inf.signupCompleted === false)) {
+    return {
+      label: inf.currentStatusLabel || "Pending Signup",
+      subLabel: inf.currentStatusSubLabel || "Admin-created placeholder",
+      className: "border-amber-200 bg-amber-50 text-amber-700",
+    };
+  }
+
+  return {
+    label: inf.currentStatusLabel || "Active",
+    subLabel: inf.currentStatusSubLabel || "Signup completed",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
 function getCompletedPages(inf: Influencer) {
   const o = inf.onboarding; if (!o) return 0;
   return (o.page1Done ? 1 : 0) + (o.page2Done || o.ispage2Skip ? 1 : 0) + (o.page3Done || o.ispage3Skip ? 1 : 0);
@@ -200,8 +267,13 @@ function buildMonthlyTrendDetailed(rows: Influencer[], months = 6): TrendPoint[]
 }
 
 function getSearchableText(inf: Influencer) {
+  const createdBy = getCreatedByInfo(inf);
+  const currentStatus = getInfluencerCurrentStatus(inf);
+
   return [inf.name, inf.email, inf.proxyEmail, getCountryName(inf), getPrimaryPlatform(inf),
   getCategoryNames(inf).join(" "), getLanguageNames(inf).join(" "),
+  getPrimaryUsername(inf), createdBy.label, createdBy.badge, createdBy.subLabel,
+  currentStatus.label, currentStatus.subLabel,
   inf.socialProfiles?.map(i => i.handle || i.username || i.provider).join(" "),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -745,7 +817,30 @@ const AdminInfluencersPage = () => {
   const [sortBy, setSortBy] = React.useState<SortField>("createdAt");
   const [sortOrder, setSortOrder] = React.useState<"asc" | "desc">("desc");
 
+  const [adminRole, setAdminRole] = React.useState<string>("");
+  const [createOpen, setCreateOpen] = React.useState<boolean>(false);
+  const [createName, setCreateName] = React.useState<string>("");
+  const [createEmail, setCreateEmail] = React.useState<string>("");
+  const [createPlatform, setCreatePlatform] = React.useState<CreateInfluencerPlatform>("youtube");
+  const [createUsername, setCreateUsername] = React.useState<string>("");
+  const [creatingInfluencer, setCreatingInfluencer] = React.useState<boolean>(false);
+  const [createError, setCreateError] = React.useState<string | null>(null);
+
   React.useEffect(() => { const t = window.setTimeout(() => setDebouncedTableSearch(tableSearch.trim().toLowerCase()), 300); return () => window.clearTimeout(t); }, [tableSearch]);
+
+  React.useEffect(() => {
+    try {
+      const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
+      setAdminRole(String(storedAdmin?.role || "").toLowerCase());
+    } catch {
+      setAdminRole("");
+    }
+  }, []);
+
+  const canCreateInfluencer = React.useMemo(
+    () => ["super_admin", "revenue_head", "ime"].includes(adminRole),
+    [adminRole]
+  );
 
   const fetchAllData = React.useCallback(async (showInitialLoader = false) => {
     if (showInitialLoader) setLoading(true); else setRefreshing(true);
@@ -763,6 +858,62 @@ const AdminInfluencersPage = () => {
     } catch (err: any) { console.error(err); setError(err?.message || "Failed to load influencers."); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
+
+  const handleCreateInfluencer = React.useCallback(async () => {
+    const name = createName.trim();
+    const email = createEmail.trim().toLowerCase();
+    const platform = createPlatform;
+    const username = createUsername.trim().replace(/^@+/, "");
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!canCreateInfluencer) {
+      setCreateError("Only Super Admin, RH, or IME can create influencers.");
+      return;
+    }
+
+    if (!name) {
+      setCreateError("Influencer name is required.");
+      return;
+    }
+
+    if (!emailRx.test(email)) {
+      setCreateError("Valid email is required.");
+      return;
+    }
+
+    if (!platform) {
+      setCreateError("Platform is required.");
+      return;
+    }
+
+    if (!username) {
+      setCreateError("Username is required.");
+      return;
+    }
+
+    try {
+      setCreatingInfluencer(true);
+      setCreateError(null);
+
+      await post<CreateInfluencerResponse>(CREATE_INFLUENCER_ENDPOINT, {
+        name,
+        email,
+        platform,
+        username,
+      });
+
+      setCreateOpen(false);
+      setCreateName("");
+      setCreateEmail("");
+      setCreatePlatform("youtube");
+      setCreateUsername("");
+      await fetchAllData(false);
+    } catch (err: any) {
+      setCreateError(err?.message || "Failed to create influencer.");
+    } finally {
+      setCreatingInfluencer(false);
+    }
+  }, [canCreateInfluencer, createName, createEmail, createPlatform, createUsername, fetchAllData]);
 
   React.useEffect(() => { fetchAllData(true); }, [fetchAllData]);
 
@@ -805,7 +956,7 @@ const AdminInfluencersPage = () => {
   const filteredRows = React.useMemo(() => {
     const rows = allRows.filter(inf => {
       const createdDate = safeDate(inf.createdAt);
-      const searchable = getSearchableText(inf);
+      const searchable = `${getSearchableText(inf)} ${getCreatedByInfo(inf).label} ${getCreatedByInfo(inf).subLabel} ${getInfluencerCurrentStatus(inf).label}`.toLowerCase();
       const pp = getPrimaryPlatform(inf);
       const ms = !debouncedTableSearch || searchable.includes(debouncedTableSearch);
       const mp = tablePlatformFilter === "all" || pp === tablePlatformFilter;
@@ -882,9 +1033,28 @@ const AdminInfluencersPage = () => {
               <h1 className="mt-2 text-[36px] font-black tracking-tight text-slate-900">Admin Influencer Management</h1>
               <p className="mt-0.5 text-sm text-slate-400">Signups, platform mix, onboarding progress, and creator records.</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {(Object.keys(PLATFORM_META) as PlatformKey[]).map(p => <PlatformIconBadge key={p} platform={p} size="sm" />)}
               <div className="mx-2 h-5 w-px bg-slate-200" />
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  setCreateOpen(true);
+                  setCreateError(null);
+                }}
+                disabled={!canCreateInfluencer}
+                className="h-9 rounded-lg bg-slate-900 text-sm font-medium text-white hover:bg-slate-800"
+                title={
+                  canCreateInfluencer
+                    ? "Create influencer"
+                    : "Only Super Admin, RH, or IME can create influencers"
+                }
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Create Influencer
+              </Button>
+
               <Button variant="outline" size="sm" onClick={() => fetchAllData(false)} disabled={refreshing} className="h-9 rounded-lg border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50">
                 <HiOutlineRefresh className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")} />Refresh
               </Button>
@@ -893,8 +1063,8 @@ const AdminInfluencersPage = () => {
 
           <div className="grid gap-4 sm:grid-cols-3 xl:grid-cols-3">
             <MetricCard title="Total Influencers" tooltip="Overall influencer records." value={formatCompactNumber(analyticsRows.length)} icon={Users} accentColor="#0f172a" hint={""} />
-            <MetricCard title="This Month" tooltip="Signups in current calendar month." value={formatCompactNumber(currentMonthSignups)} icon={CalendarDays} accentColor="#3b82f6" hint={""} />
-            <MetricCard title="Growth Rate" tooltip="Month-over-month signup growth." value={formatSignedPercent(growthRate)} icon={TrendingUp} accentColor={growthRate >= 0 ? "#10b981" : "#ef4444"} hint={""} />
+            <MetricCard title="Pending Signup" tooltip="Admin-created influencers who still need to complete signup." value={formatCompactNumber(analyticsRows.filter(item => item.isAdminCreated === true && item.signupCompleted === false).length)} icon={Clock3} accentColor="#f59e0b" hint={"Admin-created"} />
+            <MetricCard title="Active" tooltip="Influencers whose signup is completed." value={formatCompactNumber(analyticsRows.filter(item => !(item.isAdminCreated === true && item.signupCompleted === false)).length)} icon={BadgeCheck} accentColor="#10b981" hint={"Signup completed"} />
           </div>
 
           <div className="grid gap-5 =">
@@ -939,7 +1109,7 @@ const AdminInfluencersPage = () => {
                     <div className="relative">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                       <Input
-                        placeholder="Search .. "
+                        placeholder="Search by name, email, creator, status, platform..."
                         value={tableSearch}
                         onChange={e => setTableSearch(e.target.value)}
                         className="h-8 rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
@@ -1049,8 +1219,6 @@ const AdminInfluencersPage = () => {
                         </div>
                       </TableCell></TableRow>
                     ) : rows.map(inf => {
-                      const categoryNames = getCategoryNames(inf);
-                      const languageNames = getLanguageNames(inf);
                       const socialProfileCount = getSocialProfileCount(inf);
                       const completedPages = getCompletedPages(inf);
                       const profilePicture = inf.socialProfiles?.find(p => p.picture)?.picture;
@@ -1061,7 +1229,7 @@ const AdminInfluencersPage = () => {
                             <div className="flex min-w-[240px] items-center gap-3">
                               {profilePicture ? <img src={profilePicture} alt={inf.name || "Influencer"} className="h-9 w-9 rounded-lg border border-slate-200 bg-slate-100 object-cover" onError={e => { e.currentTarget.style.display = "none"; const next = e.currentTarget.nextElementSibling as HTMLElement | null; if (next) next.style.display = "flex"; }} /> : null}
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs font-black text-slate-600" style={{ display: profilePicture ? "none" : "flex" }}>{getInitials(inf.name)}</div>
-                              <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{inf.name || "???"}</div><div className="mt-0.5 truncate text-xs text-slate-400">{inf.proxyEmail || "Creator profile"}</div></div>
+                              <div className="min-w-0"><div className="truncate text-sm font-semibold text-slate-900">{inf.name || "???"}</div><div className="mt-0.5 truncate text-xs text-slate-400">{getPrimaryUsername(inf) || inf.proxyEmail || "Creator profile"}</div></div>
                             </div>
                           </TableCell>
                           <TableCell className="py-3.5"><div className="min-w-[220px]"><div className="truncate text-sm text-slate-700">{inf.email || "???"}</div><div className="mt-0.5 truncate text-xs text-slate-400"></div></div></TableCell>
@@ -1072,8 +1240,39 @@ const AdminInfluencersPage = () => {
                               <span className={cn("text-xs", createdDate && isCurrentMonth(createdDate) ? "font-medium text-emerald-500" : "text-slate-400")}>{createdDate && isCurrentMonth(createdDate) ? "This month" : "Earlier"}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="py-3.5 text-center"><span className="inline-flex items-center gap-1 text-sm text-slate-700"><Globe2 className="h-3.5 w-3.5 text-slate-400" />{getCountryName(inf)}</span></TableCell>
-                          <TableCell className="py-3.5 text-center"><div className="flex flex-col items-center gap-0.5"><span className="inline-flex items-center gap-1 text-sm text-slate-700"><Layers3 className="h-3.5 w-3.5 text-slate-400" />{categoryNames.length} categor{categoryNames.length === 1 ? "y" : "ies"}</span><span className="max-w-[200px] truncate text-xs text-slate-400">{categoryNames.length ? categoryNames.join(", ") : "None"}</span></div></TableCell>
+                          <TableCell className="py-3.5 text-center">
+                            {(() => {
+                              const createdBy = getCreatedByInfo(inf);
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${createdBy.className}`}>
+                                    {createdBy.badge}
+                                  </span>
+                                  <span className="max-w-[150px] truncate text-xs font-semibold text-slate-600">
+                                    {createdBy.label}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-slate-400">
+                                    {createdBy.subLabel}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
+                          <TableCell className="py-3.5 text-center">
+                            {(() => {
+                              const currentStatus = getInfluencerCurrentStatus(inf);
+                              return (
+                                <div className="flex flex-col items-center gap-1">
+                                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${currentStatus.className}`}>
+                                    {currentStatus.label}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-slate-400">
+                                    {currentStatus.subLabel}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell className="py-3.5 text-center"><div className="flex flex-col items-center gap-1"><OnboardingBadge influencer={inf} /><span className="text-xs text-slate-400">{completedPages}/3 steps</span></div></TableCell>
                           <TableCell className="py-3.5 text-center">
                             <div className="flex items-center justify-center gap-0.5">
@@ -1108,6 +1307,125 @@ const AdminInfluencersPage = () => {
           </Card>
 
         </div>
+        {createOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+            <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-950">
+                    Create Influencer
+                  </h2>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateOpen(false);
+                    setCreateError(null);
+                  }}
+                  className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <XCircle className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-4">
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Influencer Name
+                  </label>
+                  <Input
+                    value={createName}
+                    onChange={(event) => {
+                      setCreateName(event.target.value);
+                      setCreateError(null);
+                    }}
+                    placeholder="Enter influencer name"
+                    className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Email
+                  </label>
+                  <Input
+                    value={createEmail}
+                    onChange={(event) => {
+                      setCreateEmail(event.target.value);
+                      setCreateError(null);
+                    }}
+                    placeholder="creator@example.com"
+                    className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Platform
+                  </label>
+                  <select
+                    value={createPlatform}
+                    onChange={(event) => {
+                      setCreatePlatform(event.target.value as CreateInfluencerPlatform);
+                      setCreateError(null);
+                    }}
+                    className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-slate-400"
+                  >
+                    <option value="youtube">YouTube</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Username
+                  </label>
+                  <Input
+                    value={createUsername}
+                    onChange={(event) => {
+                      setCreateUsername(event.target.value);
+                      setCreateError(null);
+                    }}
+                    placeholder="username without @"
+                    className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
+                  />
+                </div>
+
+                {createError ? (
+                  <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                    {createError}
+                  </p>
+                ) : null}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={() => {
+                      setCreateOpen(false);
+                      setCreateError(null);
+                    }}
+                    disabled={creatingInfluencer}
+                  >
+                    Cancel
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="rounded-2xl"
+                    onClick={handleCreateInfluencer}
+                    disabled={creatingInfluencer}
+                  >
+                    {creatingInfluencer ? "Creating..." : "Create Influencer"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </TooltipProvider>
   );

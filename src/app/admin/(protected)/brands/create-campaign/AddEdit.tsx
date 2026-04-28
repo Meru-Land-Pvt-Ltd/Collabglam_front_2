@@ -1209,7 +1209,7 @@ function CreateManualScreen({
       }
 
       resetForm();
-      router.replace(`/admin/campaigns`);
+      router.replace(`/admin/campaigns/view?id=campaign-${campaignId || ""}`);
       onAfterPublish?.();
     } catch (e: any) {
       const backendMsg = extractBackendMessage(e);
