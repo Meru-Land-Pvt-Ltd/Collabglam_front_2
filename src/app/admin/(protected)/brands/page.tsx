@@ -6,16 +6,10 @@ import Link from "next/link";
 import { Outfit } from "next/font/google";
 import {
   Search,
-  Building2,
   Mail,
   RefreshCw,
   ShieldCheck,
-  Users,
-  Briefcase,
-  CheckCircle2,
   XCircle,
-  Clock3,
-  Eye,
   Plus,
   Pencil,
   Image as ImageIcon,
@@ -27,12 +21,6 @@ import { adminGet, adminPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import AdminTable, { type AdminTableColumn } from "../../components/table";
 
 const outfit = Outfit({
@@ -50,8 +38,7 @@ type SortField =
   | "email"
   | "planName"
   | "createdAt"
-  | "expiresAt"
-  | "status";
+  | "expiresAt";
 
 interface ApiFeature {
   key: string;
@@ -213,6 +200,15 @@ interface StoredAdmin {
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_ROW_OPTIONS = [10, 20, 50, 100] as const;
 
+const tableButtonBaseClass =
+  "h-9 rounded-[10px] border px-3 text-sm font-medium shadow-sm transition focus-visible:!ring-0 focus-visible:!ring-offset-0";
+
+const manageButtonClass =
+  "border-black bg-black text-white hover:!bg-black/90 hover:!text-white";
+
+const disabledButtonClass =
+  "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 hover:!bg-slate-100 hover:!text-slate-400";
+
 const FEATURE_LABELS: Record<string, string> = {
   influencer_search_per_month: "Influencer Search",
   influencer_profile_views_per_month: "Profile Views",
@@ -263,8 +259,13 @@ function formatDate(value?: string) {
 }
 
 function formatMoney(value: number) {
-  if (!value) return "Free";
+  if (!value) return "FREE";
   return `${value.toLocaleString()}`;
+}
+
+function formatPlanLabel(value?: string) {
+  const label = String(value || "—").trim();
+  return label === "—" ? label : label.replace(/_/g, " ").toUpperCase();
 }
 
 function formatRoleLabel(role?: string) {
@@ -419,18 +420,6 @@ function initials(name: string) {
   );
 }
 
-function statusStyles(status: BrandStatus) {
-  if (status === "active") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-
-  if (status === "archived") {
-    return "border-rose-200 bg-rose-50 text-rose-700";
-  }
-
-  return "border-amber-200 bg-amber-50 text-amber-700";
-}
-
 function roleMeta(role: AssignRole) {
   switch (role) {
     case "RH":
@@ -535,58 +524,6 @@ const BrandAvatar = React.memo(function BrandAvatar({
   );
 });
 
-const StatusBadge = React.memo(function StatusBadge({
-  status,
-}: {
-  status: BrandStatus;
-}) {
-  const Icon =
-    status === "active" ? CheckCircle2 : status === "archived" ? XCircle : Clock3;
-
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${statusStyles(
-        status
-      )}`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-});
-
-const SummaryCard = React.memo(function SummaryCard({
-  title,
-  value,
-  icon: Icon,
-  hint,
-}: {
-  title: string;
-  value: string | number;
-  icon: React.ComponentType<{ className?: string }>;
-  hint: string;
-}) {
-  return (
-    <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between p-5">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-            {title}
-          </p>
-          <h3 className="mt-2 text-2xl font-extrabold text-slate-900">
-            {value}
-          </h3>
-          <p className="mt-1 text-xs font-medium text-slate-500">{hint}</p>
-        </div>
-
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </Card>
-  );
-});
-
 const FeatureUsage = React.memo(function FeatureUsage({
   feature,
 }: {
@@ -656,7 +593,7 @@ const BrandIdentityCell = React.memo(function BrandIdentityCell({
 
           {brand.proxyEmail ? (
             <span className="truncate text-[11px] text-slate-400">
-              Proxy: {brand.proxyEmail}
+              PROXY: {brand.proxyEmail}
             </span>
           ) : null}
         </div>
@@ -667,14 +604,10 @@ const BrandIdentityCell = React.memo(function BrandIdentityCell({
 
 const PlanCell = React.memo(function PlanCell({ brand }: { brand: BrandRow }) {
   return (
-    <div className="space-y-1">
-      <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-extrabold text-slate-800">
-        {brand.planName}
+    <div className="w-full min-w-[180px] p-3 text-left ">
+      <span className="inline-flex max-w-full rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.04em] text-slate-900">
+        <span className="truncate">{formatPlanLabel(brand.planName)}</span>
       </span>
-
-      <p className="text-[11px] font-medium text-slate-500">
-        {formatMoney(brand.amountPaid)} · {brand.billingCycle}
-      </p>
     </div>
   );
 });
@@ -691,34 +624,13 @@ const CreatedByCell = React.memo(function CreatedByCell({
       <span
         className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${createdBy.className}`}
       >
-        {createdBy.badge}
+        {createdBy.badge.toUpperCase()}
       </span>
       <span className="max-w-[150px] truncate text-xs font-semibold text-slate-600">
-        {createdBy.label}
+        {createdBy.label.toUpperCase()}
       </span>
       <span className="text-[10px] font-medium text-slate-400">
-        {createdBy.subLabel}
-      </span>
-    </div>
-  );
-});
-
-const CurrentStatusCell = React.memo(function CurrentStatusCell({
-  brand,
-}: {
-  brand: BrandRow;
-}) {
-  const currentStatus = getBrandCurrentStatus(brand);
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <span
-        className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${currentStatus.className}`}
-      >
-        {currentStatus.label}
-      </span>
-      <span className="text-[10px] font-medium text-slate-400">
-        {currentStatus.subLabel}
+        {createdBy.subLabel.toUpperCase()}
       </span>
     </div>
   );
@@ -737,15 +649,15 @@ const TeamCell = React.memo(function TeamCell({
         {brand.assignedRh ? (
           <span
             className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${isMine
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 bg-slate-50 text-slate-700"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-slate-200 bg-slate-50 text-slate-700"
               }`}
           >
             RH: {brand.assignedRh}
           </span>
         ) : (
           <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">
-            RH Unassigned
+            RH UNASSIGNED
           </span>
         )}
 
@@ -755,7 +667,7 @@ const TeamCell = React.memo(function TeamCell({
           </span>
         ) : (
           <span className="rounded-full border border-dashed border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-400">
-            BME Pending
+            BME PENDING
           </span>
         )}
       </div>
@@ -763,12 +675,21 @@ const TeamCell = React.memo(function TeamCell({
       {isMine ? (
         <p className="flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
           <UserCheck className="h-3.5 w-3.5" />
-          Assigned to your RH account
+          ASSIGNED TO YOUR RH ACCOUNT
         </p>
       ) : null}
     </div>
   );
 });
+
+const assigneeButtonBaseClass =
+  "inline-flex h-9 items-center justify-center rounded-[10px] border px-3 text-sm font-medium shadow-sm transition focus-visible:!ring-0 focus-visible:!ring-offset-0";
+
+const assigneeBlackButtonClass =
+  "border-black bg-black text-white hover:!bg-black/90 hover:!text-white";
+
+const assigneeDisabledButtonClass =
+  "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 hover:!bg-slate-100 hover:!text-slate-400";
 
 const AssigneeCell = React.memo(function AssigneeCell({
   brandId,
@@ -829,9 +750,14 @@ const AssigneeCell = React.memo(function AssigneeCell({
 
   if (disabled) {
     return (
-      <span className="inline-flex items-center rounded-full border border-dashed border-slate-200 px-2.5 py-1 text-[11px] font-bold text-slate-400">
-        {currentValue || disabledLabel || `No ${meta.label} available`}
-      </span>
+      <button
+        type="button"
+        disabled
+        title={disabledLabel || `No ${meta.label} available`}
+        className={`${assigneeButtonBaseClass} ${assigneeDisabledButtonClass}`}
+      >
+        {currentValue || meta.emptyLabel}
+      </button>
     );
   }
 
@@ -843,22 +769,9 @@ const AssigneeCell = React.memo(function AssigneeCell({
           event.stopPropagation();
           setOpen(true);
         }}
-        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${currentValue
-            ? "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-400 hover:text-slate-950"
-            : "border-dashed border-slate-300 text-slate-500 hover:border-slate-500 hover:text-slate-800"
-          }`}
+        className={`${assigneeButtonBaseClass} ${assigneeBlackButtonClass}`}
       >
-        {currentValue ? (
-          <>
-            {currentValue}
-            <Pencil className="h-3 w-3" />
-          </>
-        ) : (
-          <>
-            <Plus className="h-3.5 w-3.5" />
-            {meta.emptyLabel}
-          </>
-        )}
+        {currentValue || meta.emptyLabel}
       </button>
     );
   }
@@ -899,7 +812,7 @@ const AssigneeCell = React.memo(function AssigneeCell({
           size="sm"
           onClick={handleSave}
           disabled={saving || !selected}
-          className="rounded-xl"
+          className={`${assigneeButtonBaseClass} ${assigneeBlackButtonClass}`}
         >
           {saving ? "Saving..." : "Save"}
         </Button>
@@ -914,7 +827,7 @@ const AssigneeCell = React.memo(function AssigneeCell({
             setSelected("");
             setError(null);
           }}
-          className="rounded-xl"
+          className="h-9 rounded-[10px] border-slate-200 px-3 text-sm font-medium"
         >
           Cancel
         </Button>
@@ -946,48 +859,34 @@ const AssigneePanelCard = React.memo(function AssigneePanelCard({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-        {title}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+          {title}
+        </p>
 
-      <div className="mt-2 min-h-[44px]">
         {currentValue ? (
-          <>
-            <p className="text-sm font-extrabold text-slate-900">
-              {currentValue}
-            </p>
-            {employeeId ? (
-              <p className="mt-1 text-[11px] font-medium text-slate-400">
-                ID: {employeeId}
-              </p>
-            ) : null}
-          </>
+          <span
+            title={employeeId ? `ID: ${employeeId}` : currentValue}
+            className="inline-flex items-center rounded-full border border-yellow-300 bg-yellow-100 px-3 py-1.5 text-sm font-bold text-yellow-900 shadow-sm"
+          >
+            {currentValue}
+          </span>
         ) : (
-          <>
-            <p className="text-sm font-semibold text-slate-400">Not assigned</p>
-            <p className="mt-1 text-xs font-medium text-slate-500">
-              {disabled
-                ? disabledLabel || "Assignment unavailable"
-                : "Ready to assign"}
-            </p>
-          </>
+          <AssigneeCell
+            brandId={brandId}
+            currentValue={currentValue}
+            role={role}
+            options={options}
+            onSave={onSave}
+            disabled={disabled}
+            disabledLabel={disabledLabel}
+          />
         )}
-      </div>
-
-      <div className="mt-4">
-        <AssigneeCell
-          brandId={brandId}
-          currentValue={currentValue}
-          role={role}
-          options={options}
-          onSave={onSave}
-          disabled={disabled}
-          disabledLabel={disabledLabel}
-        />
       </div>
     </div>
   );
 });
+
 
 const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
   brand,
@@ -1015,51 +914,12 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        {[
-          { label: "Contact", value: brand.contactName },
-          { label: "Industry", value: brand.industry },
-          { label: "Company Size", value: brand.companySize },
-          { label: "Proxy Email", value: brand.proxyEmail || "—" },
-          { label: "Created By", value: getCreatedByInfo(brand).label },
-          { label: "Current Status", value: getBrandCurrentStatus(brand).label },
-          {
-            label: "Billing",
-            value: brand.billingCycle === "annual" ? "Annual" : "Monthly",
-          },
-          { label: "Auto Renew", value: brand.autoRenew ? "Enabled" : "Disabled" },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className="rounded-2xl border border-slate-200 bg-white p-4"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              {item.label}
-            </p>
-            <p className="mt-2 text-sm font-extrabold text-slate-900">
-              {item.value}
-            </p>
-          </div>
-        ))}
-      </div>
-
       <Card className="rounded-2xl border border-slate-200 bg-white shadow-none">
         <div className="p-4">
-          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Assigned Team
-              </p>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Brand-level assignment is RH + BME only. IME assignment happens from Campaign page.
-              </p>
-            </div>
-
-            {!canEditAssignments ? (
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-500">
-                View only
-              </span>
-            ) : null}
+          <div className="mb-4">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+              Assigned Team
+            </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -1099,128 +959,7 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
           </div>
         </div>
       </Card>
-
-      <div className="grid gap-4 xl:grid-cols-[1.4fr,0.6fr]">
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-none">
-          <div className="p-4">
-            <div className="mb-4">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-                Subscription Usage
-              </p>
-              <p className="mt-1 text-sm font-semibold text-slate-600">
-                Metered usage across the current plan.
-              </p>
-            </div>
-
-            {usageFeatures.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {usageFeatures.map((feature) => (
-                  <FeatureUsage key={feature.key} feature={feature} />
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm font-medium text-slate-500">
-                No metered features found.
-              </p>
-            )}
-          </div>
-        </Card>
-
-        <Card className="rounded-2xl border border-slate-200 bg-white shadow-none">
-          <div className="p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-              Brand Media
-            </p>
-
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              {isDataUrlImage(brand.profilePic) ? (
-                <img
-                  src={brand.profilePic}
-                  alt={brand.name}
-                  className="h-32 w-32 rounded-2xl border border-slate-200 bg-white object-cover"
-                />
-              ) : (
-                <div className="flex h-32 w-32 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white text-slate-400">
-                  <ImageIcon className="h-6 w-6" />
-                </div>
-              )}
-
-              <p className="mt-3 text-xs font-medium text-slate-500">
-                Profile picture is rendered directly when backend returns a data URL.
-              </p>
-            </div>
-          </div>
-        </Card>
-      </div>
     </div>
-  );
-});
-
-const ActionIconButton = React.memo(function ActionIconButton({
-  icon: Icon,
-  tooltip,
-  href,
-  disabled = false,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  tooltip: string;
-  href?: string;
-  disabled?: boolean;
-}) {
-  const baseClass =
-    "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-slate-950";
-  const disabledClass =
-    "inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-300 cursor-not-allowed";
-
-  if (disabled) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className={disabledClass}>
-            <Icon className="h-4 w-4" />
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{tooltip}</p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  if (href) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link
-            href={href}
-            onClick={(event) => event.stopPropagation()}
-            className={baseClass}
-          >
-            <Icon className="h-4 w-4" />
-          </Link>
-        </TooltipTrigger>
-        <TooltipContent>
-          <p>{tooltip}</p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => event.stopPropagation()}
-          className={baseClass}
-        >
-          <Icon className="h-4 w-4" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>
-        <p>{tooltip}</p>
-      </TooltipContent>
-    </Tooltip>
   );
 });
 
@@ -1231,34 +970,49 @@ const BrandActionButtons = React.memo(function BrandActionButtons({
   brand: BrandRow;
   canEditBrands: boolean;
 }) {
-  const canManage = canManageCampaigns(brand);
-
-  const createDisabled = !canEditBrands || !canManage;
-  const reviewDisabled = !canEditBrands || !canManage;
-
-  const disabledReason = !canEditBrands
-    ? "You do not have brand edit access"
-    : "Available only for fully managed brands";
+  const canAddCampaign = canEditBrands && canManageCampaigns(brand);
 
   return (
-    <TooltipProvider delayDuration={150}>
-      <div className="flex items-center justify-end gap-2">
-        <ActionIconButton
-          icon={Eye}
-          tooltip="View details"
+    <div className="flex items-center justify-end gap-2">
+      <Button
+        asChild
+        type="button"
+        className={`${tableButtonBaseClass} ${manageButtonClass}`}
+      >
+        <Link
           href={`/admin/brands/view?brandId=${brand._id}`}
-        />
+          aria-label="View Brand"
+          onClick={(event) => event.stopPropagation()}
+        >
+          VIEW
+        </Link>
+      </Button>
 
-        <ActionIconButton
-          icon={Plus}
-          tooltip={createDisabled ? disabledReason : "Create campaign"}
-          href={`/admin/brands/create-campaign?brandId=${brand._id}`}
-          disabled={createDisabled}
-        />
-
-
-      </div>
-    </TooltipProvider>
+      {canAddCampaign ? (
+        <Button
+          asChild
+          type="button"
+          className={`${tableButtonBaseClass} ${manageButtonClass}`}
+        >
+          <Link
+            href={`/admin/brands/create-campaign?brandId=${brand._id}`}
+            aria-label="Add Campaign"
+            onClick={(event) => event.stopPropagation()}
+          >
+            ADD CAMPAIGN
+          </Link>
+        </Button>
+      ) : (
+        <Button
+          type="button"
+          disabled
+          className={`${tableButtonBaseClass} ${disabledButtonClass}`}
+          onClick={(event) => event.stopPropagation()}
+        >
+          ADD CAMPAIGN
+        </Button>
+      )}
+    </div>
   );
 });
 
@@ -1316,15 +1070,15 @@ const AdminBrandPage: NextPage = () => {
       setCurrentAdminId(adminId);
       setCurrentAdminName(String(storedAdmin?.name || storedAdmin?.email || ""));
 
-const allowed = permissions.some((item: any) => {
-  const key = String(item?.key || "")
-    .toLowerCase()
-    .replace(/[\s_-]+/g, "");
+      const allowed = permissions.some((item: any) => {
+        const key = String(item?.key || "")
+          .toLowerCase()
+          .replace(/[\s_-]+/g, "");
 
-  return ["brand", "brands"].includes(key) && item?.isEdit === true;
-});
+        return ["brand", "brands"].includes(key) && item?.isEdit === true;
+      });
 
-setCanEditBrands(allowed);
+      setCanEditBrands(allowed);
     } catch {
       setAdminRole("");
       setCurrentAdminId("");
@@ -1581,7 +1335,7 @@ setCanEditBrands(allowed);
     () => [
       {
         id: "name",
-        header: "Brand",
+        header: "BRAND",
         sortable: true,
         sortField: "name",
         widthClassName: "min-w-[300px]",
@@ -1594,7 +1348,7 @@ setCanEditBrands(allowed);
       },
       {
         id: "team",
-        header: "Assigned Team",
+        header: "ASSIGNED TEAM",
         widthClassName: "min-w-[260px]",
         render: (brand) => (
           <TeamCell
@@ -1605,58 +1359,45 @@ setCanEditBrands(allowed);
       },
       {
         id: "planName",
-        header: "Plan",
+        header: "PLAN",
         sortable: true,
         sortField: "planName",
         align: "center",
-        widthClassName: "min-w-[180px]",
+        widthClassName: "min-w-[220px]",
         render: (brand) => <PlanCell brand={brand} />,
       },
       {
-        id: "createdAt",
-        header: "Created",
-        sortable: true,
-        sortField: "createdAt",
-        align: "center",
-        render: (brand) => (
-          <span className="text-sm font-semibold text-slate-600">
-            {formatDate(brand.createdAt)}
-          </span>
-        ),
-      },
-      {
         id: "createdBy",
-        header: "Created By",
+        header: "CREATED BY",
         align: "center",
         widthClassName: "min-w-[170px]",
         render: (brand) => <CreatedByCell brand={brand} />,
       },
       {
-        id: "currentStatus",
-        header: "Current Status",
-        align: "center",
-        widthClassName: "min-w-[170px]",
-        render: (brand) => <CurrentStatusCell brand={brand} />,
-      },
-      {
-        id: "expiresAt",
-        header: "Expires",
+        id: "createdAt",
+        header: "CREATED AT",
         sortable: true,
-        sortField: "expiresAt",
+        sortField: "createdAt",
         align: "center",
+        widthClassName: "min-w-[150px]",
         render: (brand) => (
-          <span className="text-sm font-semibold text-slate-600">
-            {formatDate(brand.expiresAt)}
+          <span className="text-sm font-bold uppercase text-slate-600">
+            {formatDate(brand.createdAt).toUpperCase()}
           </span>
         ),
       },
       {
-        id: "status",
-        header: "Status",
+        id: "expiresAt",
+        header: "PLAN EXPIRE AT",
         sortable: true,
-        sortField: "status",
+        sortField: "expiresAt",
         align: "center",
-        render: (brand) => <StatusBadge status={brand.status} />,
+        widthClassName: "min-w-[150px]",
+        render: (brand) => (
+          <span className="text-sm font-bold uppercase text-slate-600">
+            {formatDate(brand.expiresAt).toUpperCase()}
+          </span>
+        ),
       },
     ],
     [currentAdminId, isRevenueHead]
@@ -1691,7 +1432,7 @@ setCanEditBrands(allowed);
 
   const actions = useMemo(
     () => ({
-      header: "Actions",
+      header: "ACTION",
       align: "right" as const,
       render: (brand: BrandRow) => (
         <BrandActionButtons brand={brand} canEditBrands={canEditBrands} />
@@ -1701,23 +1442,23 @@ setCanEditBrands(allowed);
   );
 
   return (
-    <div className={`${outfit.className} min-h-screen bg-slate-50`}>
-      <div className="mx-auto flex w-full max-w-[1560px] flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
+    <div className={`${outfit.className} min-h-screen w-full`}>
+      <div className="flex w-full max-w-none flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
         <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-600">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Admin Brand Control
+                ADMIN BRAND CONTROL
               </div>
 
               <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
-                Brand Management
+                BRAND MANAGEMENT
               </h1>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
-                  Role: {formatRoleLabel(adminRole)}
+                  ROLE: {formatRoleLabel(adminRole).toUpperCase()}
                 </span>
                 {currentAdminName ? (
                   <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
@@ -1726,7 +1467,7 @@ setCanEditBrands(allowed);
                 ) : null}
                 {isRevenueHead ? (
                   <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                    RH brand view enabled
+                    RH BRAND VIEW ENABLED
                   </span>
                 ) : null}
               </div>
@@ -1747,7 +1488,7 @@ setCanEditBrands(allowed);
                 }
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Create Brand
+                CREATE BRAND
               </Button>
 
               <Button
@@ -1759,50 +1500,11 @@ setCanEditBrands(allowed);
                 <RefreshCw
                   className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
                 />
-                Refresh
+                REFRESH
               </Button>
             </div>
           </div>
         </div>
-
-        {/* <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <SummaryCard
-            title={scopeTitle}
-            value={total}
-            icon={Building2}
-            hint={scopeHint}
-          />
-          <SummaryCard
-            title="Active Plans"
-            value={statusCounts.active}
-            icon={CheckCircle2}
-            hint="Active brands on this page"
-          />
-          <SummaryCard
-            title="My RH Brands"
-            value={isRevenueHead ? assignedCounts.myRh : assignedCounts.rh}
-            icon={UserCheck}
-            hint={isRevenueHead ? "Brands mapped to your RH account" : "Brands with RH mapped"}
-          />
-          <SummaryCard
-            title="Unassigned RH"
-            value={assignedCounts.unassignedRh}
-            icon={Clock3}
-            hint="Loaded brands without RH"
-          />
-          <SummaryCard
-            title="RH Assigned"
-            value={assignedCounts.rh}
-            icon={Users}
-            hint="Loaded brands with RH mapped"
-          />
-          <SummaryCard
-            title="BME Assigned"
-            value={assignedCounts.bme}
-            icon={Briefcase}
-            hint="Loaded brands with BME mapped"
-          />
-        </div> */}
 
         <Card className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-4 md:p-5">
@@ -1811,7 +1513,7 @@ setCanEditBrands(allowed);
                 <div>
                   <div className="flex items-center gap-2">
                     <SlidersHorizontal className="h-4 w-4 text-slate-500" />
-                    <p className="text-sm font-black text-slate-900">Brand View</p>
+                    <p className="text-sm font-black text-slate-900">BRAND VIEW</p>
                   </div>
                   <p className="mt-1 text-xs font-medium text-slate-500">
                     {scopeHint}
@@ -1831,10 +1533,10 @@ setCanEditBrands(allowed);
 
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                  {statusCounts.active} Active
+                  {statusCounts.active} ACTIVE
                 </span>
                 <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                  {statusCounts.expired} Expired
+                  {statusCounts.expired} EXPIRED
                 </span>
               </div>
             </div>
@@ -1867,7 +1569,7 @@ setCanEditBrands(allowed);
               showSummary: true,
             }}
             className="w-full"
-            tableClassName="min-w-[1620px]"
+            tableClassName="w-full min-w-[1320px]"
             headerRowClassName="border-slate-200 hover:bg-transparent"
             bodyClassName="[&_tr:last-child]:border-b-0"
           />

@@ -38,6 +38,10 @@ import { BrandActivityTab } from "./activity-tab";
 import { BrandSettingsTab } from "./settings-tab";
 import { BrandCouponsTab } from "./coupon-tab";
 
+const BrandInvoicesTabWithProps = BrandInvoicesTab as React.ComponentType<{
+  brandId: string;
+}>;
+
 /* ---------- API PATHS ---------- */
 const API_LIST_PLANS = "/subscription/list";
 const API_CHECK_CHANGE = "/subscription/check-brand";
@@ -376,7 +380,7 @@ export default function ViewBrandPage() {
   }
 
   return (
-    <div className={`${outfit.className} min-h-screen bg-[#fafafa] text-[#1a1a1a]`}>
+    <div className={`${outfit.className} min-h-screen text-[#1a1a1a]`}>
       <div className="mx-auto max-w-full space-y-6 px-4 py-6 md:px-6 md:py-8">
         <BrandViewHeader
           brand={brand}
@@ -451,7 +455,7 @@ export default function ViewBrandPage() {
           />
         ) : null}
 
-        {activeTab === "invoices" ? <BrandInvoicesTab /> : null}
+        {activeTab === "invoices" ? <BrandInvoicesTabWithProps brandId={brand._id} /> : null}
         {activeTab === "activity" ? <BrandActivityTab /> : null}
         {activeTab === "settings" ? <BrandSettingsTab brand={brand} /> : null}
         {activeTab === "coupons" ? (

@@ -715,7 +715,7 @@ export default function AdminInfluencerView() {
       {fontImport}
 
       <Tabs defaultValue="overview" className="space-y-0">
-        <div className="sticky top-0 z-40">
+        <div className="z-40">
           <div
             className="relative overflow-hidden border-b border-white/10"
             style={{ background: "linear-gradient(145deg,#0B1220 0%,#111827 45%,#172554 100%)" }}
@@ -867,7 +867,7 @@ export default function AdminInfluencerView() {
 
         <div className="relative z-0 w-full max-w-full px-4 pb-8 pt-6 sm:px-6">
           <TabsContent value="overview" className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Stat
                 label="Followers"
                 value={fmtNum(selectedProfile?.followers)}
