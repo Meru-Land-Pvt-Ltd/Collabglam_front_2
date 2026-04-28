@@ -551,7 +551,7 @@ export function MoreFiltersDropdown({
           </div>
         </RowEl>
 
-        <RowEl label="Country">
+        {/* <RowEl label="Country">
           <div className="w-full md:ml-auto md:w-[320px]">
             <Combobox
               items={countries}
@@ -580,7 +580,7 @@ export function MoreFiltersDropdown({
               </ComboboxContent>
             </Combobox>
           </div>
-        </RowEl>
+        </RowEl> */}
       </div>
 
       <div className="ml-auto flex items-center gap-3">

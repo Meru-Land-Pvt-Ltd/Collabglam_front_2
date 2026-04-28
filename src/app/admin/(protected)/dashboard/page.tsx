@@ -29,9 +29,6 @@ import {
   Users,
   WalletCards,
 } from "lucide-react";
-import { BarChart } from "@mui/x-charts/BarChart";
-import { LineChart } from "@mui/x-charts/LineChart";
-import { PieChart } from "@mui/x-charts/PieChart";
 
 type AdminRole = "super_admin" | "revenue_head" | "ime" | "bme" | "sdr";
 
@@ -1592,40 +1589,6 @@ function getVisibleErrorCount(errors: SectionErrorMap) {
   return Object.values(errors).filter(Boolean).length;
 }
 
-function getStatusBadgeClass(value?: string) {
-  const normalized = String(value || "").toLowerCase();
-
-  if (
-    normalized.includes("active") ||
-    normalized.includes("paid") ||
-    normalized.includes("published") ||
-    normalized.includes("live") ||
-    normalized.includes("approved")
-  ) {
-    return "border-slate-900 bg-slate-900 text-white";
-  }
-
-  if (
-    normalized.includes("draft") ||
-    normalized.includes("pending") ||
-    normalized.includes("initiated") ||
-    normalized.includes("review")
-  ) {
-    return "border-slate-300 bg-slate-100 text-slate-700";
-  }
-
-  if (
-    normalized.includes("inactive") ||
-    normalized.includes("failed") ||
-    normalized.includes("rejected") ||
-    normalized.includes("closed")
-  ) {
-    return "border-slate-200 bg-white text-slate-500";
-  }
-
-  return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
 export default function AdminDashboardPage() {
   const router = useRouter();
 
@@ -2523,7 +2486,7 @@ export default function AdminDashboardPage() {
                   />
                 </div>
               )}
-            </SurfaceCard>
+            </Card>
 
             <Card
               title="Risk & Action Required"
@@ -4222,8 +4185,6 @@ function BudgetSplitCard({
   growth: GrowthMetric;
   tone: "managed" | "normal";
 }) {
-  const healthy = !error;
-
   return (
     <div
       className={cn(
@@ -4425,7 +4386,7 @@ function StatusBadge({
 
 function EmptyText({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
       {text}
     </div>
   );
@@ -4433,7 +4394,7 @@ function EmptyText({ text }: { text: string }) {
 
 function SectionWarning({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-4 text-sm text-slate-700">
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
       {text}
     </div>
   );

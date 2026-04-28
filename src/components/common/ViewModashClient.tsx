@@ -399,6 +399,32 @@ const monthLabels = [
 ];
 
 export function toNumber(value: unknown): number {
+  if (value === undefined || value === null || value === "") return 0;
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  if (typeof value === "string") {
+    const cleaned = value
+      .trim()
+      .replace(/,/g, "")
+      .replace(/%$/, "");
+
+    if (!cleaned) return 0;
+
+    const compactMatch = cleaned.match(/^(-?\d+(?:\.\d+)?)([kmb])$/i);
+    if (compactMatch) {
+      const base = Number(compactMatch[1]);
+      const unit = compactMatch[2].toLowerCase();
+      const multiplier = unit === "b" ? 1_000_000_000 : unit === "m" ? 1_000_000 : 1_000;
+      return Number.isFinite(base) ? base * multiplier : 0;
+    }
+
+    const parsedString = Number(cleaned);
+    return Number.isFinite(parsedString) ? parsedString : 0;
+  }
+
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
@@ -436,6 +462,139 @@ export function formatPercent(
   if (!Number.isFinite(num)) return typeof value === "string" ? value : "—";
   const finalValue = multiplyBy100 ? num * 100 : num;
   return `${finalValue.toFixed(1)}%`;
+}
+
+
+function formatMetricDelta(value?: number | string | null) {
+  const num = toNumber(value);
+  if (!Number.isFinite(num) || num === 0) return undefined;
+
+  const sign = num > 0 ? "+" : "";
+  return `${sign}${(num * 100).toFixed(1)}%`;
+}
+
+function isSameMetricValue(a: number, b: number) {
+  if (!a || !b) return false;
+
+  const diff = Math.abs(a - b);
+  const max = Math.max(Math.abs(a), Math.abs(b));
+
+  return diff <= 1 || diff / max < 0.005;
+}
+
+function getPlatformViewsLabel(platform?: string | null) {
+  const normalized = String(platform ?? "").toLowerCase();
+
+  if (normalized.includes("youtube")) return "Avg. views";
+  if (normalized.includes("tiktok")) return "Avg. video views";
+
+  return "Avg. reel plays";
+}
+
+function buildUniqueMetricCards(params: {
+  report?: InfluencerReport | null;
+  platform?: string | null;
+  avgLikes?: number;
+  avgViews?: number;
+  avgComments?: number;
+  postsCount?: number;
+  reach?: number;
+  followerCompared?: number | string | null;
+  likesCompared?: number | string | null;
+}) {
+  const {
+    report,
+    platform,
+    avgLikes = 0,
+    avgViews = 0,
+    avgComments = 0,
+    postsCount = 0,
+    reach = 0,
+    followerCompared,
+    likesCompared,
+  } = params;
+
+  const cards: DashboardMetric[] = [];
+  const usedNumericValues: number[] = [];
+
+  const pushMetric = (metric: {
+    key: string;
+    label: string;
+    rawValue: number | string | null | undefined;
+    value?: string;
+    delta?: string;
+    dedupe?: boolean;
+  }) => {
+    const numericValue = toNumber(metric.rawValue);
+
+    if (!numericValue || numericValue <= 0) return;
+
+    if (
+      metric.dedupe !== false &&
+      usedNumericValues.some((used) => isSameMetricValue(used, numericValue))
+    ) {
+      return;
+    }
+
+    if (metric.dedupe !== false) {
+      usedNumericValues.push(numericValue);
+    }
+
+    cards.push({
+      key: metric.key,
+      label: metric.label,
+      value: metric.value ?? formatCompactNumber(numericValue),
+      delta: metric.delta,
+    });
+  };
+
+  pushMetric({
+    key: "followers",
+    label: "Followers",
+    rawValue: report?.followers,
+    delta: formatMetricDelta(followerCompared),
+  });
+
+  pushMetric({
+    key: "engagement",
+    label: "Avg. engagement rate",
+    rawValue: report?.engagementRate,
+    value: formatPercent(report?.engagementRate, true),
+    dedupe: false,
+  });
+
+  pushMetric({
+    key: "likes",
+    label: "Average likes",
+    rawValue: avgLikes,
+    delta: formatMetricDelta(likesCompared),
+  });
+
+  pushMetric({
+    key: "views",
+    label: getPlatformViewsLabel(platform),
+    rawValue: avgViews,
+  });
+
+  pushMetric({
+    key: "comments",
+    label: "Average comments",
+    rawValue: avgComments,
+  });
+
+  pushMetric({
+    key: "posts",
+    label: "Total posts",
+    rawValue: postsCount,
+  });
+
+  pushMetric({
+    key: "reach",
+    label: "Total reach",
+    rawValue: reach,
+  });
+
+  return cards.slice(0, 6);
 }
 
 export function normaliseTrend(
@@ -588,40 +747,47 @@ function mapMediaKitPost(post: Record<string, any>): SocialPost {
     thumbnail: resolvedImage,
     url: post?.url,
     likes: post?.likes,
-    views: post?.views ?? post?.plays ?? post?.likes,
+    views: post?.views ?? post?.plays ?? post?.videoViews ?? post?.likes,
     sponsors: Array.isArray(post?.sponsors)
       ? post.sponsors.map((s: Record<string, any>) => ({
         name: s?.name ?? s?.username,
       }))
-      : [],
+      : Array.isArray(post?.sponsorNames)
+        ? post.sponsorNames.map((name: string) => ({ name }))
+        : [],
     createdAt: post?.created ?? post?.createdAt,
     publishedAt: post?.created ?? post?.createdAt,
     postedAt: post?.created ?? post?.createdAt,
     date: post?.created ?? post?.createdAt,
     created: post?.created ?? post?.createdAt,
-    plays: post?.plays,
+    plays: post?.plays ?? post?.videoViews ?? post?.views,
     comments: post?.comments,
   };
 }
 function mapModashPost(post: ModashPost): SocialPost {
+  const anyPost = post as any;
   const resolvedImage = pickPostImage(post);
 
   return {
-    text: post.text,
+    text: post.text ?? anyPost.title ?? anyPost.caption,
     type: post.type,
     url: post.url,
     image: resolvedImage,
     thumbnail: resolvedImage,
     likes: post.likes,
-    views: post.plays ?? post.likes,
-    plays: post.plays,
+    views: anyPost.views ?? post.plays ?? post.likes,
+    plays: post.plays ?? anyPost.views,
     comments: post.comments,
-    sponsors: post.sponsors?.map((s) => ({ name: s.name })),
-    createdAt: post.created,
-    publishedAt: post.created,
-    postedAt: post.created,
-    date: post.created,
-    created: post.created,
+    sponsors: Array.isArray(post.sponsors)
+      ? post.sponsors.map((s) => ({ name: s.name ?? s.username }))
+      : Array.isArray(anyPost.sponsorNames)
+        ? anyPost.sponsorNames.map((name: string) => ({ name }))
+        : [],
+    createdAt: post.created ?? anyPost.createdAt,
+    publishedAt: post.created ?? anyPost.createdAt,
+    postedAt: post.created ?? anyPost.createdAt,
+    date: post.created ?? anyPost.createdAt,
+    created: post.created ?? anyPost.createdAt,
   };
 }
 function toNormalizedPosts(input: unknown): SocialPost[] {
@@ -639,7 +805,7 @@ function toNormalizedPosts(input: unknown): SocialPost[] {
         thumbnail: resolvedImage,
         likes: post?.likes,
         views: post?.views ?? post?.plays,
-        plays: post?.plays,
+        plays: post?.plays ?? post?.videoViews ?? post?.views,
         comments: post?.comments,
         sponsors: Array.isArray(post?.sponsors)
           ? post.sponsors.map((s: any) => ({ name: s?.name ?? s?.username }))
@@ -797,53 +963,120 @@ function resolveRecentPostsForView(params: {
 
   return enrichPostImages(fallbackPosts, fallbackPosts);
 }
+function firstNumber(...values: unknown[]): number {
+  for (const value of values) {
+    const num = toNumber(value);
+    if (num !== 0) return num;
+  }
+
+  return 0;
+}
+
 export function normalizeHistoryPoint(
   point: Record<string, any>,
   fallbackFollowers = 0
 ): ModashStatHistory {
   return {
-    month: String(point?.month ?? ""),
-    followers: toNumber(point?.followers ?? fallbackFollowers),
-    avgLikes: toNumber(point?.avgLikes ?? point?.avg_likes),
-    following: toNumber(point?.following),
-    avgComments: toNumber(point?.avgComments ?? point?.avg_comments),
-    avgViews: toNumber(point?.avgViews ?? point?.avg_views),
+    month: String(point?.month ?? point?.date ?? point?.period ?? ""),
+    followers: firstNumber(
+      point?.followers,
+      point?.followerCount,
+      point?.followersCount,
+      fallbackFollowers
+    ),
+    avgLikes: firstNumber(
+      point?.avgLikes,
+      point?.avg_likes,
+      point?.avgEngagements,
+      point?.avg_engagements,
+      point?.likes,
+      point?.engagements
+    ),
+    following: firstNumber(point?.following, point?.followingCount),
+    avgComments: firstNumber(
+      point?.avgComments,
+      point?.avg_comments,
+      point?.comments,
+      point?.avgCommentCount
+    ),
+    avgViews: firstNumber(
+      point?.avgViews,
+      point?.avg_views,
+      point?.views,
+      point?.avgReelsPlays,
+      point?.avg_reels_plays,
+      point?.plays
+    ),
   };
 }
 
-export function getProfileHistory(raw: Record<string, any>): ModashStatHistory[] {
-  const fallbackFollowers = toNumber(
-    raw?.followers ?? raw?.providerRaw?.profile?.profile?.followers
+function scoreTrendHistory(items: ModashStatHistory[]): number {
+  const followerValues = new Set(
+    items.map((item) => toNumber(item.followers)).filter((value) => value > 0)
   );
 
-  const directHistory = Array.isArray(raw?.statHistory) ? raw.statHistory : [];
-  if (directHistory.length) {
-    return directHistory.map((item: Record<string, any>) =>
-      normalizeHistoryPoint(item, fallbackFollowers)
+  const baseScore = items.reduce((score, item) => {
+    return (
+      score +
+      (item.avgLikes > 0 ? 2 : 0) +
+      (item.avgViews > 0 ? 1 : 0)
     );
-  }
+  }, 0);
 
-  const providerHistory = Array.isArray(raw?.providerRaw?.profile?.statHistory)
-    ? raw.providerRaw.profile.statHistory
-    : [];
-  if (providerHistory.length) {
-    return providerHistory.map((item: Record<string, any>) =>
-      normalizeHistoryPoint(item, fallbackFollowers)
-    );
-  }
+  // Prefer histories with real month-by-month follower values over content-type
+  // history that only has avg_likes and a repeated fallback follower count.
+  const followerScore =
+    followerValues.size > 1 ? items.length * 4 : followerValues.size === 1 ? 1 : 0;
 
-  const contentTypeHistory = Array.isArray(
-    raw?.providerRaw?.statsByContentType?.all?.statHistory
-  )
-    ? raw.providerRaw.statsByContentType.all.statHistory
-    : [];
-  if (contentTypeHistory.length) {
-    return contentTypeHistory.map((item: Record<string, any>) =>
-      normalizeHistoryPoint(item, fallbackFollowers)
-    );
-  }
+  return baseScore + followerScore;
+}
 
-  return [];
+function normalizeHistoryArray(
+  items: unknown,
+  fallbackFollowers = 0
+): ModashStatHistory[] {
+  if (!Array.isArray(items) || !items.length) return [];
+
+  return items
+    .map((item) => normalizeHistoryPoint(item as Record<string, any>, fallbackFollowers))
+    .filter((item) => item.month || item.avgLikes > 0 || item.followers > 0 || item.avgViews > 0);
+}
+
+function pickBestHistoryArray(
+  candidates: unknown[],
+  fallbackFollowers = 0
+): ModashStatHistory[] {
+  return candidates
+    .map((candidate) => normalizeHistoryArray(candidate, fallbackFollowers))
+    .filter((items) => items.length >= 2)
+    .sort((a, b) => scoreTrendHistory(b) - scoreTrendHistory(a))[0] ?? [];
+}
+
+export function getProfileHistory(raw: Record<string, any>): ModashStatHistory[] {
+  const fallbackFollowers = firstNumber(
+    raw?.followers,
+    raw?.profile?.followers,
+    raw?.stats?.followers?.value,
+    raw?.providerRaw?.profile?.profile?.followers,
+    raw?.providerRaw?.profile?.followers,
+    raw?.providerRaw?.stats?.followers?.value
+  );
+
+  return pickBestHistoryArray(
+    [
+      raw?.statHistory,
+      raw?.profile?.statHistory,
+      raw?.providerRaw?.profile?.statHistory,
+      raw?.providerRaw?.profile?.profile?.statHistory,
+      raw?.statsByContentType?.all?.statHistory,
+      raw?.providerRaw?.profile?.statsByContentType?.all?.statHistory,
+      raw?.providerRaw?.statsByContentType?.all?.statHistory,
+      raw?.statsByContentType?.reels?.statHistory,
+      raw?.providerRaw?.profile?.statsByContentType?.reels?.statHistory,
+      raw?.providerRaw?.statsByContentType?.reels?.statHistory,
+    ],
+    fallbackFollowers
+  );
 }
 
 export function normalizeInfluencerReport(
@@ -884,7 +1117,9 @@ export function normalizeInfluencerReport(
     stripHandlePrefix(profileRoot?.handle);
 
   const normalizedFollowers =
+    rawProfile?.stats?.followers?.value ??
     rawProfile?.followers ??
+    rawProfile?.providerRaw?.profile?.stats?.followers?.value ??
     rawProfile?.providerRaw?.profile?.profile?.followers ??
     profileRoot?.followers;
 
@@ -905,7 +1140,10 @@ export function normalizeInfluencerReport(
   const normalizedAvgViews =
     rawProfile?.stats?.avgViews?.value ??
     rawProfile?.avgViews ??
+    rawProfile?.averageViews ??
     rawProfile?.avgReelsPlays ??
+    rawProfile?.providerRaw?.profile?.profile?.averageViews ??
+    rawProfile?.providerRaw?.profile?.averageViews ??
     rawProfile?.providerRaw?.profile?.avgReelsPlays ??
     rawProfile?.providerRaw?.avgReelsPlays;
 
@@ -923,7 +1161,11 @@ export function normalizeInfluencerReport(
     name: rawProfile?.name ?? rawProfile?.fullname ?? profileRoot?.fullname,
     fullname: rawProfile?.fullname ?? profileRoot?.fullname,
     picture: rawProfile?.picture ?? profileRoot?.picture,
-    bio: rawProfile?.bio ?? rawProfile?.providerRaw?.profile?.bio,
+    bio:
+      rawProfile?.bio ??
+      rawProfile?.description ??
+      rawProfile?.providerRaw?.profile?.bio ??
+      rawProfile?.providerRaw?.profile?.description,
     username: normalizedUsername,
     handle: rawProfile?.handle ?? (normalizedUsername ? `@${normalizedUsername}` : undefined),
     followers: normalizedFollowers,
@@ -977,7 +1219,10 @@ export function normalizeInfluencerReport(
     avgComments: normalizedAvgComments,
     avgViews: normalizedAvgViews,
     avgReelsPlays:
-      rawProfile?.avgReelsPlays ?? rawProfile?.providerRaw?.profile?.avgReelsPlays,
+      rawProfile?.avgReelsPlays ??
+      rawProfile?.averageViews ??
+      rawProfile?.providerRaw?.profile?.profile?.averageViews ??
+      rawProfile?.providerRaw?.profile?.avgReelsPlays,
     audience: providerAudience
       ? {
         geoCountries: Array.isArray(providerAudience?.geoCountries)
@@ -1114,122 +1359,175 @@ function transformModashToInfluencerReport(
   modashProfile: ModashReport,
   platformFallback: SupportedPlatform = "instagram"
 ): InfluencerReport {
-  const resolvedPlatform = inferPlatformFromUrl(
-    modashProfile?.profile?.url,
-    platformFallback
+  const raw = modashProfile as any;
+  const profileRoot =
+    raw?.profile && typeof raw.profile === "object" ? raw.profile : {};
+
+  const resolvedUrl = profileRoot?.url ?? raw?.url;
+  const resolvedPlatform = normalisePlatform(
+    raw?.provider ?? inferPlatformFromUrl(resolvedUrl, platformFallback)
   );
 
-  const resolvedPopularPosts = Array.isArray(modashProfile?.popularPosts)
-    ? modashProfile.popularPosts
-    : Array.isArray((modashProfile as any)?.profile?.popularPosts)
-      ? (modashProfile as any).profile.popularPosts
+  const normalizedUsername =
+    stripHandlePrefix(raw?.username) ??
+    stripHandlePrefix(raw?.handle) ??
+    stripHandlePrefix(profileRoot?.username) ??
+    stripHandlePrefix(profileRoot?.handle);
+
+  const normalizedHandle =
+    raw?.handle ??
+    profileRoot?.handle ??
+    (normalizedUsername ? `@${normalizedUsername}` : undefined);
+
+  const audience = raw?.audience ?? profileRoot?.audience ?? {};
+  const stats = raw?.stats ?? profileRoot?.stats ?? {};
+
+  const resolvedPopularPosts = Array.isArray(raw?.popularPosts)
+    ? raw.popularPosts
+    : Array.isArray(profileRoot?.popularPosts)
+      ? profileRoot.popularPosts
       : [];
 
-  const resolvedRecentPosts = Array.isArray(modashProfile?.recentPosts)
-    ? modashProfile.recentPosts
-    : Array.isArray((modashProfile as any)?.profile?.recentPosts)
-      ? (modashProfile as any).profile.recentPosts
-      : Array.isArray((modashProfile as any)?.posts)
-        ? (modashProfile as any).posts
+  const resolvedRecentPosts = Array.isArray(raw?.recentPosts)
+    ? raw.recentPosts
+    : Array.isArray(profileRoot?.recentPosts)
+      ? profileRoot.recentPosts
+      : Array.isArray(raw?.posts)
+        ? raw.posts
+        : Array.isArray(profileRoot?.posts)
+          ? profileRoot.posts
+          : [];
+
+  const resolvedSponsoredPosts = Array.isArray(raw?.sponsoredPosts)
+    ? raw.sponsoredPosts
+    : Array.isArray(profileRoot?.sponsoredPosts)
+      ? profileRoot.sponsoredPosts
+      : [];
+
+  const followers =
+    stats?.followers?.value ??
+    raw?.followers ??
+    profileRoot?.followers ??
+    raw?.subscribers ??
+    profileRoot?.subscribers;
+
+  const avgLikes =
+    stats?.avgLikes?.value ??
+    raw?.avgLikes ??
+    profileRoot?.avgLikes ??
+    raw?.engagements ??
+    profileRoot?.engagements;
+
+  const avgComments =
+    stats?.avgComments?.value ??
+    raw?.avgComments ??
+    profileRoot?.avgComments;
+
+  const avgViews =
+    stats?.avgViews?.value ??
+    raw?.avgViews ??
+    raw?.avgReelsPlays ??
+    raw?.averageViews ??
+    profileRoot?.averageViews ??
+    profileRoot?.avgViews;
+
+  const lookalikes = Array.isArray(raw?.lookalikes)
+    ? raw.lookalikes
+    : Array.isArray(profileRoot?.lookalikes)
+      ? profileRoot.lookalikes
+      : Array.isArray(audience?.audienceLookalikes)
+        ? audience.audienceLookalikes
         : [];
 
-  const resolvedSponsoredPosts = Array.isArray(modashProfile?.sponsoredPosts)
-    ? modashProfile.sponsoredPosts
-    : Array.isArray((modashProfile as any)?.profile?.sponsoredPosts)
-      ? (modashProfile as any).profile.sponsoredPosts
-      : [];
-
   return {
-    modashId: modashProfile.userId,
+    modashId: raw?.userId ?? raw?.modashId ?? raw?._id,
+    _id: raw?._id,
     provider: resolvedPlatform,
-    url: modashProfile.profile?.url,
-    name: modashProfile.profile?.fullname,
-    fullname: modashProfile.profile?.fullname,
-    picture: modashProfile.profile?.picture,
-    bio: modashProfile.bio,
-    username: modashProfile.profile?.username,
-    handle: modashProfile.profile?.username
-      ? `@${stripHandlePrefix(modashProfile.profile.username)}`
-      : undefined,
-    followers: modashProfile.profile?.followers,
-    engagementRate: modashProfile.profile?.engagementRate,
-    country: modashProfile.country,
-    language: modashProfile.language?.name
-      ? { name: modashProfile.language.name }
-      : undefined,
-    hashtags: modashProfile.hashtags?.map((h) => ({ tag: h.tag })) ?? [],
+    url: resolvedUrl,
+    name: profileRoot?.fullname ?? raw?.fullname ?? raw?.name ?? normalizedUsername,
+    fullname: profileRoot?.fullname ?? raw?.fullname,
+    picture: profileRoot?.picture ?? raw?.picture,
+    bio: raw?.bio ?? profileRoot?.bio ?? raw?.description ?? profileRoot?.description,
+    username: normalizedUsername,
+    handle: normalizedHandle,
+    followers,
+    engagementRate: profileRoot?.engagementRate ?? raw?.engagementRate,
+    country: raw?.country ?? profileRoot?.country,
+    language:
+      typeof raw?.language === "string"
+        ? { name: raw.language }
+        : raw?.language?.name
+          ? { name: raw.language.name }
+          : Array.isArray(audience?.languages) && audience.languages.length
+            ? { name: audience.languages[0]?.name ?? audience.languages[0]?.code }
+            : undefined,
+    hashtags: Array.isArray(raw?.hashtags)
+      ? raw.hashtags.map((h: Record<string, any>) => ({ tag: h?.tag ?? String(h) }))
+      : [],
     popularPosts: resolvedPopularPosts.map(mapModashPost),
     recentPosts: resolvedRecentPosts.map(mapModashPost),
     sponsoredPosts: resolvedSponsoredPosts.map(mapModashPost),
     stats: {
       avgLikes: {
-        value:
-          modashProfile.stats?.avgLikes?.value ??
-          modashProfile.avgLikes ??
-          modashProfile.profile?.avgLikes,
-        compared: modashProfile.stats?.avgLikes?.compared,
+        value: avgLikes,
+        compared: stats?.avgLikes?.compared,
       },
       avgViews: {
-        value:
-          modashProfile.avgReelsPlays ??
-          modashProfile.profile?.averageViews ??
-          0,
+        value: avgViews,
+        compared: stats?.avgViews?.compared,
       },
       avgComments: {
-        value:
-          modashProfile.stats?.avgComments?.value ??
-          modashProfile.avgComments ??
-          modashProfile.profile?.avgComments,
-        compared: modashProfile.stats?.avgComments?.compared,
+        value: avgComments,
+        compared: stats?.avgComments?.compared,
       },
       followers: {
-        value:
-          modashProfile.stats?.followers?.value ??
-          modashProfile.profile?.followers,
-        compared: modashProfile.stats?.followers?.compared,
+        value: followers,
+        compared: stats?.followers?.compared,
       },
-      paidPostPerformance: undefined,
+      paidPostPerformance: raw?.paidPostPerformance ?? stats?.paidPostPerformance,
     },
-    avgLikes: modashProfile.avgLikes ?? modashProfile.profile?.avgLikes,
-    avgComments:
-      modashProfile.avgComments ?? modashProfile.profile?.avgComments,
-    avgViews: modashProfile.profile?.averageViews ?? modashProfile.avgReelsPlays,
-    avgReelsPlays:
-      modashProfile.profile?.averageViews ?? modashProfile.avgReelsPlays,
+    avgLikes,
+    avgComments,
+    avgViews,
+    avgReelsPlays: raw?.avgReelsPlays ?? profileRoot?.averageViews ?? avgViews,
     audience: {
       geoCountries:
-        modashProfile.audience?.geoCountries?.map((c) => ({
-          name: c.name ?? "",
-          weight: c.weight ?? 0,
+        audience?.geoCountries?.map((c: Record<string, any>) => ({
+          name: c?.name ?? "",
+          weight: c?.weight ?? 0,
         })) ?? [],
       ages:
-        modashProfile.audience?.ages?.map((a) => ({
-          code: a.code ?? "",
-          weight: a.weight ?? 0,
+        audience?.ages?.map((a: Record<string, any>) => ({
+          code: a?.code ?? "",
+          weight: a?.weight ?? 0,
         })) ?? [],
       genders:
-        modashProfile.audience?.genders?.map((g) => ({
-          code: g.code ?? "",
-          weight: g.weight ?? 0,
+        audience?.genders?.map((g: Record<string, any>) => ({
+          code: g?.code ?? "",
+          weight: g?.weight ?? 0,
         })) ?? [],
       languages:
-        modashProfile.audience?.languages?.map((l) => ({
-          code: l.name ?? l.code ?? "",
-          weight: l.weight ?? 0,
+        audience?.languages?.map((l: Record<string, any>) => ({
+          code: l?.name ?? l?.code ?? "",
+          weight: l?.weight ?? 0,
         })) ?? [],
       interests:
-        modashProfile.audience?.interests?.map((i) => ({
-          name: i.name ?? "",
-          weight: i.weight ?? 0,
+        audience?.interests?.map((i: Record<string, any>) => ({
+          name: i?.name ?? "",
+          weight: i?.weight ?? 0,
         })) ?? [],
-      credibility: modashProfile.audience?.credibility,
+      credibility: audience?.credibility ?? raw?.audienceCredibility,
     },
-    isPrivate: modashProfile.isPrivate,
-    isVerified: modashProfile.isVerified,
-    accountType: modashProfile.accountType,
-    postsCount: modashProfile.postsCount ?? modashProfile.profile?.postsCount,
-    statHistory: modashProfile.statHistory ?? [],
-    lookalikes: modashProfile.lookalikes ?? [],
+    isPrivate: raw?.isPrivate ?? profileRoot?.isPrivate,
+    isVerified: raw?.isVerified ?? profileRoot?.isVerified,
+    accountType: raw?.accountType ?? profileRoot?.accountType,
+    postsCount: raw?.postsCount ?? profileRoot?.postsCount,
+    statHistory: getProfileHistory(raw as Record<string, any>),
+    lookalikes,
+    followersRange:
+      raw?.followersRange ??
+      raw?.audienceExtra?.followersRange ??
+      profileRoot?.audienceExtra?.followersRange,
   };
 }
 
@@ -1329,6 +1627,8 @@ export default function ViewClient() {
 
     if (platformReportCache[nextPlatform]) {
       setActiveReport(platformReportCache[nextPlatform] ?? null);
+      setModashData(null);
+      setModashPlatform(nextPlatform);
       return;
     }
 
@@ -1342,6 +1642,8 @@ export default function ViewClient() {
 
     if (!brandId || !userId) {
       setActiveReport(profile);
+      setModashData(null);
+      setModashPlatform(nextPlatform);
       setPlatformReportCache((prev) => ({ ...prev, [nextPlatform]: profile }));
       return;
     }
@@ -1353,6 +1655,13 @@ export default function ViewClient() {
         ? transformModashToInfluencerReport(modashResponse.profile, nextPlatform)
         : profile;
 
+    if (modashResponse && !modashResponse.error) {
+      setModashData(modashResponse);
+    } else {
+      setModashData(null);
+    }
+
+    setModashPlatform(nextPlatform);
     setActiveReport(nextReport);
     setPlatformReportCache((prev) => ({ ...prev, [nextPlatform]: nextReport }));
   };
@@ -1453,149 +1762,223 @@ export default function ViewClient() {
     return value || getPrimaryValue(primaryReport);
   }, [allReports, primaryReport]);
 
-  const displayedReport = activeReport ?? primaryReport ?? initialPrimaryProfile ?? null;
+  const displayedReport = activeReport ?? initialPrimaryProfile ?? primaryReport ?? null;
 
-  const recentPosts = displayedReport?.recentPosts ?? [];
-  const sponsoredPosts = displayedReport?.sponsoredPosts ?? [];
-  const popularPosts = displayedReport?.popularPosts ?? [];
+  const displayedPlatform = normalisePlatform(
+    activePlatform ?? displayedReport?.provider ?? primaryReport?.provider ?? modashPlatform
+  );
+
+  const activeConnectedProfile = useMemo(() => {
+    return (
+      connectedProfiles.find(
+        (profile) => normalisePlatform(profile?.provider) === displayedPlatform
+      ) ?? null
+    );
+  }, [connectedProfiles, displayedPlatform]);
+
+  const selectedReport =
+    activeReport ??
+    activeConnectedProfile ??
+    displayedReport ??
+    primaryReport ??
+    null;
+
+  const selectedModashData =
+    normalisePlatform(modashPlatform) === displayedPlatform ? modashData : null;
+
+  const recentPosts = selectedReport?.recentPosts ?? [];
+  const sponsoredPosts = selectedReport?.sponsoredPosts ?? [];
+  const popularPosts = selectedReport?.popularPosts ?? [];
 
   const recentPostsForTable = useMemo(
     () =>
       resolveRecentPostsForView({
-        displayedReport,
-        primaryReport,
+        displayedReport: selectedReport,
+        primaryReport: selectedReport,
         mediaKit,
-        modashData,
-        connectedProfiles,
+        modashData: selectedModashData,
+        connectedProfiles: activeConnectedProfile ? [activeConnectedProfile] : [],
       }),
-    [displayedReport, primaryReport, mediaKit, modashData, connectedProfiles]
+    [selectedReport, mediaKit, selectedModashData, activeConnectedProfile]
   );
 
-  const { organicTrend, sponsoredTrend, trendLabels } = useMemo(() => {
-    const history = modashData?.profile?.statHistory ?? primaryReport?.statHistory;
+  const {
+    organicTrend,
+    sponsoredTrend,
+    trendLabels,
+    secondaryTrendLabel,
+    performanceStatHistory,
+  } = useMemo(() => {
+    const history = pickBestHistoryArray(
+      [
+        selectedReport?.statHistory,
+        activeReport?.statHistory,
+        activeConnectedProfile?.statHistory,
+        displayedReport?.statHistory,
 
-    if (history && history.length > 0) {
+        selectedModashData?.profile?.statHistory,
+        (selectedModashData?.profile as any)?.profile?.statHistory,
+        (selectedModashData?.profile as any)?.statsByContentType?.all?.statHistory,
+        (selectedModashData?.profile as any)?.statsByContentType?.reels?.statHistory,
+
+        ...(primaryReport && normalisePlatform(primaryReport.provider) === displayedPlatform
+          ? [primaryReport.statHistory]
+          : []),
+        ...(initialPrimaryProfile &&
+          normalisePlatform(initialPrimaryProfile.provider) === displayedPlatform
+          ? [initialPrimaryProfile.statHistory]
+          : []),
+        ...(connectedProfiles ?? [])
+          .filter((profile) => normalisePlatform(profile?.provider) === displayedPlatform)
+          .map((profile) => profile?.statHistory),
+      ],
+      toNumber(selectedReport?.followers ?? displayedReport?.followers ?? primaryReport?.followers)
+    );
+
+    if (history.length > 0) {
       const sorted = [...history].sort((a, b) => a.month.localeCompare(b.month));
-      const labels = sorted.map((h) => {
-        const [year, month] = h.month.split("-");
-        return `${monthLabels[parseInt(month, 10) - 1]} ${year.slice(2)}`;
+      const labels = sorted.map((h, index) => {
+        const [year, month] = String(h.month || "").split("-");
+        const monthIndex = Number(month) - 1;
+
+        if (year && monthIndex >= 0 && monthIndex < 12) {
+          return `${monthLabels[monthIndex]} ${String(year).slice(2)}`;
+        }
+
+        return h.month || monthLabels[index % 12];
       });
 
-      const organic = normaliseTrend(sorted.map((h) => h.avgLikes), sorted.length);
-      const followerDeltas = sorted.map((h, i) =>
-        i === 0 ? h.followers : Math.max(0, h.followers - sorted[i - 1].followers)
-      );
-      const sponsored = normaliseTrend(followerDeltas, sorted.length);
+      const hasFollowersHistory = sorted.some((h) => toNumber(h.followers) > 0);
+      const hasViewsHistory = sorted.some((h) => toNumber(h.avgViews) > 0);
 
       return {
-        organicTrend: organic,
-        sponsoredTrend: sponsored,
+        organicTrend: sorted.map((h) => toNumber(h.avgLikes)),
+        sponsoredTrend: hasFollowersHistory
+          ? sorted.map((h) => toNumber(h.followers))
+          : hasViewsHistory
+            ? sorted.map((h) => toNumber(h.avgViews))
+            : [],
         trendLabels: labels,
+        secondaryTrendLabel: hasFollowersHistory ? "Followers" : "Avg Views",
+        performanceStatHistory: sorted,
       };
     }
 
     return {
-      organicTrend: normaliseTrend(recentPosts.map((p) => p.views ?? p.likes ?? 0)),
-      sponsoredTrend: normaliseTrend(sponsoredPosts.map((p) => p.views ?? p.likes ?? 0)),
+      organicTrend: normaliseTrend(recentPostsForTable.map((p) => p.likes ?? 0)),
+      sponsoredTrend: normaliseTrend(
+        recentPostsForTable.map((p) => p.views ?? p.plays ?? p.likes ?? 0)
+      ),
       trendLabels: undefined,
+      secondaryTrendLabel: "Views",
+      performanceStatHistory: [],
     };
-  }, [modashData, primaryReport, recentPosts, sponsoredPosts]);
+  }, [
+    selectedReport,
+    activeReport,
+    activeConnectedProfile,
+    displayedReport,
+    selectedModashData,
+    primaryReport,
+    initialPrimaryProfile,
+    connectedProfiles,
+    displayedPlatform,
+    recentPostsForTable,
+  ]);
 
   const avgLikes = toNumber(
-    modashData?.profile?.avgLikes ??
-    primaryReport?.stats?.avgLikes?.value ??
-    primaryReport?.avgLikes
+    selectedReport?.stats?.avgLikes?.value ??
+    selectedReport?.avgLikes ??
+    selectedModashData?.profile?.avgLikes
   );
 
   const avgViews = toNumber(
-    modashData?.profile?.profile?.averageViews ??
-    modashData?.profile?.avgReelsPlays ??
-    primaryReport?.stats?.avgViews?.value ??
-    average(recentPosts.map((p) => toNumber(p.views ?? p.likes)))
+    selectedReport?.stats?.avgViews?.value ??
+    selectedReport?.avgReelsPlays ??
+    selectedReport?.avgViews ??
+    selectedModashData?.profile?.profile?.averageViews ??
+    selectedModashData?.profile?.avgReelsPlays ??
+    average(recentPosts.map((p) => toNumber(p.views ?? p.plays ?? p.likes)))
   );
 
-  const engagementRate = toNumber(primaryReport?.engagementRate);
+  const avgComments = toNumber(
+    selectedReport?.stats?.avgComments?.value ??
+    selectedReport?.avgComments ??
+    selectedModashData?.profile?.avgComments ??
+    selectedModashData?.profile?.profile?.avgComments
+  );
+
+  const engagementRate = toNumber(selectedReport?.engagementRate);
 
   const credibilityScore = useMemo(() => {
     const raw =
-      modashData?.profile?.audience?.credibility ??
-      primaryReport?.audience?.credibility;
+      selectedReport?.audience?.credibility ??
+      selectedModashData?.profile?.audience?.credibility;
 
     if (raw === undefined || raw === null || !Number.isFinite(Number(raw))) {
       return null;
     }
 
     return Math.round(Number(raw) * 100);
-  }, [modashData, primaryReport]);
+  }, [selectedReport, selectedModashData]);
 
   const followerRangeLabel = useMemo(() => {
-    const range = primaryReport?.followersRange;
+    const range = selectedReport?.followersRange;
     if (range?.leftNumber || range?.rightNumber) {
       const left = range?.leftNumber?.toLocaleString?.() ?? range?.leftNumber ?? 0;
       const right = range?.rightNumber?.toLocaleString?.() ?? range?.rightNumber ?? 0;
       return `${left} - ${right}`;
     }
 
-    return formatCompactNumber(primaryReport?.followers);
-  }, [primaryReport]);
+    return formatCompactNumber(selectedReport?.followers);
+  }, [selectedReport]);
 
   const metricCards = useMemo<DashboardMetric[]>(() => {
-    const followerCompared = toNumber(
-      modashData?.profile?.stats?.followers?.compared ??
-      primaryReport?.stats?.followers?.compared
-    );
-    const likesCompared = toNumber(
-      modashData?.profile?.stats?.avgLikes?.compared ??
-      primaryReport?.stats?.avgLikes?.compared
-    );
+    const followerCompared =
+      selectedReport?.stats?.followers?.compared ??
+      selectedModashData?.profile?.stats?.followers?.compared;
 
-    return [
-      {
-        key: "followers",
-        label: "Followers",
-        value: formatCompactNumber(primaryReport?.followers),
-        delta: `${(followerCompared * 100).toFixed(1)}%`,
-      },
-      {
-        key: "engagement",
-        label: "Avg. engagement rate",
-        value: formatPercent(primaryReport?.engagementRate, true),
-        delta: "+0.4%",
-      },
-      {
-        key: "likes",
-        label: "Average likes",
-        value: formatCompactNumber(avgLikes),
-        delta: `${(likesCompared * 100).toFixed(1)}%`,
-      },
-      {
-        key: "views",
-        label: "Avg. reel plays",
-        value: formatCompactNumber(avgViews),
-        delta: "+3.0%",
-      },
-      {
-        key: "posts",
-        label: "Total posts",
-        value: formatCompactNumber(
-          modashData?.profile?.postsCount ??
-          modashData?.profile?.profile?.postsCount ??
-          primaryReport?.postsCount ??
-          recentPosts.length
-        ),
-      },
-      {
-        key: "reach",
-        label: "Total reach",
-        value: formatCompactNumber(totalReach),
-        delta: "+1.8%",
-      },
-    ];
-  }, [primaryReport, avgLikes, avgViews, recentPosts.length, totalReach, modashData]);
+    const likesCompared =
+      selectedReport?.stats?.avgLikes?.compared ??
+      selectedModashData?.profile?.stats?.avgLikes?.compared;
+
+    const selectedFollowers = toNumber(selectedReport?.followers);
+    const validReach =
+      allReports.length > 1 && !isSameMetricValue(totalReach, selectedFollowers)
+        ? totalReach
+        : 0;
+
+    return buildUniqueMetricCards({
+      report: selectedReport,
+      platform: displayedPlatform,
+      avgLikes,
+      avgViews,
+      avgComments,
+      postsCount: toNumber(
+        selectedReport?.postsCount ??
+        selectedModashData?.profile?.postsCount ??
+        selectedModashData?.profile?.profile?.postsCount ??
+        recentPosts.length
+      ),
+      reach: validReach,
+      followerCompared,
+      likesCompared,
+    });
+  }, [
+    selectedReport,
+    selectedModashData,
+    avgLikes,
+    avgViews,
+    avgComments,
+    recentPosts.length,
+    totalReach,
+    allReports.length,
+    displayedPlatform,
+  ]);
 
   const campaignHighlights = useMemo<CampaignHighlight[]>(() => {
-    const sponsoredAvgLikes = modashData?.profile?.sponsoredPostsMedianLikes
-      ? modashData.profile.sponsoredPostsMedianLikes
+    const sponsoredAvgLikes = selectedModashData?.profile?.sponsoredPostsMedianLikes
+      ? selectedModashData.profile.sponsoredPostsMedianLikes
       : average(sponsoredPosts.map((p) => toNumber(p.likes)));
 
     const organicAvgLikes = average(recentPosts.map((p) => toNumber(p.likes)));
@@ -1630,17 +2013,17 @@ export default function ViewClient() {
     contractedCampaigns.length,
     recentPosts,
     sponsoredPosts,
-    modashData,
+    selectedModashData,
     popularPosts,
     followerRangeLabel,
   ]);
 
-  const audienceAge = (primaryReport?.audience?.ages ?? []).map((item) => ({
+  const audienceAge = (selectedReport?.audience?.ages ?? []).map((item) => ({
     label: item.code,
     value: Number((item.weight || 0) * 100),
   }));
 
-  const audienceGender = (primaryReport?.audience?.genders ?? []).map((item) => ({
+  const audienceGender = (selectedReport?.audience?.genders ?? []).map((item) => ({
     label:
       item.code === "MALE"
         ? "Male"
@@ -1650,14 +2033,14 @@ export default function ViewClient() {
     value: Number((item.weight || 0) * 100),
   }));
 
-  const topCountries = (primaryReport?.audience?.geoCountries ?? [])
+  const topCountries = (selectedReport?.audience?.geoCountries ?? [])
     .slice(0, 4)
     .map((item) => ({
       name: item.name,
       value: Number((item.weight || 0) * 100),
     }));
 
-  const topLanguages = (primaryReport?.audience?.languages ?? [])
+  const topLanguages = (selectedReport?.audience?.languages ?? [])
     .slice(0, 4)
     .map((item) => ({
       label: item.code,
@@ -1665,45 +2048,16 @@ export default function ViewClient() {
     }));
 
   const lookalikeCreators: LookalikeCreator[] = useMemo(() => {
-    if (modashData?.profile?.lookalikes?.length) {
-      return transformLookalikes(modashData.profile.lookalikes, engagementRate);
+    if (selectedReport?.lookalikes?.length) {
+      return transformLookalikes(selectedReport.lookalikes, engagementRate);
     }
 
-    if (primaryReport?.lookalikes?.length) {
-      return transformLookalikes(primaryReport.lookalikes, engagementRate);
+    if (selectedModashData?.profile?.lookalikes?.length) {
+      return transformLookalikes(selectedModashData.profile.lookalikes, engagementRate);
     }
 
-    return [
-      {
-        id: "1",
-        name: "Clean Bath",
-        handle: "@cleanbath.cl",
-        followers: "37.5K",
-        engagement: "0.4%",
-      },
-      {
-        id: "2",
-        name: "JOMOO Indonesia",
-        handle: "@jomooindonesia",
-        followers: "21.7K",
-        engagement: "0.03%",
-      },
-      {
-        id: "3",
-        name: "Hindware",
-        handle: "@hindwarehomes",
-        followers: "79.2K",
-        engagement: "7.2%",
-      },
-      {
-        id: "4",
-        name: "Dekkson",
-        handle: "@dekkson_official",
-        followers: "52.3K",
-        engagement: "9.2%",
-      },
-    ];
-  }, [modashData, primaryReport, engagementRate]);
+    return [];
+  }, [selectedReport, selectedModashData, engagementRate]);
 
   const auditItems: AuditItem[] = useMemo(
     () => [
@@ -1741,207 +2095,207 @@ export default function ViewClient() {
     [modashData]
   );
 
-const handleCopy = async () => {
-  try {
-    const selectedReport =
-      displayedReport ??
-      activeReport ??
-      primaryReport ??
-      mediaKit?.primaryInfluencerReport ??
-      mediaKit?.influencerReports?.[0] ??
-      mediaKit?.socialProfiles?.[0] ??
-      null;
-
-    const reportAny = (selectedReport as any) ?? {};
-    const mediaKitRoot = (mediaKit as any) ?? {};
-
-    const userId = String(
-      reportAny?.modashId ||
-      reportAny?._id ||
-      mediaKitRoot?.influencerId ||
-      mediaKitRoot?.userId ||
-      ""
-    ).trim();
-
-    const provider = String(
-      activePlatform ||
-      reportAny?.provider ||
-      mediaKitRoot?.primaryPlatform ||
-      "instagram"
-    )
-      .trim()
-      .toLowerCase();
-
-    const rawHandle = String(
-      reportAny?.handle ||
-      reportAny?.username ||
-      mediaKitRoot?.handle ||
-      mediaKitRoot?.username ||
-      ""
-    ).trim();
-
-    const normalizedHandle = rawHandle
-      ? rawHandle.startsWith("@")
-        ? rawHandle
-        : `@${rawHandle}`
-      : "";
-
-    if (!userId) {
-      await Swal.fire({
-        icon: "warning",
-        title: "Missing userId",
-        text: "Could not generate media kit link because userId was not found.",
-      });
-      return;
-    }
-
-    const mediaKitUrl =
-      `${window.location.origin}/mediakit/${encodeURIComponent(userId)}` +
-      `?platform=${encodeURIComponent(provider)}`;
-
+  const handleCopy = async () => {
     try {
-      if (window.isSecureContext && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(mediaKitUrl);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = mediaKitUrl;
-        ta.style.position = "fixed";
-        ta.style.top = "0";
-        ta.style.left = "0";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
+      const selectedReport =
+        displayedReport ??
+        activeReport ??
+        primaryReport ??
+        mediaKit?.primaryInfluencerReport ??
+        mediaKit?.influencerReports?.[0] ??
+        mediaKit?.socialProfiles?.[0] ??
+        null;
+
+      const reportAny = (selectedReport as any) ?? {};
+      const mediaKitRoot = (mediaKit as any) ?? {};
+
+      const userId = String(
+        reportAny?.modashId ||
+        reportAny?._id ||
+        mediaKitRoot?.influencerId ||
+        mediaKitRoot?.userId ||
+        ""
+      ).trim();
+
+      const provider = String(
+        activePlatform ||
+        reportAny?.provider ||
+        mediaKitRoot?.primaryPlatform ||
+        "instagram"
+      )
+        .trim()
+        .toLowerCase();
+
+      const rawHandle = String(
+        reportAny?.handle ||
+        reportAny?.username ||
+        mediaKitRoot?.handle ||
+        mediaKitRoot?.username ||
+        ""
+      ).trim();
+
+      const normalizedHandle = rawHandle
+        ? rawHandle.startsWith("@")
+          ? rawHandle
+          : `@${rawHandle}`
+        : "";
+
+      if (!userId) {
+        await Swal.fire({
+          icon: "warning",
+          title: "Missing userId",
+          text: "Could not generate media kit link because userId was not found.",
+        });
+        return;
       }
 
-      await Swal.fire({
-        icon: "success",
-        title: "Copied",
-        text: "Media kit link copied to clipboard.",
-        timer: 1600,
-        showConfirmButton: false,
-      });
+      const mediaKitUrl =
+        `${window.location.origin}/mediakit/${encodeURIComponent(userId)}` +
+        `?platform=${encodeURIComponent(provider)}`;
 
       try {
-        await post("/modash/creator", {
-          userId,
-          username:
-            reportAny?.username ||
-            String(normalizedHandle || "").replace(/^@/, "") ||
-            "",
-          handle:
-            normalizedHandle ||
-            reportAny?.handle ||
-            reportAny?.username ||
-            "",
-          fullname:
-            reportAny?.fullname ||
-            reportAny?.fullName ||
-            reportAny?.name ||
-            mediaKitRoot?.fullname ||
-            mediaKitRoot?.fullName ||
-            mediaKitRoot?.name ||
-            "",
-          followers: Number(
-            reportAny?.followers ??
+        if (window.isSecureContext && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(mediaKitUrl);
+        } else {
+          const ta = document.createElement("textarea");
+          ta.value = mediaKitUrl;
+          ta.style.position = "fixed";
+          ta.style.top = "0";
+          ta.style.left = "0";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        }
+
+        await Swal.fire({
+          icon: "success",
+          title: "Copied",
+          text: "Media kit link copied to clipboard.",
+          timer: 1600,
+          showConfirmButton: false,
+        });
+
+        try {
+          await post("/modash/creator", {
+            userId,
+            username:
+              reportAny?.username ||
+              String(normalizedHandle || "").replace(/^@/, "") ||
+              "",
+            handle:
+              normalizedHandle ||
+              reportAny?.handle ||
+              reportAny?.username ||
+              "",
+            fullname:
+              reportAny?.fullname ||
+              reportAny?.fullName ||
+              reportAny?.name ||
+              mediaKitRoot?.fullname ||
+              mediaKitRoot?.fullName ||
+              mediaKitRoot?.name ||
+              "",
+            followers: Number(
+              reportAny?.followers ??
               reportAny?.stats?.followers?.value ??
               mediaKitRoot?.followers ??
               mediaKitRoot?.followerCount ??
               0
-          ),
-          engagementRate: Number(
-            reportAny?.engagementRate ??
+            ),
+            engagementRate: Number(
+              reportAny?.engagementRate ??
               mediaKitRoot?.engagementRate ??
               0
-          ),
-          engagements: Number(
-            reportAny?.engagements ??
+            ),
+            engagements: Number(
+              reportAny?.engagements ??
               mediaKitRoot?.engagements ??
               mediaKitRoot?.stats?.engagements ??
               0
-          ),
-          averageViews: Number(
-            reportAny?.avgViews ??
+            ),
+            averageViews: Number(
+              reportAny?.avgViews ??
               reportAny?.averageViews ??
               reportAny?.stats?.avgViews?.value ??
               mediaKitRoot?.averageViews ??
               mediaKitRoot?.avgViews ??
               mediaKitRoot?.stats?.avgViews?.value ??
               0
-          ),
-          picture:
-            reportAny?.picture ||
-            mediaKitRoot?.picture ||
-            mediaKitRoot?.avatar ||
-            mediaKitRoot?.profilePicUrl ||
-            "",
-          url: reportAny?.url || mediaKitRoot?.url || "",
-          isVerified: Boolean(
-            reportAny?.isVerified || mediaKitRoot?.isVerified
-          ),
-          isPrivate: Boolean(
-            reportAny?.isPrivate || mediaKitRoot?.isPrivate
-          ),
-          platform: provider,
-          bio:
-            reportAny?.bio ||
-            mediaKitRoot?.bio ||
-            mediaKitRoot?.description ||
-            "",
-          country:
-            reportAny?.country ||
-            mediaKitRoot?.country ||
-            mediaKitRoot?.location?.country ||
-            (typeof mediaKitRoot?.location === "string"
-              ? mediaKitRoot.location
-              : "") ||
-            "",
-          location:
-            (typeof mediaKitRoot?.location === "string"
-              ? mediaKitRoot.location
-              : "") ||
-            mediaKitRoot?.location?.country ||
-            reportAny?.country ||
-            mediaKitRoot?.country ||
-            "",
-          categories: Array.isArray(mediaKitRoot?.categories)
-            ? mediaKitRoot.categories
+            ),
+            picture:
+              reportAny?.picture ||
+              mediaKitRoot?.picture ||
+              mediaKitRoot?.avatar ||
+              mediaKitRoot?.profilePicUrl ||
+              "",
+            url: reportAny?.url || mediaKitRoot?.url || "",
+            isVerified: Boolean(
+              reportAny?.isVerified || mediaKitRoot?.isVerified
+            ),
+            isPrivate: Boolean(
+              reportAny?.isPrivate || mediaKitRoot?.isPrivate
+            ),
+            platform: provider,
+            bio:
+              reportAny?.bio ||
+              mediaKitRoot?.bio ||
+              mediaKitRoot?.description ||
+              "",
+            country:
+              reportAny?.country ||
+              mediaKitRoot?.country ||
+              mediaKitRoot?.location?.country ||
+              (typeof mediaKitRoot?.location === "string"
+                ? mediaKitRoot.location
+                : "") ||
+              "",
+            location:
+              (typeof mediaKitRoot?.location === "string"
+                ? mediaKitRoot.location
+                : "") ||
+              mediaKitRoot?.location?.country ||
+              reportAny?.country ||
+              mediaKitRoot?.country ||
+              "",
+            categories: Array.isArray(mediaKitRoot?.categories)
+              ? mediaKitRoot.categories
                 .map((item: any) =>
                   typeof item === "string"
                     ? item
                     : item?.categoryName ||
-                      item?.subcategoryName ||
-                      item?.name ||
-                      item?.subcategory ||
-                      ""
+                    item?.subcategoryName ||
+                    item?.name ||
+                    item?.subcategory ||
+                    ""
                 )
                 .filter(Boolean)
-            : [],
-          searchType: mediaKitRoot?.searchType || "standard",
-          source: mediaKitRoot?.source || "standard",
+              : [],
+            searchType: mediaKitRoot?.searchType || "standard",
+            source: mediaKitRoot?.source || "standard",
+          });
+        } catch (apiError) {
+          console.error("Failed to post /modash/creator:", apiError);
+        }
+      } catch (copyErr) {
+        console.error("Clipboard copy failed:", copyErr);
+        await Swal.fire({
+          icon: "error",
+          title: "Copy failed",
+          text: "Could not copy the link. Please copy it manually from the address bar.",
         });
-      } catch (apiError) {
-        console.error("Failed to post /modash/creator:", apiError);
       }
-    } catch (copyErr) {
-      console.error("Clipboard copy failed:", copyErr);
+    } catch (error) {
+      console.error("Failed to copy media kit link:", error);
       await Swal.fire({
         icon: "error",
         title: "Copy failed",
-        text: "Could not copy the link. Please copy it manually from the address bar.",
+        text: "Unable to copy the media kit link.",
       });
     }
-  } catch (error) {
-    console.error("Failed to copy media kit link:", error);
-    await Swal.fire({
-      icon: "error",
-      title: "Copy failed",
-      text: "Unable to copy the media kit link.",
-    });
-  }
-};
+  };
 
   if (loading) {
     return (
@@ -1963,27 +2317,23 @@ const handleCopy = async () => {
         {/* <DashboardTopBar plan={plan} /> */}
 
         <CreatorHeader
-          primaryReport={displayedReport}
+          primaryReport={selectedReport}
           mediaKit={mediaKit}
           activePlan={plan}
-          isVerified={modashData?.profile?.isVerified ?? primaryReport?.isVerified}
-          accountType={modashData?.profile?.accountType ?? primaryReport?.accountType}
-          postsCount={
-            modashData?.profile?.postsCount ??
-            modashData?.profile?.profile?.postsCount ??
-            primaryReport?.postsCount
-          }
+          isVerified={selectedReport?.isVerified}
+          accountType={selectedReport?.accountType}
+          postsCount={selectedReport?.postsCount}
         />
 
         <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
           <div className="space-y-6">
             {hasSectionAccess("contactManagement") ? (
               <ContactManagementCard
-                primaryReport={displayedReport}
+                primaryReport={selectedReport}
                 mediaKit={mediaKit}
                 onCopy={handleCopy}
                 connectedProfiles={connectedProfiles}
-                activePlatform={activePlatform}
+                activePlatform={displayedPlatform}
                 onPlatformSelect={handlePlatformSelect}
               />
             ) : null}
@@ -2008,9 +2358,18 @@ const handleCopy = async () => {
 
             {hasSectionAccess("performanceTrend") ? (
               <PerformanceTrendCard
+                key={`performance-${displayedPlatform}`}
                 organicTrend={organicTrend}
                 sponsoredTrend={sponsoredTrend}
                 trendLabels={trendLabels}
+                statHistory={performanceStatHistory}
+                secondaryLabel={secondaryTrendLabel}
+                primaryValue={avgLikes}
+                secondaryValue={
+                  secondaryTrendLabel === "Followers"
+                    ? toNumber(selectedReport?.followers)
+                    : avgViews
+                }
               />
             ) : (
               <FeatureLockedCard title="Performance Trend" plan="starter" />
@@ -2061,7 +2420,10 @@ const handleCopy = async () => {
           ) : null}
 
           {hasSectionAccess("lookalikeCreators") ? (
-            <LookalikeCreatorsPanel items={lookalikeCreators} />
+            <LookalikeCreatorsPanel
+              items={lookalikeCreators}
+              platform={activePlatform}
+            />
           ) : (
             <FeatureLockedCard title="Lookalike Creators" plan="pro" />
           )}

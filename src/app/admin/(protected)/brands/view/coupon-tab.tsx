@@ -203,8 +203,39 @@ function getCouponStatus(coupon: BrandCouponHistoryItem) {
     };
 }
 
+function isActiveUnusedCoupon(coupon: BrandCouponHistoryItem) {
+    return !coupon.hasUsed && getCouponStatus(coupon).label === "Active";
+}
+
 function toEndOfDayIso(dateValue: string) {
     return new Date(`${dateValue}T23:59:59.000Z`).toISOString();
+}
+
+async function copyTextToClipboard(text: string) {
+    if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "-9999px";
+    textarea.style.opacity = "0";
+
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+
+    if (!copied) {
+        throw new Error("Copy failed");
+    }
 }
 
 export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
@@ -224,6 +255,22 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
 
     const [creating, setCreating] = useState(false);
     const [createMsg, setCreateMsg] = useState<string | null>(null);
+
+    const activeUnusedCoupon = useMemo(() => {
+        return coupons.find(isActiveUnusedCoupon) || null;
+    }, [coupons]);
+
+    const hasActiveUnusedCoupon = Boolean(activeUnusedCoupon);
+
+    const activeUnusedCouponLabel = useMemo(() => {
+        if (!activeUnusedCoupon) return "";
+
+        const promoCode = getPromoCode(activeUnusedCoupon);
+        const subscriptionLabel = getSubscriptionId(activeUnusedCoupon.subscriptionId);
+
+        if (promoCode) return promoCode;
+        return subscriptionLabel || "current coupon";
+    }, [activeUnusedCoupon]);
 
     const fetchSubscriptions = useCallback(async () => {
         setLoadingSubscriptions(true);
@@ -282,6 +329,14 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
         return getAvailableBillingModes(selectedSubscription);
     }, [selectedSubscription]);
 
+    const selectedPlanPrice = useMemo(() => {
+        const selectedMode = availableBillingModes.find(
+            (mode) => mode.value === billingMode
+        );
+
+        return selectedMode?.price ?? null;
+    }, [availableBillingModes, billingMode]);
+
     useEffect(() => {
         if (!selectedSubscription) return;
 
@@ -317,6 +372,17 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
         },
         [subscriptionNameById]
     );
+
+    const activeUnusedCouponMessage = useMemo(() => {
+        if (!activeUnusedCoupon) return "";
+
+        const promoCode = getPromoCode(activeUnusedCoupon);
+        const subscriptionName = getSubscriptionName(activeUnusedCoupon.subscriptionId);
+        const mode = formatBillingMode(getCouponMode(activeUnusedCoupon));
+        const expiry = formatDate(activeUnusedCoupon.expiredAt);
+
+        return `This brand already has an active unused coupon${promoCode ? ` (${promoCode})` : ""} for ${subscriptionName} / ${mode}, expiring ${expiry}. A new coupon can be created only after the current coupon is used or expires.`;
+    }, [activeUnusedCoupon, getSubscriptionName]);
 
     const filteredCoupons = useMemo(() => {
         const value = search.trim().toLowerCase();
@@ -368,7 +434,35 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
         }
     };
 
+    const handleOpenCreateDialog = async () => {
+        if (hasActiveUnusedCoupon) {
+            await Swal.fire({
+                icon: "warning",
+                title: "Active coupon already exists",
+                text: activeUnusedCouponMessage || "This brand already has an active unused coupon. You can create a new coupon only after the current one is used or expires.",
+                confirmButtonText: "Okay",
+                customClass: {
+                    popup: "rounded-[24px]",
+                    title: "text-lg font-black",
+                    htmlContainer: "text-sm font-medium",
+                },
+            });
+            return;
+        }
+
+        resetCreateForm();
+        setIsCreateOpen(true);
+    };
+
     const createCoupon = async () => {
+        if (hasActiveUnusedCoupon) {
+            setCreateMsg(
+                activeUnusedCouponMessage ||
+                    "This brand already has an active unused coupon. A new coupon can be created only after the current coupon is used or expires."
+            );
+            return;
+        }
+
         const finalPrice = Number(newPrice);
 
         if (!brand._id || !subscriptionId || !expiredAt || !Number.isFinite(finalPrice)) {
@@ -378,6 +472,24 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
 
         if (finalPrice <= 0) {
             setCreateMsg("New price must be greater than 0.");
+            return;
+        }
+
+        if (
+            selectedPlanPrice === null ||
+            !Number.isFinite(Number(selectedPlanPrice))
+        ) {
+            setCreateMsg("Unable to verify the selected plan price. Please select another plan or mode.");
+            return;
+        }
+
+        if (finalPrice >= Number(selectedPlanPrice)) {
+            setCreateMsg(
+                `New price must be less than the selected plan price (${formatMoney(
+                    selectedPlanPrice,
+                    selectedSubscription?.currency || "USD"
+                )}).`
+            );
             return;
         }
 
@@ -398,38 +510,17 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
 
             await onCreated?.();
         } catch (err: any) {
-            setCreateMsg(err?.message || "Failed to create coupon.");
+            const backendMessage =
+                err?.response?.data?.message ||
+                err?.response?.data?.error ||
+                err?.message ||
+                "Failed to create coupon.";
+
+            setCreateMsg(backendMessage);
         } finally {
             setCreating(false);
         }
     };
-
-    async function copyTextToClipboard(text: string) {
-    if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-        return;
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "");
-    textarea.style.position = "fixed";
-    textarea.style.top = "0";
-    textarea.style.left = "-9999px";
-    textarea.style.opacity = "0";
-
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-
-    const copied = document.execCommand("copy");
-    document.body.removeChild(textarea);
-
-    if (!copied) {
-        throw new Error("Copy failed");
-    }
-}
 
     const copySubscriptionLink = async (coupon: BrandCouponHistoryItem) => {
         const link = buildSubscriptionCouponLink(coupon);
@@ -519,6 +610,12 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                 </div>
             </div>
 
+            {hasActiveUnusedCoupon ? (
+                <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
+                    {activeUnusedCouponMessage}
+                </div>
+            ) : null}
+
             <div className="rounded-[28px] border border-black/10 bg-white shadow-sm">
                 <div className="flex flex-col gap-4 border-b border-black/8 p-5 md:flex-row md:items-center md:justify-between">
                     <div>
@@ -529,11 +626,14 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                     </div>
 
                     <Button
-                        className="h-11 rounded-full bg-[#1a1a1a] px-5 text-sm font-bold text-white hover:bg-black"
-                        onClick={() => {
-                            resetCreateForm();
-                            setIsCreateOpen(true);
-                        }}
+                        className="h-11 rounded-full bg-[#1a1a1a] px-5 text-sm font-bold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-black/30"
+                        onClick={handleOpenCreateDialog}
+                        disabled={hasActiveUnusedCoupon}
+                        title={
+                            hasActiveUnusedCoupon
+                                ? "Create a new coupon only after the current active coupon is used or expires."
+                                : "Create Coupon"
+                        }
                     >
                         <Plus className="mr-2 h-4 w-4" />
                         Create Coupon
@@ -669,6 +769,12 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                         </DialogHeader>
 
                         <div className="mt-6 space-y-4">
+                            {hasActiveUnusedCoupon ? (
+                                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                                    {activeUnusedCouponMessage}
+                                </div>
+                            ) : null}
+
                             <div>
                                 <label className="text-xs font-black uppercase tracking-[0.18em] text-black/35">
                                     Subscription
@@ -684,12 +790,14 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                                         const modes = getAvailableBillingModes(nextSubscription);
 
                                         setSubscriptionId(nextSubscriptionId);
+                                        setNewPrice("");
+                                        setCreateMsg(null);
 
                                         if (modes[0]?.value) {
                                             setBillingMode(modes[0].value);
                                         }
                                     }}
-                                    disabled={loadingSubscriptions || !subscriptions.length}
+                                    disabled={loadingSubscriptions || !subscriptions.length || hasActiveUnusedCoupon}
                                     className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/40"
                                 >
                                     {!subscriptions.length ? (
@@ -719,8 +827,12 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
 
                                 <select
                                     value={billingMode}
-                                    onChange={(event) => setBillingMode(event.target.value as BillingMode)}
-                                    disabled={!availableBillingModes.length}
+                                    onChange={(event) => {
+                                        setBillingMode(event.target.value as BillingMode);
+                                        setNewPrice("");
+                                        setCreateMsg(null);
+                                    }}
+                                    disabled={!availableBillingModes.length || hasActiveUnusedCoupon}
                                     className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/40"
                                 >
                                     {!availableBillingModes.length ? (
@@ -743,10 +855,23 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                                     <input
                                         type="number"
                                         value={newPrice}
-                                        onChange={(event) => setNewPrice(event.target.value)}
+                                        onChange={(event) => {
+                                            setNewPrice(event.target.value);
+                                            setCreateMsg(null);
+                                        }}
                                         placeholder="69"
-                                        className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30"
+                                        min={1}
+                                        max={selectedPlanPrice ?? undefined}
+                                        disabled={hasActiveUnusedCoupon}
+                                        className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/40"
                                     />
+
+                                    {selectedPlanPrice !== null ? (
+                                        <p className="mt-2 text-xs font-bold text-black/45">
+                                            Must be less than{" "}
+                                            {formatMoney(selectedPlanPrice, selectedSubscription?.currency || "USD")}.
+                                        </p>
+                                    ) : null}
                                 </div>
 
                                 <div>
@@ -757,11 +882,9 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                                         type="date"
                                         value={expiredAt}
                                         onChange={(event) => setExpiredAt(event.target.value)}
-                                        className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30"
+                                        disabled={hasActiveUnusedCoupon}
+                                        className="mt-2 h-11 w-full rounded-2xl border border-black/10 bg-white px-4 text-sm font-semibold outline-none focus:border-black/30 disabled:cursor-not-allowed disabled:bg-black/[0.03] disabled:text-black/40"
                                     />
-                                    {/* <p className="mt-1 text-xs font-medium text-black/45">
-                                        Sent as end of day UTC, for example 2026-05-30T23:59:59.000Z.
-                                    </p> */}
                                 </div>
                             </div>
 
@@ -786,9 +909,14 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
                             </Button>
 
                             <Button
-                                className="rounded-full bg-[#1a1a1a] px-6 font-bold text-white hover:bg-black"
+                                className="rounded-full bg-[#1a1a1a] px-6 font-bold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-black/30"
                                 onClick={createCoupon}
-                                disabled={creating || loadingSubscriptions || !subscriptionId}
+                                disabled={
+                                    creating ||
+                                    loadingSubscriptions ||
+                                    !subscriptionId ||
+                                    hasActiveUnusedCoupon
+                                }
                             >
                                 {creating ? "Creating..." : "Create Coupon"}
                             </Button>

@@ -219,6 +219,25 @@ function WorkspaceLogo({ ws }: { ws: Workspace }) {
   );
 }
 
+function SidebarTooltip({
+  content,
+  children,
+  side = "right",
+}: {
+  content: string;
+  children: React.ReactElement;
+  side?: "top" | "right" | "bottom" | "left";
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side={side} align="center">
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function PanelCaretGlyph({
   dir,
   className,
@@ -555,18 +574,6 @@ export default function BrandSidebar({
         icon: Wallet,
         section: "manage",
       },
-      // Invite User is hidden for now.
-      // {
-      //   key: "invite_user",
-      //   label: "Invite User",
-      //   icon: UserPlus,
-      //   section: "manage",
-      //   right: (
-      //     <span className="inline-flex items-center rounded-full border border-[#F2B705] bg-[#FFF8E1] px-2 py-[2px] text-[10px] font-semibold text-[#D4A100]">
-      //       Soon
-      //     </span>
-      //   ),
-      // },
       {
         key: "help",
         label: "Help & Support",
@@ -968,6 +975,7 @@ export default function BrandSidebar({
   const handleHelpMenuSelect = useCallback(
     (key: SupportMenuKey) => {
       setHelpDialogOpen(false);
+      setActive("help");
 
       switch (key) {
         case "dispute":
@@ -987,13 +995,16 @@ export default function BrandSidebar({
         default:
           break;
       }
+
+      if (!isDesktop) setDrawerOpen(false);
     },
-    [router]
+    [router, isDesktop, setDrawerOpen]
   );
 
   const handleSetActive = useCallback(
     (key: string) => {
       setActive(key);
+      setHelpDialogOpen(false);
 
       if (!key.startsWith("campaigns")) {
         setCampaignOpen(false);
@@ -1022,6 +1033,8 @@ export default function BrandSidebar({
     campaignHoverRef.current = false;
     setWorkspaceOpen(false);
     setWidthCollapsed(true);
+    setProfileMenuOpen(false);
+    setHelpDialogOpen(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
     } catch {}
@@ -1092,7 +1105,7 @@ export default function BrandSidebar({
             <RowButton
               icon={item.icon}
               label={item.label}
-              active={helpDialogOpen}
+              active={helpDialogOpen || active === "help"}
               tight={tight}
               collapsed={isCollapsed}
               onClick={openHelpDialog}
@@ -1130,6 +1143,31 @@ export default function BrandSidebar({
     ]
   );
 
+  const LogoButton = (
+    <button
+      type="button"
+      onClick={() => {
+        if (isDesktop) {
+          if (collapsed || isClosing) beginOpenDesktop();
+        } else {
+          setDrawerOpen(true);
+        }
+      }}
+      className={cn(
+        "grid flex-shrink-0 place-items-center",
+        FOCUS_RING,
+        isDesktop && collapsed ? "cursor-pointer" : "cursor-default"
+      )}
+      aria-label={railMode ? "Open sidebar" : "CollabGlam"}
+    >
+      <img
+        src="/logo.png"
+        alt="CollabGlam"
+        className="h-[40px] w-[40px] rounded-full object-cover"
+      />
+    </button>
+  );
+
   const SidebarBody = (
     <div className="flex h-full flex-col">
       <div className={cn("flex flex-col", tight ? "gap-3" : "gap-4")}>
@@ -1139,27 +1177,11 @@ export default function BrandSidebar({
             railMode ? "flex-col gap-3" : "gap-3"
           )}
         >
-          <button
-            type="button"
-            onClick={() => {
-              if (isDesktop) {
-                if (collapsed || isClosing) beginOpenDesktop();
-              } else {
-                setDrawerOpen(true);
-              }
-            }}
-            className={cn(
-              "grid flex-shrink-0 place-items-center",
-              FOCUS_RING,
-              isDesktop && collapsed ? "cursor-pointer" : "cursor-default"
-            )}
-          >
-            <img
-              src="/logo.png"
-              alt="CollabGlam"
-              className="h-[40px] w-[40px] rounded-full object-cover"
-            />
-          </button>
+          {railMode ? (
+            <SidebarTooltip content="Open sidebar">{LogoButton}</SidebarTooltip>
+          ) : (
+            LogoButton
+          )}
 
           <AnimatePresence initial={false}>
             {!compactUI && (
@@ -1189,29 +1211,36 @@ export default function BrandSidebar({
           </AnimatePresence>
 
           {isDesktop ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (collapsed || isClosing) beginOpenDesktop();
-                else beginCloseDesktop();
-              }}
-              className={cn(
-                "grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg transition",
-                "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
-                FOCUS_RING,
-                railMode ? "" : "ml-auto"
-              )}
+            <SidebarTooltip
+              content={collapsed || isClosing ? "Open sidebar" : "Close sidebar"}
+              side={collapsed || isClosing ? "right" : "bottom"}
             >
-              {collapsed ? (
-                <PanelCaretGlyph dir="right" />
-              ) : (
-                <PanelCaretGlyph dir="left" />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (collapsed || isClosing) beginOpenDesktop();
+                  else beginCloseDesktop();
+                }}
+                aria-label={collapsed || isClosing ? "Open sidebar" : "Close sidebar"}
+                className={cn(
+                  "grid h-10 w-10 flex-shrink-0 place-items-center rounded-lg transition",
+                  "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
+                  FOCUS_RING,
+                  railMode ? "" : "ml-auto"
+                )}
+              >
+                {collapsed ? (
+                  <PanelCaretGlyph dir="right" />
+                ) : (
+                  <PanelCaretGlyph dir="left" />
+                )}
+              </button>
+            </SidebarTooltip>
           ) : (
             <button
               type="button"
               onClick={() => setDrawerOpen(false)}
+              aria-label="Close menu"
               className={cn(
                 "ml-auto grid h-10 w-10 place-items-center rounded-lg transition",
                 "text-[#343330] hover:bg-[#EDEDED] hover:text-[#1a1a1a]",
@@ -1222,88 +1251,6 @@ export default function BrandSidebar({
             </button>
           )}
         </div>
-
-        {/* <AnimatePresence initial={false}>
-          {!compactUI && (
-            <m.div
-              key="workspace-switcher"
-              ref={workspaceRef}
-              variants={fadeScale}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              transition={motionTransitions.content}
-              className="mt-1 w-full"
-            >
-              <button
-                type="button"
-                onClick={() => setWorkspaceOpen((prev) => !prev)}
-                className={cn(
-                  "flex h-12 w-full items-center rounded-xl border border-neutral-200 bg-white px-3",
-                  "transition hover:bg-[#F8F8F8]",
-                  FOCUS_RING
-                )}
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <WorkspaceLogo ws={selectedWorkspace} />
-                  <span className="truncate text-[14px] font-medium text-[#1a1a1a]">
-                    {selectedWorkspace.name}
-                  </span>
-                </div>
-
-                <m.span
-                  className="inline-flex items-center"
-                  animate={{ rotate: workspaceOpen ? 180 : 0 }}
-                  transition={motionTransitions.content}
-                >
-                  <CaretDown size={16} className="text-[#1a1a1a]" />
-                </m.span>
-              </button>
-
-              <AnimatePresence initial={false}>
-                {workspaceOpen && (
-                  <m.div
-                    key="workspace-dropdown"
-                    variants={dropdownScaleY}
-                    initial="initial"
-                    animate="animate"
-                    exit="exit"
-                    transition={motionTransitions.content}
-                    className="origin-top overflow-hidden"
-                  >
-                    <div className="mt-2 rounded-xl border border-neutral-200 bg-white p-2 shadow-sm">
-                      {workspaces.map((workspace) => {
-                        const selected = workspace.key === workspaceKey;
-
-                        return (
-                          <button
-                            key={workspace.key}
-                            type="button"
-                            onClick={() => {
-                              setWorkspaceKey(workspace.key);
-                              setWorkspaceOpen(false);
-                            }}
-                            className={cn(
-                              "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition",
-                              selected
-                                ? "bg-[#F5F5F5] text-[#1a1a1a]"
-                                : "text-[#1a1a1a] hover:bg-[#F8F8F8]"
-                            )}
-                          >
-                            <WorkspaceLogo ws={workspace} />
-                            <span className="truncate text-[14px] font-medium">
-                              {workspace.name}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </m.div>
-                )}
-              </AnimatePresence>
-            </m.div>
-          )}
-        </AnimatePresence> */}
       </div>
 
       <div className={cn("mt-6 flex min-h-0 flex-1 flex-col", tight ? "mt-4" : "")}>
@@ -1495,29 +1442,33 @@ export default function BrandSidebar({
               transition={motionTransitions.content}
               className="flex flex-col items-center gap-4"
             >
-              <m.button
-                type="button"
-                title={isPaidPlan ? `Current: ${planLabel}` : "Upgrade to PRO"}
-                onClick={handlePlanClick}
-                whileHover={{ scale: 1.03 }}
-                whileTap={{ scale: 0.98 }}
-                transition={upgradeSpring}
-                className={cn(
-                  "relative grid place-items-center overflow-hidden",
-                  tight ? "h-12 w-12" : "h-14 w-14",
-                  FOCUS_RING
-                )}
-                style={{
-                  borderRadius: "var(--Spacing-8, 8px)",
-                  background: UPGRADE_COLLAPSED,
-                  willChange: "transform",
-                }}
+              <SidebarTooltip
+                content={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
               >
-                <Lightning size={24} className="text-[#1a1a1a]" />
-                {isPaidPlan && (
-                  <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#1a1a1a]" />
-                )}
-              </m.button>
+                <m.button
+                  type="button"
+                  aria-label={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
+                  onClick={handlePlanClick}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.98 }}
+                  transition={upgradeSpring}
+                  className={cn(
+                    "relative grid place-items-center overflow-hidden",
+                    tight ? "h-12 w-12" : "h-14 w-14",
+                    FOCUS_RING
+                  )}
+                  style={{
+                    borderRadius: "var(--Spacing-8, 8px)",
+                    background: UPGRADE_COLLAPSED,
+                    willChange: "transform",
+                  }}
+                >
+                  <Lightning size={24} className="text-[#1a1a1a]" />
+                  {isPaidPlan && (
+                    <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#1a1a1a]" />
+                  )}
+                </m.button>
+              </SidebarTooltip>
 
               <div
                 className={cn(
@@ -1526,22 +1477,29 @@ export default function BrandSidebar({
                 )}
               />
 
-              <div
-                className="h-10 w-10 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100"
-                title={footerBrandName}
-              >
-                {footerProfilePic ? (
-                  <img
-                    src={footerProfilePic}
-                    alt={footerBrandName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
-                    {footerBrandName.charAt(0).toUpperCase()}
-                  </div>
-                )}
-              </div>
+              <SidebarTooltip content="Profile">
+                <button
+                  type="button"
+                  onClick={() => handleProfileMenuAction("/brand/profile")}
+                  aria-label="Open profile"
+                  className={cn(
+                    "h-10 w-10 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100 transition hover:bg-neutral-200",
+                    FOCUS_RING
+                  )}
+                >
+                  {footerProfilePic ? (
+                    <img
+                      src={footerProfilePic}
+                      alt={footerBrandName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
+                      {footerBrandName.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </button>
+              </SidebarTooltip>
             </m.div>
           ) : (
             <m.div
@@ -1638,21 +1596,35 @@ export default function BrandSidebar({
 
               <div className="relative">
                 <div className="flex w-full items-center gap-3 bg-white p-3">
-                  <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100">
-                    {footerProfilePic ? (
-                      <img
-                        src={footerProfilePic}
-                        alt={footerBrandName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
-                        {footerBrandName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
+                  <SidebarTooltip content="Profile" side="top">
+                    <button
+                      type="button"
+                      onClick={() => handleProfileMenuAction("/brand/profile")}
+                      aria-label="Open profile"
+                      className={cn(
+                        "h-10 w-10 flex-shrink-0 overflow-hidden rounded-full border border-neutral-200 bg-neutral-100 transition hover:bg-neutral-200",
+                        FOCUS_RING
+                      )}
+                    >
+                      {footerProfilePic ? (
+                        <img
+                          src={footerProfilePic}
+                          alt={footerBrandName}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-[15px] font-semibold text-[#1a1a1a]">
+                          {footerBrandName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </button>
+                  </SidebarTooltip>
 
-                  <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => handleProfileMenuAction("/brand/profile")}
+                    className="min-w-0 flex-1 text-left"
+                  >
                     <div className="truncate text-[16px] font-semibold text-[#1a1a1a]">
                       {footerBrandName}
                     </div>
@@ -1660,20 +1632,22 @@ export default function BrandSidebar({
                     <div className="truncate text-[12px] text-neutral-500">
                       {footerProxyEmail}
                     </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    aria-label="Open profile menu"
-                    aria-expanded={profileMenuOpen}
-                    onClick={() => setProfileMenuOpen((prev) => !prev)}
-                    className={cn(
-                      "grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl text-[#1a1a1a] transition hover:bg-[#EDEDED]",
-                      FOCUS_RING
-                    )}
-                  >
-                    <DotsThree size={24} />
                   </button>
+
+                  <SidebarTooltip content="More options" side="top">
+                    <button
+                      type="button"
+                      aria-label="Open profile menu"
+                      aria-expanded={profileMenuOpen}
+                      onClick={() => setProfileMenuOpen((prev) => !prev)}
+                      className={cn(
+                        "grid h-10 w-10 flex-shrink-0 place-items-center rounded-xl text-[#1a1a1a] transition hover:bg-[#EDEDED]",
+                        FOCUS_RING
+                      )}
+                    >
+                      <DotsThree size={24} />
+                    </button>
+                  </SidebarTooltip>
                 </div>
 
                 <AnimatePresence initial={false}>

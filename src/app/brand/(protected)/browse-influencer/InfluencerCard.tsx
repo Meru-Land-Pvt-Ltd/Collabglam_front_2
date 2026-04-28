@@ -8,7 +8,6 @@ import {
   SealCheckIcon,
   GlobeHemisphereWest,
   InstagramLogo,
-  PaperPlaneTilt,
   TiktokLogo,
   YoutubeLogo,
   CopyIcon,
@@ -210,10 +209,10 @@ export function InfluencerCard({
     try {
       const userId = String(
         influencer?.userId ||
-        influencer?.modashId ||
-        influencer?.id ||
-        influencer?._id ||
-        ""
+          influencer?.modashId ||
+          influencer?.id ||
+          influencer?._id ||
+          ""
       ).trim();
 
       const selectedPlatform = normalizePlatform(
@@ -255,25 +254,25 @@ export function InfluencerCard({
             "",
           followers: Number(
             influencer?.followers ??
-            influencer?.followerCount ??
-            influencer?.stats?.followers ??
-            0
+              influencer?.followerCount ??
+              influencer?.stats?.followers ??
+              0
           ),
           engagementRate: Number(
             influencer?.engagementRate ??
-            influencer?.stats?.engagementRate ??
-            0
+              influencer?.stats?.engagementRate ??
+              0
           ),
           engagements: Number(
             influencer?.engagements ??
-            influencer?.stats?.engagements ??
-            0
+              influencer?.stats?.engagements ??
+              0
           ),
           averageViews: Number(
             influencer?.averageViews ??
-            influencer?.stats?.avgViews ??
-            influencer?.stats?.views ??
-            0
+              influencer?.stats?.avgViews ??
+              influencer?.stats?.views ??
+              0
           ),
           picture:
             influencer?.picture ||
@@ -299,19 +298,19 @@ export function InfluencerCard({
             "",
           categories: Array.isArray(influencer?.categories)
             ? influencer.categories
-              .map((item: any) =>
-                typeof item === "string"
-                  ? item
-                  : item?.categoryName ||
-                  item?.subcategoryName ||
-                  item?.name ||
-                  item?.subcategory ||
-                  ""
-              )
-              .filter(Boolean)
+                .map((item: any) =>
+                  typeof item === "string"
+                    ? item
+                    : item?.categoryName ||
+                      item?.subcategoryName ||
+                      item?.name ||
+                      item?.subcategory ||
+                      ""
+                )
+                .filter(Boolean)
             : influencer?.category
-              ? [String(influencer.category)]
-              : [],
+            ? [String(influencer.category)]
+            : [],
           searchType: influencer?.searchType || "standard",
           source: influencer?.source || "standard",
         });
@@ -356,21 +355,55 @@ export function InfluencerCard({
       className="group relative isolate w-full max-w-[380px] cursor-pointer overflow-hidden rounded-[28px] bg-[#ddd1bb] shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
     >
       {avatar && !bgFailed ? (
-        <img
-          src={avatar}
-          alt={displayName}
-          loading="lazy"
-          onError={() => setBgFailed(true)}
-          className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-[1.03]"
-        />
+        <>
+          <img
+            src={avatar}
+            alt={displayName}
+            loading="lazy"
+            onError={() => setBgFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-[1.03]"
+          />
+
+          {/* blurred bottom clone of the same image */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] overflow-hidden"
+            style={{
+              WebkitMaskImage:
+                "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.18) 14%, rgba(0,0,0,0.65) 30%, rgba(0,0,0,1) 52%)",
+              maskImage:
+                "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.18) 14%, rgba(0,0,0,0.65) 30%, rgba(0,0,0,1) 52%)",
+            }}
+          >
+            <img
+              src={avatar}
+              alt=""
+              aria-hidden="true"
+              className="absolute inset-0 h-full w-full scale-[1.08] object-cover object-center blur-[20px]"
+            />
+            <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(42,22,12,0.82),rgba(42,22,12,0.56)_38%,rgba(42,22,12,0.22)_68%,transparent)]" />
+            <div className="absolute inset-0 bg-white/8" />
+          </div>
+        </>
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-[#efe7d7] via-[#dcc7af] to-[#b99a7d]" />
+        <>
+          <div className="absolute inset-0 bg-gradient-to-br from-[#f7b1d0] via-[#d68eb4] to-[#6f4939]" />
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] overflow-hidden"
+            style={{
+              WebkitMaskImage:
+                "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.18) 14%, rgba(0,0,0,0.65) 30%, rgba(0,0,0,1) 52%)",
+              maskImage:
+                "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.18) 14%, rgba(0,0,0,0.65) 30%, rgba(0,0,0,1) 52%)",
+            }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-[#f7b1d0] via-[#d68eb4] to-[#6f4939] blur-[22px] scale-[1.08]" />
+            <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(42,22,12,0.82),rgba(42,22,12,0.56)_38%,rgba(42,22,12,0.22)_68%,transparent)]" />
+            <div className="absolute inset-0 bg-white/8" />
+          </div>
+        </>
       )}
 
-      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,248,235,0.14),rgba(120,75,35,0.06)_34%,rgba(92,56,30,0.10)_62%,rgba(70,42,20,0.18))]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[54%] bg-white/8 backdrop-blur-[14px] [mask-image:linear-gradient(to_top,black_72%,transparent_100%)]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[60%] bg-[linear-gradient(to_top,rgba(34,20,10,0.78),rgba(34,20,10,0.46)_38%,rgba(34,20,10,0.16)_68%,transparent)]" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%] rounded-t-[30px] bg-white/[0.03]" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(255,248,235,0.10),rgba(120,75,35,0.04)_32%,rgba(92,56,30,0.08)_58%,rgba(70,42,20,0.12))]" />
 
       <div className="relative flex min-h-[520px] flex-col justify-between p-4 sm:p-5">
         <div className="flex items-start justify-between gap-3">
@@ -406,12 +439,12 @@ export function InfluencerCard({
               )}
             </div>
 
-            <p
+            {/* <p
               title={bio}
               className="mt-5 line-clamp-3 text-left text-[13px] leading-6 text-white/88 sm:text-[14px]"
             >
               {bio}
-            </p>
+            </p> */}
           </div>
 
           <div className="mt-8 grid grid-cols-4 items-end gap-3 text-white">

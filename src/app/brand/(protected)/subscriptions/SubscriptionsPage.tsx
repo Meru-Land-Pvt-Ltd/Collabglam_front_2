@@ -445,6 +445,7 @@ export default function BrandSubscriptionPage() {
     type: "idle",
     message: "",
   });
+  const [couponUrlError, setCouponUrlError] = useState("");
 
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactSubmitting, setContactSubmitting] = useState(false);
@@ -469,34 +470,54 @@ export default function BrandSubscriptionPage() {
       mode,
       promoCode,
       updateUrl = false,
+      showPageError = false,
     }: {
       subscriptionId: string;
       mode: BillingCycle;
       promoCode: string;
       updateUrl?: boolean;
+      showPageError?: boolean;
     }) => {
       const cleanPromoCode = promoCode.trim();
 
       if (!subscriptionId || !mode || !cleanPromoCode) {
+        const message = "Please enter a promo code.";
+
         setPromoMessage({
           type: "failed",
-          message: "Please enter a promo code.",
+          message,
         });
+
+        if (showPageError) {
+          setCouponUrlError(message);
+        }
+
         return null;
       }
 
       const brandId = typeof window !== "undefined" ? localStorage.getItem("brandId") : "";
 
       if (!brandId) {
+        const message = "Missing brand ID. Please log in again.";
+
         setPromoMessage({
           type: "failed",
-          message: "Missing brand ID. Please log in again.",
+          message,
         });
+
+        if (showPageError) {
+          setCouponUrlError(message);
+        }
+
         return null;
       }
 
       setVerifyingCoupon(true);
       setPromoMessage({ type: "idle", message: "" });
+
+      if (showPageError) {
+        setCouponUrlError("");
+      }
 
       try {
         const resp = await post<VerifyCouponResponse>("/brand/verify-coupon", {
@@ -516,6 +537,7 @@ export default function BrandSubscriptionPage() {
         const verifiedCode = getCouponCode(couponData) || cleanPromoCode;
 
         setVerifiedCoupon(couponData);
+        setCouponUrlError("");
         setPromoSubscriptionId(verifiedSubscriptionId);
         setPromoMode(verifiedMode);
         setPromoCodeInput(verifiedCode);
@@ -536,11 +558,22 @@ export default function BrandSubscriptionPage() {
 
         return couponData;
       } catch (error: any) {
+        const message =
+          error?.response?.data?.message ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Could not verify promo code.";
+
         setVerifiedCoupon(null);
         setPromoMessage({
           type: "failed",
-          message: error?.message || "Could not verify promo code.",
+          message,
         });
+
+        if (showPageError) {
+          setCouponUrlError(message);
+        }
+
         return null;
       } finally {
         setVerifyingCoupon(false);
@@ -669,6 +702,7 @@ export default function BrandSubscriptionPage() {
       mode,
       promoCode,
       updateUrl: false,
+      showPageError: true,
     });
   }, [plans, searchParams, verifyCoupon]);
 
@@ -1180,6 +1214,15 @@ export default function BrandSubscriptionPage() {
             </div>
           )}
 
+          {couponUrlError ? (
+            <div className="mx-auto mt-6 max-w-xl rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 shadow-sm">
+              <div className="flex items-center justify-center gap-3 text-sm font-semibold text-rose-700">
+                <XCircle className="h-5 w-5" />
+                <span>{couponUrlError}</span>
+              </div>
+            </div>
+          ) : null}
+
           <div className="mt-12 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
             {visibleStandardPlans.map((plan) => {
               const key = plan.name.toLowerCase();
@@ -1188,6 +1231,7 @@ export default function BrandSubscriptionPage() {
               const isFree = plan.monthlyCost <= 0;
               const isActive = !!currentPlan && currentPlan.toLowerCase() === key;
               const isProcessing = processing === plan.name;
+              const hideCurrentPlanActionBlock = isActive;
               const symbol = currencySymbol(plan.currency);
               const annualTotal = getAnnualTotal(plan);
               const appliedCoupon = getAppliedCouponForPlan(plan);
@@ -1219,77 +1263,61 @@ export default function BrandSubscriptionPage() {
                     <p className="mt-3 text-[15px] leading-7 text-slate-600">{copy.description}</p>
                   </div>
 
-                  <div
-                    className="border-t border-[#ece7f2] px-8 py-7 transition-all duration-200"
-                    style={isActive ? { backgroundImage: UPGRADE_REST } : undefined}
-                    onMouseEnter={(e) => {
-                      if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_HOVER;
-                    }}
-                    onMouseLeave={(e) => {
-                      if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_REST;
-                    }}
-                  >
-                    <div className="flex items-end gap-2 text-[#250054]">
-                      <span className="text-4xl font-bold tracking-tight">{displayedPrice}</span>
-
-                      {!isFree && (
-                        <span className="pb-1 text-base text-slate-500">
-                          /{billing === "annually" ? "year" : "month"}
-                        </span>
-                      )}
-                    </div>
-
-                    {hasCoupon && !isFree ? (
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                        <span className="text-slate-500 line-through">
-                          {formatPlanAmount(plan, baseAmount)}
-                          /{billing === "annually" ? "year" : "month"}
+                  {!hideCurrentPlanActionBlock ? (
+                    <div className="border-t border-[#ece7f2] px-8 py-7 transition-all duration-200">
+                      <div className="flex items-end gap-2 text-[#250054]">
+                        <span className="text-4xl font-bold tracking-tight">
+                          {displayedPrice}
                         </span>
 
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                          {getCouponCode(appliedCoupon)} applied ·{" "}
-                          {formatPlanAmount(plan, discountAmount)} off
-                        </span>
+                        {!isFree && (
+                          <span className="pb-1 text-base text-slate-500">
+                            /{billing === "annually" ? "year" : "month"}
+                          </span>
+                        )}
                       </div>
-                    ) : null}
 
-                    {isFree && <p className="mt-1 text-sm text-slate-500">Free forever</p>}
+                      {hasCoupon && !isFree ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                          <span className="text-slate-500 line-through">
+                            {formatPlanAmount(plan, baseAmount)}
+                            /{billing === "annually" ? "year" : "month"}
+                          </span>
 
-                    {!hasCoupon && !isFree && billing === "annually" && copy.savingsText && (
-                      <p className="mt-2 text-sm font-semibold text-emerald-700">
-                        {copy.savingsText}
-                      </p>
-                    )}
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                            {getCouponCode(appliedCoupon)} applied ·{" "}
+                            {formatPlanAmount(plan, discountAmount)} off
+                          </span>
+                        </div>
+                      ) : null}
 
-                    {!hasCoupon && !isFree && billing === "monthly" && copy.annualText && (
-                      <p className="mt-2 text-sm text-slate-500">or {copy.annualText}</p>
-                    )}
+                      {isFree && <p className="mt-1 text-sm text-slate-500">Free forever</p>}
 
-                    <Button
-                      onClick={() => handleSelect(plan)}
-                      disabled={isActive || isProcessing}
-                      className="mt-6 w-full border border-[#e7d7b4] text-[#1a1a1a]"
-                      style={isActive ? { backgroundImage: UPGRADE_REST } : undefined}
-                      onMouseEnter={(e) => {
-                        if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_HOVER;
-                      }}
-                      onMouseLeave={(e) => {
-                        if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_REST;
-                      }}
-                    >
-                      {isActive ? (
-                        <span className="inline-flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4" /> Current Plan
-                        </span>
-                      ) : isProcessing ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Processing…
-                        </span>
-                      ) : (
-                        copy.cta
+                      {!hasCoupon && !isFree && billing === "annually" && copy.savingsText && (
+                        <p className="mt-2 text-sm font-semibold text-emerald-700">
+                          {copy.savingsText}
+                        </p>
                       )}
-                    </Button>
-                  </div>
+
+                      {!hasCoupon && !isFree && billing === "monthly" && copy.annualText && (
+                        <p className="mt-2 text-sm text-slate-500">or {copy.annualText}</p>
+                      )}
+
+                      <Button
+                        onClick={() => handleSelect(plan)}
+                        disabled={isProcessing}
+                        className="mt-6 w-full border border-[#e7d7b4] bg-[#1a1a1a] text-white hover:bg-black"
+                      >
+                        {isProcessing ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" /> Processing…
+                          </span>
+                        ) : (
+                          copy.cta
+                        )}
+                      </Button>
+                    </div>
+                  ) : null}
 
                   <div className="flex-1 border-t border-[#ece7f2] px-8 py-8">
                     <div className="space-y-7">
