@@ -62,16 +62,7 @@ type CookieOptions = {
 
 const ONBOARDING_RESUME_KEY = "cg_influencer_onboarding_resume_step";
 const Login_S3_Image =
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image5.png";
-
-function hasCookie(name: string) {
-  if (typeof document === "undefined") return false;
-
-  return document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .some((part) => part.startsWith(`${encodeURIComponent(name)}=`));
-}
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image7.webp";
 
 function getStoredInfluencerResumeRoute(): OnboardingRoute | undefined {
   if (typeof window === "undefined") return undefined;
@@ -381,11 +372,10 @@ function InfluencerLoginContent() {
       const token =
         localStorage.getItem("token") || localStorage.getItem("influencerToken");
       const influencerId = localStorage.getItem("influencerId");
-      const hasCookieSession = hasCookie("token") && hasCookie("influencerId");
 
-      return Boolean((token && influencerId) || hasCookieSession);
+      return Boolean(token && influencerId);
     } catch {
-      return hasCookie("token") && hasCookie("influencerId");
+      return false;
     }
   }, []);
 
@@ -405,33 +395,11 @@ function InfluencerLoginContent() {
   }, [getSafeReturnUrl, hasActiveInfluencerSession, router]);
 
   React.useEffect(() => {
-    const enforceGuestOnlyAccess = () => {
-      const redirected = redirectAuthenticatedInfluencerUser();
+    const redirected = redirectAuthenticatedInfluencerUser();
 
-      if (!redirected) {
-        setAuthGuardReady(true);
-      }
-    };
-
-    enforceGuestOnlyAccess();
-
-    const handlePageShow = () => {
-      enforceGuestOnlyAccess();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        enforceGuestOnlyAccess();
-      }
-    };
-
-    window.addEventListener("pageshow", handlePageShow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener("pageshow", handlePageShow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+    if (!redirected) {
+      setAuthGuardReady(true);
+    }
   }, [redirectAuthenticatedInfluencerUser]);
 
   const clearEmailOnFocus = () => {

@@ -171,12 +171,6 @@ export default function BrandDashboardHome() {
   useEffect(() => {
     const brandId =
       typeof window !== "undefined" ? localStorage.getItem("brandId") : null;
-
-    if (!brandId) {
-      router.replace("/brand/login");
-      return;
-    }
-
     // ✅ read plan info from storage
     const storedPlanId =
       typeof window !== "undefined" ? localStorage.getItem("brandPlanId") : null;
