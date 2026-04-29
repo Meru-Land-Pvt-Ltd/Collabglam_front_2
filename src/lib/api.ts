@@ -27,7 +27,7 @@ const stripContentType = (headers: any) => {
       headers.delete("content-type");
       return headers;
     }
-  } catch {}
+  } catch { }
 
   const h = { ...(headers as any) };
   delete h["Content-Type"];
@@ -58,7 +58,7 @@ const hasAuthHeader = (headers: any) => {
     if (typeof headers.get === "function") {
       return !!headers.get("Authorization") || !!headers.get("authorization");
     }
-  } catch {}
+  } catch { }
 
   return !!headers.Authorization || !!headers.authorization;
 };
@@ -129,11 +129,11 @@ export async function getApiErrorMessage(
           const json = JSON.parse(text);
           const parsedMessage = readMessageFromPayload(json);
           if (parsedMessage) return parsedMessage;
-        } catch {}
+        } catch { }
 
         return text.trim();
       }
-    } catch {}
+    } catch { }
   }
 
   const payloadMessage = readMessageFromPayload(responseData);
@@ -160,15 +160,15 @@ export const forceLogout = () => {
 
   try {
     localStorage.clear();
-  } catch {}
+  } catch { }
 
   try {
     sessionStorage.clear();
-  } catch {}
+  } catch { }
 
   try {
     window.dispatchEvent(new CustomEvent("auth:logout"));
-  } catch {}
+  } catch { }
 
   const loginPath = "/admin/login";
   const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -212,7 +212,7 @@ const attachAuthPrimary = (
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       if (token) return attachBearer(config, token);
-    } catch {}
+    } catch { }
   }
 
   return config;
@@ -231,7 +231,7 @@ const attachAuthSecondary = (
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       if (token) return attachBearer(config, token);
-    } catch {}
+    } catch { }
   }
 
   return config;
@@ -271,7 +271,7 @@ if (typeof window !== "undefined") {
         "[api] Page is HTTPS but NEXT_PUBLIC_API_URL is HTTP. This causes mixed-content blocking (Network Error). Use an HTTPS API endpoint or a same-origin relative path."
       );
     }
-  } catch {}
+  } catch { }
 }
 
 export const get = async <T = any>(url: string, params?: any): Promise<T> => {
@@ -519,7 +519,7 @@ export const setToken = (token: string) => {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(TOKEN_KEY, token);
-  } catch {}
+  } catch { }
 };
 
 export const getToken = (): string | null => {
@@ -535,8 +535,40 @@ export const clearToken = () => {
   if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(TOKEN_KEY);
-  } catch {}
+  } catch { }
 };
+export async function adminPostBlob(
+  endpoint: string,
+  body?: unknown
+): Promise<Blob> {
+  const baseUrl =
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    "";
 
+  const response = await fetch(`${baseUrl}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(body || {}),
+  });
+
+  if (!response.ok) {
+    let message = "Request failed.";
+
+    try {
+      const errorData = await response.json();
+      message = errorData?.message || message;
+    } catch {
+      // PDF/blob endpoints may not return JSON errors.
+    }
+
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
 export default api;
 export { api2, adminApi };

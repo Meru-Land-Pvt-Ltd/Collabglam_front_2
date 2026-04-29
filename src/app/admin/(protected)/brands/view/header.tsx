@@ -5,7 +5,7 @@ import { ArrowLeft, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { BrandDetail } from "./types";
-import { BrandAvatar, StatusPill } from "./shared";
+import { BrandAvatar } from "./shared";
 
 function formatPlanName(value?: string | null) {
   const raw = String(value || "").trim();
@@ -20,10 +20,72 @@ function formatPlanName(value?: string | null) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function getSubscriptionBadge(planName: string, expired?: boolean) {
+  const normalizedPlan = planName.toLowerCase();
+
+  if (!planName || planName === "—") {
+    return {
+      label: "No Subscription",
+      className:
+        "border-white/20 bg-white/10 text-white/80",
+    };
+  }
+
+  if (expired) {
+    return {
+      label: `${planName} Plan`,
+      className:
+        "border-rose-200 bg-rose-500 text-white",
+    };
+  }
+
+  if (
+    normalizedPlan.includes("enterprise") ||
+    normalizedPlan.includes("premium") ||
+    normalizedPlan.includes("pro")
+  ) {
+    return {
+      label: `${planName} Plan`,
+      className:
+        "border-violet-200 bg-violet-500 text-white",
+    };
+  }
+
+  if (
+    normalizedPlan.includes("growth") ||
+    normalizedPlan.includes("business") ||
+    normalizedPlan.includes("standard")
+  ) {
+    return {
+      label: `${planName} Plan`,
+      className:
+        "border-sky-200 bg-sky-500 text-white",
+    };
+  }
+
+  if (
+    normalizedPlan.includes("starter") ||
+    normalizedPlan.includes("basic") ||
+    normalizedPlan.includes("free") ||
+    normalizedPlan.includes("trial")
+  ) {
+    return {
+      label: `${planName} Plan`,
+      className:
+        "border-amber-200 bg-amber-400 text-slate-950",
+    };
+  }
+
+  return {
+    label: `${planName} Plan`,
+    className:
+      "border-white/25 bg-white/15 text-white backdrop-blur",
+  };
+}
+
 export function BrandViewHeader({
   brand,
   onBack,
-  onEdit,
   onCreateCampaign,
 }: {
   brand: BrandDetail;
@@ -33,6 +95,11 @@ export function BrandViewHeader({
 }) {
   const currentPlanName = formatPlanName(
     brand.subscription?.planName || brand.planName || "—"
+  );
+
+  const subscriptionBadge = getSubscriptionBadge(
+    currentPlanName,
+    brand.subscriptionExpired
   );
 
   return (
@@ -69,7 +136,6 @@ export function BrandViewHeader({
                   <h1 className="text-3xl font-black tracking-tight text-white md:text-4xl">
                     {brand.brandName}
                   </h1>
-
                   {brand.subscriptionExpired ? (
                     <span className="inline-flex rounded-full border border-rose-200 bg-rose-500 px-3 py-1 text-xs font-black text-white">
                       Expired
@@ -87,12 +153,12 @@ export function BrandViewHeader({
                 </p>
 
                 <div className="mt-4 flex flex-wrap gap-2">
-
-                  {brand.fullyManagedSubscription ? (
-                    <span className="inline-flex rounded-full border border-emerald-200/70 bg-emerald-500 px-3 py-1 text-xs font-black text-white">
-                      Fully Managed
-                    </span>
-                  ) : null}
+                  <span
+                    className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${subscriptionBadge.className}`}
+                    title={`Subscription: ${subscriptionBadge.label}`}
+                  >
+                    {subscriptionBadge.label}
+                  </span>
 
                   <span className="inline-flex rounded-full border border-white/25 bg-white/15 px-3 py-1 text-xs font-black text-white backdrop-blur">
                     Wallet: ${Number(brand.walletBalance || 0).toFixed(2)}

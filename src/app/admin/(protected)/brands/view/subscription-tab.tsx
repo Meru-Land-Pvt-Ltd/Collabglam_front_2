@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
   CreditCard,
+  Download,
   History,
   RefreshCw,
   ShieldCheck,
@@ -13,6 +14,8 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { adminPost, adminDownloadBlob } from "@/lib/api";
+import AdminTable, { type AdminTableColumn } from "../../../components/table";
 import { Card } from "@/components/ui/card";
 import {
   Select,
@@ -623,97 +626,171 @@ const FeatureUsage = React.memo(function FeatureUsage({
   );
 });
 
-function SubscriptionSnapshotCard({
-  snapshot,
-  empty = false,
-  tone = "emerald",
-}: {
-  snapshot: SubscriptionSnapshot | null;
-  empty?: boolean;
-  tone?: ColorTone;
-}) {
-  const color = toneClasses[tone];
 
-  if (!snapshot || empty) {
-    return (
-      <div className="min-h-[260px] rounded-[30px] border border-dashed border-violet-200 bg-gradient-to-br from-violet-50 via-white to-white p-6 shadow-sm">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
-          <History className="h-5 w-5" />
-        </div>
+type PaymentHistoryItem = {
+  paymentType: "plan" | "milestone";
+  orderId?: string;
+  paymentId?: string;
+  userId?: string;
+  role?: string;
+  planId?: string;
+  planName?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  receipt?: string;
+  invoiceNumber?: string;
+  invoiceIssuedAt?: string | null;
+  invoiceFilePath?: string;
+  paidAt?: string | null;
+  createdAt?: string | null;
+  subtotalCents?: number;
+  discountCents?: number;
+  taxCents?: number;
+  totalCents?: number;
+};
 
-        <p className="mt-5 text-[11px] font-black uppercase tracking-[0.18em] text-violet-700">
-          Previous Subscription
-        </p>
-        <h3 className="mt-2 text-xl font-black text-[#1a1a1a]">
-          No Previous Plan
-        </h3>
-        <p className="mt-3 text-sm font-semibold leading-6 text-black/45">
-          Previous subscription data is not available for this brand yet.
-        </p>
-      </div>
-    );
+type PaymentHistoryResponse = {
+  success: boolean;
+  message?: string;
+  userId?: string;
+  role?: string;
+  counts?: {
+    plans: number;
+    milestones: number;
+    total: number;
+  };
+  history?: PaymentHistoryItem[];
+};
+
+type AdminAssignedPlanHistoryItem = {
+  _id?: string;
+  brandId?: string;
+  planId?: string;
+  oldPlanName?: string;
+  newPlanName?: string;
+  billingCycle?: string;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  durationDays?: number | null;
+  assignedByAdminId?:
+  | string
+  | {
+    _id?: string;
+    name?: string;
+    email?: string;
+    role?: string;
   }
+  | null;
+  assignedByAdminEmail?: string;
+  source?: string;
+  status?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
 
-  return (
-    <div
-      className={`relative overflow-hidden rounded-[30px] border p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-xl ${color.card}`}
-    >
-      <div
-        className={`pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full blur-2xl ${color.glow}`}
-      />
+type AdminAssignedPlanHistoryResponse = {
+  success: boolean;
+  message?: string;
+  histories?: AdminAssignedPlanHistoryItem[];
+  history?: AdminAssignedPlanHistoryItem[];
+  data?: AdminAssignedPlanHistoryItem[];
+  total?: number;
+  totalPages?: number;
+};
 
-      <div className="relative">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className={`text-[11px] font-black uppercase tracking-[0.18em] ${color.text}`}>
-              {snapshot.label}
-            </p>
-            <h3 className="mt-2 text-2xl font-black text-[#1a1a1a]">
-              {snapshot.planName}
-            </h3>
-          </div>
+function getBrandPaymentHistoryUserId(brand: BrandDetail) {
+  const brandAny = brand as any;
 
-          <StatusPill label={snapshot.status || "—"} tone={getStatusTone(snapshot.status)} />
-        </div>
-
-        <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <DetailTile label="Billing Cycle" value={snapshot.billingCycle || "—"} tone={tone} />
-          <DetailTile
-            label="Auto Renew"
-            tone={tone}
-            value={
-              typeof snapshot.autoRenew === "boolean"
-                ? snapshot.autoRenew
-                  ? "Yes"
-                  : "No"
-                : "—"
-            }
-          />
-          <DetailTile
-            label="Monthly Cost"
-            tone={tone}
-            value={
-              typeof snapshot.monthlyCost === "number"
-                ? formatCurrency(snapshot.monthlyCost)
-                : "—"
-            }
-          />
-          <DetailTile
-            label="Annual Cost"
-            tone={tone}
-            value={
-              typeof snapshot.annualCost === "number"
-                ? formatCurrency(snapshot.annualCost)
-                : "—"
-            }
-          />
-          <DetailTile label="Started At" value={formatDate(snapshot.startedAt)} tone={tone} />
-          <DetailTile label="Expire At" value={formatDate(snapshot.expiresAt)} tone={tone} />
-        </div>
-      </div>
-    </div>
+  return String(
+    brandAny?._id ||
+    brandAny?.id ||
+    brandAny?.userId ||
+    brandAny?.brandId ||
+    brandAny?.brand?._id ||
+    brandAny?.brand?.id ||
+    ""
   );
 }
+
+function getPaymentHistoryDate(item: PaymentHistoryItem, index?: number) {
+  return item.invoiceIssuedAt || item.paidAt || item.createdAt || "";
+}
+
+function getPaymentHistoryAmount(item: PaymentHistoryItem) {
+  return Number(item.totalCents ?? item.amount ?? item.subtotalCents ?? 0);
+}
+
+function formatPaymentHistoryAmount(item: PaymentHistoryItem) {
+  const cents = getPaymentHistoryAmount(item);
+
+  if (!Number.isFinite(cents) || cents <= 0) return "—";
+
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: item.currency || "USD",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+}
+
+function getPaymentStatusTone(status?: string) {
+  const normalized = String(status || "").toLowerCase();
+
+  if (
+    normalized === "paid" ||
+    normalized === "success" ||
+    normalized === "completed"
+  ) {
+    return "success" as const;
+  }
+
+  if (normalized === "failed") {
+    return "danger" as const;
+  }
+
+  if (
+    normalized === "created" ||
+    normalized === "pending" ||
+    normalized === "processing"
+  ) {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
+
+function getAdminAssignedHistoryDate(item: AdminAssignedPlanHistoryItem) {
+  return item.createdAt || item.startedAt || item.expiresAt || "";
+}
+
+function getAdminAssignedAdminLabel(item: AdminAssignedPlanHistoryItem) {
+  const admin = item.assignedByAdminId;
+
+  if (admin && typeof admin === "object") {
+    return admin.name || admin.email || item.assignedByAdminEmail || "—";
+  }
+
+  return item.assignedByAdminEmail || "—";
+}
+
+function getAdminAssignedStatusTone(status?: string) {
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized === "assigned") {
+    return "success" as const;
+  }
+
+  if (normalized === "expired" || normalized === "cancelled") {
+    return "danger" as const;
+  }
+
+  if (normalized === "pending") {
+    return "warning" as const;
+  }
+
+  return "neutral" as const;
+}
+
 
 export function BrandSubscriptionTab(props: SubscriptionTabProps) {
   const {
@@ -747,13 +824,477 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
     [brand]
   );
 
-  const previousSubscription = useMemo(
-    () => getPreviousSubscriptionSnapshot(brand, currentSubscription),
-    [brand, currentSubscription]
-  );
-
   const usageFeatures = useMemo(() => buildUsageFeatures(brand), [brand]);
   const statusColorTone = getColorToneFromStatus(currentSubscription.status);
+
+  const [adminAssignedHistory, setAdminAssignedHistory] = useState<
+    AdminAssignedPlanHistoryItem[]
+  >([]);
+  const [adminAssignedHistoryLoading, setAdminAssignedHistoryLoading] =
+    useState(false);
+  const [adminAssignedHistoryError, setAdminAssignedHistoryError] = useState<
+    string | null
+  >(null);
+
+  const [adminAssignedSortBy, setAdminAssignedSortBy] = useState("createdAt");
+  const [adminAssignedSortAsc, setAdminAssignedSortAsc] = useState(false);
+
+  const [adminAssignedPage, setAdminAssignedPage] = useState(1);
+  const [adminAssignedLimit, setAdminAssignedLimit] = useState(5);
+
+  const [subscriptionHistory, setSubscriptionHistory] = useState<PaymentHistoryItem[]>([]);
+  const [subscriptionHistoryLoading, setSubscriptionHistoryLoading] = useState(false);
+  const [subscriptionHistoryError, setSubscriptionHistoryError] = useState<string | null>(null);
+  const [downloadingInvoiceNumber, setDownloadingInvoiceNumber] = useState<string | null>(null);
+
+  const [subscriptionSortBy, setSubscriptionSortBy] = useState("date");
+  const [subscriptionSortAsc, setSubscriptionSortAsc] = useState(false);
+
+  const [subscriptionPage, setSubscriptionPage] = useState(1);
+  const [subscriptionLimit, setSubscriptionLimit] = useState(5);
+
+
+  const fetchAdminAssignedHistory = useCallback(async () => {
+    const brandId = getBrandPaymentHistoryUserId(brand);
+
+    if (!brandId) {
+      setAdminAssignedHistory([]);
+      setAdminAssignedHistoryError("Brand id not found.");
+      return;
+    }
+
+    setAdminAssignedHistoryLoading(true);
+    setAdminAssignedHistoryError(null);
+
+    try {
+      const response = await adminPost<AdminAssignedPlanHistoryResponse>(
+        "/admin/assigned-plan-history",
+        {
+          brandId,
+          page: 1,
+          limit: 100,
+          sortBy: "createdAt",
+          sortOrder: "desc",
+        }
+      );
+
+      const histories = Array.isArray(response.histories)
+        ? response.histories
+        : Array.isArray(response.history)
+          ? response.history
+          : Array.isArray(response.data)
+            ? response.data
+            : [];
+
+      setAdminAssignedHistory(histories);
+      setAdminAssignedPage(1);
+    } catch (error: any) {
+      setAdminAssignedHistoryError(
+        error?.message || "Failed to load admin assigned history."
+      );
+    } finally {
+      setAdminAssignedHistoryLoading(false);
+    }
+  }, [brand]);
+
+  const fetchSubscriptionHistory = useCallback(async () => {
+    const userId = getBrandPaymentHistoryUserId(brand);
+
+    if (!userId) {
+      setSubscriptionHistory([]);
+      setSubscriptionHistoryError("Brand user id not found.");
+      return;
+    }
+
+    setSubscriptionHistoryLoading(true);
+    setSubscriptionHistoryError(null);
+
+    try {
+      const response = await adminPost<PaymentHistoryResponse>("/payment/history", {
+        userId,
+        role: "Brand",
+      });
+
+      // Only plan history should show here. Milestone history is removed here.
+      const onlyPlanHistory = (response.history || []).filter(
+        (item) => item.paymentType === "plan"
+      );
+
+      setSubscriptionHistory(onlyPlanHistory);
+      setSubscriptionPage(1);
+    } catch (error: any) {
+      setSubscriptionHistoryError(
+        error?.message || "Failed to load subscription history."
+      );
+    } finally {
+      setSubscriptionHistoryLoading(false);
+    }
+  }, [brand]);
+
+
+  useEffect(() => {
+    fetchAdminAssignedHistory();
+  }, [fetchAdminAssignedHistory]);
+
+
+  useEffect(() => {
+    fetchSubscriptionHistory();
+  }, [fetchSubscriptionHistory]);
+
+
+  const handleAdminAssignedSort = (field: string) => {
+    setAdminAssignedPage(1);
+
+    if (adminAssignedSortBy === field) {
+      setAdminAssignedSortAsc((prev) => !prev);
+    } else {
+      setAdminAssignedSortBy(field);
+      setAdminAssignedSortAsc(
+        !["createdAt", "startedAt", "expiresAt", "durationDays"].includes(field)
+      );
+    }
+  };
+
+  const sortedAdminAssignedHistory = useMemo(() => {
+    return [...adminAssignedHistory].sort((a, b) => {
+      const direction = adminAssignedSortAsc ? 1 : -1;
+
+      const valueA =
+        adminAssignedSortBy === "durationDays"
+          ? Number(a.durationDays || 0)
+          : adminAssignedSortBy === "oldPlanName"
+            ? String(a.oldPlanName || "").toLowerCase()
+            : adminAssignedSortBy === "newPlanName"
+              ? String(a.newPlanName || "").toLowerCase()
+              : adminAssignedSortBy === "billingCycle"
+                ? String(a.billingCycle || "").toLowerCase()
+                : adminAssignedSortBy === "assignedBy"
+                  ? getAdminAssignedAdminLabel(a).toLowerCase()
+                  : adminAssignedSortBy === "status"
+                    ? String(a.status || "").toLowerCase()
+                    : adminAssignedSortBy === "startedAt"
+                      ? new Date(a.startedAt || 0).getTime()
+                      : adminAssignedSortBy === "expiresAt"
+                        ? new Date(a.expiresAt || 0).getTime()
+                        : new Date(getAdminAssignedHistoryDate(a) || 0).getTime();
+
+      const valueB =
+        adminAssignedSortBy === "durationDays"
+          ? Number(b.durationDays || 0)
+          : adminAssignedSortBy === "oldPlanName"
+            ? String(b.oldPlanName || "").toLowerCase()
+            : adminAssignedSortBy === "newPlanName"
+              ? String(b.newPlanName || "").toLowerCase()
+              : adminAssignedSortBy === "billingCycle"
+                ? String(b.billingCycle || "").toLowerCase()
+                : adminAssignedSortBy === "assignedBy"
+                  ? getAdminAssignedAdminLabel(b).toLowerCase()
+                  : adminAssignedSortBy === "status"
+                    ? String(b.status || "").toLowerCase()
+                    : adminAssignedSortBy === "startedAt"
+                      ? new Date(b.startedAt || 0).getTime()
+                      : adminAssignedSortBy === "expiresAt"
+                        ? new Date(b.expiresAt || 0).getTime()
+                        : new Date(getAdminAssignedHistoryDate(b) || 0).getTime();
+
+      if (valueA > valueB) return direction;
+      if (valueA < valueB) return -direction;
+      return 0;
+    });
+  }, [adminAssignedHistory, adminAssignedSortAsc, adminAssignedSortBy]);
+
+  const adminAssignedTotalPages = Math.max(
+    1,
+    Math.ceil(sortedAdminAssignedHistory.length / adminAssignedLimit)
+  );
+
+  const paginatedAdminAssignedHistory = useMemo(() => {
+    const start = (adminAssignedPage - 1) * adminAssignedLimit;
+    return sortedAdminAssignedHistory.slice(start, start + adminAssignedLimit);
+  }, [sortedAdminAssignedHistory, adminAssignedLimit, adminAssignedPage]);
+
+
+
+  const handleSubscriptionSort = (field: string) => {
+    setSubscriptionPage(1);
+
+    if (subscriptionSortBy === field) {
+      setSubscriptionSortAsc((prev) => !prev);
+    } else {
+      setSubscriptionSortBy(field);
+      setSubscriptionSortAsc(field !== "date");
+    }
+  };
+
+  const sortedSubscriptionHistory = useMemo(() => {
+    return [...subscriptionHistory].sort((a, b) => {
+      const direction = subscriptionSortAsc ? 1 : -1;
+
+      const valueA =
+        subscriptionSortBy === "amount"
+          ? getPaymentHistoryAmount(a)
+          : subscriptionSortBy === "status"
+            ? String(a.status || "").toLowerCase()
+            : subscriptionSortBy === "planName"
+              ? String(a.planName || "").toLowerCase()
+              : subscriptionSortBy === "invoiceNumber"
+                ? String(a.invoiceNumber || "").toLowerCase()
+                : new Date(getPaymentHistoryDate(a) || 0).getTime();
+
+      const valueB =
+        subscriptionSortBy === "amount"
+          ? getPaymentHistoryAmount(b)
+          : subscriptionSortBy === "status"
+            ? String(b.status || "").toLowerCase()
+            : subscriptionSortBy === "planName"
+              ? String(b.planName || "").toLowerCase()
+              : subscriptionSortBy === "invoiceNumber"
+                ? String(b.invoiceNumber || "").toLowerCase()
+                : new Date(getPaymentHistoryDate(b) || 0).getTime();
+
+      if (valueA > valueB) return direction;
+      if (valueA < valueB) return -direction;
+      return 0;
+    });
+  }, [subscriptionHistory, subscriptionSortAsc, subscriptionSortBy]);
+
+  const subscriptionTotalPages = Math.max(
+    1,
+    Math.ceil(sortedSubscriptionHistory.length / subscriptionLimit)
+  );
+
+  const paginatedSubscriptionHistory = useMemo(() => {
+    const start = (subscriptionPage - 1) * subscriptionLimit;
+    return sortedSubscriptionHistory.slice(start, start + subscriptionLimit);
+  }, [sortedSubscriptionHistory, subscriptionLimit, subscriptionPage]);
+
+  const handleDownloadInvoice = useCallback(async (invoiceNumber?: string) => {
+    if (!invoiceNumber) {
+      setSubscriptionHistoryError("Invoice number is not available for this payment.");
+      return;
+    }
+
+    setDownloadingInvoiceNumber(invoiceNumber);
+    setSubscriptionHistoryError(null);
+
+    try {
+      const blob = await adminDownloadBlob("/payment/generate-invoice", {
+        invoiceNumber,
+      });
+
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${invoiceNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      setSubscriptionHistoryError(error?.message || "Failed to download invoice.");
+    } finally {
+      setDownloadingInvoiceNumber(null);
+    }
+  }, []);
+
+  const adminAssignedHistoryColumns = useMemo<
+    AdminTableColumn<AdminAssignedPlanHistoryItem>[]
+  >(
+    () => [
+      {
+        id: "oldPlanName",
+        header: "Old Plan",
+        sortable: true,
+        sortField: "oldPlanName",
+        widthClassName: "min-w-[180px]",
+        render: (item) => (
+          <p className="text-sm font-black text-slate-900">
+            {formatPlanName(item.oldPlanName || "Free")}
+          </p>
+        ),
+      },
+      {
+        id: "newPlanName",
+        header: "New Plan",
+        sortable: true,
+        sortField: "newPlanName",
+        widthClassName: "min-w-[180px]",
+        render: (item) => (
+          <p className="text-sm font-black text-slate-900">
+            {formatPlanName(item.newPlanName || "—")}
+          </p>
+        ),
+      },
+      {
+        id: "billingCycle",
+        header: "Billing Cycle",
+        sortable: true,
+        sortField: "billingCycle",
+        align: "center",
+        widthClassName: "min-w-[140px]",
+        render: (item) => (
+          <span className="text-sm font-semibold text-slate-600">
+            {formatBillingCycle(item.billingCycle || "monthly")}
+          </span>
+        ),
+      },
+      {
+        id: "startedAt",
+        header: "Started At",
+        sortable: true,
+        sortField: "startedAt",
+        align: "center",
+        widthClassName: "min-w-[140px]",
+        render: (item) => (
+          <span className="text-sm font-semibold text-slate-600">
+            {formatDate(item.startedAt)}
+          </span>
+        ),
+      },
+      {
+        id: "expiresAt",
+        header: "Expires At",
+        sortable: true,
+        sortField: "expiresAt",
+        align: "center",
+        widthClassName: "min-w-[140px]",
+        render: (item) => (
+          <span className="text-sm font-semibold text-slate-600">
+            {formatDate(item.expiresAt)}
+          </span>
+        ),
+      },
+      {
+        id: "durationDays",
+        header: "Days",
+        sortable: true,
+        sortField: "durationDays",
+        align: "center",
+        widthClassName: "min-w-[100px]",
+        render: (item) => (
+          <span className="text-sm font-black text-slate-900">
+            {item.durationDays ?? "—"}
+          </span>
+        ),
+      },
+      {
+        id: "assignedBy",
+        header: "Assigned By",
+        sortable: true,
+        sortField: "assignedBy",
+        widthClassName: "min-w-[220px]",
+        render: (item) => (
+          <div>
+            <p className="text-sm font-black text-slate-900">
+              {getAdminAssignedAdminLabel(item)}
+            </p>
+            {item.assignedByAdminEmail ? (
+              <p className="text-xs font-semibold text-slate-500">
+                {item.assignedByAdminEmail}
+              </p>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        sortField: "status",
+        align: "center",
+        widthClassName: "min-w-[130px]",
+        render: (item) => (
+          <StatusPill
+            label={formatPlanName(item.status || "Assigned")}
+            tone={getAdminAssignedStatusTone(item.status)}
+          />
+        ),
+      },
+    ],
+    []
+  );
+
+  const subscriptionHistoryColumns = useMemo<AdminTableColumn<PaymentHistoryItem>[]>(
+    () => [
+      {
+        id: "planName",
+        header: "Plan",
+        sortable: true,
+        sortField: "planName",
+        widthClassName: "min-w-[220px]",
+        render: (item) => (
+          <p className="text-sm font-black text-slate-900">
+            {formatPlanName(item.planName || "Subscription Plan")}
+          </p>
+        ),
+      },
+      {
+        id: "date",
+        header: "Date",
+        sortable: true,
+        sortField: "date",
+        align: "center",
+        widthClassName: "min-w-[140px]",
+        render: (item) => (
+          <span className="text-sm font-semibold text-slate-600">
+            {formatDate(getPaymentHistoryDate(item))}
+          </span>
+        ),
+      },
+      {
+        id: "amount",
+        header: "Amount",
+        sortable: true,
+        sortField: "amount",
+        align: "right",
+        widthClassName: "min-w-[140px]",
+        render: (item) => (
+          <span className="text-sm font-black text-slate-900">
+            {formatPaymentHistoryAmount(item)}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        sortable: true,
+        sortField: "status",
+        align: "center",
+        widthClassName: "min-w-[130px]",
+        render: (item) => (
+          <StatusPill
+            label={formatPlanName(item.status || "Created")}
+            tone={getPaymentStatusTone(item.status)}
+          />
+        ),
+      },
+      {
+        id: "action",
+        header: "Action",
+        align: "right",
+        widthClassName: "min-w-[150px]",
+        render: (item) => {
+          const isDownloading = downloadingInvoiceNumber === item.invoiceNumber;
+
+          return (
+            <Button
+              type="button"
+              size="sm"
+              disabled={!item.invoiceNumber || isDownloading}
+              onClick={() => handleDownloadInvoice(item.invoiceNumber)}
+              className="rounded-full bg-black px-4 text-xs font-extrabold text-white hover:bg-black/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              {isDownloading ? "Downloading..." : "Download"}
+            </Button>
+          );
+        },
+      },
+    ],
+    [downloadingInvoiceNumber, handleDownloadInvoice]
+  );
 
   return (
     <div className="space-y-6">
@@ -993,18 +1534,114 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
           ) : null}
         </div>
       </SectionCard>
-
+      <SectionCard
+        title="Admin Assigned History"
+        description="Plan assignment history manually updated by admins."
+        action={
+          <Button
+            type="button"
+            onClick={fetchAdminAssignedHistory}
+            disabled={adminAssignedHistoryLoading}
+            className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
+          >
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${adminAssignedHistoryLoading ? "animate-spin" : ""
+                }`}
+            />
+            Refresh
+          </Button>
+        }
+      >
+        <div className="p-5">
+          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+            <AdminTable<AdminAssignedPlanHistoryItem>
+              data={paginatedAdminAssignedHistory}
+              columns={adminAssignedHistoryColumns}
+              rowKey={(item, index) =>
+                `${item._id || item.planId || "admin-assigned"}-${adminAssignedPage}-${index}`
+              }
+              loading={adminAssignedHistoryLoading}
+              loadingRows={5}
+              error={adminAssignedHistoryError}
+              emptyTitle="No admin assigned history found"
+              emptyDescription="No manually assigned plan history found for this brand."
+              sortBy={adminAssignedSortBy}
+              sortOrder={adminAssignedSortAsc ? "asc" : "desc"}
+              onSort={handleAdminAssignedSort}
+              tableClassName="min-w-[1240px] bg-white"
+              headerRowClassName="bg-slate-50/90"
+              pagination={{
+                page: adminAssignedPage,
+                totalPages: adminAssignedTotalPages,
+                totalItems: sortedAdminAssignedHistory.length,
+                limit: adminAssignedLimit,
+                onPageChange: setAdminAssignedPage,
+                onLimitChange: (nextLimit) => {
+                  setAdminAssignedLimit(nextLimit);
+                  setAdminAssignedPage(1);
+                },
+                rowOptions: [5, 10, 20, 50],
+                loading: adminAssignedHistoryLoading,
+                showRowsSelector: true,
+                showSummary: true,
+              }}
+            />
+          </div>
+        </div>
+      </SectionCard>
       <SectionCard
         title="Subscription History"
-        description="Quick comparison between the previous subscription and the current subscription."
+        description="Only plan subscription history fetched from payment history."
+        action={
+          <Button
+            type="button"
+            onClick={fetchSubscriptionHistory}
+            disabled={subscriptionHistoryLoading}
+            className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
+          >
+            <RefreshCw
+              className={`mr-2 h-4 w-4 ${subscriptionHistoryLoading ? "animate-spin" : ""
+                }`}
+            />
+            Refresh
+          </Button>
+        }
       >
-        <div className="grid gap-5 bg-gradient-to-br p-5 xl:items-center">
-          <SubscriptionSnapshotCard
-            snapshot={previousSubscription}
-            empty={!previousSubscription}
-            tone="violet"
-          />
-
+        <div className="p-5">
+          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+            <AdminTable<PaymentHistoryItem>
+              data={paginatedSubscriptionHistory}
+              columns={subscriptionHistoryColumns}
+              rowKey={(item, index) =>
+                `${getPaymentHistoryDate(item, index)}-${subscriptionPage}-${index}`
+              }
+              loading={subscriptionHistoryLoading}
+              loadingRows={5}
+              error={subscriptionHistoryError}
+              emptyTitle="No subscription history found"
+              emptyDescription="No plan payment history found for this brand."
+              sortBy={subscriptionSortBy}
+              sortOrder={subscriptionSortAsc ? "asc" : "desc"}
+              onSort={handleSubscriptionSort}
+              tableClassName="min-w-[980px] bg-white"
+              headerRowClassName="bg-slate-50/90"
+              pagination={{
+                page: subscriptionPage,
+                totalPages: subscriptionTotalPages,
+                totalItems: sortedSubscriptionHistory.length,
+                limit: subscriptionLimit,
+                onPageChange: setSubscriptionPage,
+                onLimitChange: (nextLimit) => {
+                  setSubscriptionLimit(nextLimit);
+                  setSubscriptionPage(1);
+                },
+                rowOptions: [5, 10, 20, 50],
+                loading: subscriptionHistoryLoading,
+                showRowsSelector: true,
+                showSummary: true,
+              }}
+            />
+          </div>
         </div>
       </SectionCard>
     </div>
