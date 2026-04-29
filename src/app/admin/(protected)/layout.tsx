@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AdminSidebar from "../components/AdminSideBar";
 import AdminTopBar from "../components/AdminTopBar";
@@ -8,6 +8,11 @@ import AdminTopBar from "../components/AdminTopBar";
 function isInstantlyRoute(pathname: string) {
   const normalized = String(pathname || "").toLowerCase();
   return normalized.includes("/admin") && normalized.includes("crm");
+}
+
+function isMessagingRoute(pathname: string) {
+  const normalized = String(pathname || "").toLowerCase();
+  return normalized.includes("/admin/team-discussions");
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -20,6 +25,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const isLoginRoute = pathname === "/admin/login";
   const isInstantlyPage = isInstantlyRoute(pathname);
+  const isMessagingPage = isMessagingRoute(pathname);
+  const isFullScreenPage = isInstantlyPage || isMessagingPage;
 
   useEffect(() => {
     if (isLoginRoute) {
@@ -34,8 +41,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         window.localStorage.getItem("admin_id");
 
       if (!adminId) {
-        router.replace("/admin/login");
         setAuthorized(false);
+        router.replace("/admin/login");
       } else {
         setAuthorized(true);
       }
@@ -45,24 +52,19 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [isLoginRoute, router]);
 
   useEffect(() => {
-    if (isInstantlyPage) {
-      setSidebarCollapsed(true);
-    } else {
-      setSidebarCollapsed(false);
-    }
+    setSidebarCollapsed(isInstantlyPage);
   }, [isInstantlyPage]);
+
+  const showSidebar = !isLoginRoute;
+  const showTopbar = !isLoginRoute && !isInstantlyPage && !isMessagingPage;
+
+  const desktopSidebarOffset = useMemo(() => {
+    if (!showSidebar) return "";
+    return sidebarCollapsed ? "md:ml-24" : "md:ml-72";
+  }, [showSidebar, sidebarCollapsed]);
 
   if (!ready) return null;
   if (!authorized && !isLoginRoute) return null;
-
-  const showSidebar = !isLoginRoute;
-  const showTopbar = !isLoginRoute && !isInstantlyPage;
-
-  const desktopSidebarOffset = showSidebar
-    ? sidebarCollapsed
-      ? "md:ml-24"
-      : "md:ml-72"
-    : "";
 
   return (
     <div
@@ -82,18 +84,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       <div
         className={`relative z-0 flex h-screen min-h-0 flex-1 flex-col overflow-hidden transition-all duration-300 ${desktopSidebarOffset}`}
       >
-        <div className={showSidebar ? "shrink-0 pt-16 md:pt-0" : "shrink-0"}>
-          {showTopbar && <AdminTopBar />}
-        </div>
+        {showTopbar && (
+          <div className="shrink-0 pt-16 md:pt-0">
+            <AdminTopBar />
+          </div>
+        )}
 
         <main
-          className={`flex-1 min-h-0 ${
-            isInstantlyPage
-              ? "overflow-hidden bg-[#f6f6f7]"
-              : "overflow-y-auto"
-          }`}
+          className={`min-h-0 flex-1 ${
+            isFullScreenPage ? "overflow-hidden" : "overflow-y-auto"
+          } ${isInstantlyPage ? "bg-[#f6f6f7]" : "bg-slate-50"}`}
         >
-          {isInstantlyPage ? (
+          {isFullScreenPage ? (
             <div className="h-full min-h-0 w-full overflow-hidden">
               {children}
             </div>

@@ -225,8 +225,12 @@ export default function RepliesPage() {
   const [linkEditorText, setLinkEditorText] = useState("");
 
   const canFilterByRh = actorRole === "super_admin";
-  const canFilterBySdr = actorRole === "super_admin" || actorRole === "revenue_head";
-  const canFilterByBme = actorRole === "super_admin" || actorRole === "revenue_head";
+  const canFilterBySdr =
+    actorRole === "super_admin" || actorRole === "revenue_head";
+  const canFilterByBme =
+    actorRole === "super_admin" || actorRole === "revenue_head";
+
+  const canOpenCrmProfile = actorRole !== "bme";
 
   const campaignOptions = useMemo(() => {
     const map = new Map<string, { _id: string; name: string }>();
@@ -897,18 +901,20 @@ export default function RepliesPage() {
                     </div>
 
                     <div className="hidden items-center gap-3 sm:flex">
-                      <button
-                        onClick={() =>
-                          router.push(
-                            selectedThreadMeta.prospectId?._id
-                              ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
-                              : "/admin/crm/review-queue"
-                          )
-                        }
-                        className="inline-flex rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Open CRM Profile
-                      </button>
+                      {canOpenCrmProfile ? (
+                        <button
+                          onClick={() =>
+                            router.push(
+                              selectedThreadMeta.prospectId?._id
+                                ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
+                                : "/admin/crm/review-queue"
+                            )
+                          }
+                          className="inline-flex rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                        >
+                          Open CRM Profile
+                        </button>
+                      ) : null}
 
                       <button
                         onClick={openReplyModal}
@@ -932,18 +938,20 @@ export default function RepliesPage() {
                   </div> */}
 
                   <div className="flex gap-3 sm:hidden">
-                    <button
-                      onClick={() =>
-                        router.push(
-                          selectedThreadMeta.prospectId?._id
-                            ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
-                            : "/admin/crm/review-queue"
-                        )
-                      }
-                      className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Open CRM
-                    </button>
+                    {canOpenCrmProfile ? (
+                      <button
+                        onClick={() =>
+                          router.push(
+                            selectedThreadMeta.prospectId?._id
+                              ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
+                              : "/admin/crm/review-queue"
+                          )
+                        }
+                        className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Open CRM
+                      </button>
+                    ) : null}
 
                     <button
                       onClick={openReplyModal}

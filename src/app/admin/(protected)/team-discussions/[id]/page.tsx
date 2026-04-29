@@ -1,3 +1,4 @@
+// ─── messagePage.tsx ───────────────────────────────────────────────────────────
 import ChatWindow from "../components/chatWindow";
 
 interface PageProps {

@@ -668,7 +668,7 @@ export default function ChatWindow({
           href={href}
           target="_blank"
           rel="noopener"
-          className="group/image block overflow-hidden rounded-2xl border border-border bg-card"
+          className="group/image block overflow-hidden rounded-2xl border border-slate-200 bg-white"
           title={fname}
         >
           <img
@@ -676,7 +676,7 @@ export default function ChatWindow({
             alt={fname}
             className="h-44 w-full object-cover transition-transform duration-300 group-hover/image:scale-[1.02]"
           />
-          <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between px-3 py-2 text-xs text-slate-500">
             <span className="truncate">{fname}</span>
             {meta ? <span>{meta}</span> : null}
           </div>
@@ -688,10 +688,10 @@ export default function ChatWindow({
       return (
         <div
           key={key}
-          className="overflow-hidden rounded-2xl border border-border bg-card"
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
         >
-          <video controls className="h-52 w-full bg-muted" src={href} />
-          <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
+          <video controls className="h-52 w-full bg-slate-100" src={href} />
+          <div className="flex items-center justify-between px-3 py-2 text-xs text-slate-500">
             <span className="truncate">{fname}</span>
             {meta ? <span>{meta}</span> : null}
           </div>
@@ -707,14 +707,14 @@ export default function ChatWindow({
       return (
         <div
           key={key}
-          className="col-span-2 overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+          className="col-span-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3">
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-foreground">
+              <div className="truncate text-sm font-semibold text-slate-950">
                 {fname}
               </div>
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-slate-500">
                 PDF document {meta ? `• ${meta}` : ""}
               </div>
             </div>
@@ -759,7 +759,7 @@ export default function ChatWindow({
           </div>
 
           {open && (
-            <div className="border-t border-border bg-muted/40">
+            <div className="border-t border-slate-200 bg-slate-100/40">
               <div className="h-[60vh] w-full overflow-hidden">
                 {objectUrl ? (
                   <object
@@ -768,12 +768,12 @@ export default function ChatWindow({
                     className="h-full w-full"
                     aria-label={`Preview: ${fname}`}
                   >
-                    <div className="flex h-full w-full items-center justify-center p-4 text-sm text-muted-foreground">
+                    <div className="flex h-full w-full items-center justify-center p-4 text-sm text-slate-500">
                       Preview unavailable in this browser. Use Open or Download.
                     </div>
                   </object>
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">
                     Preparing preview…
                   </div>
                 )}
@@ -787,11 +787,11 @@ export default function ChatWindow({
     return (
       <div
         key={key}
-        className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm shadow-sm"
+        className="col-span-2 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm"
       >
         <div className="min-w-0">
-          <div className="truncate font-medium text-foreground">{fname}</div>
-          <div className="text-xs text-muted-foreground">
+          <div className="truncate font-medium text-slate-950">{fname}</div>
+          <div className="text-xs text-slate-500">
             File {meta ? `• ${meta}` : ""}
           </div>
         </div>
@@ -811,8 +811,8 @@ export default function ChatWindow({
 
   return (
     <>
-      <Card className="relative flex h-[100dvh] min-h-0 flex-col overflow-hidden rounded-none border-0 bg-background">
-        <CardHeader className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-6">
+      <Card className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-xl shadow-slate-200/70">
+        <CardHeader className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-sm backdrop-blur-xl supports-[backdrop-filter]:bg-white/80 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <Button
               variant="ghost"
@@ -825,17 +825,17 @@ export default function ChatWindow({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-center gap-3">
-                <Avatar className="h-12 w-12 border border-border shadow-sm">
-                  <AvatarFallback className="bg-muted text-base font-semibold text-foreground">
+                <Avatar className="h-12 w-12 border border-slate-200 shadow-sm">
+                  <AvatarFallback className="bg-slate-100 text-base font-semibold text-slate-950">
                     {groupInitial}
                   </AvatarFallback>
                 </Avatar>
 
                 <div className="min-w-0 text-center">
-                  <h3 className="truncate text-lg font-semibold text-foreground sm:text-xl">
+                  <h3 className="truncate text-lg font-semibold text-slate-950 sm:text-xl">
                     {group?.groupName || "Group Chat"}
                   </h3>
-                  <div className="mt-1 flex items-center justify-center gap-2 text-xs text-muted-foreground sm:text-sm">
+                  <div className="mt-1 flex items-center justify-center gap-2 text-xs text-slate-500 sm:text-sm">
                     <span>
                       {(group?.participants?.length || 0)} member
                       {(group?.participants?.length || 0) === 1 ? "" : "s"}
@@ -856,12 +856,12 @@ export default function ChatWindow({
                 {(group?.participants || []).slice(0, 8).map((p) => (
                   <div
                     key={p.adminId}
-                    className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/40 px-3 py-1.5 text-xs"
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-100/40 px-3 py-1.5 text-xs"
                   >
-                    <span className="font-medium text-foreground">{p.name}</span>
-                    <span className="text-muted-foreground uppercase">{p.role}</span>
+                    <span className="font-medium text-slate-950">{p.name}</span>
+                    <span className="text-slate-500 uppercase">{p.role}</span>
                     {revenueHeadParticipant?.adminId === p.adminId ? (
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                         Revenue Head
                       </span>
                     ) : null}
@@ -872,7 +872,7 @@ export default function ChatWindow({
                   <button
                     type="button"
                     onClick={() => setParticipantsOpen(true)}
-                    className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-slate-100"
                   >
                     +{(group?.participants?.length || 0) - 8} more
                   </button>
@@ -880,7 +880,7 @@ export default function ChatWindow({
               </div>
 
               {group?.description ? (
-                <p className="mt-3 text-center text-sm text-muted-foreground">
+                <p className="mt-3 text-center text-sm text-slate-500">
                   {group.description}
                 </p>
               ) : null}
@@ -911,9 +911,9 @@ export default function ChatWindow({
           </div>
         </CardHeader>
 
-        <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+        <div className="relative flex min-h-0 flex-1 flex-col bg-[radial-gradient(circle_at_top_left,rgba(15,23,42,0.04),transparent_32%),linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)]">
           {error ? (
-            <div className="absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-full border border-destructive/20 bg-background/95 px-4 py-2 text-xs font-medium text-destructive shadow-lg backdrop-blur">
+            <div className="absolute left-1/2 top-3 z-30 -translate-x-1/2 rounded-2xl border border-red-100 bg-white/95 px-4 py-2 text-xs font-semibold text-red-600 shadow-lg backdrop-blur">
               {error}
             </div>
           ) : null}
@@ -921,14 +921,14 @@ export default function ChatWindow({
           <div className="relative min-h-0 flex-1">
             {loading ? (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="rounded-2xl border border-border bg-card px-5 py-4 text-sm text-muted-foreground shadow-sm">
+                <div className="rounded-3xl border border-slate-200 bg-white px-5 py-4 text-sm font-medium text-slate-500 shadow-sm">
                   Loading conversation…
                 </div>
               </div>
             ) : (
               <div
                 ref={scrollWrapRef}
-                className="h-full overflow-y-auto px-3 py-4 sm:px-5 sm:py-5"
+                className="h-full overflow-y-auto px-3 py-5 sm:px-6 sm:py-6"
               >
                 <div className="mx-auto flex max-w-5xl flex-col gap-4">
                   {uiRows.map((row, idx) => {
@@ -936,7 +936,7 @@ export default function ChatWindow({
                       return (
                         <div
                           key={row.id}
-                          className="sticky top-2 z-10 mx-auto rounded-full border border-border bg-background/90 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur"
+                          className="sticky top-2 z-10 mx-auto rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-bold text-slate-500 shadow-sm backdrop-blur"
                         >
                           {row.label}
                         </div>
@@ -975,7 +975,7 @@ export default function ChatWindow({
                       >
                         {!isMe ? (
                           <Avatar className="mr-2 mt-auto hidden h-8 w-8 shrink-0 sm:inline-flex">
-                            <AvatarFallback className="bg-muted text-xs font-semibold text-foreground shadow-sm">
+                            <AvatarFallback className="bg-slate-100 text-xs font-semibold text-slate-950 shadow-sm">
                               {senderInitial}
                             </AvatarFallback>
                           </Avatar>
@@ -987,13 +987,13 @@ export default function ChatWindow({
                             <button
                               type="button"
                               onClick={() => scrollToMessageId(msg.reply!.messageId)}
-                              className="mb-2 w-full rounded-2xl border border-border bg-muted/40 px-3 py-2 text-left shadow-sm transition hover:bg-muted"
+                              className="mb-2 w-full rounded-2xl border border-slate-200 bg-slate-100/40 px-3 py-2 text-left shadow-sm transition hover:bg-slate-100"
                               title="Go to original"
                             >
-                              <div className="text-[11px] font-semibold text-foreground">
+                              <div className="text-[11px] font-semibold text-slate-950">
                                 Replying to
                               </div>
-                              <div className="line-clamp-2 text-[12px] text-muted-foreground">
+                              <div className="line-clamp-2 text-[12px] text-slate-500">
                                 {msg.reply.text ||
                                   (msg.reply.hasAttachment
                                     ? "[Attachment]"
@@ -1006,17 +1006,17 @@ export default function ChatWindow({
                           ) : null}
 
                           {!isMe ? (
-                            <div className="mb-1 ml-1 text-[11px] font-medium text-muted-foreground">
+                            <div className="mb-1 ml-1 text-[11px] font-medium text-slate-500">
                               {senderName}
                             </div>
                           ) : null}
 
                           <div
                             className={[
-                              "overflow-hidden rounded-[22px] px-4 py-3 shadow-sm transition-all duration-200",
+                              "overflow-hidden rounded-[24px] px-4 py-3 shadow-sm transition-all duration-200",
                               isMe
-                                ? "rounded-br-md border border-foreground/10 bg-foreground text-background"
-                                : "rounded-bl-md border border-border bg-card text-foreground",
+                                ? "rounded-br-md border border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-900/15"
+                                : "rounded-bl-md border border-slate-200 bg-white text-slate-900",
                               ringHighlight,
                             ].join(" ")}
                           >
@@ -1031,8 +1031,8 @@ export default function ChatWindow({
                                     onClick={() => toggleExpand(idx)}
                                     className={`mt-2 text-xs font-medium hover:underline ${
                                       isMe
-                                        ? "text-background/80"
-                                        : "text-muted-foreground"
+                                        ? "text-white/80"
+                                        : "text-slate-500"
                                     }`}
                                   >
                                     {expanded[idx] ? "Show less" : "Read more"}
@@ -1051,7 +1051,7 @@ export default function ChatWindow({
 
                             <div
                               className={`mt-2 flex items-center justify-end gap-1 text-[11px] ${
-                                isMe ? "text-background/70" : "text-muted-foreground"
+                                isMe ? "text-white/70" : "text-slate-500"
                               }`}
                             >
                               <span>{time}</span>
@@ -1071,7 +1071,7 @@ export default function ChatWindow({
                                   text: asString(msg.text, ""),
                                 })
                               }
-                              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-muted-foreground opacity-0 transition group-hover:bg-accent group-hover:opacity-100 hover:text-foreground"
+                              className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[12px] text-slate-500 opacity-0 transition group-hover:bg-slate-100 group-hover:opacity-100 hover:text-slate-950"
                               title="Reply"
                             >
                               <HiReply className="h-4 w-4" />
@@ -1081,8 +1081,8 @@ export default function ChatWindow({
                         </div>
 
                         {isMe ? (
-                          <Avatar className="ml-2 mt-auto hidden h-8 w-8 shrink-0 border border-border sm:inline-flex">
-                            <AvatarFallback className="bg-foreground text-[10px] font-semibold text-background">
+                          <Avatar className="ml-2 mt-auto hidden h-8 w-8 shrink-0 border border-slate-200 sm:inline-flex">
+                            <AvatarFallback className="bg-slate-950 text-[10px] font-semibold text-white">
                               Me
                             </AvatarFallback>
                           </Avatar>
@@ -1099,7 +1099,7 @@ export default function ChatWindow({
             {showScrollDown ? (
               <Button
                 variant="outline"
-                className="absolute bottom-5 right-5 h-11 rounded-full border-border bg-background/95 px-4 text-foreground shadow-lg backdrop-blur hover:bg-accent"
+                className="absolute bottom-5 right-5 h-11 rounded-2xl border-slate-200 bg-white/95 px-4 text-slate-950 shadow-lg backdrop-blur hover:bg-slate-50"
                 onClick={() => jumpToBottom(true)}
                 title="Back to bottom"
               >
@@ -1109,22 +1109,22 @@ export default function ChatWindow({
             ) : null}
           </div>
 
-          <CardFooter className="border-t border-border bg-background/95 px-3 py-3 backdrop-blur sm:px-6 sm:py-4">
+          <CardFooter className="border-t border-slate-200/80 bg-white/90 px-3 py-3 backdrop-blur-xl sm:px-6 sm:py-4">
             <div className="mx-auto w-full max-w-5xl">
               {replyTo ? (
-                <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-border bg-muted/40 px-4 py-3 shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-100/40 px-4 py-3 shadow-sm">
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-950">
                       Replying
                     </div>
-                    <div className="truncate text-sm text-muted-foreground">
+                    <div className="truncate text-sm text-slate-500">
                       {asString(replyTo.text, "").slice(0, 180) || "Message"}
                     </div>
                   </div>
 
                   <button
                     onClick={() => setReplyTo(null)}
-                    className="rounded-full p-1 text-muted-foreground transition hover:bg-accent hover:text-foreground"
+                    className="rounded-full p-1 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
                     title="Cancel reply"
                   >
                     <HiX className="h-5 w-5" />
@@ -1132,7 +1132,7 @@ export default function ChatWindow({
                 </div>
               ) : null}
 
-              <div className="flex items-end gap-2 rounded-[28px] border border-border bg-card p-2 shadow-sm sm:gap-3">
+              <div className="flex items-end gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-lg shadow-slate-200/70 sm:gap-3">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1145,7 +1145,7 @@ export default function ChatWindow({
                 <button
                   type="button"
                   onClick={onAttachClick}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
                   title={uploading ? "Uploading…" : "Attach"}
                   disabled={uploading}
                 >
@@ -1166,15 +1166,15 @@ export default function ChatWindow({
                     }}
                     rows={1}
                     disabled={uploading}
-                    className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-2 py-2 text-[15px] leading-6 text-foreground shadow-none focus-visible:ring-0"
+                    className="max-h-40 min-h-[44px] resize-none border-0 bg-transparent px-2 py-2 text-[15px] leading-6 text-slate-950 shadow-none focus-visible:ring-0"
                   />
                   <div className="flex items-center justify-between px-2 pb-1">
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-slate-500">
                       {uploading
                         ? "Uploading attachment..."
                         : "Enter to send • Shift + Enter for new line"}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-xs text-slate-500">
                       {input.length}/2000
                     </div>
                   </div>
@@ -1182,7 +1182,7 @@ export default function ChatWindow({
 
                 <Button
                   size="icon"
-                  className="h-11 w-11 shrink-0 rounded-full bg-foreground text-background shadow-sm transition hover:opacity-90 disabled:opacity-60"
+                  className="h-11 w-11 shrink-0 rounded-2xl bg-slate-950 text-white shadow-lg shadow-slate-900/15 transition hover:bg-slate-800 disabled:opacity-60"
                   disabled={!input.trim() || uploading}
                   onClick={sendMessage}
                   title="Send"
@@ -1197,19 +1197,19 @@ export default function ChatWindow({
 
       {participantsOpen ? (
         <div
-          className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-[2px]"
+          className="fixed inset-0 z-[9998] bg-slate-950/45 backdrop-blur-sm"
           onClick={() => setParticipantsOpen(false)}
         >
           <div
-            className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-border bg-background shadow-2xl"
+            className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h3 className="text-lg font-semibold text-foreground">
+                <h3 className="text-lg font-semibold text-slate-950">
                   Participants
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-slate-500">
                   Everyone currently in this group
                 </p>
               </div>
@@ -1217,7 +1217,7 @@ export default function ChatWindow({
               <button
                 type="button"
                 onClick={() => setParticipantsOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-950"
               >
                 ×
               </button>
@@ -1230,30 +1230,30 @@ export default function ChatWindow({
                 return (
                   <div
                     key={p.adminId}
-                    className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3"
+                    className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3"
                   >
                     <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-muted font-semibold text-foreground">
+                      <AvatarFallback className="bg-slate-100 font-semibold text-slate-950">
                         {(p.name?.charAt(0) || "A").toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
 
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium text-foreground">
+                      <div className="truncate font-medium text-slate-950">
                         {p.name}
                       </div>
-                      <div className="truncate text-sm text-muted-foreground">
+                      <div className="truncate text-sm text-slate-500">
                         {p.email || "No email"}
                       </div>
                     </div>
 
                     <div className="flex flex-col items-end gap-1">
-                      <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium uppercase text-foreground">
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium uppercase text-slate-950">
                         {p.role}
                       </span>
 
                       {isRevenueHead ? (
-                        <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[10px] font-medium text-primary">
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-medium text-emerald-700">
                           Fixed
                         </span>
                       ) : null}

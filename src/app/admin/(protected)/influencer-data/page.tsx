@@ -44,13 +44,10 @@ export default function InfluencerDataPage() {
         <h1 className="text-3xl font-bold text-slate-900 text-center">
           Influencer Data
         </h1>
-        <p className="text-slate-600 text-center mt-2">
-          Switch between YouTube handle profiles and Modash insights.
-        </p>
 
         {/* Centered Toggle */}
         <div className="mt-5 flex justify-center">
-          <div className="flex gap-2 p-1 rounded-xl bg-white border border-black/10">
+          <div className="flex gap-2 p-1 rounded-lg bg-white border border-black/10">
             <button
               type="button"
               className={`${btnBase} ${tab === "youtube" ? btnActive : btnInactive}`}

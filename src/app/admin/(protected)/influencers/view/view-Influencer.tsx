@@ -829,7 +829,7 @@ export default function AdminInfluencerView() {
             <div className="mx-auto max-w-full px-4 py-2 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
                 <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
-                  {["overview", "demographics","campaigns", "payment details",  "subscription","activity log"].map(v => (
+                  {["overview", "demographics","campaigns", "payment details"].map(v => (
                     <TabsTrigger
                       key={v}
                       value={v}
@@ -1279,7 +1279,7 @@ export default function AdminInfluencerView() {
               )}
             </Sect>
           </TabsContent>
-          <TabsContent value="subscription" className="space-y-4">
+          {/* <TabsContent value="subscription" className="space-y-4">
             <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Subscription</>}>
               <Empty label="API NOT connected" desc="Subscription details are not available right now." />
             </Sect>
@@ -1288,7 +1288,7 @@ export default function AdminInfluencerView() {
             <Sect title={<><Activity className="h-4 w-4" style={{ color: theme.accent }} />Activity Logs</>}>
               <Empty label="API NOT connected" desc="Activity logs are not available right now." />
             </Sect>
-          </TabsContent>
+          </TabsContent> */}
         </div>
       </Tabs>
     </div>

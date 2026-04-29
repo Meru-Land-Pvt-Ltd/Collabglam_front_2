@@ -11,11 +11,37 @@ function formatSegment(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function isDynamicIdSegment(segment: string) {
+  const value = decodeURIComponent(segment || "").trim();
+
+  if (!value) return true;
+
+  if (/^\d+$/.test(value)) return true;
+
+  if (/^[a-f0-9]{24}$/i.test(value)) return true;
+
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value
+    )
+  ) {
+    return true;
+  }
+
+  if (/^c[a-z0-9]{20,}$/i.test(value)) return true;
+
+  if (/^[a-z0-9_-]{14,}$/i.test(value) && /\d/.test(value)) return true;
+
+  return false;
+}
+
 export default function AdminTopBar() {
   const pathname = usePathname();
 
   const { pageTitle, breadcrumbs } = useMemo(() => {
-    const segments = pathname.split("/").filter(Boolean);
+    const segments = String(pathname || "")
+      .split("/")
+      .filter(Boolean);
 
     const adminSegments =
       segments[0] === "admin" ? segments.slice(1) : segments;
@@ -26,24 +52,31 @@ export default function AdminTopBar() {
       ? adminSegments.slice(1)
       : adminSegments;
 
-    const baseHref = startsWithDashboard
-      ? "/admin/dashboard"
-      : "/admin";
+    const baseParts = startsWithDashboard
+      ? ["admin", "dashboard"]
+      : ["admin"];
+
+    const visibleBreadcrumbSegments = breadcrumbSegments
+      .map((segment, index) => ({ segment, index }))
+      .filter(({ segment }) => !isDynamicIdSegment(segment));
 
     const crumbs = [
       { label: "Admin", href: "/admin/dashboard" },
-      ...breadcrumbSegments.map((segment, index) => ({
+      ...visibleBreadcrumbSegments.map(({ segment, index }) => ({
         label: formatSegment(segment),
-        href: `${baseHref}/${breadcrumbSegments
-          .slice(0, index + 1)
-          .join("/")}`,
+        href: `/${[...baseParts, ...breadcrumbSegments.slice(0, index + 1)].join(
+          "/"
+        )}`,
       })),
     ];
 
-    let title = "Overview";
+    const lastVisibleSegment =
+      visibleBreadcrumbSegments[visibleBreadcrumbSegments.length - 1]?.segment;
 
-    if (adminSegments.length > 0) {
-      title = formatSegment(adminSegments[adminSegments.length - 1]);
+    let title = startsWithDashboard ? "Dashboard" : "Overview";
+
+    if (lastVisibleSegment) {
+      title = formatSegment(lastVisibleSegment);
     }
 
     return { pageTitle: title, breadcrumbs: crumbs };
@@ -51,7 +84,6 @@ export default function AdminTopBar() {
 
   return (
     <header className="sticky top-0 z-30 flex h-20 w-full items-center justify-between border-b border-slate-200 bg-white/80 px-6 backdrop-blur-md">
-      {/* Left section: Breadcrumbs & Title */}
       <div className="flex min-w-0 flex-col justify-center">
         <nav className="mb-1 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-xs font-medium text-slate-500">
           {breadcrumbs.map((item, index) => (
@@ -78,7 +110,6 @@ export default function AdminTopBar() {
         </h1>
       </div>
 
-      {/* Middle section: Search */}
       <div className="hidden flex-1 px-8 lg:flex lg:max-w-md">
         <div className="group relative flex w-full items-center rounded-xl bg-slate-100 transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-900 focus-within:ring-offset-1">
           <Search className="absolute left-3.5 h-4 w-4 text-slate-400 group-focus-within:text-slate-900" />
@@ -86,7 +117,7 @@ export default function AdminTopBar() {
           <input
             type="text"
             placeholder="Search anything..."
-            className="w-full bg-transparent py-2.5 pl-10 pr-4 text-sm font-medium text-slate-900 placeholder:text-slate-500 focus:outline-none"
+            className="w-full bg-transparent py-2.5 pl-10 pr-14 text-sm font-medium text-slate-900 placeholder:text-slate-500 focus:outline-none"
           />
 
           <div className="absolute right-2 hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-400 lg:block">
@@ -95,8 +126,7 @@ export default function AdminTopBar() {
         </div>
       </div>
 
-      {/* Right section: Actions */}
-      <div className="flex shrink-0 items-center gap-3 lg:gap-4">
+      {/* <div className="flex shrink-0 items-center gap-3 lg:gap-4">
         <Link
           href="/admin/settings"
           className="hidden h-10 w-10 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 md:flex"
@@ -118,15 +148,14 @@ export default function AdminTopBar() {
           </span>
         </Link>
 
-        {/* User avatar indicator */}
         <div className="hidden h-9 w-9 overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 md:block">
           <img
             src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin"
-            alt="avatar"
+            alt="Admin avatar"
             className="h-full w-full object-cover"
           />
         </div>
-      </div>
+      </div> */}
     </header>
   );
 }
