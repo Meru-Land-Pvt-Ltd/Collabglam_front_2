@@ -1019,6 +1019,34 @@ export default function BrandSubscriptionPage() {
         localStorage.removeItem("pendingCouponId");
       }
 
+      const checkoutReturnUrl = new URL(window.location.href);
+
+      checkoutReturnUrl.pathname = "/brand/subscriptions";
+      checkoutReturnUrl.searchParams.delete("stripe_success");
+      checkoutReturnUrl.searchParams.delete("stripe_cancel");
+      checkoutReturnUrl.searchParams.delete("session_id");
+      checkoutReturnUrl.searchParams.set("subscriptionId", plan.planId);
+      checkoutReturnUrl.searchParams.set("mode", billingOverride);
+
+      if (appliedPromoCode) {
+        checkoutReturnUrl.searchParams.set("promoCode", appliedPromoCode);
+      } else {
+        checkoutReturnUrl.searchParams.delete("promoCode");
+        checkoutReturnUrl.searchParams.delete("promocode");
+      }
+
+      const cancelUrlObject = new URL(checkoutReturnUrl.toString());
+      cancelUrlObject.searchParams.set("stripe_cancel", "1");
+      const cancelUrl = cancelUrlObject.toString();
+
+      const successUrlObject = new URL(checkoutReturnUrl.toString());
+      successUrlObject.searchParams.set("stripe_success", "1");
+
+      const successUrlBase = successUrlObject.toString();
+      const successUrl = `${successUrlBase}${
+        successUrlBase.includes("?") ? "&" : "?"
+      }session_id={CHECKOUT_SESSION_ID}`;
+
       const resp = await post<{ success: boolean; url?: string; message?: string }>(
         "/payment/Order",
         {
@@ -1033,6 +1061,11 @@ export default function BrandSubscriptionPage() {
           couponId: appliedCouponId || undefined,
           originalAmount: appliedCoupon ? originalAmount : undefined,
           discountAmount: appliedCoupon ? discountAmount : undefined,
+
+          successUrl,
+          cancelUrl,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
         }
       );
 
