@@ -74,6 +74,8 @@ type CampaignScheduleWindow = {
 type CampaignSequenceVariant = {
   subject: string;
   body: string;
+  preheaderText?: string;
+  signatureHtml?: string;
 };
 
 type CampaignSequenceStep = {
@@ -308,6 +310,23 @@ type CampaignSubsequence = {
   sequences: CampaignSubsequenceStep[];
   createdAt?: string;
   updatedAt?: string;
+};
+
+type SequencePreviewData = {
+  stepOrder: number;
+  variantIndex: number;
+  subject: string;
+  bodyText: string;
+  bodyHtml: string;
+  preheaderText?: string;
+  signatureHtml?: string;
+  previewVars?: Record<string, string>;
+  lead?: {
+    _id: string;
+    leadName: string;
+    contactName: string;
+    email: string;
+  } | null;
 };
 
 const weekdayLabels = [
@@ -841,8 +860,10 @@ function normalizeConfiguration(input: any, flowType: CampaignFlowType): Campaig
               ? step.variants.map((variant: any) => ({
                 subject: variant?.subject || "",
                 body: variant?.body || "",
+                preheaderText: variant?.preheaderText || variant?.preheader_text || "",
+                signatureHtml: variant?.signatureHtml || variant?.signature_html || "",
               }))
-              : [{ subject: "", body: "" }],
+              : [{ subject: "", body: "", preheaderText: "", signatureHtml: "" }],
         }))
         : fallback.sequences,
     sendingOptions: {
@@ -1143,10 +1164,12 @@ function normalizeSubsequence(input: any): CampaignSubsequence {
           variants:
             Array.isArray(step?.variants) && step.variants.length
               ? step.variants.map((variant: any) => ({
-                subject: String(variant?.subject || ""),
-                body: String(variant?.body || ""),
+                subject: variant?.subject || "",
+                body: variant?.body || "",
+                preheaderText: variant?.preheaderText || variant?.preheader_text || "",
+                signatureHtml: variant?.signatureHtml || variant?.signature_html || "",
               }))
-              : [{ subject: "", body: "" }],
+              : [{ subject: "", body: "", preheaderText: "", signatureHtml: "" }],
         }))
         : fallback.sequences,
     createdAt: input?.createdAt || "",
@@ -1182,14 +1205,28 @@ function bodyToEditorHtml(value = "") {
   return escapeHtml(value).replace(/\n/g, "<br>");
 }
 
-function plainTextFromHtml(value = "") {
+function decodeHtmlEntities(value = "") {
   return String(value || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(div|p|li)>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function plainTextFromHtml(value = "") {
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(div|p|li|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<[^>]*>/g, "")
+  )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -1401,6 +1438,10 @@ export default function CampaignDetailPage() {
     tiktok_agency: false,
   });
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("lead_generation_quick_question");
+
+  const [isSequencePreviewOpen, setIsSequencePreviewOpen] = useState(false);
+  const [sequencePreview, setSequencePreview] = useState<SequencePreviewData | null>(null);
+  const [previewLeadId, setPreviewLeadId] = useState("");
 
   const sequenceEditorRef = useRef<HTMLDivElement | null>(null);
   const subjectInputRef = useRef<HTMLInputElement | null>(null);
@@ -2044,46 +2085,149 @@ export default function CampaignDetailPage() {
     setSelectedScheduleIndex((prev) => Math.max(0, prev - 1));
   }
 
+  const previewLeadOptions = useMemo(() => {
+    return contacts.map((row) => ({
+      value: row._id,
+      label: `${getResolvedLeadName(row)} • ${getResolvedContactName(row)} • ${getResolvedContactMeta(row)}`,
+    }));
+  }, [contacts]);
+
+  useEffect(() => {
+    if (!previewLeadId && contacts.length > 0) {
+      setPreviewLeadId(contacts[0]._id);
+    }
+  }, [contacts, previewLeadId]);
+
+  function normalizeEditorHtmlForEmail(value = "") {
+    const html = String(value || "").trim();
+
+    if (!html) return "";
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+    const root = doc.body;
+
+    root.querySelectorAll("script, style, iframe, object, embed").forEach((node) => {
+      node.remove();
+    });
+
+    root.querySelectorAll("*").forEach((node) => {
+      Array.from(node.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const attrValue = attr.value || "";
+
+        if (name.startsWith("on")) {
+          node.removeAttribute(attr.name);
+        }
+
+        if (name === "href") {
+          const safeHref =
+            /^https?:\/\//i.test(attrValue) ||
+            /^mailto:/i.test(attrValue) ||
+            /^tel:/i.test(attrValue);
+
+          if (!safeHref) {
+            node.removeAttribute(attr.name);
+          }
+        }
+
+        if (name === "style" || name === "class") {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    root.querySelectorAll("a").forEach((link) => {
+      const href = link.getAttribute("href") || "";
+
+      if (!href) {
+        link.replaceWith(doc.createTextNode(link.textContent || ""));
+        return;
+      }
+
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
+    });
+
+    const normalized = root.innerHTML
+      .replace(/<div><br><\/div>/gi, "<br>")
+      .replace(/<div>/gi, "")
+      .replace(/<\/div>/gi, "<br>")
+      .replace(/<p><br><\/p>/gi, "<br>")
+      .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
+      .trim();
+
+    return plainTextFromHtml(normalized) ? normalized : "";
+  }
+
   function buildLatestConfigurationForSave(): CampaignConfiguration {
     const domBody = sequenceEditorRef.current?.innerHTML || "";
-    const domPlainBody = plainTextFromHtml(domBody);
+    const latestBodyHtml = normalizeEditorHtmlForEmail(domBody);
 
-    const latestBody = domPlainBody || selectedSequenceVariant?.body || "";
+    const latestBody =
+      latestBodyHtml ||
+      selectedSequenceVariant?.body ||
+      "";
 
     const latestSubject =
-      subjectInputRef.current?.value ?? selectedSequenceVariant?.subject ?? "";
+      subjectInputRef.current?.value ??
+      selectedSequenceVariant?.subject ??
+      "";
 
-    if (!plainTextFromHtml(latestBody)) {
-      throw new Error("Email body is required. Please write the sequence email body before saving or launching.");
-    }
-
-    return {
+    const nextConfiguration: CampaignConfiguration = {
       ...configuration,
       sequences: configuration.sequences.map((step, stepIndex) => {
-        if (stepIndex !== selectedSequenceStepIndex) return step;
-
         return {
           ...step,
           variants: step.variants.map((variant, variantIndex) => {
-            if (variantIndex !== selectedSequenceVariantIndex) return variant;
+            const isActiveVariant =
+              stepIndex === selectedSequenceStepIndex &&
+              variantIndex === selectedSequenceVariantIndex;
+
+            const nextVariant = isActiveVariant
+              ? {
+                ...variant,
+                subject: latestSubject,
+                body: latestBody,
+              }
+              : variant;
 
             return {
-              ...variant,
-              subject: latestSubject,
-              body: latestBody,
+              ...nextVariant,
+              subject: String(nextVariant.subject || "").trim(),
+              body: normalizeEditorHtmlForEmail(nextVariant.body || ""),
             };
           }),
         };
       }),
     };
+
+    nextConfiguration.sequences.forEach((step, stepIndex) => {
+      const variants = Array.isArray(step.variants) ? step.variants : [];
+
+      if (!variants.length) {
+        throw new Error(`Step ${stepIndex + 1} must have at least one variant.`);
+      }
+
+      variants.forEach((variant, variantIndex) => {
+        const bodyText = plainTextFromHtml(variant.body || "");
+
+        if (!bodyText) {
+          throw new Error(
+            `Step ${stepIndex + 1}, Variant ${variantIndex + 1}: email body is empty. Please write the email body before saving or launching.`
+          );
+        }
+      });
+    });
+
+    return nextConfiguration;
   }
 
-  async function handleSaveConfiguration(syncNow = false) {
+  async function handleSaveConfiguration(syncNow = true) {
     try {
       setSubmittingKey(syncNow ? "save-sync" : "save-config");
 
-      const nextConfiguration =
-        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
+      const nextConfiguration = buildLatestConfigurationForSave();
 
       setConfiguration(nextConfiguration);
 
@@ -2114,7 +2258,14 @@ export default function CampaignDetailPage() {
   async function handleDirectSync() {
     try {
       setSubmittingKey("sync");
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/sync`, {
+
+      const latestConfiguration = buildLatestConfigurationForSave();
+
+      setConfiguration(latestConfiguration);
+
+      const payload: any = await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
+        configuration: latestConfiguration,
+        syncNow: true,
         senderAccountEmail: selectedSenderEmail,
         accountEmails: selectedAccountEmails,
       });
@@ -2283,17 +2434,24 @@ export default function CampaignDetailPage() {
     try {
       setSubmittingKey("launch");
 
-      const latestConfiguration =
-        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
-
-      await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
-        configuration: latestConfiguration,
-        syncNow: false,
-        senderAccountEmail: selectedSenderEmail,
-        accountEmails: selectedAccountEmails,
-      });
+      // Always read latest editor DOM, not only when activeTab === "sequences"
+      const latestConfiguration = buildLatestConfigurationForSave();
 
       setConfiguration(latestConfiguration);
+
+      const savePayload: any = await adminPatch(
+        `/outreach/campaigns/${campaignId}/configuration`,
+        {
+          configuration: latestConfiguration,
+          syncNow: false,
+          senderAccountEmail: selectedSenderEmail,
+          accountEmails: selectedAccountEmails,
+        }
+      );
+
+      if (savePayload?.success === false) {
+        throw new Error(savePayload?.message || "Failed to save campaign configuration");
+      }
 
       const route = campaign?.status === "paused" ? "activate" : "launch";
 
@@ -2342,36 +2500,36 @@ export default function CampaignDetailPage() {
     }
   }
 
-  async function handleShare() {
-    try {
-      setSubmittingKey("share");
+  // async function handleShare() {
+  //   try {
+  //     setSubmittingKey("share");
 
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/share`);
-      const shareLink =
-        payload?.data?.shareLink ||
-        campaign?.instantly?.shareLink ||
-        "";
+  //     const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/share`);
+  //     const shareLink =
+  //       payload?.data?.shareLink ||
+  //       campaign?.instantly?.shareLink ||
+  //       "";
 
-      if (!shareLink || !/^https?:\/\//i.test(String(shareLink))) {
-        setMessage({
-          type: "info",
-          text: payload?.message || "Campaign shared, but no share link was returned",
-        });
-        return;
-      }
+  //     if (!shareLink || !/^https?:\/\//i.test(String(shareLink))) {
+  //       setMessage({
+  //         type: "info",
+  //         text: payload?.message || "Campaign shared, but no share link was returned",
+  //       });
+  //       return;
+  //     }
 
-      await navigator.clipboard.writeText(String(shareLink));
+  //     await navigator.clipboard.writeText(String(shareLink));
 
-      setMessage({
-        type: "success",
-        text: "Share link copied to clipboard",
-      });
-    } catch (error) {
-      await showApiError(error, "Failed to share campaign");
-    } finally {
-      setSubmittingKey("");
-    }
-  }
+  //     setMessage({
+  //       type: "success",
+  //       text: "Share link copied to clipboard",
+  //     });
+  //   } catch (error) {
+  //     await showApiError(error, "Failed to share campaign");
+  //   } finally {
+  //     setSubmittingKey("");
+  //   }
+  // }
 
   async function handleLeadStageChange(prospectId: string, stage: string) {
     try {
@@ -2396,6 +2554,57 @@ export default function CampaignDetailPage() {
       });
     } catch (error) {
       await showApiError(error, "Failed to update lead stage");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleOpenSequencePreview(nextProspectId?: string) {
+    try {
+      setSubmittingKey("sequence-preview");
+
+      const latestConfiguration = buildLatestConfigurationForSave();
+
+      const currentStep =
+        latestConfiguration.sequences[selectedSequenceStepIndex] ||
+        latestConfiguration.sequences[0];
+
+      const currentVariant =
+        currentStep?.variants?.[selectedSequenceVariantIndex] ||
+        currentStep?.variants?.[0] || {
+          subject: "",
+          body: "",
+          preheaderText: "",
+          signatureHtml: "",
+        };
+
+      const chosenProspectId =
+        nextProspectId || previewLeadId || contacts[0]?._id || "";
+
+      const payload: any = await adminPost(
+        `/outreach/campaigns/${campaignId}/sequence-preview`,
+        {
+          stepOrder: Number(currentStep?.stepOrder || 1),
+          variantIndex: selectedSequenceVariantIndex,
+          prospectId: chosenProspectId,
+          variantOverride: {
+            subject: currentVariant.subject || "",
+            body: currentVariant.body || "",
+            preheaderText: currentVariant.preheaderText || "",
+            signatureHtml: currentVariant.signatureHtml || "",
+          },
+        }
+      );
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to generate preview");
+      }
+
+      setSequencePreview(payload?.data || null);
+      setPreviewLeadId(payload?.data?.lead?._id || chosenProspectId);
+      setIsSequencePreviewOpen(true);
+    } catch (error) {
+      await showApiError(error, "Failed to generate preview");
     } finally {
       setSubmittingKey("");
     }
@@ -2648,26 +2857,6 @@ export default function CampaignDetailPage() {
 
   const baseContactColumns: AdminTableColumn<ContactRow>[] = [
     {
-      id: "companyName",
-      header: flowType === "ime_influencer" ? "Lead / Influencer" : "Lead",
-      sortable: true,
-      render: (row) => {
-        const resolvedLeadName = getResolvedLeadName(row);
-
-        return (
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-              {(resolvedLeadName || "U").charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{resolvedLeadName}</p>
-              <p className="mt-1 text-xs text-slate-400">{row._id}</p>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
       id: "contactName",
       header: "Contact",
       render: (row) => {
@@ -2713,44 +2902,6 @@ export default function CampaignDetailPage() {
     }));
 
   const tailContactColumns: AdminTableColumn<ContactRow>[] = [
-    {
-      id: "stage",
-      header: "Stage",
-      render: (row) =>
-        isSdrViewer ? (
-          <span
-            className={cx(
-              "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
-              getStagePillClasses(row.stage)
-            )}
-          >
-            {row.stage || "—"}
-          </span>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span
-              className={cx(
-                "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
-                getStagePillClasses(row.stage)
-              )}
-            >
-              {row.stage || "—"}
-            </span>
-            <select
-              value={row.stage || "new"}
-              onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
-              disabled={submittingKey === `stage-${row._id}`}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-            >
-              {stageOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ),
-    },
     {
       id: "launchedAt",
       header: "Launched",
@@ -3715,7 +3866,7 @@ export default function CampaignDetailPage() {
                     </button>
                   </Tooltip>
 
-                  <Tooltip label="Copy campaign share link">
+                  {/* <Tooltip label="Copy campaign share link">
                     <button
                       type="button"
                       onClick={handleShare}
@@ -3725,7 +3876,7 @@ export default function CampaignDetailPage() {
                       <Share2 className="h-4 w-4" />
                       {submittingKey === "share" ? "Sharing..." : "Share"}
                     </button>
-                  </Tooltip>
+                  </Tooltip> */}
 
                   <div className="relative">
                     <select
@@ -4891,11 +5042,12 @@ export default function CampaignDetailPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled
-                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-400 cursor-not-allowed"
+                    onClick={() => handleOpenSequencePreview()}
+                    disabled={!contacts.length || submittingKey === "sequence-preview"}
+                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Eye className="h-4 w-4" />
-                    Preview
+                    {submittingKey === "sequence-preview" ? "Loading..." : "Preview"}
                   </button>
                 </div>
               </div>
@@ -6521,6 +6673,301 @@ export default function CampaignDetailPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {isSequencePreviewOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="flex h-[92vh] w-full max-w-7xl overflow-hidden rounded-[32px] border border-white/20 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.35)]">
+            <aside className="hidden w-[390px] shrink-0 flex-col border-r border-slate-200 bg-slate-50/80 lg:flex">
+              <div className="border-b border-slate-200 bg-white px-6 py-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview Mode
+                    </div>
+
+                    <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-950">
+                      Email Preview
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsSequencePreviewOpen(false)}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto px-6 py-6">
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                    Select Lead
+                  </label>
+
+                  <div className="relative">
+                    <select
+                      value={previewLeadId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setPreviewLeadId(nextId);
+                        handleOpenSequencePreview(nextId);
+                      }}
+                      className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                    >
+                      {previewLeadOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                      <Users className="h-5 w-5" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                        Selected Lead
+                      </p>
+
+                      <p className="mt-2 truncate text-base font-bold text-slate-950">
+                        {sequencePreview?.lead?.leadName || "Lead Unknown"}
+                      </p>
+
+                      <p className="mt-1 truncate text-sm text-slate-600">
+                        {sequencePreview?.lead?.contactName || "Contact Unknown"}
+                      </p>
+
+                      <p className="mt-1 truncate text-sm text-slate-500">
+                        {sequencePreview?.lead?.email || "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                        Sequence Details
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        Step {sequencePreview?.stepOrder || selectedSequenceStep?.stepOrder || 1}
+                        {" · "}
+                        Variant {String.fromCharCode(65 + (sequencePreview?.variantIndex || 0))}
+                      </p>
+                    </div>
+
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        From
+                      </p>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-700">
+                        {selectedSenderEmail || campaign?.instantly?.senderAccountEmail || "—"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        To
+                      </p>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-700">
+                        {sequencePreview?.lead?.email || "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Variable className="h-4 w-4 text-slate-400" />
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Variable Snapshot
+                    </p>
+                  </div>
+
+                  <div className="mt-4 max-h-[220px] space-y-2 overflow-auto pr-1">
+                    {Object.entries(sequencePreview?.previewVars || {}).slice(0, 18).length ? (
+                      Object.entries(sequencePreview?.previewVars || {})
+                        .slice(0, 18)
+                        .map(([key, value]) => (
+                          <div
+                            key={key}
+                            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2"
+                          >
+                            <span className="truncate text-xs font-semibold text-slate-500">
+                              {key}
+                            </span>
+                            <span className="max-w-[170px] truncate text-xs font-bold text-slate-900">
+                              {String(value || "—")}
+                            </span>
+                          </div>
+                        ))
+                    ) : (
+                      <p className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                        No variables found for this lead.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <main className="flex min-w-0 flex-1 flex-col bg-[#f8fafc]">
+              <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4 lg:hidden">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-600">
+                    Preview Mode
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-950">Email Preview</h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSequencePreviewOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="border-b border-slate-200 bg-white px-6 py-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Rendered with lead data
+                      </span>
+
+                      <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                        Step {sequencePreview?.stepOrder || selectedSequenceStep?.stepOrder || 1}
+                      </span>
+                    </div>
+
+                    <h2 className="mt-3 truncate text-2xl font-bold tracking-tight text-slate-950">
+                      {sequencePreview?.subject || "No subject"}
+                    </h2>
+
+                    {sequencePreview?.preheaderText ? (
+                      <p className="mt-2 text-sm text-slate-500">
+                        Preheader: {sequencePreview.preheaderText}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 lg:hidden">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Select Lead
+                    </span>
+
+                    <div className="relative">
+                      <select
+                        value={previewLeadId}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          setPreviewLeadId(nextId);
+                          handleOpenSequencePreview(nextId);
+                        }}
+                        className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                      >
+                        {previewLeadOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-10">
+                <div className="mx-auto max-w-4xl">
+                  <div className="mb-4 rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="grid gap-3 text-sm lg:grid-cols-3">
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          From
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {selectedSenderEmail || campaign?.instantly?.senderAccountEmail || "—"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          To
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {sequencePreview?.lead?.email || "—"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          Lead
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {sequencePreview?.lead?.leadName || "Lead Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                    <div className="border-b border-slate-100 bg-white px-6 py-5">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                          <Mail className="h-5 w-5" />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                            Email Subject
+                          </p>
+                          <p className="mt-1 text-lg font-bold leading-7 text-slate-950">
+                            {sequencePreview?.subject || "No subject"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white px-6 py-8 sm:px-9">
+                      <div
+                        className="prose prose-slate max-w-none text-[15px] leading-8 text-slate-700 prose-a:text-blue-600 prose-a:underline prose-p:my-3 prose-strong:text-slate-950 [&_a]:font-semibold [&_a]:text-blue-600 [&_a]:underline [&_br]:leading-8"
+                        dangerouslySetInnerHTML={{
+                          __html:
+                            sequencePreview?.bodyHtml ||
+                            "<p>No preview available.</p>",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
         </div>
       )}
