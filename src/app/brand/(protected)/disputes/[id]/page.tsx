@@ -658,23 +658,38 @@ function ProgressTracker({
 }) {
   const activeStepIndex = STATUS_STEP_INDEX[status] ?? 0;
 
+  const isFinalStatus =
+    status === "resolved" || status === "rejected" || status === "revoked";
+
+  const finalStepLabel =
+    status === "rejected"
+      ? "Rejected"
+      : status === "revoked"
+        ? "Revoked"
+        : "Resolved";
+
+  const displaySteps = STATUS_STEPS.map((step, index) =>
+    index === STATUS_STEPS.length - 1
+      ? { ...step, label: finalStepLabel }
+      : step
+  );
+
   return (
-    <div
-      className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}
-    >
+    <div className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}>
       <div className="mb-4 flex items-center gap-2">
         <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#e8f5e9] p-1">
           <CheckIcon color="#2d7a3a" />
         </div>
+
         <p className="text-sm font-medium text-[#444]">{title}</p>
       </div>
 
       <div className="space-y-2">
-        {/* Segmented progress bar */}
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
+
             return (
               <div
                 key={step.key}
@@ -683,19 +698,21 @@ function ProgressTracker({
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${isDone || isActive ? "bg-[#2fb344]" : "bg-transparent"
                     }`}
-                  style={{ width: isDone ? "100%" : isActive ? "50%" : "0%" }}
+                  style={{
+                    width: isDone ? "100%" : isActive ? "50%" : "0%",
+                  }}
                 />
               </div>
             );
           })}
         </div>
 
-        {/* Step labels */}
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
             const isPending = !isDone && !isActive;
+
             return (
               <div
                 key={step.key}
@@ -712,6 +729,7 @@ function ProgressTracker({
                       }`}
                   />
                 )}
+
                 <span
                   className={`whitespace-nowrap font-medium ${isPending ? "text-[#9b9b9b]" : "text-[#1a1a1a]"
                     }`}

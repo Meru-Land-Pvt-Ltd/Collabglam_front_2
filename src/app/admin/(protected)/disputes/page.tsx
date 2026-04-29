@@ -155,6 +155,18 @@ const formatDateTime = (value?: string) => {
   });
 };
 
+const getStoredAdminId = () => {
+  if (typeof window === "undefined") return "";
+
+  return String(
+    localStorage.getItem("adminId") ||
+      localStorage.getItem("admin_id") ||
+      localStorage.getItem("userId") ||
+      localStorage.getItem("user_id") ||
+      ""
+  ).trim();
+};
+
 const pageSize = 10;
 
 export default function AdminDisputesPage() {
@@ -182,13 +194,23 @@ export default function AdminDisputesPage() {
     setError(null);
 
     try {
-      const body: Record<string, unknown> = { page, limit: pageSize };
+      const body: Record<string, unknown> = {
+        page,
+        limit: pageSize,
+      };
+
+      const adminId = getStoredAdminId();
+
+      if (adminId) {
+        body.adminId = adminId;
+      }
 
       if (status && status !== "all") body.status = status;
       if (debouncedSearch.trim()) body.search = debouncedSearch.trim();
       if (appliedBy && appliedBy !== "all") body.appliedBy = appliedBy;
 
       const data = await post<ListResp>("/dispute/admin/list", body);
+
       setRows(data.disputes || []);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
@@ -267,6 +289,7 @@ export default function AdminDisputesPage() {
             <SelectTrigger className="!h-[2.75rem] !rounded-[0.75rem] !border-[#E5E5E5] !bg-white">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
+
             <SelectContent className="!rounded-[0.9rem] !border-[#E5E5E5] !bg-white">
               {statusOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
@@ -285,12 +308,15 @@ export default function AdminDisputesPage() {
             const influencerChecked =
               appliedBy === "Influencer" || appliedBy === "all";
 
-            const nextFrom = (brand: boolean, influencer: boolean): typeof appliedBy =>
+            const nextFrom = (
+              brand: boolean,
+              influencer: boolean
+            ): typeof appliedBy =>
               (brand && influencer) || (!brand && !influencer)
                 ? "all"
                 : brand
-                  ? "Brand"
-                  : "Influencer";
+                ? "Brand"
+                : "Influencer";
 
             return (
               <>
@@ -394,7 +420,9 @@ export default function AdminDisputesPage() {
             </div>
 
             <div className={`${col.action} pl-1.5 pr-0`}>
-              <span className="text-sm font-semibold text-[#1A1A1A]">Action</span>
+              <span className="text-sm font-semibold text-[#1A1A1A]">
+                Action
+              </span>
             </div>
           </div>
 
@@ -444,6 +472,7 @@ export default function AdminDisputesPage() {
               <div className="flex flex-col items-center justify-center gap-3 py-20 text-red-500">
                 <AlertCircle className="size-8" />
                 <p className="text-sm font-medium">{error}</p>
+
                 <button
                   onClick={load}
                   className="text-xs text-[#1A1A1A] underline hover:opacity-70"
@@ -518,8 +547,9 @@ export default function AdminDisputesPage() {
 
                   <div className={`${col.status} px-1.5`}>
                     <span
-                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[row.status] || "bg-gray-100 text-gray-600"
-                        }`}
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
+                        STATUS_COLORS[row.status] || "bg-gray-100 text-gray-600"
+                      }`}
                     >
                       {STATUS_LABEL[row.status] || row.status}
                     </span>
@@ -567,10 +597,11 @@ export default function AdminDisputesPage() {
                   <button
                     key={pageNumber}
                     onClick={() => setPage(pageNumber)}
-                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors ${pageNumber === page
-                      ? "bg-[#1A1A1A] font-semibold text-white"
-                      : "border border-[#E2E2E2] text-[#1A1A1A] hover:bg-[#F5F5F5]"
-                      }`}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors ${
+                      pageNumber === page
+                        ? "bg-[#1A1A1A] font-semibold text-white"
+                        : "border border-[#E2E2E2] text-[#1A1A1A] hover:bg-[#F5F5F5]"
+                    }`}
                   >
                     {pageNumber}
                   </button>

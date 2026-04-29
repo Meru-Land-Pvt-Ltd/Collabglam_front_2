@@ -1,6 +1,12 @@
 "use client";
 
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { post } from "@/lib/api";
 import {
   DisputeTable,
@@ -46,6 +52,72 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function normalizeStoredId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const cleanValue = value.trim();
+
+  if (
+    !cleanValue ||
+    cleanValue === "undefined" ||
+    cleanValue === "null" ||
+    cleanValue === "[object Object]"
+  ) {
+    return null;
+  }
+
+  return cleanValue;
+}
+
+function getStoredInfluencerId(): string | null {
+  if (typeof window === "undefined") return null;
+
+  const directInfluencerId = normalizeStoredId(
+    window.localStorage.getItem("influencerId")
+  );
+
+  if (directInfluencerId) {
+    return directInfluencerId;
+  }
+
+  const possibleStorageKeys = [
+    "user",
+    "authUser",
+    "userData",
+    "influencer",
+    "influencerData",
+  ];
+
+  for (const key of possibleStorageKeys) {
+    const rawValue = window.localStorage.getItem(key);
+
+    if (!rawValue) continue;
+
+    try {
+      const parsed = JSON.parse(rawValue) as {
+        influencerId?: unknown;
+        influencer_id?: unknown;
+        id?: unknown;
+        _id?: unknown;
+      };
+
+      const possibleId =
+        normalizeStoredId(parsed.influencerId) ||
+        normalizeStoredId(parsed.influencer_id) ||
+        normalizeStoredId(parsed.id) ||
+        normalizeStoredId(parsed._id);
+
+      if (possibleId) {
+        return possibleId;
+      }
+    } catch {
+      // Ignore invalid JSON localStorage values.
+    }
+  }
+
+  return null;
+}
+
 const InfluencerDisputesPage: React.FC = () => {
   const [influencerId, setInfluencerId] = useState<string | null>(null);
   const [influencerLoaded, setInfluencerLoaded] = useState(false);
@@ -66,7 +138,9 @@ const InfluencerDisputesPage: React.FC = () => {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    setInfluencerId(window.localStorage.getItem("influencerId"));
+    const storedInfluencerId = getStoredInfluencerId();
+
+    setInfluencerId(storedInfluencerId);
     setInfluencerLoaded(true);
   }, []);
 
@@ -86,7 +160,12 @@ const InfluencerDisputesPage: React.FC = () => {
   const fetchDisputes = useCallback(async (): Promise<void> => {
     if (!influencerLoaded) return;
 
-    if (!influencerId) {
+    const validInfluencerId = normalizeStoredId(influencerId);
+
+    if (!validInfluencerId) {
+      setRows([]);
+      setTotal(0);
+      setTotalPages(1);
       setError("Influencer ID not found. Please log in again.");
       setLoading(false);
       return;
@@ -97,12 +176,13 @@ const InfluencerDisputesPage: React.FC = () => {
 
     try {
       const body: Record<string, unknown> = {
-        influencerId,
+        influencerId: validInfluencerId,
         page,
         limit: PAGE_SIZE,
       };
 
       const statusNum = Number.parseInt(status, 10);
+
       if (!Number.isNaN(statusNum) && statusNum > 0) {
         body.status = statusNum;
       }
@@ -131,6 +211,7 @@ const InfluencerDisputesPage: React.FC = () => {
 
   useEffect(() => {
     if (!influencerLoaded) return;
+
     void fetchDisputes();
   }, [influencerLoaded, fetchDisputes]);
 
@@ -188,14 +269,16 @@ const InfluencerDisputesPage: React.FC = () => {
         pageNumbers={pageNumbers}
         onPageChange={setPage}
         viewBasePath="/influencer/disputes"
-        onRevokeDispute={async (disputeId: string) => {
-          if (!influencerId) {
+        onRevokeDispute={async () => {
+          const validInfluencerId = normalizeStoredId(influencerId);
+
+          if (!validInfluencerId) {
             throw new Error("Influencer ID not found. Please log in again.");
           }
 
           // await apiRevokeInfluencerDispute({
           //   disputeId,
-          //   influencerId,
+          //   influencerId: validInfluencerId,
           // });
         }}
       />

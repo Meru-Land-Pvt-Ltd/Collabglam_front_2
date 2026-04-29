@@ -345,14 +345,12 @@ function getStatusDotClasses(status: DisputeStatus): string {
 
 function getDisputeNarrative(dispute: Dispute): string {
   if (dispute.viewerIsRaiser) {
-    return `You raised this dispute against ${
-      dispute.raisedAgainst?.name ?? "the brand"
-    }`;
+    return `You raised this dispute against ${dispute.raisedAgainst?.name ?? "the brand"
+      }`;
   }
 
-  return `${
-    dispute.raisedBy?.name ?? "The brand"
-  } raised this dispute against you`;
+  return `${dispute.raisedBy?.name ?? "The brand"
+    } raised this dispute against you`;
 }
 
 function getCommentAuthorLabel(
@@ -376,8 +374,8 @@ function canManageComment(
 ): boolean {
   return Boolean(
     influencerId &&
-      comment.authorRole === "Influencer" &&
-      String(comment.authorId) === String(influencerId)
+    comment.authorRole === "Influencer" &&
+    String(comment.authorId) === String(influencerId)
   );
 }
 
@@ -659,6 +657,22 @@ function ProgressTracker({
 }) {
   const activeStepIndex = STATUS_STEP_INDEX[status] ?? 0;
 
+  const isFinalStatus =
+    status === "resolved" || status === "rejected" || status === "revoked";
+
+  const finalStepLabel =
+    status === "rejected"
+      ? "Rejected"
+      : status === "revoked"
+        ? "Revoked"
+        : "Resolved";
+
+  const displaySteps = STATUS_STEPS.map((step, index) =>
+    index === STATUS_STEPS.length - 1
+      ? { ...step, label: finalStepLabel }
+      : step
+  );
+
   return (
     <div className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}>
       <div className="mb-4 flex items-center gap-2">
@@ -671,9 +685,9 @@ function ProgressTracker({
 
       <div className="space-y-2">
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
 
             return (
               <div
@@ -681,10 +695,11 @@ function ProgressTracker({
                 className="h-1.5 overflow-hidden rounded-full bg-[#e8e8e8]"
               >
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    isDone || isActive ? "bg-[#2fb344]" : "bg-transparent"
-                  }`}
-                  style={{ width: isDone ? "100%" : isActive ? "50%" : "0%" }}
+                  className={`h-full rounded-full transition-all duration-500 ${isDone || isActive ? "bg-[#2fb344]" : "bg-transparent"
+                    }`}
+                  style={{
+                    width: isDone ? "100%" : isActive ? "50%" : "0%",
+                  }}
                 />
               </div>
             );
@@ -692,9 +707,9 @@ function ProgressTracker({
         </div>
 
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
             const isPending = !isDone && !isActive;
 
             return (
@@ -709,16 +724,14 @@ function ProgressTracker({
                   />
                 ) : (
                   <span
-                    className={`inline-block size-3 rounded-full border ${
-                      isActive ? "border-[#1a1a1a]" : "border-[#bdbdbd]"
-                    }`}
+                    className={`inline-block size-3 rounded-full border ${isActive ? "border-[#1a1a1a]" : "border-[#bdbdbd]"
+                      }`}
                   />
                 )}
 
                 <span
-                  className={`whitespace-nowrap font-medium ${
-                    isPending ? "text-[#9b9b9b]" : "text-[#1a1a1a]"
-                  }`}
+                  className={`whitespace-nowrap font-medium ${isPending ? "text-[#9b9b9b]" : "text-[#1a1a1a]"
+                    }`}
                 >
                   {step.label}
                 </span>
@@ -1266,15 +1279,15 @@ export default function InfluencerDisputeDetailPage() {
     setInfluencerId(storedId);
     setInfluencerName(
       localStorage.getItem("influencerName") ||
-        localStorage.getItem("name") ||
-        localStorage.getItem("username") ||
-        "Influencer"
+      localStorage.getItem("name") ||
+      localStorage.getItem("username") ||
+      "Influencer"
     );
     setInfluencerProfilePic(
       localStorage.getItem("influencerProfilePic") ||
-        localStorage.getItem("profilePic") ||
-        localStorage.getItem("avatar") ||
-        null
+      localStorage.getItem("profilePic") ||
+      localStorage.getItem("avatar") ||
+      null
     );
     setAuthResolved(true);
   }, [router]);

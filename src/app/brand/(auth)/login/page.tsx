@@ -112,6 +112,7 @@ function prettifyRateLimitMessage(msg: string) {
   const match = m.match(
     /try again in\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)/i
   );
+
   if (match) {
     const n = match[1];
     const unitRaw = match[2].toLowerCase();
@@ -210,6 +211,7 @@ async function verifyRecaptchaToken(
   console.warn(
     "verifyRecaptchaToken() is using a local mock. Replace it with your real backend call."
   );
+
   return { success: true, score: 0.9, action };
 }
 
@@ -239,6 +241,32 @@ function routeToBrandPath(route?: OnboardingRoute) {
     default:
       return "/brand/dashboard";
   }
+}
+
+function normalizeReturnUrl(value?: string | null) {
+  if (!value) return "";
+
+  let current = String(value).trim();
+
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      const decoded = decodeURIComponent(current);
+      if (decoded === current) break;
+      current = decoded;
+    } catch {
+      break;
+    }
+  }
+
+  if (
+    current.startsWith("/") &&
+    !current.startsWith("//") &&
+    !current.includes("://")
+  ) {
+    return current;
+  }
+
+  return "";
 }
 
 function SecurityCheckOverlay({
@@ -337,17 +365,29 @@ function BrandLoginContentInner() {
     }
   }, []);
 
+  const getRequestedReturnUrl = React.useCallback(() => {
+    return normalizeReturnUrl(searchParams.get("returnUrl"));
+  }, [searchParams]);
+
   const redirectAuthenticatedBrandUser = React.useCallback(() => {
     if (!hasActiveBrandSession()) return false;
+
+    const returnUrl = getRequestedReturnUrl();
+
+    if (returnUrl) {
+      router.replace(returnUrl);
+      return true;
+    }
 
     const resumeRoute = getStoredBrandResumeRoute();
     router.replace(routeToBrandPath(resumeRoute));
     return true;
-  }, [hasActiveBrandSession, router]);
+  }, [getRequestedReturnUrl, hasActiveBrandSession, router]);
 
   React.useEffect(() => {
     const enforceGuestOnlyAccess = () => {
       const redirected = redirectAuthenticatedBrandUser();
+
       if (!redirected) {
         setAuthGuardReady(true);
       }
@@ -469,29 +509,11 @@ function BrandLoginContentInner() {
   ]);
 
   const getSafeReturnUrl = () => {
-    const returnUrl = searchParams.get("returnUrl");
-
-    if (!returnUrl) return "/brand/dashboard";
-
-    try {
-      const decoded = decodeURIComponent(returnUrl);
-
-      if (
-        decoded.startsWith("/") &&
-        !decoded.startsWith("//") &&
-        !decoded.includes("://")
-      ) {
-        return decoded;
-      }
-    } catch {
-      return "/brand/dashboard";
-    }
-
-    return "/brand/dashboard";
+    return getRequestedReturnUrl() || "/brand/dashboard";
   };
 
   const getCreatorLoginHref = () => {
-    const returnUrl = searchParams.get("returnUrl");
+    const returnUrl = getRequestedReturnUrl();
 
     if (!returnUrl) return "/influencer/login";
 
@@ -499,6 +521,12 @@ function BrandLoginContentInner() {
   };
 
   const getPostLoginRedirect = (res?: BrandSignInResponse) => {
+    const returnUrl = getRequestedReturnUrl();
+
+    if (returnUrl) {
+      return returnUrl;
+    }
+
     const route = res?.route;
 
     if (route === "page1" || route === "page2" || route === "page3") {
@@ -550,6 +578,7 @@ function BrandLoginContentInner() {
     if (!ok) return;
 
     setLoading(true);
+
     try {
       clearClientAuthStorage();
 

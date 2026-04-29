@@ -35,14 +35,19 @@ export default function BrandAppLayout({
       return;
     }
 
+    const token = window.localStorage.getItem("token");
+
     const brandId =
       window.localStorage.getItem("brandId") ||
       window.localStorage.getItem("currentBrandId");
 
-    if (!brandId) {
+    if (!token || !brandId) {
       setHasBrandId(false);
       setCheckingAuth(false);
-      router.replace("/brand/login");
+
+      const returnUrl = `${window.location.pathname}${window.location.search}`;
+
+      router.replace(`/brand/login?returnUrl=${encodeURIComponent(returnUrl)}`);
       return;
     }
 

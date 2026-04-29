@@ -464,8 +464,8 @@ export default function Sidebar({
   const [profileData, setProfileData] = useState<InfluencerProfile | null>(null);
 
   const [active, setActive] = useState<string>("");
-  const [collapsed, setCollapsed] = useState(true);
-  const [widthCollapsed, setWidthCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const [widthCollapsed, setWidthCollapsed] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [drawerOpenInternal, setDrawerOpenInternal] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -675,9 +675,11 @@ export default function Sidebar({
   useEffect(() => {
     if (isDesktop) {
       setDrawerOpen(false);
-      setCollapsed(true);
+      setCollapsed(false);
       setIsClosing(false);
-      setWidthCollapsed(true);
+      setWidthCollapsed(false);
+      setProfileMenuOpen(false);
+      setHelpDialogOpen(false);
     } else {
       setCollapsed(false);
       setIsClosing(false);

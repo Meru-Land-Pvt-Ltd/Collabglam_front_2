@@ -466,8 +466,8 @@ export default function BrandSidebar({
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceKey, setWorkspaceKey] = useState<string>("nike");
 
-  const [collapsed, setCollapsed] = useState(true);
-  const [widthCollapsed, setWidthCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const [widthCollapsed, setWidthCollapsed] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
   const [drawerOpenInternal, setDrawerOpenInternal] = useState(false);
@@ -765,20 +765,20 @@ export default function BrandSidebar({
 
   useEffect(() => {
     if (isDesktop) {
-      setDrawerOpen?.(false);
-      if (!setDrawerOpenProp) setDrawerOpenInternal(false);
-      setIsClosing(false);
+      if (setDrawerOpenProp) setDrawerOpenProp(false);
+      else setDrawerOpenInternal(false);
 
-      if (!hasInitializedCollapsed.current) {
-        let initialCollapsed = true;
-        try {
-          const stored = window.localStorage.getItem("sidebar-collapsed");
-          if (stored !== null) initialCollapsed = stored === "true";
-        } catch {}
-        setCollapsed(initialCollapsed);
-        setWidthCollapsed(initialCollapsed);
-        hasInitializedCollapsed.current = true;
-      }
+      setCollapsed(false);
+      setWidthCollapsed(false);
+      setIsClosing(false);
+      setCampaignOpen(false);
+      setProfileMenuOpen(false);
+      setHelpDialogOpen(false);
+      hasInitializedCollapsed.current = true;
+
+      try {
+        window.localStorage.setItem("sidebar-collapsed", "false");
+      } catch {}
     } else {
       setCollapsed(false);
       setIsClosing(false);
@@ -1059,6 +1059,7 @@ export default function BrandSidebar({
         "currentBrandId",
         "brandPlanId",
         "brandPlanName",
+        "sidebar-collapsed",
       ].forEach((key) => window.localStorage.removeItem(key));
     } catch {}
 

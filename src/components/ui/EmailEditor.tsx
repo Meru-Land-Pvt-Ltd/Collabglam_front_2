@@ -155,7 +155,7 @@ export default function EmailEditor({
   toLabel = "",
   fromName = "Nike",
   fromEmail = "Collabglam.com",
-  toAvatar = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop",
+  toAvatar = "",
   subject = "",
   initialBody = "",
   initialHtmlBody = "",
@@ -423,15 +423,15 @@ export default function EmailEditor({
 
       <div
         className={cn(
-          "pointer-events-auto flex flex-col overflow-hidden bg-white shadow-[0_8px_30px_rgba(60,64,67,0.15)] transition-all duration-200 ease-in-out",
+          "pointer-events-auto flex flex-col overflow-hidden bg-white shadow-[0_8px_30px_rgba(60,64,67,0.15)] border transition-all duration-200 ease-in-out",
           minimized
             ? "h-[44px] w-full rounded-t-xl border border-[#dadce0] sm:w-[320px]"
             : expanded
               ? "h-full w-full rounded-xl border border-[#dadce0]"
-              : "h-[calc(100vh-80px)] max-h-[640px] w-full rounded-t-xl border border-[#dadce0] sm:w-[560px]"
+              : "h-[calc(100vh-80px)] max-h-[640px] w-full rounded-t-xl border border-[#dadce0] sm:w-[660px]"
         )}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-[#e0e0e0] bg-[#f2f2f2] px-4 py-2.5">
+        <div className="flex shrink-0 items-center justify-between border-b border-[#e0e0e0] bg-[#f2f2f2] px-4 py-1">
           <div className="text-[14px] font-medium text-[#202124]">New Message</div>
           <div className="flex items-center gap-1">
             <IconButton
@@ -608,12 +608,12 @@ export default function EmailEditor({
                 <ToolbarButton onClick={() => exec("redo")}>
                   <ArrowClockwise size={16} />
                 </ToolbarButton>
-                <ToolbarButton onClick={pasteClipboard}>
+                {/* <ToolbarButton onClick={pasteClipboard}>
                   <ClipboardText size={16} />
                 </ToolbarButton>
                 <ToolbarButton onClick={copyContent}>
                   <Copy size={16} />
-                </ToolbarButton>
+                </ToolbarButton> */}
 
                 <div className="mx-1 h-4 w-[1px] shrink-0 bg-[#e0e0e0]"></div>
 

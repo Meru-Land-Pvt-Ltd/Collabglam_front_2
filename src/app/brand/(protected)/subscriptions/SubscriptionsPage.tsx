@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { get, post } from "@/lib/api";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   CheckCircle,
   XCircle,
@@ -417,11 +417,13 @@ const resolveMarketingCopy = (plan: Plan) => {
 
 export default function BrandSubscriptionPage() {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const autoCouponKeyRef = useRef("");
 
   const requestedSubscriptionId = searchParams.get("subscriptionId") || "";
 
+  const [authReady, setAuthReady] = useState(false);
   const [billing, setBilling] = useState<BillingCycle>("monthly");
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
@@ -463,6 +465,23 @@ export default function BrandSubscriptionPage() {
     subject: "",
     message: "",
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const token = localStorage.getItem("token");
+    const brandId = localStorage.getItem("brandId");
+
+    if (!token || !brandId) {
+      const queryString = searchParams.toString();
+      const returnUrl = `${pathname}${queryString ? `?${queryString}` : ""}`;
+
+      router.replace(`/brand/login?returnUrl=${encodeURIComponent(returnUrl)}`);
+      return;
+    }
+
+    setAuthReady(true);
+  }, [pathname, router, searchParams]);
 
   const verifyCoupon = useCallback(
     async ({
@@ -583,6 +602,8 @@ export default function BrandSubscriptionPage() {
   );
 
   useEffect(() => {
+    if (!authReady) return;
+
     const stripeSuccess = searchParams.get("stripe_success");
     const stripeCancel = searchParams.get("stripe_cancel");
     const sessionId = searchParams.get("session_id");
@@ -670,9 +691,11 @@ export default function BrandSubscriptionPage() {
         }
       })();
     }
-  }, [router, searchParams]);
+  }, [authReady, router, searchParams]);
 
   useEffect(() => {
+    if (!authReady) return;
+
     const subscriptionId = searchParams.get("subscriptionId") || "";
     const mode = normalizeBillingMode(searchParams.get("mode"));
     const promoCode = searchParams.get("promoCode") || searchParams.get("promocode") || "";
@@ -704,9 +727,11 @@ export default function BrandSubscriptionPage() {
       updateUrl: false,
       showPageError: true,
     });
-  }, [plans, searchParams, verifyCoupon]);
+  }, [authReady, plans, searchParams, verifyCoupon]);
 
   useEffect(() => {
+    if (!authReady) return;
+
     (async () => {
       try {
         const subscriptionResp = await get<AdminSubscriptionListResponse>(
@@ -751,7 +776,7 @@ export default function BrandSubscriptionPage() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [authReady]);
 
   const currentPlanObj = useMemo(
     () => plans.find((p) => p.name.toLowerCase() === currentPlan?.toLowerCase()),
@@ -1108,11 +1133,13 @@ export default function BrandSubscriptionPage() {
     setShowPromoDialog(true);
   };
 
-  if (loading) {
+  if (!authReady || loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#fcf8ff] px-4">
         <Loader2 className="h-12 w-12 animate-spin text-[#1a1a1a]" />
-        <p className="mt-4 text-sm text-slate-600">Loading pricing plans…</p>
+        <p className="mt-4 text-sm text-slate-600">
+          {!authReady ? "Checking authentication…" : "Loading pricing plans…"}
+        </p>
       </div>
     );
   }

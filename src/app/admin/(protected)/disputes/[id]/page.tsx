@@ -626,7 +626,7 @@ export default function AdminDisputeDetailPage() {
   const [pendingPriority, setPendingPriority] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [updating, setUpdating] = useState(false);
-  const [quickAction, setQuickAction] = useState<"accept" | "rejected" | null>(null);
+  const [quickAction, setQuickAction] = useState<"accept" | "not_interested" | null>(null);
   const [riskTab, setRiskTab] = useState<"brand" | "influencer">("influencer");
   const [previewState, setPreviewState] = useState<ImagePreviewState>(null);
   const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
@@ -774,20 +774,44 @@ export default function AdminDisputeDetailPage() {
     }
   };
 
-  const handleRejectDispute = async () => {
+  const getAdminId = () => {
+    if (typeof window === "undefined") return "";
+
+    return String(
+      localStorage.getItem("adminId") ||
+        localStorage.getItem("admin_id") ||
+        localStorage.getItem("userId") ||
+        localStorage.getItem("user_id") ||
+        ""
+    ).trim();
+  };
+
+  const handleNotInterested = async () => {
     if (!id || !d || isFinalized) return;
-    setQuickAction("rejected");
+
+    const adminId = getAdminId();
+
+    if (!adminId) {
+      setError("Missing admin ID. Please log in again.");
+      return;
+    }
+
+    setQuickAction("not_interested");
     setError(null);
+
     try {
-      await post("/dispute/admin/update-status", {
+      await post("/dispute/admin/not-interested", {
         disputeId: id,
-        status: "rejected",
-        resolution: resolutionNote || undefined,
+        adminId,
       });
-      setPendingStatus("");
-      await load();
+
+      router.push("/admin/disputes");
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to reject dispute");
+      setError(
+        e?.response?.data?.message ||
+          e?.message ||
+          "Failed to mark dispute as not interested"
+      );
     } finally {
       setQuickAction(null);
     }
@@ -969,29 +993,35 @@ export default function AdminDisputeDetailPage() {
 
           {/* Right: action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-            <button
-              onClick={handleAcceptDispute}
-              disabled={quickAction !== null || updating || d.status !== "open"}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${hasAdminAccepted
-                ? "text-white bg-black"
-                : "text-white bg-black hover:bg-black/80"
-                }`}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {quickAction === "accept"
-                ? "Accepting..."
-                : hasAdminAccepted
-                  ? "Accepted"
-                  : "Accept"}
-            </button>
-            {d.status === "open" && (
+            {d.status === "open" && !isFinalized && (
+              <>
+                <button
+                  onClick={handleAcceptDispute}
+                  disabled={quickAction !== null || updating}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg text-white bg-black hover:bg-black/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {quickAction === "accept" ? "Accepting..." : "Accept"}
+                </button>
+
+                <button
+                  onClick={handleNotInterested}
+                  disabled={quickAction !== null || updating}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border border-black/10 bg-white text-gray-900 hover:bg-black/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  {quickAction === "not_interested" ? "Removing..." : "Not Interested"}
+                </button>
+              </>
+            )}
+
+            {hasAdminAccepted && !isFinalized && (
               <button
-                onClick={handleRejectDispute}
-                disabled={quickAction !== null || updating}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border border-black/10 bg-white text-gray-900 hover:bg-black/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg text-white bg-black disabled:opacity-100 disabled:cursor-default"
               >
-                <XCircle className="h-3.5 w-3.5" />
-                {quickAction === "rejected" ? "Rejecting..." : "Reject"}
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Accepted
               </button>
             )}
           </div>
