@@ -363,22 +363,54 @@ const formatPlanAmount = (plan: Plan, amount: number) => {
   return `${currencySymbol(plan.currency)}${Number(amount || 0).toLocaleString()}`;
 };
 
-const getDiscountAmount = (coupon?: VerifiedCouponData | null) => {
-  const discountAmount = Number(coupon?.newPrice || 0);
+/**
+ * Coupon logic:
+ * API coupon.newPrice means FINAL PRICE after discount.
+ *
+ * Example:
+ * baseAmount = 2999
+ * coupon.newPrice = 2499
+ * discountAmount = 500
+ * discountedAmount = 2499
+ */
+const getCouponFinalAmount = (coupon?: VerifiedCouponData | null) => {
+  if (coupon?.newPrice === null || coupon?.newPrice === undefined) {
+    return null;
+  }
 
-  if (!Number.isFinite(discountAmount) || discountAmount <= 0) {
+  const finalAmount = Number(coupon.newPrice);
+
+  if (!Number.isFinite(finalAmount) || finalAmount < 0) {
+    return null;
+  }
+
+  return finalAmount;
+};
+
+const getDiscountAmount = (
+  baseAmount: number,
+  coupon?: VerifiedCouponData | null
+) => {
+  const finalAmount = getCouponFinalAmount(coupon);
+
+  if (finalAmount === null || finalAmount >= baseAmount) {
     return 0;
   }
 
-  return discountAmount;
+  return Math.max(baseAmount - finalAmount, 0);
 };
 
 const getDiscountedAmount = (
   baseAmount: number,
   coupon?: VerifiedCouponData | null
 ) => {
-  const discountAmount = getDiscountAmount(coupon);
-  return Math.max(baseAmount - discountAmount, 0);
+  const finalAmount = getCouponFinalAmount(coupon);
+
+  if (finalAmount === null) {
+    return baseAmount;
+  }
+
+  return Math.min(finalAmount, baseAmount);
 };
 
 const mapAdminSubscriptionToPlan = (
@@ -1073,7 +1105,9 @@ export default function BrandSubscriptionPage() {
       const appliedPromoCode = getCouponCode(appliedCoupon);
       const appliedCouponId = appliedCoupon?.couponId || "";
       const originalAmount = getBasePayAmount(plan, billingOverride);
-      const discountAmount = appliedCoupon ? getDiscountAmount(appliedCoupon) : 0;
+      const discountAmount = appliedCoupon
+        ? getDiscountAmount(originalAmount, appliedCoupon)
+        : 0;
       const finalAmount = getPayAmount(plan, appliedCoupon, billingOverride);
 
       localStorage.setItem("pendingPlanId", plan.planId);
@@ -1398,7 +1432,7 @@ export default function BrandSubscriptionPage() {
               const appliedCoupon = getAppliedCouponForPlan(plan);
               const hasCoupon = !!appliedCoupon;
               const baseAmount = getBasePayAmount(plan);
-              const discountAmount = getDiscountAmount(appliedCoupon);
+              const discountAmount = getDiscountAmount(baseAmount, appliedCoupon);
               const discountedAmount = getDiscountedAmount(baseAmount, appliedCoupon);
 
               const displayedPrice = isFree
@@ -1521,7 +1555,7 @@ export default function BrandSubscriptionPage() {
               const appliedCoupon = getAppliedCouponForPlan(plan);
               const hasCoupon = !!appliedCoupon;
               const baseAmount = getBasePayAmount(plan);
-              const discountAmount = getDiscountAmount(appliedCoupon);
+              const discountAmount = getDiscountAmount(baseAmount, appliedCoupon);
               const discountedAmount = getDiscountedAmount(baseAmount, appliedCoupon);
 
               return (
