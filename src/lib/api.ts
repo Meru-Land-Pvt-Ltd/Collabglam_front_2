@@ -63,7 +63,7 @@ const hasAuthHeader = (headers: any) => {
   return !!headers.Authorization || !!headers.authorization;
 };
 
-const shouldForceLogout = (status?: number) => status === 401 || status === 403;
+const shouldForceLogout = (status?: number) => status === 401;
 
 function firstMeaningfulString(...values: any[]): string {
   for (const value of values) {

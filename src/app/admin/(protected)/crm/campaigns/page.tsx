@@ -23,7 +23,6 @@ import {
   Play,
   Plus,
   Search,
-  Share2,
   Trash2,
 } from "lucide-react";
 
@@ -413,7 +412,7 @@ function ActionMenu({
         Download analytics CSV
       </button>
 
-      <button
+      {/* <button
         type="button"
         disabled={busy}
         onClick={onShare}
@@ -421,7 +420,7 @@ function ActionMenu({
       >
         <Share2 className="h-4 w-4 text-slate-400" />
         Share Campaign
-      </button>
+      </button> */}
     </div>
   );
 }
@@ -1130,17 +1129,30 @@ export default function InstantlyCampaignsPage() {
                 return (
                   <div
                     key={row._id}
-                    className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(buildCampaignDetailUrl(row._id))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        router.push(buildCampaignDetailUrl(row._id));
+                      }
+                    }}
+                    className="group cursor-pointer rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/20 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-blue-50"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="pt-1">
+                      <div
+                        className="pt-1"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
                         <input
                           type="checkbox"
                           checked={selectedIds.includes(row._id)}
-                          onChange={(e) => {
-                            e.stopPropagation();
+                          onChange={(event) => {
+                            event.stopPropagation();
                             setSelectedIds((prev) =>
-                              e.target.checked
+                              event.target.checked
                                 ? [...new Set([...prev, row._id])]
                                 : prev.filter((id) => id !== row._id)
                             );
@@ -1151,15 +1163,9 @@ export default function InstantlyCampaignsPage() {
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              router.push(buildCampaignDetailUrl(row._id))
-                            }
-                            className="max-w-full truncate text-left text-base font-semibold text-slate-900 hover:text-blue-600"
-                          >
+                          <p className="max-w-full truncate text-left text-base font-semibold text-slate-900 transition group-hover:text-blue-600">
                             {row.name}
-                          </button>
+                          </p>
 
                           <span
                             className={cx(
@@ -1167,8 +1173,7 @@ export default function InstantlyCampaignsPage() {
                               getStatusPillClasses(uiStatus)
                             )}
                           >
-                            {uiStatus.charAt(0).toUpperCase() +
-                              uiStatus.slice(1)}
+                            {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
                           </span>
 
                           {errorMessage ? (
@@ -1180,13 +1185,8 @@ export default function InstantlyCampaignsPage() {
 
                         <div className="mt-2 space-y-1 text-xs text-slate-500">
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <span>
-                              {row.instantly?.senderAccountEmail ||
-                                "No sender assigned"}
-                            </span>
-                            <span>
-                              {row.instantly?.campaignId || "Not launched yet"}
-                            </span>
+                            <span>{row.instantly?.senderAccountEmail || "No sender assigned"}</span>
+                            <span>{row.instantly?.campaignId || "Not launched yet"}</span>
                           </div>
 
                           {canViewOwnerColumn && (
@@ -1198,24 +1198,25 @@ export default function InstantlyCampaignsPage() {
                             </div>
                           )}
 
-                          {canViewRhOwnerColumn &&
-                            row.flowType !== "ime_influencer" && (
-                              <div>
-                                <span className="font-semibold text-slate-600">
-                                  RH:
-                                </span>{" "}
-                                {getAdminEntityLabel(row.RHId)}
-                              </div>
-                            )}
+                          {canViewRhOwnerColumn && row.flowType !== "ime_influencer" && (
+                            <div>
+                              <span className="font-semibold text-slate-600">RH:</span>{" "}
+                              {getAdminEntityLabel(row.RHId)}
+                            </div>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div
+                        className="flex shrink-0 items-center gap-2"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={(e) => {
-                            e.stopPropagation();
+                          onClick={(event) => {
+                            event.stopPropagation();
                             handleToggleLaunch(row);
                           }}
                           className={cx(
@@ -1226,17 +1227,16 @@ export default function InstantlyCampaignsPage() {
                           )}
                           title={isLaunched ? "Pause campaign" : "Launch campaign"}
                         >
-                          {isLaunched ? (
-                            <Pause className="h-4 w-4" />
-                          ) : (
-                            <Play className="h-4 w-4" />
-                          )}
+                          {isLaunched ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                         </button>
 
                         <button
                           type="button"
                           disabled={busy}
-                          onClick={(e) => openActionMenu(e, row)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openActionMenu(event, row);
+                          }}
                           className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
                           title="Campaign actions"
                         >
@@ -1252,6 +1252,7 @@ export default function InstantlyCampaignsPage() {
                           {progress}%
                         </span>
                       </div>
+
                       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
                         <div
                           className="h-full rounded-full bg-slate-500 transition-all"
@@ -1263,9 +1264,7 @@ export default function InstantlyCampaignsPage() {
                     <div
                       className={cx(
                         "mt-5 grid gap-3",
-                        canViewReplyColumns
-                          ? "grid-cols-2 sm:grid-cols-5"
-                          : "grid-cols-3"
+                        canViewReplyColumns ? "grid-cols-2 sm:grid-cols-5" : "grid-cols-3"
                       )}
                     >
                       <div className="rounded-2xl bg-slate-50 p-3">
@@ -1391,19 +1390,32 @@ export default function InstantlyCampaignsPage() {
                       return (
                         <div
                           key={row._id}
-                          className="grid items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-slate-300 hover:shadow-sm"
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => router.push(buildCampaignDetailUrl(row._id))}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              router.push(buildCampaignDetailUrl(row._id));
+                            }
+                          }}
+                          className="group grid cursor-pointer items-center rounded-[28px] border border-slate-200 bg-white px-2 py-1 transition hover:border-blue-200 hover:bg-blue-50/20 hover:shadow-sm focus:outline-none focus:ring-4 focus:ring-blue-50"
                           style={{
                             gridTemplateColumns: desktopGridTemplateColumns,
                           }}
                         >
-                          <div className="px-4 py-7">
+                          <div
+                            className="px-4 py-7"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
                             <input
                               type="checkbox"
                               checked={selectedIds.includes(row._id)}
-                              onChange={(e) => {
-                                e.stopPropagation();
+                              onChange={(event) => {
+                                event.stopPropagation();
                                 setSelectedIds((prev) =>
-                                  e.target.checked
+                                  event.target.checked
                                     ? [...new Set([...prev, row._id])]
                                     : prev.filter((id) => id !== row._id)
                                 );
@@ -1412,21 +1424,14 @@ export default function InstantlyCampaignsPage() {
                             />
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              router.push(buildCampaignDetailUrl(row._id))
-                            }
-                            className="min-w-0 px-4 py-7 text-left"
-                          >
-                            <p className="truncate text-[1.05rem] font-semibold text-slate-900">
+                          <div className="min-w-0 px-4 py-7 text-left">
+                            <p className="truncate text-[1.05rem] font-semibold text-slate-900 transition group-hover:text-blue-600">
                               {row.name}
                             </p>
                             <p className="mt-1 truncate text-xs text-slate-500">
-                              {row.instantly?.senderAccountEmail ||
-                                "No sender assigned"}
+                              {row.instantly?.senderAccountEmail || "No sender assigned"}
                             </p>
-                          </button>
+                          </div>
 
                           {canViewOwnerColumn && (
                             <div className="min-w-0 px-4 py-7 text-sm text-slate-700">
@@ -1462,15 +1467,11 @@ export default function InstantlyCampaignsPage() {
                                   getStatusPillClasses(uiStatus)
                                 )}
                               >
-                                {uiStatus.charAt(0).toUpperCase() +
-                                  uiStatus.slice(1)}
+                                {uiStatus.charAt(0).toUpperCase() + uiStatus.slice(1)}
                               </span>
 
                               {errorMessage ? (
-                                <span
-                                  title={errorMessage}
-                                  className="text-slate-500"
-                                >
+                                <span title={errorMessage} className="text-slate-500">
                                   <CircleAlert className="h-4 w-4" />
                                 </span>
                               ) : null}
@@ -1509,12 +1510,16 @@ export default function InstantlyCampaignsPage() {
                             </div>
                           )}
 
-                          <div className="flex items-center justify-end gap-2 px-4 py-7">
+                          <div
+                            className="flex items-center justify-end gap-2 px-4 py-7"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={(e) => {
-                                e.stopPropagation();
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 handleToggleLaunch(row);
                               }}
                               className={cx(
@@ -1523,21 +1528,18 @@ export default function InstantlyCampaignsPage() {
                                   ? "text-amber-600 hover:bg-amber-50"
                                   : "text-emerald-600 hover:bg-emerald-50"
                               )}
-                              title={
-                                isLaunched ? "Pause campaign" : "Launch campaign"
-                              }
+                              title={isLaunched ? "Pause campaign" : "Launch campaign"}
                             >
-                              {isLaunched ? (
-                                <Pause className="h-4 w-4" />
-                              ) : (
-                                <Play className="h-4 w-4" />
-                              )}
+                              {isLaunched ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                             </button>
 
                             <button
                               type="button"
                               disabled={busy}
-                              onClick={(e) => openActionMenu(e, row)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openActionMenu(event, row);
+                              }}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
                               title="Campaign actions"
                             >

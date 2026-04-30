@@ -11,7 +11,6 @@ function pickValidFiles(list: FileList | File[]) {
 }
 
 const fileKey = (f: File) => `${f.name}__${f.size}__${f.lastModified}`;
-
 export function ProductCardUpload({
   showLabel = true,
   files,

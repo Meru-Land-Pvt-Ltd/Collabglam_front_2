@@ -6,7 +6,6 @@ import { adminGet, adminPatch, adminPost, getApiErrorMessage } from "@/lib/api";
 import {
   Activity,
   BarChart3,
-  CheckCircle2,
   ChevronRight,
   Flame,
   Inbox,
@@ -19,6 +18,8 @@ import {
   Send,
   Settings,
   ShieldCheck,
+  Star,
+  X,
 } from "lucide-react";
 
 type Role = "sdr" | "bme" | "revenue_head" | "ime" | "super_admin";
@@ -167,13 +168,8 @@ function formatValue(value?: number | string | null) {
 function getStatusChip(status?: string) {
   const normalized = String(status || "").trim().toLowerCase();
 
-  if (normalized === "active") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-
-  if (normalized === "paused") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
+  if (normalized === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized === "paused") return "border-amber-200 bg-amber-50 text-amber-700";
 
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
@@ -181,21 +177,10 @@ function getStatusChip(status?: string) {
 function getCampaignStatusChip(status?: string) {
   const normalized = String(status || "").trim().toLowerCase();
 
-  if (normalized === "launched") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-
-  if (normalized === "ready") {
-    return "border-blue-200 bg-blue-50 text-blue-700";
-  }
-
-  if (normalized === "paused") {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-
-  if (normalized === "completed") {
-    return "border-violet-200 bg-violet-50 text-violet-700";
-  }
+  if (normalized === "launched") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (normalized === "ready") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (normalized === "paused") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (normalized === "completed") return "border-violet-200 bg-violet-50 text-violet-700";
 
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
@@ -357,17 +342,9 @@ function WarmupChart({
 }) {
   const safeData = data.length
     ? data
-    : [
-        {
-          label: "No Data",
-          sent: 0,
-          received: 0,
-          savedFromSpam: 0,
-        },
-      ];
+    : [{ label: "No Data", sent: 0, received: 0, savedFromSpam: 0 }];
 
   const [activeIndex, setActiveIndex] = useState(0);
-
   const activePoint = safeData[activeIndex] || safeData[0];
 
   const maxValue = useMemo(() => {
@@ -380,11 +357,6 @@ function WarmupChart({
     return Math.max(...values, 1);
   }, [safeData]);
 
-  const getHeight = (value: number) => {
-    if (!value) return "8px";
-    return `${Math.max((value / maxValue) * 150, 14)}px`;
-  };
-
   const totals = useMemo(() => {
     return safeData.reduce(
       (acc, item) => {
@@ -393,13 +365,14 @@ function WarmupChart({
         acc.savedFromSpam += Number(item.savedFromSpam || 0);
         return acc;
       },
-      {
-        sent: 0,
-        received: 0,
-        savedFromSpam: 0,
-      }
+      { sent: 0, received: 0, savedFromSpam: 0 }
     );
   }, [safeData]);
+
+  function getHeight(value: number) {
+    if (!value) return "8px";
+    return `${Math.max((value / maxValue) * 150, 14)}px`;
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -585,6 +558,7 @@ export default function MyAccountsPage() {
   const [selectedEmail, setSelectedEmail] = useState("");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("warmup");
+  const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
 
   const [settingsForm, setSettingsForm] = useState({
     firstName: "",
@@ -619,11 +593,6 @@ export default function MyAccountsPage() {
 
       const nextPayload = response.data || null;
       setPayload(nextPayload);
-
-      const defaultEmail =
-        nextPayload?.primaryEmail || nextPayload?.accounts?.[0]?.email || "";
-
-      setSelectedEmail((prev) => prev || defaultEmail);
     } catch (err) {
       const message = await getApiErrorMessage(err, "Failed to load accounts");
       setError(message);
@@ -694,12 +663,25 @@ export default function MyAccountsPage() {
   }, []);
 
   useEffect(() => {
-    loadAccounts();
+    void loadAccounts();
   }, [loadAccounts]);
 
   useEffect(() => {
-    if (selectedEmail) loadDetails(selectedEmail);
-  }, [selectedEmail, loadDetails]);
+    if (isAccountDrawerOpen && selectedEmail) {
+      void loadDetails(selectedEmail);
+    }
+  }, [isAccountDrawerOpen, selectedEmail, loadDetails]);
+
+  function openAccountDrawer(email: string) {
+    setSelectedEmail(email);
+    setActiveTab("warmup");
+    setDetail(null);
+    setIsAccountDrawerOpen(true);
+  }
+
+  function closeAccountDrawer() {
+    setIsAccountDrawerOpen(false);
+  }
 
   const handleSetPrimary = useCallback(
     async (email: string) => {
@@ -853,7 +835,10 @@ export default function MyAccountsPage() {
     if (!query) return accounts;
 
     return accounts.filter((item) => {
-      const haystack = [item.email, item.provider].join(" ").toLowerCase();
+      const haystack = [item.email, item.provider, item.role]
+        .join(" ")
+        .toLowerCase();
+
       return haystack.includes(query);
     });
   }, [accounts, search]);
@@ -873,46 +858,38 @@ export default function MyAccountsPage() {
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto overscroll-contain bg-slate-50 px-3 py-4 font-sans sm:px-4 lg:px-5">
-      <div className="mx-auto w-full max-w-full space-y-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className="h-[100dvh] overflow-hidden bg-slate-50 p-3 font-sans sm:p-4">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        <header className="shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
                 Email Accounts
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Manage mailbox settings, warmup, sending limits, and linked
-                campaigns.
+                Manage mailbox settings, warmup, sending limits, and linked campaigns.
               </p>
             </div>
+          </div>
+        </header>
 
-            {detail?.account?.email ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                  Selected Mailbox
-                </p>
-                <p className="mt-1 max-w-[320px] truncate text-sm font-bold text-slate-950">
-                  {detail.account.email}
-                </p>
+        {(error || success) && (
+          <div className="mt-3 shrink-0 space-y-2">
+            {error ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {error}
+              </div>
+            ) : null}
+
+            {success ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                {success}
               </div>
             ) : null}
           </div>
-        </div>
+        )}
 
-        {error ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-            {error}
-          </div>
-        ) : null}
-
-        {success ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
-            {success}
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-3 grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <MetricCard
             label="Total Accounts"
             value={loadingList ? "—" : payload?.totalAccounts ?? 0}
@@ -935,56 +912,40 @@ export default function MyAccountsPage() {
             icon={<Send className="h-5 w-5" />}
             tone="green"
           />
-
-          {/* <MetricCard
-            label="Primary Selection"
-            value={canSelectPrimary ? "Enabled" : "Locked"}
-            subtext={
-              canSelectPrimary
-                ? "You can update primary mailbox"
-                : "Managed by role or system"
-            }
-            icon={<Settings className="h-5 w-5" />}
-            tone="amber"
-          /> */}
         </div>
 
-        <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)]">
-          <aside className="min-h-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:sticky lg:top-4 lg:h-[calc(100dvh-2rem)]">
-            <div className="border-b border-slate-200 p-4">
-              <div className="mb-4 flex items-center justify-between gap-3">
+        <main className="mt-4 min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="shrink-0 border-b border-slate-200 p-4">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-base font-bold text-slate-950">
                     Assigned Mailboxes
                   </h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    Select an account to manage.
+                    Click any mailbox to open full account details in a side panel.
                   </p>
                 </div>
 
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
-                  {filteredAccounts.length}
-                </span>
-              </div>
-
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search emails..."
-                  className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-4 focus:ring-slate-100"
-                />
+                <div className="relative w-full lg:w-[360px]">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search emails..."
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm font-medium text-slate-900 outline-none transition focus:border-slate-300 focus:bg-white focus:ring-4 focus:ring-slate-100"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="max-h-[420px] overflow-y-auto p-3 sm:max-h-[520px] lg:h-[calc(100%-121px)] lg:max-h-none">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
               {loadingList ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 5 }).map((_, index) => (
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: 9 }).map((_, index) => (
                     <div
                       key={index}
-                      className="h-24 animate-pulse rounded-2xl bg-slate-100"
+                      className="h-36 animate-pulse rounded-2xl bg-slate-100"
                     />
                   ))}
                 </div>
@@ -994,94 +955,66 @@ export default function MyAccountsPage() {
                   description="Try another email or provider search term."
                 />
               ) : (
-                <div className="space-y-2">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                   {filteredAccounts.map((account) => {
-                    const active = selectedEmail === account.email;
                     const sentToday = Number(account.emailsSentToday || 0);
-                    const dailyLimit = Number(
-                      account.instantlyMeta?.dailyLimit || 0
-                    );
+                    const dailyLimit = Number(account.instantlyMeta?.dailyLimit || 0);
 
                     return (
                       <button
                         key={account.email}
                         type="button"
-                        onClick={() => setSelectedEmail(account.email)}
-                        className={cx(
-                          "group w-full rounded-2xl border p-3 text-left transition-all",
-                          active
-                            ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-200"
-                            : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
-                        )}
+                        onClick={() => openAccountDrawer(account.email)}
+                        className="group rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
                       >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={cx(
-                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold",
-                              active
-                                ? "bg-white text-slate-950"
-                                : "bg-slate-100 text-slate-700"
-                            )}
-                          >
-                            {getInitial(account.email)}
-                          </div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-950 text-sm font-bold text-white">
+                              {getInitial(account.email)}
+                            </div>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="truncate text-sm font-bold">
-                                {account.email}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="truncate text-sm font-bold text-slate-950">
+                                  {account.email}
+                                </p>
+
+                                {account.isPrimary ? (
+                                  <span className="shrink-0 rounded-full bg-slate-950 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                    Primary
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              <p className="mt-1 text-xs text-slate-500">
+                                {getProviderLabel(account.provider)}
                               </p>
-
-                              {account.isPrimary ? (
-                                <span
-                                  className={cx(
-                                    "shrink-0 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-                                    active
-                                      ? "bg-white/15 text-white"
-                                      : "bg-slate-950 text-white"
-                                  )}
-                                >
-                                  Primary
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <p
-                              className={cx(
-                                "mt-1 text-xs",
-                                active ? "text-slate-300" : "text-slate-500"
-                              )}
-                            >
-                              {getProviderLabel(account.provider)}
-                            </p>
-
-                            <div
-                              className={cx(
-                                "mt-3 flex items-center justify-between gap-3 rounded-xl px-3 py-2 text-xs",
-                                active ? "bg-white/10" : "bg-slate-50"
-                              )}
-                            >
-                              <span
-                                className={
-                                  active ? "text-slate-300" : "text-slate-500"
-                                }
-                              >
-                                Sent today
-                              </span>
-                              <span className="font-bold">
-                                {dailyLimit > 0
-                                  ? `${sentToday} / ${dailyLimit}`
-                                  : formatValue(sentToday)}
-                              </span>
                             </div>
                           </div>
 
-                          <ChevronRight
-                            className={cx(
-                              "mt-2 h-4 w-4 shrink-0 transition group-hover:translate-x-0.5",
-                              active ? "text-white" : "text-slate-400"
-                            )}
-                          />
+                          <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-slate-700" />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                              Sent Today
+                            </p>
+                            <p className="mt-1 text-sm font-bold text-slate-950">
+                              {dailyLimit > 0
+                                ? `${sentToday} / ${dailyLimit}`
+                                : formatValue(sentToday)}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl bg-slate-50 px-3 py-2">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                              Role
+                            </p>
+                            <p className="mt-1 text-sm font-bold capitalize text-slate-950">
+                              {String(account.role || "—").replace(/_/g, " ").toUpperCase()}
+                            </p>
+                          </div>
                         </div>
                       </button>
                     );
@@ -1089,141 +1022,167 @@ export default function MyAccountsPage() {
                 </div>
               )}
             </div>
-          </aside>
+          </div>
+        </main>
+      </div>
 
-          <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            {!selectedEmail || (!detail && !loadingDetail) ? (
-              <div className="flex min-h-[420px] items-center justify-center p-4 sm:min-h-[620px] sm:p-8">
-                <EmptyState
-                  title="Select an account"
-                  description="Choose a mailbox from the left panel to view warmup, settings, and campaign details."
-                />
-              </div>
-            ) : loadingDetail ? (
-              <div className="flex min-h-[420px] items-center justify-center p-8 text-center sm:min-h-[620px]">
-                <div>
-                  <Loader2 className="mx-auto h-7 w-7 animate-spin text-slate-400" />
-                  <p className="mt-3 text-sm font-semibold text-slate-600">
-                    Loading account details...
+      {isAccountDrawerOpen ? (
+        <div className="fixed inset-0 z-[100] overflow-hidden">
+          <div
+            className="absolute inset-0 bg-slate-950/35 backdrop-blur-[2px]"
+            onClick={closeAccountDrawer}
+          />
+
+          <section className="absolute bottom-0 right-0 top-0 flex w-full max-w-[980px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-[0_30px_100px_rgba(15,23,42,0.35)]">
+            <div className="shrink-0 border-b border-slate-200 bg-white p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                    Mailbox Details
                   </p>
+
+                  <h2 className="mt-2 truncate text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
+                    {selectedEmail || "Mailbox"}
+                  </h2>
+
+                  {detail?.account ? (
+                    <p className="mt-1 text-sm text-slate-500">
+                      {getProviderLabel(detail.account.provider)} • Assigned{" "}
+                      {formatDate(detail.account.assignedAt)}
+                    </p>
+                  ) : null}
                 </div>
+
+                <button
+                  type="button"
+                  onClick={closeAccountDrawer}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-            ) : detail ? (
-              <>
-                <div className="border-b border-slate-200 p-4 pb-0 sm:p-5 sm:pb-0">
-                  <div className="mb-5 flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
-                        <span
-                          className={cx(
-                            "inline-flex rounded-full border px-3 py-1 text-xs font-bold",
-                            getStatusChip(detail.account.statusLabel)
-                          )}
-                        >
-                          {detail.account.statusLabel}
-                        </span>
 
-                        {detail.account.isPrimary ? (
-                          <span className="inline-flex rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
-                            Primary
-                          </span>
-                        ) : null}
+              {detail?.account ? (
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cx(
+                      "inline-flex rounded-full border px-3 py-1 text-xs font-bold",
+                      getStatusChip(detail.account.statusLabel)
+                    )}
+                  >
+                    {detail.account.statusLabel}
+                  </span>
 
-                        {detail.warmup.enabled ? (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                            <Flame className="h-3.5 w-3.5" />
-                            Warmup On
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
-                            Warmup Off
-                          </span>
-                        )}
-                      </div>
+                  {detail.account.isPrimary ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-1 text-xs font-bold text-white">
+                      <Star className="h-3.5 w-3.5" />
+                      Primary
+                    </span>
+                  ) : null}
 
-                      <h2 className="truncate text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">
-                        {detail.account.email}
-                      </h2>
+                  {detail.warmup.enabled ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                      <Flame className="h-3.5 w-3.5" />
+                      Warmup On
+                    </span>
+                  ) : (
+                    <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+                      Warmup Off
+                    </span>
+                  )}
+                </div>
+              ) : null}
 
-                      <p className="mt-2 text-sm text-slate-500">
-                        {getProviderLabel(detail.account.provider)} • Assigned{" "}
-                        {formatDate(detail.account.assignedAt)}
-                      </p>
-                    </div>
+              {detail?.account ? (
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex">
+                  {canSelectPrimary && !detail.account.isPrimary ? (
+                    <button
+                      type="button"
+                      onClick={() => handleSetPrimary(detail.account.email)}
+                      disabled={submittingEmail === detail.account.email}
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-950 bg-white px-4 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      {submittingEmail === detail.account.email
+                        ? "Updating..."
+                        : "Set Primary"}
+                    </button>
+                  ) : null}
 
-                    <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:shrink-0">
-                      {canSelectPrimary && !detail.account.isPrimary ? (
-                        <button
-                          type="button"
-                          onClick={() => handleSetPrimary(detail.account.email)}
-                          disabled={submittingEmail === detail.account.email}
-                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-950 bg-white px-4 text-sm font-bold text-slate-950 transition hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          {submittingEmail === detail.account.email
-                            ? "Updating..."
-                            : "Set Primary"}
-                        </button>
-                      ) : null}
+                  <button
+                    type="button"
+                    onClick={handlePauseResume}
+                    disabled={submittingEmail === detail.account.email}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    {detail.account.isPaused ? (
+                      <PlayCircle className="h-4 w-4" />
+                    ) : (
+                      <PauseCircle className="h-4 w-4" />
+                    )}
+                    {submittingEmail === detail.account.email
+                      ? "Updating..."
+                      : detail.account.isPaused
+                        ? "Resume Mailbox"
+                        : "Pause Mailbox"}
+                  </button>
+                </div>
+              ) : null}
 
-                      {/* <button
-                        type="button"
-                        onClick={handlePauseResume}
-                        disabled={submittingEmail === detail.account.email}
-                        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        {detail.account.isPaused ? (
-                          <PlayCircle className="h-4 w-4" />
-                        ) : (
-                          <PauseCircle className="h-4 w-4" />
-                        )}
-                        {submittingEmail === detail.account.email
-                          ? "Updating..."
-                          : detail.account.isPaused
-                            ? "Resume Mailbox"
-                            : "Pause Mailbox"}
-                      </button> */}
-                    </div>
-                  </div>
+              <div className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1">
+                {[
+                  {
+                    key: "warmup" as TabKey,
+                    label: "Warmup",
+                    icon: <Activity className="h-4 w-4" />,
+                  },
+                  {
+                    key: "settings" as TabKey,
+                    label: "Settings",
+                    icon: <Settings className="h-4 w-4" />,
+                  },
+                  {
+                    key: "campaigns" as TabKey,
+                    label: "Campaigns",
+                    icon: <BarChart3 className="h-4 w-4" />,
+                  },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActiveTab(tab.key)}
+                    className={cx(
+                      "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-bold transition sm:px-4 sm:text-sm",
+                      activeTab === tab.key
+                        ? "bg-slate-950 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-950"
+                    )}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-                  <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-4">
-                    {[
-                      {
-                        key: "warmup" as TabKey,
-                        label: "Warmup",
-                        icon: <Activity className="h-4 w-4" />,
-                      },
-                      {
-                        key: "settings" as TabKey,
-                        label: "Settings",
-                        icon: <Settings className="h-4 w-4" />,
-                      },
-                      {
-                        key: "campaigns" as TabKey,
-                        label: "Campaigns",
-                        icon: <BarChart3 className="h-4 w-4" />,
-                      },
-                    ].map((tab) => (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onClick={() => setActiveTab(tab.key)}
-                        className={cx(
-                          "inline-flex h-10 shrink-0 items-center gap-2 rounded-xl px-3 text-xs font-bold transition sm:px-4 sm:text-sm",
-                          activeTab === tab.key
-                            ? "bg-slate-950 text-white shadow-sm"
-                            : "bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-950"
-                        )}
-                      >
-                        {tab.icon}
-                        {tab.label}
-                      </button>
-                    ))}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/70 p-3 sm:p-4 lg:p-5">
+              {loadingDetail ? (
+                <div className="flex min-h-[520px] items-center justify-center p-8 text-center">
+                  <div>
+                    <Loader2 className="mx-auto h-7 w-7 animate-spin text-slate-400" />
+                    <p className="mt-3 text-sm font-semibold text-slate-600">
+                      Loading account details...
+                    </p>
                   </div>
                 </div>
-
-                <div className="min-h-[420px] bg-slate-50/60 p-3 sm:p-4 lg:p-5">
+              ) : !detail ? (
+                <EmptyState
+                  title="Unable to load account"
+                  description="Close this panel and try opening the mailbox again."
+                />
+              ) : (
+                <>
                   {activeTab === "warmup" && (
-                    <div className="space-y-5">
+                    <div className="space-y-5 pb-6">
                       <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <h3 className="text-base font-bold text-slate-950">
@@ -1285,7 +1244,7 @@ export default function MyAccountsPage() {
                   )}
 
                   {activeTab === "settings" && (
-                    <div className="mx-auto max-w-5xl space-y-5">
+                    <div className="mx-auto max-w-5xl space-y-5 pb-24">
                       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                         <div className="mb-5 flex items-center gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-white">
@@ -1421,15 +1380,11 @@ export default function MyAccountsPage() {
                             <FieldLabel>Inbox Placement Test Limit</FieldLabel>
                             <TextInput
                               type="number"
-                              value={
-                                settingsForm.dailyInboxPlacementTestLimit
-                              }
+                              value={settingsForm.dailyInboxPlacementTestLimit}
                               onChange={(value) =>
                                 setSettingsForm((prev) => ({
                                   ...prev,
-                                  dailyInboxPlacementTestLimit: Number(
-                                    value || 0
-                                  ),
+                                  dailyInboxPlacementTestLimit: Number(value || 0),
                                 }))
                               }
                             />
@@ -1565,26 +1520,28 @@ export default function MyAccountsPage() {
                         </div>
                       </section>
 
-                      <div className="sticky bottom-3 z-10 flex justify-stretch sm:justify-end">
-                        <button
-                          type="button"
-                          onClick={handleSaveSettings}
-                          disabled={savingSettings}
-                          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 text-sm font-bold text-white shadow-xl shadow-slate-300 transition hover:bg-black disabled:opacity-60 sm:w-auto"
-                        >
-                          {savingSettings ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Save className="h-4 w-4" />
-                          )}
-                          {savingSettings ? "Saving..." : "Save Settings"}
-                        </button>
+                      <div className="sticky bottom-0 z-10 -mx-3 border-t border-slate-200 bg-slate-50/95 px-3 py-3 backdrop-blur sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5">
+                        <div className="mx-auto flex max-w-5xl justify-stretch sm:justify-end">
+                          <button
+                            type="button"
+                            onClick={handleSaveSettings}
+                            disabled={savingSettings}
+                            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-6 text-sm font-bold text-white shadow-xl shadow-slate-300 transition hover:bg-black disabled:opacity-60 sm:w-auto"
+                          >
+                            {savingSettings ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Save className="h-4 w-4" />
+                            )}
+                            {savingSettings ? "Saving..." : "Save Settings"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {activeTab === "campaigns" && (
-                    <div className="space-y-4">
+                    <div className="space-y-4 pb-6">
                       {(detail.campaigns || []).length === 0 ? (
                         <EmptyState
                           title="No linked campaigns"
@@ -1681,9 +1638,7 @@ export default function MyAccountsPage() {
                                         <span
                                           className={cx(
                                             "inline-flex rounded-full border px-3 py-1 text-xs font-bold",
-                                            getCampaignStatusChip(
-                                              campaign.status
-                                            )
+                                            getCampaignStatusChip(campaign.status)
                                           )}
                                         >
                                           {campaign.statusLabel}
@@ -1717,12 +1672,12 @@ export default function MyAccountsPage() {
                       )}
                     </div>
                   )}
-                </div>
-              </>
-            ) : null}
+                </>
+              )}
+            </div>
           </section>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
