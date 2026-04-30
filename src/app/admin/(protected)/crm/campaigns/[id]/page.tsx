@@ -3920,22 +3920,24 @@ export default function CampaignDetailPage() {
                         </div>
 
                         <div className="max-h-[360px] overflow-auto py-1">
-                          <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
-                            <div className="flex items-center gap-2">
-                              <span>Include auto replies</span>
-                              <CircleAlert className="h-3.5 w-3.5 text-slate-300" />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setIncludeAutoReplies((prev) => !prev)}
-                              className={cx(
-                                "flex h-6 w-6 items-center justify-center rounded-full text-white",
-                                includeAutoReplies ? "bg-emerald-500" : "bg-slate-300"
-                              )}
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                          </label>
+                          {!isSdrViewer && (
+                            <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
+                              <div className="flex items-center gap-2">
+                                <span>Include auto replies</span>
+                                <CircleAlert className="h-3.5 w-3.5 text-slate-300" />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIncludeAutoReplies((prev) => !prev)}
+                                className={cx(
+                                  "flex h-6 w-6 items-center justify-center rounded-full text-white",
+                                  includeAutoReplies ? "bg-emerald-500" : "bg-slate-300"
+                                )}
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            </label>
+                          )}
 
                           {filteredMetricList.map((metric) => (
                             <label

@@ -870,17 +870,6 @@ export default function MyAccountsPage() {
                 Manage mailbox settings, warmup, sending limits, and linked campaigns.
               </p>
             </div>
-
-            {primaryAccount?.email ? (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
-                  Primary Mailbox
-                </p>
-                <p className="mt-1 max-w-[320px] truncate text-sm font-bold text-slate-950">
-                  {primaryAccount.email}
-                </p>
-              </div>
-            ) : null}
           </div>
         </header>
 
@@ -1023,7 +1012,7 @@ export default function MyAccountsPage() {
                               Role
                             </p>
                             <p className="mt-1 text-sm font-bold capitalize text-slate-950">
-                              {String(account.role || "—").replace(/_/g, " ")}
+                              {String(account.role || "—").replace(/_/g, " ").toUpperCase()}
                             </p>
                           </div>
                         </div>
