@@ -189,6 +189,16 @@ function normalizeStageLabel(stage?: string) {
     .replace(/\b\w/g, (item) => item.toUpperCase());
 }
 
+function getThreadStatusPillClasses(status?: string) {
+  const value = String(status || "").toLowerCase();
+
+  if (value === "waiting_on_us") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (value === "waiting_on_brand") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (value === "closed") return "border-slate-200 bg-slate-100 text-slate-600";
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
 function parseAdminRows(payload: any): AdminOption[] {
   const rows = Array.isArray(payload)
     ? payload
@@ -663,97 +673,208 @@ function EmptyReader() {
   );
 }
 
-function GmailConversationThread({
-  subject,
-  messages,
-  loading,
-  fallbackMessage,
-  brandLabel,
-  teamLabel,
+function decodeEmailEntities(value = "") {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function looksLikeHtml(value = "") {
+  return /<\/?[a-z][\s\S]*>/i.test(String(value || ""));
+}
+
+function stripHtml(value = "") {
+  return decodeEmailEntities(
+    String(value || "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<\/div>/gi, "\n")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+  )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function removeProviderArtifacts(value = "") {
+  return String(value || "")
+    .replace(/\[image:\s*line\]/gi, "")
+    .replace(/\[cid:[^\]]+\]/gi, "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function splitGmailQuotedText(value = "") {
+  const text = removeProviderArtifacts(decodeEmailEntities(value))
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  if (!text) {
+    return { mainText: "", quotedText: "" };
+  }
+
+  const inlineQuoteMatch = text.match(/\sOn\s[\s\S]{10,300}?wrote:\s*/i);
+
+  if (
+    inlineQuoteMatch &&
+    typeof inlineQuoteMatch.index === "number" &&
+    inlineQuoteMatch.index > 0
+  ) {
+    const mainText = text.slice(0, inlineQuoteMatch.index).trim();
+    const quotedText = text
+      .slice(inlineQuoteMatch.index)
+      .replace(/(^|\n)\s*>+\s?/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    return { mainText, quotedText };
+  }
+
+  const lines = text.split("\n");
+
+  const quoteStartIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+
+    return (
+      /^On\s.+wrote:\s*$/i.test(trimmed) ||
+      /^On\s.+wrote:\s*>/i.test(trimmed) ||
+      /^-+\s*Original Message\s*-+$/i.test(trimmed) ||
+      /^From:\s.+/i.test(trimmed) ||
+      /^Sent:\s.+/i.test(trimmed) ||
+      /^To:\s.+/i.test(trimmed) ||
+      /^Subject:\s.+/i.test(trimmed) ||
+      /^>/.test(trimmed)
+    );
+  });
+
+  if (quoteStartIndex === -1) {
+    return { mainText: text, quotedText: "" };
+  }
+
+  const mainText = lines.slice(0, quoteStartIndex).join("\n").trim();
+
+  const quotedText = lines
+    .slice(quoteStartIndex)
+    .join("\n")
+    .replace(/(^|\n)\s*>+\s?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { mainText, quotedText };
+}
+
+function autoLinkEscapedHtml(value = "") {
+  return String(value || "").replace(
+    /(https?:\/\/[^\s<]+)/gi,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
+function textToGmailHtml(value = "") {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+
+  return clean
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => {
+      const escaped = escapeEmailHtml(paragraph).replace(/\n/g, "<br/>");
+      return `<p>${autoLinkEscapedHtml(escaped)}</p>`;
+    })
+    .join("");
+}
+
+function getMessageRawText(message: ThreadMessage) {
+  if (String(message.bodyHtml || "").trim()) {
+    return stripHtml(message.bodyHtml || "");
+  }
+
+  if (looksLikeHtml(message.bodyText || "")) {
+    return stripHtml(message.bodyText || "");
+  }
+
+  return String(message.bodyText || "").trim();
+}
+
+function getGmailMessageParts(message: ThreadMessage) {
+  const rawText = getMessageRawText(message);
+  const { mainText, quotedText } = splitGmailQuotedText(rawText);
+  const hasQuotedText = Boolean(quotedText.trim());
+  const rawHtml =
+    String(message.bodyHtml || "").trim() ||
+    (looksLikeHtml(message.bodyText || "") ? String(message.bodyText || "").trim() : "");
+  const mainHtml =
+    !hasQuotedText && rawHtml
+      ? sanitizeEmailHtml(rawHtml)
+      : textToGmailHtml(mainText);
+
+  return {
+    mainHtml,
+    quotedHtml: textToGmailHtml(quotedText),
+  };
+}
+
+function GmailThreadReader({
   review,
   thread,
+  messages,
+  fallbackMessage,
+  loading,
 }: {
-  subject: string;
-  messages: ThreadMessage[];
-  loading: boolean;
-  fallbackMessage: ThreadMessage | null;
-  brandLabel: string;
-  teamLabel: string;
   review: ReviewRow | null;
   thread: any | null;
+  messages: ThreadMessage[];
+  fallbackMessage: ThreadMessage | null;
+  loading: boolean;
 }) {
   const threadMessages = messages.length ? messages : fallbackMessage ? [fallbackMessage] : [];
-  const messageKey = threadMessages.map((message) => message._id).join("|");
-
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const nextExpanded: Record<string, boolean> = {};
-
-    threadMessages.forEach((message, index) => {
-      nextExpanded[message._id] = threadMessages.length === 1 || index === threadMessages.length - 1;
-    });
-
-    setExpanded(nextExpanded);
-  }, [messageKey]);
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
-        <p className="mt-4 text-sm font-semibold text-slate-500">Loading conversation...</p>
+      <div className="flex h-full w-full items-center justify-center bg-white p-10 text-center">
+        <div>
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          <p className="mt-4 text-sm font-semibold text-slate-500">Loading conversation...</p>
+        </div>
       </div>
     );
   }
 
   if (!threadMessages.length) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-        <Mail className="mx-auto h-10 w-10 text-slate-300" />
-        <p className="mt-4 text-sm font-semibold text-slate-500">No messages found.</p>
+      <div className="flex h-full w-full items-center justify-center bg-white p-10 text-center">
+        <p className="text-sm font-semibold text-slate-500">No messages in this thread yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-      <div className="border-b border-slate-200 px-6 py-5">
-        <h2 className="text-[22px] font-normal leading-8 text-slate-900">
-          {subject || "(No subject)"}
-        </h2>
-      </div>
-
-      <div>
-        {threadMessages.map((message, index) => {
-          const isInbound = String(message.direction || "").toLowerCase() === "inbound";
-          const isExpanded = Boolean(expanded[message._id]);
+    <div className="h-full w-full bg-white">
+      <div className="divide-y divide-slate-100">
+        {threadMessages.map((msg) => {
+          const isInbound = String(msg.direction || "").toLowerCase() === "inbound";
+          const brandLabel = getBrandLabel(review, thread);
           const mailboxLabel = getMessageMailboxLabel(
-            message,
+            msg,
             review,
             thread,
             isInbound ? "inbound_recipient" : "outbound_sender"
           );
-
           const senderLabel = isInbound ? brandLabel : mailboxLabel;
-          const recipientLabel = isInbound ? mailboxLabel : brandLabel;
-          const messageDate = getMessageDate(message);
-          const preview = getMessagePreview(message);
+          const recipientName = isInbound ? mailboxLabel : brandLabel;
+          const messageParts = getGmailMessageParts(msg);
 
           return (
-            <div key={message._id || index} className="border-b border-slate-100 last:border-b-0">
-              <button
-                type="button"
-                onClick={() =>
-                  setExpanded((prev) => ({
-                    ...prev,
-                    [message._id]: !prev[message._id],
-                  }))
-                }
-                className={cx(
-                  "flex w-full items-start gap-4 px-6 py-4 text-left transition",
-                  isExpanded ? "bg-white" : "bg-white hover:bg-slate-50"
-                )}
-              >
+            <article key={msg._id} className="w-full px-6 py-6">
+              <div className="flex items-start gap-4">
                 <div
                   className={cx(
                     "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white",
@@ -764,36 +885,38 @@ function GmailConversationThread({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-start justify-between gap-4">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-slate-900">{senderLabel}</p>
-                        <span className="text-xs text-slate-500">
-                          {`to ${recipientLabel}`}
-                        </span>
+                        <p className="text-sm font-semibold text-slate-900">{senderLabel}</p>
+                        <span className="text-xs text-slate-500">{`to ${recipientName}`}</span>
                       </div>
-
-                      {!isExpanded ? (
-                        <p className="mt-1 line-clamp-1 text-sm text-slate-500">{preview}</p>
-                      ) : null}
                     </div>
 
                     <span className="shrink-0 text-xs text-slate-500">
-                      {formatDateTime(messageDate)}
+                      {formatDateTime(getMessageDate(msg))}
                     </span>
                   </div>
-                </div>
-              </button>
 
-              {isExpanded ? (
-                <div className="pb-6 pl-[88px] pr-8">
                   <div
-                    className="gmail-message-body max-w-3xl text-[14px] leading-7 text-slate-800 [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-slate-200 [&_blockquote]:pl-4 [&_blockquote]:text-slate-500 [&_p]:mb-4"
-                    dangerouslySetInnerHTML={{ __html: getMessageHtml(message) }}
+                    className="gmail-message-body mt-5 max-w-none text-[14px] leading-7 text-slate-800 [&_a]:font-medium [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-slate-200 [&_blockquote]:pl-4 [&_blockquote]:text-slate-500 [&_p]:mb-4"
+                    dangerouslySetInnerHTML={{ __html: messageParts.mainHtml || "<p>—</p>" }}
                   />
+
+                  {messageParts.quotedHtml ? (
+                    <div className="mt-5 border-l-2 border-slate-300 pl-4">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                        Previous message
+                      </p>
+                      <div
+                        className="max-w-none text-[13px] leading-6 text-slate-500 [&_a]:text-blue-600 [&_a]:underline [&_p]:mb-3"
+                        dangerouslySetInnerHTML={{ __html: messageParts.quotedHtml }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            </article>
           );
         })}
       </div>
@@ -1213,367 +1336,201 @@ export default function ReviewQueuePage() {
       }
     : null;
 
+  const selectedThreadMeta = threadDetail.thread || null;
+  const statusValue = String(selectedThreadMeta?.status || "").trim();
+
   return (
-    <div className="min-h-screen bg-[#f6f8fb] text-slate-950">
+    <div className="flex min-h-[calc(100vh-2rem)] flex-col gap-4 bg-[#f8fafc] p-3 sm:p-4 xl:h-[calc(100vh-2rem)]">
       {message && (
         <div
           className={cx(
-            "fixed right-5 top-5 z-[80] flex max-w-md items-start gap-3 rounded-2xl px-4 py-3 text-sm font-semibold shadow-2xl",
-            message.type === "success" && "bg-emerald-600 text-white",
-            message.type === "error" && "bg-rose-600 text-white",
-            message.type === "info" && "bg-slate-900 text-white"
+            "rounded-2xl border px-4 py-3 text-sm font-medium shadow-sm",
+            message.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
+            message.type === "error" && "border-rose-200 bg-rose-50 text-rose-700",
+            message.type === "info" && "border-blue-200 bg-blue-50 text-blue-700"
           )}
         >
-          {message.type === "success" ? (
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : message.type === "error" ? (
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          ) : (
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
-          )}
-          <span>{message.text}</span>
+          <div className="flex items-start gap-2">
+            {message.type === "success" ? (
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : message.type === "error" ? (
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            ) : (
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <span>{message.text}</span>
+          </div>
         </div>
       )}
 
-      <div className="border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="px-6 py-5">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700 ring-1 ring-blue-100">
-                  <Inbox className="h-3.5 w-3.5" />
-                  Review Queue
-                </span>
-
-                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                  {actorRole ? actorRole.replace(/_/g, " ").toUpperCase() : "LOADING"}
-                </span>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)] xl:flex-row">
+        <aside
+          className={cx(
+            "flex w-full shrink-0 flex-col border-b border-slate-200 bg-slate-50/70 xl:w-[360px] xl:border-b-0 xl:border-r 2xl:w-[400px]",
+            selectedReview ? "hidden xl:flex" : "flex"
+          )}
+        >
+          <div className="border-b border-slate-200 p-4 sm:p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Review Queue</h2>
+                <p className="mt-1 text-sm text-slate-500">Pending reply inbox</p>
               </div>
 
-              <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-950">
-                Reply Review Inbox
-              </h1>
+              <button
+                type="button"
+                onClick={() => loadPage(false)}
+                disabled={loading}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                title="Refresh"
+              >
+                <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => loadPage(false)}
-              disabled={loading}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <RefreshCw className={cx("h-4 w-4", loading && "animate-spin")} />
-              Refresh
-            </button>
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search brands, campaigns, people..."
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
+              />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+              <select value={campaignFilter} onChange={(event) => setCampaignFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400">
+                <option value="">All Campaigns</option>
+                {campaignOptions.map((item) => (<option key={item._id} value={item._id}>{item.name}</option>))}
+              </select>
+
+              {canFilterBySdr && (
+                <select value={sdrFilter} onChange={(event) => setSdrFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400">
+                  <option value="">All SDRs</option>
+                  {sdrFilterOptions.map((item) => (<option key={item._id} value={item._id}>{getAdminLabel(item)}</option>))}
+                </select>
+              )}
+
+              {canFilterByBme && (
+                <select value={bmeFilter} onChange={(event) => setBmeFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400">
+                  <option value="">All BMEs</option>
+                  {bmeFilterOptions.map((item) => (<option key={item._id} value={item._id}>{getAdminLabel(item)}</option>))}
+                </select>
+              )}
+
+              {canFilterByRh && (
+                <select value={rhFilter} onChange={(event) => setRhFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400">
+                  <option value="">All RHs</option>
+                  {rhFilterOptions.map((item) => (<option key={item._id} value={item._id}>{getAdminLabel(item)}</option>))}
+                </select>
+              )}
+            </div>
+
+            {hasAnyFilter ? (<button type="button" onClick={clearFilters} className="mt-3 inline-flex text-xs font-bold text-blue-600 transition hover:text-blue-700">Clear all filters</button>) : null}
           </div>
 
-        </div>
-      </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {loading ? (
+              <div className="p-8 text-center text-sm text-slate-500">Loading review queue...</div>
+            ) : filteredReplies.length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-500">No pending replies found.</div>
+            ) : (
+              <ul className="space-y-2">
+                {filteredReplies.map((item) => {
+                  const active = item._id === selectedReviewId;
+                  const brandName = firstUsefulName(item.prospectId?.companyName, item.prospectId?.primaryContact?.name) || "Lead";
+                  const brandEmail = canSeeBrandEmail ? item.prospectId?.primaryContact?.email || "" : "";
+                  const campaignName = item.campaignId?.name || "No campaign";
+                  const subject = item.latestReplySubject || item.prospectId?.reply?.subject || "(No subject)";
+                  const snippet = item.latestReplySnippet || item.prospectId?.reply?.snippet || "No reply content";
 
-      <div className="px-6 py-6">
-        <div className="flex h-[calc(100vh-245px)] min-h-[680px] overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_22px_70px_rgba(15,23,42,0.08)]">
-          <aside className={cx("flex w-full shrink-0 flex-col border-r border-slate-200 bg-white xl:w-[440px]", selectedReview && "hidden xl:flex")}>
-            <div className="border-b border-slate-200 bg-white px-4 py-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Inbox</p>
-                  <h2 className="mt-1 text-lg font-bold text-slate-950">Pending replies</h2>
-                </div>
-
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
-                  {filteredReplies.length}
-                </span>
-              </div>
-
-              <div className="mt-4">
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search company, contact, campaign, subject..."
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div className="relative">
-                  <select
-                    value={campaignFilter}
-                    onChange={(event) => setCampaignFilter(event.target.value)}
-                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="">All Campaigns</option>
-                    {campaignOptions.map((item) => (
-                      <option key={item._id} value={item._id}>{item.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                </div>
-
-                {canFilterBySdr && (
-                  <div className="relative">
-                    <select value={sdrFilter} onChange={(event) => setSdrFilter(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400">
-                      <option value="">All SDRs</option>
-                      {sdrFilterOptions.map((item) => (
-                        <option key={item._id} value={item._id}>{getAdminLabel(item)}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  </div>
-                )}
-
-                {canFilterByBme && (
-                  <div className="relative">
-                    <select value={bmeFilter} onChange={(event) => setBmeFilter(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400">
-                      <option value="">All BMEs</option>
-                      {bmeFilterOptions.map((item) => (
-                        <option key={item._id} value={item._id}>{getAdminLabel(item)}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  </div>
-                )}
-
-                {canFilterByRh && (
-                  <div className="relative">
-                    <select value={rhFilter} onChange={(event) => setRhFilter(event.target.value)} className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-8 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400">
-                      <option value="">All RHs</option>
-                      {rhFilterOptions.map((item) => (
-                        <option key={item._id} value={item._id}>{getAdminLabel(item)}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  </div>
-                )}
-              </div>
-
-              {hasAnyFilter ? (
-                <button type="button" onClick={clearFilters} className="mt-3 inline-flex text-xs font-bold text-blue-600 hover:text-blue-700">
-                  Clear all filters
-                </button>
-              ) : null}
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {loading ? (
-                <div className="flex h-full items-center justify-center p-8 text-sm font-semibold text-slate-400">
-                  Loading review queue...
-                </div>
-              ) : filteredReplies.length === 0 ? (
-                <div className="flex h-full items-center justify-center p-8 text-center">
-                  <div>
-                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-100 text-slate-400">
-                      <Inbox className="h-7 w-7" />
-                    </div>
-                    <p className="mt-4 text-sm font-bold text-slate-700">Queue is empty</p>
-                    <p className="mt-1 text-sm text-slate-500">No pending replies match your filters.</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {filteredReplies.map((item) => {
-                    const active = item._id === selectedReviewId;
-                    const companyName = item.prospectId?.companyName || "Unknown Company";
-                    const contactName = item.prospectId?.primaryContact?.name || "Unknown Contact";
-                    const contactEmail = canSeeBrandEmail ? item.prospectId?.primaryContact?.email || "" : "";
-                    const campaignName = item.campaignId?.name || "No campaign";
-                    const subject = item.latestReplySubject || item.prospectId?.reply?.subject || "(No subject)";
-                    const snippet = item.latestReplySnippet || item.prospectId?.reply?.snippet || "—";
-
-                    return (
-                      <button
-                        key={item._id}
-                        type="button"
-                        onClick={() => setSelectedReviewId(item._id)}
-                        className={cx("group relative block w-full px-4 py-4 text-left transition", active ? "bg-blue-50/70" : "bg-white hover:bg-slate-50")}
-                      >
-                        {active ? <span className="absolute bottom-0 left-0 top-0 w-1 bg-blue-600" /> : null}
-
+                  return (
+                    <li key={item._id}>
+                      <button type="button" onClick={() => setSelectedReviewId(item._id)} className={cx("w-full rounded-2xl border p-4 text-left transition", active ? "border-slate-900 bg-white shadow-sm" : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white")}>
                         <div className="flex items-start gap-3">
-                          <div className={cx("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold", active ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-700")}>
-                            {getInitials(companyName)}
-                          </div>
-
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-800">{getInitials(brandName)}</div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-bold text-slate-950">{companyName}</p>
-                                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
-                                  {contactName}
-                                  {contactEmail ? ` · ${contactEmail}` : ""}
-                                  {campaignName ? ` · ${campaignName}` : ""}
-                                </p>
+                                <p className="truncate text-sm font-semibold text-slate-900">{brandName}</p>
+                                {brandEmail ? <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">{brandEmail}</p> : null}
                               </div>
-
-                              <span className="shrink-0 text-xs font-semibold text-slate-400">
-                                {formatInboxDate(item.createdAt)}
-                              </span>
+                              <span className="shrink-0 text-xs text-slate-500">{formatInboxDate(item.createdAt)}</span>
                             </div>
-
-                            <p className="mt-2 truncate text-sm font-semibold text-slate-800">{subject}</p>
+                            <p className="mt-1 truncate text-sm font-semibold text-slate-800">{subject}</p>
                             <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{snippet}</p>
-
-                            <div className="mt-3 flex flex-wrap items-center gap-2">
-                              <span className={cx("inline-flex rounded-full border px-2.5 py-1 text-[11px] font-bold", getStagePillClasses(item.prospectId?.stage))}>
-                                {normalizeStageLabel(item.prospectId?.stage)}
-                              </span>
-                              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
-                                {campaignName}
-                              </span>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                              <span className="truncate font-medium text-slate-700">{campaignName}</span>
+                              <span>•</span>
+                              <span>{normalizeStageLabel(item.prospectId?.stage)}</span>
                             </div>
                           </div>
                         </div>
                       </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </aside>
-
-          <main className={cx("min-w-0 flex-1 flex-col bg-[#f8fafc]", selectedReview ? "flex" : "hidden xl:flex")}>
-            {!selectedReview ? (
-              <EmptyReader />
-            ) : (
-              <>
-                <div className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedReviewId("")}
-                        className="mt-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 xl:hidden"
-                      >
-                        <ArrowLeft className="h-5 w-5" />
-                      </button>
-
-                      <div className="min-w-0">
-                        <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-                          {selectedCompany}
-                        </h2>
-
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                          <span>{selectedContact}</span>
-                          {canSeeBrandEmail && selectedReview?.prospectId?.primaryContact?.email ? (
-                            <>
-                              <span>·</span>
-                              <span>{selectedReview.prospectId.primaryContact.email}</span>
-                            </>
-                          ) : null}
-                          <span>·</span>
-                          <span>{teamLabel}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-10">
-                  <div className="mx-auto max-w-5xl space-y-5">
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Campaign</p>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{selectedReview.campaignId?.name || threadDetail.thread?.campaignId?.name || "—"}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">SDR</p>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{getShortAdminLabel(selectedReview.sdrId)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Revenue Head</p>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{getShortAdminLabel(selectedReview.RHId)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                        <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Assigned BME</p>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{getShortAdminLabel(selectedReview.assignedBmeId)}</p>
-                      </div>
-                    </div>
-
-                    <GmailConversationThread
-                      subject={selectedSubject}
-                      messages={threadDetail.messages}
-                      loading={threadLoading}
-                      fallbackMessage={fallbackLatestMessage}
-                      brandLabel={brandLabel}
-                      teamLabel={teamLabel}
-                      review={selectedReview}
-                      thread={threadDetail.thread}
-                    />
-
-                    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Decision & Assignment</p>
-                          <h3 className="mt-2 text-lg font-bold text-slate-950">Qualify this reply</h3>
-                        </div>
-
-                        <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 sm:flex">
-                          <UserCheck className="h-6 w-6" />
-                        </div>
-                      </div>
-
-                      <div className="mt-5 grid gap-4 lg:grid-cols-[320px_1fr]">
-                        <label className="block">
-                          <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Assign to BME</span>
-
-                          <div className="relative">
-                            <select
-                              value={selectedBmeId}
-                              onChange={(event) => setSelectedBmeId(event.target.value)}
-                              disabled={bmeOptions.length === 0}
-                              className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
-                            >
-                              <option value="">{bmeOptions.length === 0 ? "No BME available" : "Select BME..."}</option>
-                              {bmeOptions.map((admin) => (
-                                <option key={admin._id} value={admin._id}>{getAdminLabel(admin)}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                          </div>
-                        </label>
-
-                        <label className="block">
-                          <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Reviewer Notes</span>
-                          <textarea
-                            value={reviewerNotes}
-                            onChange={(event) => setReviewerNotes(event.target.value)}
-                            rows={4}
-                            placeholder="Add context for BME..."
-                            className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
-                        <button
-                          type="button"
-                          onClick={handleReject}
-                          disabled={!canReject}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 text-sm font-bold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <XCircle className="h-4 w-4" />
-                          {submittingKey === "reject" ? "Marking..." : "Mark Unqualified"}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={handleAssignToBme}
-                          disabled={!canAssign}
-                          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Send className="h-4 w-4" />
-                          {submittingKey === "assign" ? "Assigning..." : "Assign to BME"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
-          </main>
-        </div>
+          </div>
+        </aside>
+
+        <main className={cx("min-h-0 min-w-0 flex-1 flex-col bg-white", selectedReview ? "flex" : "hidden xl:flex")}>
+          {!selectedReview ? (
+            <EmptyReader />
+          ) : (
+            <>
+              <div className="border-b border-slate-200 px-4 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <button type="button" onClick={() => setSelectedReviewId("")} className="inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 xl:hidden"><ArrowLeft className="h-4 w-4" /></button>
+                      <div className="min-w-0">
+                        <h3 className="truncate text-xl font-semibold text-slate-900 sm:text-2xl">{selectedSubject || selectedCompany}</h3>
+                        <p className="mt-1 truncate text-sm text-slate-500">
+                          {selectedCompany}
+                          {canSeeBrandEmail && selectedReview?.prospectId?.primaryContact?.email ? ` · ${selectedReview.prospectId.primaryContact.email}` : ""}
+                          {selectedReview.campaignId?.name || selectedThreadMeta?.campaignId?.name ? ` · ${selectedReview.campaignId?.name || selectedThreadMeta?.campaignId?.name}` : ""}
+                          {` · ${teamLabel}`}
+                        </p>
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <span className={cx("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", getStagePillClasses(selectedReview.prospectId?.stage))}>{normalizeStageLabel(selectedReview.prospectId?.stage)}</span>
+                          {statusValue ? (<span className={cx("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", getThreadStatusPillClasses(statusValue))}>{statusValue.replace(/_/g, " ")}</span>) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="hidden items-center gap-3 sm:flex">
+                      <button type="button" onClick={openFullThread} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><ExternalLink className="h-4 w-4" />Open Thread</button>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 sm:hidden">
+                    <button type="button" onClick={openFullThread} className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"><ExternalLink className="h-4 w-4" />Open Thread</button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+                <GmailThreadReader review={selectedReview} thread={threadDetail.thread} messages={threadDetail.messages} fallbackMessage={fallbackLatestMessage} loading={threadLoading} />
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-5 sm:px-6 lg:px-8">
+                  <div className="mx-auto max-w-5xl rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Decision & Assignment</p><h3 className="mt-2 text-lg font-bold text-slate-950">Qualify this reply</h3></div>
+                      <div className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 sm:flex"><UserCheck className="h-6 w-6" /></div>
+                    </div>
+                    <div className="mt-5 grid gap-4 lg:grid-cols-[320px_1fr]">
+                      <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Assign to BME</span><div className="relative"><select value={selectedBmeId} onChange={(event) => setSelectedBmeId(event.target.value)} disabled={bmeOptions.length === 0} className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-semibold text-slate-800 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"><option value="">{bmeOptions.length === 0 ? "No BME available" : "Select BME..."}</option>{bmeOptions.map((admin) => (<option key={admin._id} value={admin._id}>{getAdminLabel(admin)}</option>))}</select><ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /></div></label>
+                      <label className="block"><span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Reviewer Notes</span><textarea value={reviewerNotes} onChange={(event) => setReviewerNotes(event.target.value)} rows={4} placeholder="Add context for BME..." className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-50" /></label>
+                    </div>
+                    <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-end">
+                      <button type="button" onClick={handleReject} disabled={!canReject} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-5 text-sm font-bold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"><XCircle className="h-4 w-4" />{submittingKey === "reject" ? "Marking..." : "Mark Unqualified"}</button>
+                      <button type="button" onClick={handleAssignToBme} disabled={!canAssign} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"><Send className="h-4 w-4" />{submittingKey === "assign" ? "Assigning..." : "Assign to BME"}</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </main>
       </div>
     </div>
   );
