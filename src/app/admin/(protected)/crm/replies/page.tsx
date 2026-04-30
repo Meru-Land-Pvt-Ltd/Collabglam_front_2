@@ -13,6 +13,14 @@ type AdminOption = {
   role?: string;
 };
 
+type ThreadMailboxes = {
+  campaignSenderEmail?: string;
+  currentReplyFromEmail?: string;
+  RHEmail?: string;
+  bmeEmail?: string;
+  imeEmail?: string;
+};
+
 type ThreadRow = {
   _id: string;
   ownerRole?: string;
@@ -24,6 +32,7 @@ type ThreadRow = {
   brandDisplayName?: string;
   teamDisplayName?: string;
   instantlyThreadId?: string;
+  mailboxes?: ThreadMailboxes | null;
   campaignId?: { _id?: string; name?: string } | null;
   sdrId?: { _id?: string; name?: string; email?: string } | null;
   RHId?: { _id?: string; name?: string; email?: string } | null;
@@ -456,43 +465,89 @@ function getBrandDisplayName(thread?: ThreadRow | null) {
   );
 }
 
-function getThreadTeamLabel(thread?: ThreadRow | null) {
+function isEmailLike(value?: string | null) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || "").trim());
+}
+
+function emailToDisplayName(value?: string | null) {
+  const input = String(value || "").trim();
+
+  if (!input) return "";
+
+  const emailMatch = input.match(/<([^>]+)>/);
+  const email = emailMatch?.[1] || input;
+  const localPart = email.includes("@") ? email.split("@")[0] : email;
+
+  return localPart
+    .replace(/\+.*/, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getPreferredMailboxEmail(thread?: ThreadRow | null) {
+  const mailboxes = thread?.mailboxes || {};
   const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
 
   if (ownerRole === "bme") {
-    return firstUsefulName(
-      thread?.assignedBmeId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name,
-      thread?.RHId?.name
-    ) || "BME";
+    return (
+      mailboxes.bmeEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
   }
 
   if (ownerRole === "ime") {
-    return firstUsefulName(
-      thread?.assignedImeId?.name,
-      thread?.IMEId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name
-    ) || "IME";
+    return (
+      mailboxes.imeEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
   }
 
   if (ownerRole === "revenue_head" || ownerRole === "rh") {
-    return firstUsefulName(
-      thread?.RHId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name
-    ) || "Revenue Head";
+    return (
+      mailboxes.RHEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
   }
 
   return (
-    firstUsefulName(
-      thread?.assignedBmeId?.name,
-      thread?.sdrId?.name,
-      thread?.RHId?.name,
-      thread?.teamDisplayName
-    ) || "Team Member"
+    mailboxes.currentReplyFromEmail ||
+    mailboxes.campaignSenderEmail ||
+    mailboxes.RHEmail ||
+    mailboxes.bmeEmail ||
+    mailboxes.imeEmail ||
+    ""
   );
+}
+
+function getThreadTeamLabel(thread?: ThreadRow | null) {
+  return emailToDisplayName(getPreferredMailboxEmail(thread)) || "Mailbox";
+}
+
+function getMessageMailboxLabel(
+  message: ThreadMessage,
+  thread: ThreadRow | null,
+  mode: "outbound_sender" | "inbound_recipient"
+) {
+  const raw =
+    mode === "outbound_sender"
+      ? message.from
+      : Array.isArray(message.to)
+        ? message.to.find((item) => isEmailLike(item)) || message.to[0]
+        : "";
+
+  if (isEmailLike(raw)) {
+    return emailToDisplayName(raw);
+  }
+
+  return getThreadTeamLabel(thread);
 }
 
 function getThreadPreviewText(thread?: ThreadRow | null) {
@@ -577,15 +632,14 @@ function GmailThreadReader({
           const isInbound = String(msg.direction || "").toLowerCase() === "inbound";
 
           const brandLabel = getBrandDisplayName(thread);
-          const teamLabel = getThreadTeamLabel(thread);
+          const mailboxLabel = getMessageMailboxLabel(
+            msg,
+            thread,
+            isInbound ? "inbound_recipient" : "outbound_sender"
+          );
 
-          const senderLabel =
-            firstUsefulName(msg.fromDisplayName, isInbound ? brandLabel : teamLabel) ||
-            (isInbound ? brandLabel : teamLabel);
-
-          const recipientName =
-            firstUsefulName(msg.toDisplayNames?.[0], isInbound ? teamLabel : brandLabel) ||
-            (isInbound ? teamLabel : brandLabel);
+          const senderLabel = isInbound ? brandLabel : mailboxLabel;
+          const recipientName = isInbound ? mailboxLabel : brandLabel;
 
           const recipientLine = `to ${recipientName}`;
 
@@ -1470,6 +1524,22 @@ export default function RepliesPage() {
                   </div>
 
                   <div className="flex gap-3 sm:hidden">
+                    {canOpenCrmProfile ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push(
+                            selectedThreadMeta.prospectId?._id
+                              ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
+                              : "/admin/crm/review-queue"
+                          )
+                        }
+                        className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Open CRM
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       onClick={openReplyModal}

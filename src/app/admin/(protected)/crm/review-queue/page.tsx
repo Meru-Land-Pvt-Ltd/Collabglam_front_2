@@ -30,6 +30,14 @@ type AdminOption = {
   role?: string;
 };
 
+type ThreadMailboxes = {
+  campaignSenderEmail?: string;
+  currentReplyFromEmail?: string;
+  RHEmail?: string;
+  bmeEmail?: string;
+  imeEmail?: string;
+};
+
 type ReviewRow = {
   _id: string;
   campaignId?: { _id?: string; name?: string } | null;
@@ -43,6 +51,7 @@ type ReviewRow = {
   sdrId?: { _id?: string; name?: string; email?: string } | null;
   RHId?: { _id?: string; name?: string; email?: string } | null;
   assignedBmeId?: { _id?: string; name?: string; email?: string } | null;
+  mailboxes?: ThreadMailboxes | null;
   latestReplySnippet?: string;
   latestReplySubject?: string;
   reviewStatus?: string;
@@ -58,6 +67,7 @@ type ThreadRow = {
   sdrId?: { _id?: string; name?: string; email?: string } | null;
   RHId?: { _id?: string; name?: string; email?: string } | null;
   assignedBmeId?: { _id?: string; name?: string; email?: string } | null;
+  mailboxes?: ThreadMailboxes | null;
 };
 
 type ThreadMessage = {
@@ -235,6 +245,7 @@ function parseThreads(payload: any): ThreadRow[] {
     sdrId: item?.sdrId || null,
     RHId: item?.RHId || null,
     assignedBmeId: item?.assignedBmeId || null,
+    mailboxes: item?.mailboxes || null,
   }));
 }
 
@@ -262,6 +273,7 @@ function hydrateRepliesWithThreadFallbacks(replies: ReviewRow[], threads: Thread
       assignedBmeId: reply.assignedBmeId?._id
         ? reply.assignedBmeId
         : thread.assignedBmeId || reply.assignedBmeId || null,
+      mailboxes: reply.mailboxes || thread.mailboxes || null,
     };
   });
 }
@@ -427,6 +439,75 @@ function firstUsefulName(...values: Array<string | null | undefined>) {
   return String(found || "").trim();
 }
 
+function isEmailLike(value?: string | null) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || "").trim());
+}
+
+function emailToDisplayName(value?: string | null) {
+  const input = String(value || "").trim();
+
+  if (!input) return "";
+
+  const emailMatch = input.match(/<([^>]+)>/);
+  const email = emailMatch?.[1] || input;
+  const localPart = email.includes("@") ? email.split("@")[0] : email;
+
+  return localPart
+    .replace(/\+.*/, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getMailboxObject(review: ReviewRow | null, thread: any | null): ThreadMailboxes {
+  return {
+    ...(review?.mailboxes || {}),
+    ...(thread?.mailboxes || {}),
+  };
+}
+
+function getPreferredMailboxEmail(review: ReviewRow | null, thread: any | null) {
+  const mailboxes = getMailboxObject(review, thread);
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return (
+      mailboxes.bmeEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  if (ownerRole === "ime") {
+    return (
+      mailboxes.imeEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return (
+      mailboxes.RHEmail ||
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  return (
+    mailboxes.currentReplyFromEmail ||
+    mailboxes.campaignSenderEmail ||
+    mailboxes.RHEmail ||
+    mailboxes.bmeEmail ||
+    mailboxes.imeEmail ||
+    ""
+  );
+}
+
 function getBrandLabel(review: ReviewRow | null, thread: any | null) {
   return (
     firstUsefulName(
@@ -441,51 +522,29 @@ function getBrandLabel(review: ReviewRow | null, thread: any | null) {
 }
 
 function getTeamLabel(review: ReviewRow | null, thread: any | null) {
-  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+  const mailboxEmail = getPreferredMailboxEmail(review, thread);
 
-  if (ownerRole === "bme") {
-    return firstUsefulName(
-      thread?.assignedBmeId?.name,
-      review?.assignedBmeId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name,
-      review?.sdrId?.name,
-      thread?.RHId?.name,
-      review?.RHId?.name
-    ) || "BME";
+  return emailToDisplayName(mailboxEmail) || "Mailbox";
+}
+
+function getMessageMailboxLabel(
+  message: ThreadMessage,
+  review: ReviewRow | null,
+  thread: any | null,
+  mode: "outbound_sender" | "inbound_recipient"
+) {
+  const raw =
+    mode === "outbound_sender"
+      ? message.from
+      : Array.isArray(message.to)
+        ? message.to.find((item) => isEmailLike(item)) || message.to[0]
+        : "";
+
+  if (isEmailLike(raw)) {
+    return emailToDisplayName(raw);
   }
 
-  if (ownerRole === "ime") {
-    return firstUsefulName(
-      thread?.assignedImeId?.name,
-      thread?.IMEId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name,
-      review?.sdrId?.name
-    ) || "IME";
-  }
-
-  if (ownerRole === "revenue_head" || ownerRole === "rh") {
-    return firstUsefulName(
-      thread?.RHId?.name,
-      review?.RHId?.name,
-      thread?.teamDisplayName,
-      thread?.sdrId?.name,
-      review?.sdrId?.name
-    ) || "Revenue Head";
-  }
-
-  return (
-    firstUsefulName(
-      thread?.assignedBmeId?.name,
-      review?.assignedBmeId?.name,
-      thread?.sdrId?.name,
-      review?.sdrId?.name,
-      thread?.RHId?.name,
-      review?.RHId?.name,
-      thread?.teamDisplayName
-    ) || "Team Member"
-  );
+  return getTeamLabel(review, thread);
 }
 
 function MetricCard({
@@ -548,6 +607,8 @@ function GmailConversationThread({
   fallbackMessage,
   brandLabel,
   teamLabel,
+  review,
+  thread,
 }: {
   subject: string;
   messages: ThreadMessage[];
@@ -555,6 +616,8 @@ function GmailConversationThread({
   fallbackMessage: ThreadMessage | null;
   brandLabel: string;
   teamLabel: string;
+  review: ReviewRow | null;
+  thread: any | null;
 }) {
   const threadMessages = messages.length ? messages : fallbackMessage ? [fallbackMessage] : [];
   const messageKey = threadMessages.map((message) => message._id).join("|");
@@ -601,15 +664,15 @@ function GmailConversationThread({
         {threadMessages.map((message, index) => {
           const isInbound = String(message.direction || "").toLowerCase() === "inbound";
           const isExpanded = Boolean(expanded[message._id]);
-          const senderLabel = firstUsefulName(
-            message.fromDisplayName,
-            isInbound ? brandLabel : teamLabel
-          ) || (isInbound ? brandLabel : teamLabel);
-          const recipientLabel =
-            firstUsefulName(
-              message.toDisplayNames?.[0],
-              isInbound ? teamLabel : brandLabel
-            ) || (isInbound ? teamLabel : brandLabel);
+          const mailboxLabel = getMessageMailboxLabel(
+            message,
+            review,
+            thread,
+            isInbound ? "inbound_recipient" : "outbound_sender"
+          );
+
+          const senderLabel = isInbound ? brandLabel : mailboxLabel;
+          const recipientLabel = isInbound ? mailboxLabel : brandLabel;
           const messageDate = getMessageDate(message);
           const preview = getMessagePreview(message);
 
@@ -1076,7 +1139,7 @@ export default function ReviewQueuePage() {
         _id: `fallback-${selectedReview._id}`,
         direction: "inbound",
         from: brandLabel,
-        to: [teamLabel],
+        to: [getPreferredMailboxEmail(selectedReview, threadDetail.thread) || teamLabel],
         fromDisplayName: brandLabel,
         toDisplayNames: [teamLabel],
         subject: selectedSubject,
@@ -1372,6 +1435,8 @@ export default function ReviewQueuePage() {
                       fallbackMessage={fallbackLatestMessage}
                       brandLabel={brandLabel}
                       teamLabel={teamLabel}
+                      review={selectedReview}
+                      thread={threadDetail.thread}
                     />
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
