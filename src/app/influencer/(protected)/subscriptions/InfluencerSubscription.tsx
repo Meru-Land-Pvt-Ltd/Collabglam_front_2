@@ -86,7 +86,21 @@ const UPGRADE_HOVER =
 const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
 const prettifyKey = (key: string) => key.split("_").map(capitalize).join(" ");
 const currencySym = (c?: string) => (c === "INR" ? "₹" : c === "EUR" ? "€" : "$");
-const normalizePlanKey = (value?: string | null) => (value || "").trim().toLowerCase();
+const normalizePlanKey = (value?: string | null) =>
+  (value || "").trim().toLowerCase();
+
+const PLAN_RANK: Record<string, number> = {
+  free: 0,
+  creator_plus: 1,
+  creator_pro: 2,
+  agency: 3,
+  talent_management: 3,
+};
+
+const getPlanRank = (name?: string | null) => {
+  const key = normalizePlanKey(name);
+  return PLAN_RANK[key] ?? -1;
+};
 
 const SUPPORT_PRETTY: Record<string, string> = {
   chat: "Chat support",
@@ -202,11 +216,18 @@ const MARKETING_COPY: Record<
     cta: "Choose Creator Pro",
   },
   agency: {
-    title: "AGENCY",
-    subtitle: "Manage creators and brand work at scale",
+    title: "TALENT MANAGEMENT",
+    subtitle: "Built for creators ready to grow.",
     description:
-      "Best for talent teams and agencies managing multiple creators, more campaigns, and advanced workflows from one workspace.",
-    cta: "Choose Agency",
+      "Unlock more collaborations, stronger profile tools, and better campaign access.",
+    cta: "Choose Plan",
+  },
+  talent_management: {
+    title: "TALENT MANAGEMENT",
+    subtitle: "Built for creators ready to grow.",
+    description:
+      "Unlock more collaborations, stronger profile tools, and better campaign access.",
+    cta: "Choose Plan",
   },
 };
 
@@ -330,6 +351,8 @@ export default function InfluencerSubscriptionPage() {
   const [confirming, setConfirming] = useState(false);
 
   const currentPlanKey = normalizePlanKey(currentPlan);
+  const currentPlanRank = useMemo(() => getPlanRank(currentPlan), [currentPlan]);
+  const currentPlanIsHighest = currentPlanRank >= getPlanRank("talent_management");
 
   const stripStripeParamsFromUrl = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -429,17 +452,12 @@ export default function InfluencerSubscriptionPage() {
           role: "Influencer",
         });
 
-        const rank = (n: string) =>
-          ({ free: 0, creator_plus: 2, creator_pro: 3, agency: 9 } as Record<string, number>)[
-            normalizePlanKey(n)
-          ] ?? 5;
-
         const sorted = (fetched || [])
           .slice()
           .sort(
             (a, b) =>
               (a.sortOrder ?? 999) - (b.sortOrder ?? 999) ||
-              rank(a.name) - rank(b.name) ||
+              getPlanRank(a.name) - getPlanRank(b.name) ||
               (a.monthlyCost ?? 0) - (b.monthlyCost ?? 0)
           );
 
@@ -514,7 +532,20 @@ export default function InfluencerSubscriptionPage() {
 
   const handleSelect = useCallback(
     async (plan: Plan) => {
-      if (processing || normalizePlanKey(plan.name) === currentPlanKey) return;
+      const selectedKey = normalizePlanKey(plan.name);
+      const selectedRank = getPlanRank(plan.name);
+
+      if (processing || selectedKey === currentPlanKey) return;
+
+      if (
+        currentPlanRank >= 0 &&
+        selectedRank >= 0 &&
+        selectedRank < currentPlanRank
+      ) {
+        setPaymentStatus("failed");
+        setPaymentMessage("Lower plan changes are not available from your current plan.");
+        return;
+      }
 
       if (plan.monthlyCost <= 0) {
         setSelectedPlan(plan);
@@ -566,7 +597,7 @@ export default function InfluencerSubscriptionPage() {
         setProcessing(null);
       }
     },
-    [billing, currentPlanKey, getPayAmount, processing]
+    [billing, currentPlanKey, currentPlanRank, getPayAmount, processing]
   );
 
   const handleConfirmDowngrade = useCallback(async () => {
@@ -617,8 +648,8 @@ export default function InfluencerSubscriptionPage() {
     <>
       <CheckoutAutoStart role="Influencer" plans={plans} loading={loading} />
 
-      <section className="min-h-screen py-16 font-lexend text-slate-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <section className="min-h-screen py-12 font-lexend text-slate-900">
+        <div className="mx-auto max-w-[1760px] px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <span className="inline-flex items-center rounded-full border border-[#d1d1d1] bg-white px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1a1a1a]">
               CollabGlam Creator Plans
@@ -662,22 +693,26 @@ export default function InfluencerSubscriptionPage() {
           </div>
 
           {currentPlan && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-3xl border border-[#eadcf5] bg-white px-6 py-5 text-center shadow-sm">
-              <div className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-wide text-[#1a1a1a]">
-                <CheckCircle className="h-4 w-4" /> Current Plan
+            <div className="mt-4 flex justify-center">
+              <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full border border-[#eadcf5] bg-white px-5 py-2.5 text-sm shadow-sm">
+                <span className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-[0.12em] text-[#1a1a1a]">
+                  <CheckCircle className="h-4 w-4" /> Current Plan
+                </span>
+
+                <span className="font-bold text-[#250054]">
+                  {currentPlanObj?.displayName || capitalize(currentPlan)}
+                </span>
+
+                <span className="text-slate-500">
+                  {expiresAt
+                    ? `Renews on ${new Date(expiresAt).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}`
+                    : "No renewal date set"}
+                </span>
               </div>
-              <h2 className="mt-2 text-2xl font-bold text-[#250054]">
-                {currentPlanObj?.displayName || capitalize(currentPlan)}
-              </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {expiresAt
-                  ? `Renews on ${new Date(expiresAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}`
-                  : "No renewal date set"}
-              </p>
             </div>
           )}
 
@@ -704,7 +739,7 @@ export default function InfluencerSubscriptionPage() {
             </div>
           )}
 
-          <div className="mt-12 grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-8 grid gap-8 lg:grid-cols-2 2xl:grid-cols-4">
             {plans.map((plan) => {
               const key = normalizePlanKey(plan.name);
               const copy = resolveMarketingCopy(plan);
@@ -715,6 +750,15 @@ export default function InfluencerSubscriptionPage() {
               const symbol = currencySym(plan.currency);
               const annualTotal = getAnnualTotal(plan);
               const savings = calcSavings(plan);
+              const planRank = getPlanRank(plan.name);
+
+              const isLowerThanCurrent =
+                currentPlanRank >= 0 &&
+                planRank >= 0 &&
+                planRank < currentPlanRank;
+
+              const canSelectPlan =
+                !isActive && !isLowerThanCurrent && !currentPlanIsHighest;
 
               const displayedPrice = isFree
                 ? copy.priceNote ?? "Free forever"
@@ -740,91 +784,110 @@ export default function InfluencerSubscriptionPage() {
                     </div>
                   )}
 
-                  <div className="flex min-h-[220px] flex-col px-8 pt-10 pb-8">
+                  <div className="flex h-[330px] flex-col px-8 pt-10 pb-8">
                     <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-[#d1d1d1] bg-[#f5f5f5]">
                       <Crown className="h-5 w-5 text-[#1a1a1a]" />
                     </div>
 
                     <h3 className="text-3xl font-bold text-[#250054]">{copy.title}</h3>
-                    <p className="mt-3 text-base font-medium text-slate-700">{copy.subtitle}</p>
+                    <p className="mt-3 text-base font-medium leading-7 text-slate-700">{copy.subtitle}</p>
                     <p className="mt-3 text-[15px] leading-7 text-slate-600">{copy.description}</p>
                   </div>
 
-                  <div
-                    className="border-t border-[#ece7f2] px-8 py-7 transition-all duration-200"
-                    style={isActive ? { backgroundImage: UPGRADE_REST } : undefined}
-                    onMouseEnter={(e) => {
-                      if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_HOVER;
-                    }}
-                    onMouseLeave={(e) => {
-                      if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_REST;
-                    }}
-                  >
-                    <div className="flex items-end gap-2 text-[#250054]">
-                      <span className="text-4xl font-bold tracking-tight">
-                        {displayedPrice.replace(/\/(month|year)$/, "")}
-                      </span>
-                      {!isFree && (
-                        <span className="pb-1 text-base text-slate-500">
-                          /{billing === "annual" ? "year" : "month"}
+                  <div className="flex h-[260px] flex-col border-t border-[#ece7f2] px-8 py-7 transition-all duration-200">
+                    <div className="h-[145px]">
+                      <div className="flex items-end gap-2 text-[#250054]">
+                        <span className="text-4xl font-bold tracking-tight">
+                          {displayedPrice.replace(/\/(month|year)$/, "")}
                         </span>
+
+                        {!isFree && (
+                          <span className="pb-1 text-base text-slate-500">
+                            /{billing === "annual" ? "year" : "month"}
+                          </span>
+                        )}
+                      </div>
+
+                      {isFree && (
+                        <div className="mt-3 space-y-2 text-sm">
+                          <p className="text-slate-500">Free forever</p>
+                          <p className="invisible font-semibold text-emerald-700">
+                            No annual billing
+                          </p>
+                        </div>
                       )}
+
+                      {!isFree ? (
+                        <div className="mt-3 space-y-2 text-sm">
+                          {billing === "annual" ? (
+                            <>
+                              <p className="text-slate-500">
+                                {symbol}
+                                {Math.round(
+                                  (annualTotal > 0
+                                    ? annualTotal
+                                    : plan.monthlyCost * 12) / 12
+                                ).toLocaleString()}{" "}
+                                / month billed annually
+                                {plan.annualBillingNote
+                                  ? ` • ${plan.annualBillingNote}`
+                                  : " • discounted annual total (12 months)"}
+                              </p>
+
+                              {savings && (
+                                <p className="font-semibold text-emerald-700">
+                                  Save {savings.pct}% ({symbol}
+                                  {Math.round(savings.amount).toLocaleString()} / year)
+                                </p>
+                              )}
+                            </>
+                          ) : annualTotal > 0 ? (
+                            <p className="text-slate-500">
+                              or {symbol}
+                              {annualTotal.toLocaleString()} / year
+                              {plan.annualBillingNote
+                                ? ` • ${plan.annualBillingNote}`
+                                : " • discounted annual total (12 months)"}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
 
-                    {isFree && <p className="mt-1 text-sm text-slate-500">Free forever</p>}
-
-                    {!isFree && billing === "annual" && (
-                      <>
-                        <p className="mt-2 text-sm text-slate-500">
-                          {symbol}
-                          {Math.round((annualTotal > 0 ? annualTotal : plan.monthlyCost * 12) / 12).toLocaleString()}{" "}
-                          / month billed annually
-                          {plan.annualBillingNote ? ` • ${plan.annualBillingNote}` : ""}
-                        </p>
-                        {savings && (
-                          <p className="mt-2 text-sm font-semibold text-emerald-700">
-                            Save {savings.pct}% ({symbol}
-                            {Math.round(savings.amount).toLocaleString()} / year)
-                          </p>
-                        )}
-                      </>
-                    )}
-
-                    {!isFree && billing === "monthly" && annualTotal > 0 && (
-                      <p className="mt-2 text-sm text-slate-500">
-                        or {symbol}
-                        {annualTotal.toLocaleString()} / year
-                        {plan.annualBillingNote ? ` • ${plan.annualBillingNote}` : ""}
-                      </p>
-                    )}
-
-                    <Button
-                      onClick={() => handleSelect(plan)}
-                      disabled={isActive || isProcessing}
-                      className="mt-6 w-full border border-[#e7d7b4] text-[#1a1a1a] hover:text-[#1a1a1a]"
-                      style={isActive ? { backgroundImage: UPGRADE_REST } : undefined}
-                      onMouseEnter={(e) => {
-                        if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_HOVER;
-                      }}
-                      onMouseLeave={(e) => {
-                        if (isActive) e.currentTarget.style.backgroundImage = UPGRADE_REST;
-                      }}
-                    >
-                      {isActive ? (
+                    {isActive ? (
+                      <Button
+                        disabled
+                        className="mt-auto w-full border border-[#e7d7b4] bg-[#f5f5f5] text-[#1a1a1a] hover:bg-[#f5f5f5]"
+                      >
                         <span className="inline-flex items-center gap-2">
                           <CheckCircle className="h-4 w-4" /> Current Plan
                         </span>
-                      ) : isProcessing ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-4 w-4 animate-spin" /> Processing…
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-2">
-                          <CreditCard className="h-4 w-4" />
-                          {copy.cta}
-                        </span>
-                      )}
-                    </Button>
+                      </Button>
+                    ) : isLowerThanCurrent ? (
+                      <Button
+                        disabled
+                        className="mt-auto w-full border border-[#eadcf5] bg-[#f8f5fb] text-slate-500 hover:bg-[#f8f5fb]"
+                      >
+                        Included in current plan
+                      </Button>
+                    ) : canSelectPlan ? (
+                      <Button
+                        onClick={() => handleSelect(plan)}
+                        disabled={isProcessing}
+                        className="mt-auto w-full border border-[#e7d7b4] bg-[#1a1a1a] text-white hover:bg-black"
+                      >
+                        {isProcessing ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="h-4 w-4 animate-spin" /> Processing…
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2">
+                            <CreditCard className="h-4 w-4" />
+                            {copy.cta}
+                          </span>
+                        )}
+                      </Button>
+                    ) : null}
                   </div>
 
                   <div className="flex-1 border-t border-[#ece7f2] px-8 py-8">

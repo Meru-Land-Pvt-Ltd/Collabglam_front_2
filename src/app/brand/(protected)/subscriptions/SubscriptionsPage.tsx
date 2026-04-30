@@ -363,6 +363,19 @@ const formatPlanAmount = (plan: Plan, amount: number) => {
   return `${currencySymbol(plan.currency)}${Number(amount || 0).toLocaleString()}`;
 };
 
+const PLAN_RANK: Record<string, number> = {
+  free: 0,
+  growth: 1,
+  pro: 2,
+  fully_managed: 3,
+  enterprise: 3,
+};
+
+const getPlanRank = (name?: string | null) => {
+  const key = String(name || "").trim().toLowerCase();
+  return PLAN_RANK[key] ?? -1;
+};
+
 /**
  * Coupon logic:
  * API coupon.newPrice means FINAL PRICE after discount.
@@ -875,6 +888,10 @@ export default function BrandSubscriptionPage() {
     return true;
   }, [currentPlan, currentPlanObj]);
 
+  const currentPlanRank = useMemo(() => getPlanRank(currentPlan), [currentPlan]);
+
+  const currentPlanIsHighest = currentPlanRank >= getPlanRank("fully_managed");
+
   const fullyManagedPlan = useMemo(
     () =>
       plans.find((p) => {
@@ -1253,6 +1270,18 @@ export default function BrandSubscriptionPage() {
       return;
     }
 
+    const selectedRank = getPlanRank(plan.name);
+
+    if (
+      currentPlanRank >= 0 &&
+      selectedRank >= 0 &&
+      selectedRank < currentPlanRank
+    ) {
+      setPaymentStatus("failed");
+      setPaymentMessage("Lower plan changes are not available from your current plan.");
+      return;
+    }
+
     const planSubscriptionId = getPlanSubscriptionId(plan);
     const planModes = getPlanBillingModes(plan);
     const nextPromoMode = planModes.includes(billing)
@@ -1316,8 +1345,8 @@ export default function BrandSubscriptionPage() {
     <>
       <CheckoutAutoStart role="Brand" plans={plans} loading={loading} />
 
-      <section className="min-h-screen py-16 font-lexend text-slate-900">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <section className="min-h-screen py-12 font-lexend text-slate-900">
+        <div className="mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <span className="inline-flex items-center rounded-full border border-[#d1d1d1] bg-white px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#1a1a1a]">
               CollabGlam Pricing Plans
@@ -1364,24 +1393,26 @@ export default function BrandSubscriptionPage() {
           </div>
 
           {currentPlan && (
-            <div className="mx-auto mt-8 max-w-2xl rounded-3xl border border-[#eadcf5] bg-white px-6 py-5 text-center shadow-sm">
-              <div className="flex items-center justify-center gap-2 text-sm font-semibold uppercase tracking-wide text-[#1a1a1a]">
-                <CheckCircle className="h-4 w-4" /> Current Plan
+            <div className="mt-4 flex justify-center">
+              <div className="inline-flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-full border border-[#eadcf5] bg-white px-5 py-2.5 text-sm shadow-sm">
+                <span className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-[0.12em] text-[#1a1a1a]">
+                  <CheckCircle className="h-4 w-4" /> Current Plan
+                </span>
+
+                <span className="font-bold text-[#250054]">
+                  {currentPlanObj?.displayName || capitalize(currentPlan)}
+                </span>
+
+                <span className="text-slate-500">
+                  {expiresAt
+                    ? `Renews on ${new Date(expiresAt).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}`
+                    : "No renewal date set"}
+                </span>
               </div>
-
-              <h2 className="mt-2 text-2xl font-bold text-[#250054]">
-                {currentPlanObj?.displayName || capitalize(currentPlan)}
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                {expiresAt
-                  ? `Renews on ${new Date(expiresAt).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}`
-                  : "No renewal date set"}
-              </p>
             </div>
           )}
 
@@ -1418,7 +1449,7 @@ export default function BrandSubscriptionPage() {
             </div>
           ) : null}
 
-          <div className="mt-12 grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-8 grid gap-8 lg:grid-cols-2 2xl:grid-cols-3">
             {visibleStandardPlans.map((plan) => {
               const key = plan.name.toLowerCase();
               const copy = resolveMarketingCopy(plan);
@@ -1426,14 +1457,24 @@ export default function BrandSubscriptionPage() {
               const isFree = plan.monthlyCost <= 0;
               const isActive = !!currentPlan && currentPlan.toLowerCase() === key;
               const isProcessing = processing === plan.name;
-              const hideCurrentPlanActionBlock = isActive;
               const symbol = currencySymbol(plan.currency);
               const annualTotal = getAnnualTotal(plan);
+              const annualMonthlyEquivalent =
+                annualTotal > 0 ? Math.round(annualTotal / 12) : 0;
               const appliedCoupon = getAppliedCouponForPlan(plan);
               const hasCoupon = !!appliedCoupon;
               const baseAmount = getBasePayAmount(plan);
               const discountAmount = getDiscountAmount(baseAmount, appliedCoupon);
               const discountedAmount = getDiscountedAmount(baseAmount, appliedCoupon);
+              const planRank = getPlanRank(key);
+
+              const isLowerThanCurrent =
+                currentPlanRank >= 0 &&
+                planRank >= 0 &&
+                planRank < currentPlanRank;
+
+              const canSelectPlan =
+                !isActive && !isLowerThanCurrent && !currentPlanIsHighest;
 
               const displayedPrice = isFree
                 ? copy.priceNote ?? "Free forever"
@@ -1448,18 +1489,24 @@ export default function BrandSubscriptionPage() {
                   key={plan._id || plan.planId}
                   className={`relative flex h-full flex-col overflow-hidden rounded-[28px] border bg-white ${theme.cardBorder}`}
                 >
-                  <div className="flex min-h-[240px] flex-col px-8 pt-10 pb-8">
+                  <div className="flex h-[320px] flex-col px-8 pt-10 pb-8">
                     <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full border border-[#d1d1d1] bg-[#f5f5f5]">
                       <Crown className="h-5 w-5 text-[#1a1a1a]" />
                     </div>
 
                     <h3 className="text-3xl font-bold text-[#250054]">{copy.title}</h3>
-                    <p className="mt-3 text-base font-medium text-slate-700">{copy.subtitle}</p>
-                    <p className="mt-3 text-[15px] leading-7 text-slate-600">{copy.description}</p>
+
+                    <p className="mt-3 text-base font-medium leading-7 text-slate-700">
+                      {copy.subtitle}
+                    </p>
+
+                    <p className="mt-3 text-[15px] leading-7 text-slate-600">
+                      {copy.description}
+                    </p>
                   </div>
 
-                  {!hideCurrentPlanActionBlock ? (
-                    <div className="border-t border-[#ece7f2] px-8 py-7 transition-all duration-200">
+                  <div className="flex h-[250px] flex-col border-t border-[#ece7f2] px-8 py-7 transition-all duration-200">
+                    <div className="h-[130px]">
                       <div className="flex items-end gap-2 text-[#250054]">
                         <span className="text-4xl font-bold tracking-tight">
                           {displayedPrice}
@@ -1486,22 +1533,68 @@ export default function BrandSubscriptionPage() {
                         </div>
                       ) : null}
 
-                      {isFree && <p className="mt-1 text-sm text-slate-500">Free forever</p>}
-
-                      {!hasCoupon && !isFree && billing === "annually" && copy.savingsText && (
-                        <p className="mt-2 text-sm font-semibold text-emerald-700">
-                          {copy.savingsText}
-                        </p>
+                      {isFree && (
+                        <div className="mt-3 space-y-2 text-sm">
+                          <p className="text-slate-500">Free forever</p>
+                          <p className="invisible font-semibold text-emerald-700">
+                            No annual billing
+                          </p>
+                        </div>
                       )}
 
-                      {!hasCoupon && !isFree && billing === "monthly" && copy.annualText && (
-                        <p className="mt-2 text-sm text-slate-500">or {copy.annualText}</p>
-                      )}
+                      {!hasCoupon && !isFree ? (
+                        <div className="mt-3 space-y-2 text-sm">
+                          {billing === "annually" ? (
+                            <>
+                              {annualMonthlyEquivalent > 0 && (
+                                <p className="text-slate-500">
+                                  {formatPlanAmount(plan, annualMonthlyEquivalent)} / month
+                                  billed annually
+                                  {plan.annualBillingNote
+                                    ? ` • ${plan.annualBillingNote}`
+                                    : " • discounted annual total (12 months)"}
+                                </p>
+                              )}
 
+                              {copy.savingsText && (
+                                <p className="font-semibold text-emerald-700">
+                                  {copy.savingsText}
+                                </p>
+                              )}
+                            </>
+                          ) : annualTotal > 0 ? (
+                            <p className="text-slate-500">
+                              or {formatPlanAmount(plan, annualTotal)} / year
+                              {plan.annualBillingNote
+                                ? ` • ${plan.annualBillingNote}`
+                                : " • discounted annual total (12 months)"}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {isActive ? (
+                      <Button
+                        disabled
+                        className="mt-auto w-full border border-[#e7d7b4] bg-[#f5f5f5] text-[#1a1a1a] hover:bg-[#f5f5f5]"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4" /> Current Plan
+                        </span>
+                      </Button>
+                    ) : isLowerThanCurrent ? (
+                      <Button
+                        disabled
+                        className="mt-auto w-full border border-[#eadcf5] bg-[#f8f5fb] text-slate-500 hover:bg-[#f8f5fb]"
+                      >
+                        Included in current plan
+                      </Button>
+                    ) : canSelectPlan ? (
                       <Button
                         onClick={() => handleSelect(plan)}
                         disabled={isProcessing}
-                        className="mt-6 w-full border border-[#e7d7b4] bg-[#1a1a1a] text-white hover:bg-black"
+                        className="mt-auto w-full border border-[#e7d7b4] bg-[#1a1a1a] text-white hover:bg-black"
                       >
                         {isProcessing ? (
                           <span className="inline-flex items-center gap-2">
@@ -1511,8 +1604,8 @@ export default function BrandSubscriptionPage() {
                           copy.cta
                         )}
                       </Button>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
 
                   <div className="flex-1 border-t border-[#ece7f2] px-8 py-8">
                     <div className="space-y-7">
@@ -1578,7 +1671,11 @@ export default function BrandSubscriptionPage() {
                       </div>
 
                       <h3 className="text-3xl font-bold text-[#250054]">{copy.title}</h3>
-                      <p className="mt-3 text-base font-medium text-slate-700">{copy.subtitle}</p>
+
+                      <p className="mt-3 text-base font-medium leading-7 text-slate-700">
+                        {copy.subtitle}
+                      </p>
+
                       <p className="mt-3 text-[15px] leading-7 text-slate-600">
                         {copy.description}
                       </p>
