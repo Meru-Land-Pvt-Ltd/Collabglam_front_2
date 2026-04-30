@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Select from "react-select";
 import {
@@ -3454,6 +3454,21 @@ export default function CampaignDetailPage() {
     updateLinkToolsFromSelection();
   }
 
+  function hydrateSequenceEditorFromState() {
+    const editor = sequenceEditorRef.current;
+    if (!editor) return;
+
+    const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
+
+    if (document.activeElement === editor) return;
+
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml;
+    }
+
+    savedSelectionRangeRef.current = null;
+  }
+
   function handleOpenInsertLinkEditor() {
     const selection = window.getSelection();
     const selectedText = selection?.toString() || "";
@@ -3587,23 +3602,32 @@ export default function CampaignDetailPage() {
     });
   }
 
-  useEffect(() => {
-    const editor = sequenceEditorRef.current;
-    if (!editor) return;
+  useLayoutEffect(() => {
+    if (activeTab !== "sequences") return;
 
-    if (document.activeElement === editor) return;
+    hydrateSequenceEditorFromState();
 
-    const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
+    const frame = window.requestAnimationFrame(() => {
+      hydrateSequenceEditorFromState();
+    });
 
-    if (editor.innerHTML !== nextHtml) {
-      editor.innerHTML = nextHtml;
-    }
+    const timer = window.setTimeout(() => {
+      hydrateSequenceEditorFromState();
+    }, 80);
 
-    savedSelectionRangeRef.current = null;
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [
+    activeTab,
+    loading,
+    campaign?._id,
     selectedSequenceStepIndex,
     selectedSequenceVariantIndex,
+    selectedSequenceVariant.subject,
     selectedSequenceVariant.body,
+    configuration.sequences.length,
   ]);
 
   const flatFilteredTemplates = useMemo(() => {
@@ -3734,41 +3758,6 @@ export default function CampaignDetailPage() {
               </h1>
 
               <div className="mt-2 flex flex-wrap items-end gap-4 text-sm text-slate-500">
-                <div className="flex min-w-[260px] flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Sender Email
-                  </span>
-
-                  {selectedAccountEmails.length > 1 ? (
-                    <select
-                      value={selectedSenderEmail}
-                      onChange={(e) => {
-                        const nextEmail = normalizeEmailValue(e.target.value);
-                        setSelectedSenderEmail(nextEmail);
-                        setSelectedAccountEmails((prev) =>
-                          prev.includes(nextEmail) ? prev : [nextEmail, ...prev]
-                        );
-                      }}
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none"
-                    >
-                      {selectedAccountEmails.map((email) => (
-                        <option key={email} value={email}>
-                          {email}
-                          {normalizeEmailValue(campaign?.instantly?.senderAccountEmail) === normalizeEmailValue(email)
-                            ? " (Primary)"
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {selectedSenderEmail || selectedAccountEmails[0] || "—"}
-                    </div>
-                  )}
-                </div>
-
-                <span>Owner: {getAdminLabel(flowType === "ime_influencer" ? campaign?.IMEId : campaign?.sdrId)}</span>
-                {/* <span>Instantly ID: {campaign?.instantly?.campaignId || "Not launched yet"}</span> */}
                 <span>Last analytics sync: {formatDateTime(campaign?.sync?.lastAnalyticsSyncedAt)}</span>
               </div>
             </div>
@@ -3805,7 +3794,19 @@ export default function CampaignDetailPage() {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                if (activeTab === "sequences") {
+                  syncEditorBodyToState();
+                }
+
+                setActiveTab(tab.key);
+
+                if (tab.key === "sequences") {
+                  window.setTimeout(() => {
+                    hydrateSequenceEditorFromState();
+                  }, 0);
+                }
+              }}
               className={cx(
                 "whitespace-nowrap border-b-2 pb-4 pt-1 text-[15px] font-medium transition",
                 activeTab === tab.key
@@ -4115,9 +4116,9 @@ export default function CampaignDetailPage() {
               ) : filteredContacts.length ? (
                 <div className="px-6 py-6">
                   <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <div>Company</div>
                     <div>Stage</div>
                     <div>Launched</div>
-                    <div>Thread</div>
                   </div>
 
                   {filteredContacts.slice(0, 20).map((row) => (
@@ -4135,7 +4136,6 @@ export default function CampaignDetailPage() {
                         </span>
                       </div>
                       <div>{formatDate(row.launchedAt)}</div>
-                      <div>{row.instantly?.threadId || "—"}</div>
                     </div>
                   ))}
                 </div>
