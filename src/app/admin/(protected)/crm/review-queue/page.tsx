@@ -266,6 +266,61 @@ function hydrateRepliesWithThreadFallbacks(replies: ReviewRow[], threads: Thread
   });
 }
 
+async function hydrateRepliesWithThreadDetailsForMissingCampaigns(
+  replies: ReviewRow[],
+  threads: ThreadRow[]
+) {
+  const threadByProspectId = new Map<string, ThreadRow>();
+
+  threads.forEach((thread) => {
+    const prospectId = String(thread?.prospectId?._id || "");
+    if (prospectId && !threadByProspectId.has(prospectId)) {
+      threadByProspectId.set(prospectId, thread);
+    }
+  });
+
+  const hydrated = await Promise.all(
+    replies.map(async (reply) => {
+      const hasCampaign = Boolean(reply.campaignId?._id && reply.campaignId?.name);
+      const prospectId = String(reply?.prospectId?._id || "");
+      const thread = threadByProspectId.get(prospectId);
+
+      if (hasCampaign || !thread?._id) {
+        return reply;
+      }
+
+      try {
+        const payload: any = await adminGet(`/outreach/threads/${thread._id}`);
+        const detailThread = payload?.thread || payload?.data?.thread || null;
+
+        return {
+          ...reply,
+          campaignId:
+            reply.campaignId?._id
+              ? reply.campaignId
+              : detailThread?.campaignId || thread.campaignId || reply.campaignId || null,
+          sdrId:
+            reply.sdrId?._id
+              ? reply.sdrId
+              : detailThread?.sdrId || thread.sdrId || reply.sdrId || null,
+          RHId:
+            reply.RHId?._id
+              ? reply.RHId
+              : detailThread?.RHId || thread.RHId || reply.RHId || null,
+          assignedBmeId:
+            reply.assignedBmeId?._id
+              ? reply.assignedBmeId
+              : detailThread?.assignedBmeId || thread.assignedBmeId || reply.assignedBmeId || null,
+        };
+      } catch {
+        return reply;
+      }
+    })
+  );
+
+  return hydrated;
+}
+
 function parseThreadDetail(payload: any): ThreadDetailResponse {
   return {
     thread: payload?.thread || payload?.data?.thread || null,
@@ -649,6 +704,7 @@ export default function ReviewQueuePage() {
   const canFilterByRh = actorRole === "super_admin";
   const canFilterBySdr = actorRole === "super_admin" || actorRole === "revenue_head";
   const canFilterByBme = actorRole === "super_admin" || actorRole === "revenue_head";
+  const canSeeBrandEmail = actorRole === "super_admin";
 
   const campaignOptions = useMemo<FilterOption[]>((() => {
     const map = new Map<string, FilterOption>();
@@ -728,7 +784,7 @@ export default function ReviewQueuePage() {
         item.campaignId?.name,
         item.prospectId?.companyName,
         item.prospectId?.primaryContact?.name,
-        item.prospectId?.primaryContact?.email,
+        canSeeBrandEmail ? item.prospectId?.primaryContact?.email : "",
         item.latestReplySubject,
         item.latestReplySnippet,
         item.prospectId?.reply?.subject,
@@ -753,7 +809,7 @@ export default function ReviewQueuePage() {
         (!rhFilter || String(item.RHId?._id || "") === rhFilter)
       );
     });
-  }, [pendingReplies, search, campaignFilter, sdrFilter, bmeFilter, rhFilter]);
+  }, [pendingReplies, search, campaignFilter, sdrFilter, bmeFilter, rhFilter, canSeeBrandEmail]);
 
   const selectedReview = useMemo(() => {
     return (
@@ -830,8 +886,12 @@ export default function ReviewQueuePage() {
       ]);
 
       const parsedThreads = parseThreads(threadsPayload);
-      const nextReplies = hydrateRepliesWithThreadFallbacks(
+      const repliesWithThreadFallbacks = hydrateRepliesWithThreadFallbacks(
         parsePendingReplies(repliesPayload),
+        parsedThreads
+      );
+      const nextReplies = await hydrateRepliesWithThreadDetailsForMissingCampaigns(
+        repliesWithThreadFallbacks,
         parsedThreads
       );
       const nextRole = String(mePayload?.role || "").toLowerCase();
@@ -1080,12 +1140,6 @@ export default function ReviewQueuePage() {
             </button>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Pending Reviews" value={pendingReplies.length} icon={<Inbox className="h-5 w-5" />} tone="blue" />
-            <MetricCard label="Replied Leads" value={repliedCount} icon={<MessageSquareText className="h-5 w-5" />} tone="emerald" />
-            <MetricCard label="Assigned" value={assignedCount} icon={<UserCheck className="h-5 w-5" />} tone="violet" />
-            <MetricCard label="Unassigned" value={unassignedCount} icon={<Clock3 className="h-5 w-5" />} tone="slate" />
-          </div>
         </div>
       </div>
 
@@ -1196,6 +1250,7 @@ export default function ReviewQueuePage() {
                     const active = item._id === selectedReviewId;
                     const companyName = item.prospectId?.companyName || "Unknown Company";
                     const contactName = item.prospectId?.primaryContact?.name || "Unknown Contact";
+                    const contactEmail = canSeeBrandEmail ? item.prospectId?.primaryContact?.email || "" : "";
                     const campaignName = item.campaignId?.name || "No campaign";
                     const subject = item.latestReplySubject || item.prospectId?.reply?.subject || "(No subject)";
                     const snippet = item.latestReplySnippet || item.prospectId?.reply?.snippet || "—";
@@ -1218,7 +1273,11 @@ export default function ReviewQueuePage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-bold text-slate-950">{companyName}</p>
-                                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">{contactName} · {campaignName}</p>
+                                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
+                                  {contactName}
+                                  {contactEmail ? ` · ${contactEmail}` : ""}
+                                  {campaignName ? ` · ${campaignName}` : ""}
+                                </p>
                               </div>
 
                               <span className="shrink-0 text-xs font-semibold text-slate-400">
@@ -1270,20 +1329,18 @@ export default function ReviewQueuePage() {
 
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                           <span>{selectedContact}</span>
+                          {canSeeBrandEmail && selectedReview?.prospectId?.primaryContact?.email ? (
+                            <>
+                              <span>·</span>
+                              <span>{selectedReview.prospectId.primaryContact.email}</span>
+                            </>
+                          ) : null}
                           <span>·</span>
                           <span>{teamLabel}</span>
                         </div>
                       </div>
                     </div>
 
-                    {/* <button
-                      type="button"
-                      onClick={openFullThread}
-                      className="inline-flex h-10 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      <span className="hidden sm:inline">Open full thread</span>
-                    </button> */}
                   </div>
                 </div>
 
@@ -1292,7 +1349,7 @@ export default function ReviewQueuePage() {
                     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Campaign</p>
-                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{selectedReview.campaignId?.name || "—"}</p>
+                        <p className="mt-2 truncate text-sm font-bold text-slate-900">{selectedReview.campaignId?.name || threadDetail.thread?.campaignId?.name || "—"}</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                         <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">SDR</p>

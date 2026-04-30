@@ -503,6 +503,41 @@ function getMessageDate(message: ThreadMessage) {
   return message.receivedAt || message.sentAt || message.createdAt || message.updatedAt || "";
 }
 
+async function hydrateThreadsWithMissingCampaignDetails(threads: ThreadRow[]) {
+  const hydrated = await Promise.all(
+    threads.map(async (thread) => {
+      const hasCampaign = Boolean(thread.campaignId?._id && thread.campaignId?.name);
+      const hasDisplayNames = Boolean(thread.brandDisplayName && thread.teamDisplayName);
+
+      if (hasCampaign && hasDisplayNames) {
+        return thread;
+      }
+
+      try {
+        const payload: any = await adminGet(`/outreach/threads/${thread._id}`);
+        const detailThread = payload?.thread || payload?.data?.thread || null;
+
+        return {
+          ...thread,
+          ...detailThread,
+          campaignId: detailThread?.campaignId || thread.campaignId || null,
+          sdrId: detailThread?.sdrId || thread.sdrId || null,
+          RHId: detailThread?.RHId || thread.RHId || null,
+          IMEId: detailThread?.IMEId || thread.IMEId || null,
+          assignedBmeId: detailThread?.assignedBmeId || thread.assignedBmeId || null,
+          assignedImeId: detailThread?.assignedImeId || thread.assignedImeId || null,
+          brandDisplayName: detailThread?.brandDisplayName || thread.brandDisplayName || "",
+          teamDisplayName: detailThread?.teamDisplayName || thread.teamDisplayName || "",
+        };
+      } catch {
+        return thread;
+      }
+    })
+  );
+
+  return hydrated;
+}
+
 function GmailThreadReader({
   thread,
   messages,
@@ -665,6 +700,7 @@ export default function RepliesPage() {
   const canFilterBySdr = actorRole === "super_admin" || actorRole === "revenue_head";
   const canFilterByBme = actorRole === "super_admin" || actorRole === "revenue_head";
   const canOpenCrmProfile = actorRole !== "bme";
+  const canSeeBrandEmail = actorRole === "super_admin";
 
   const campaignOptions = useMemo(() => {
     const map = new Map<string, { _id: string; name: string }>();
@@ -989,9 +1025,11 @@ export default function RepliesPage() {
         adminGet("/admins/me"),
       ]);
 
-      const nextThreads = Array.isArray(threadsPayload?.data)
+      const rawThreads = Array.isArray(threadsPayload?.data)
         ? threadsPayload.data
         : [];
+
+      const nextThreads = await hydrateThreadsWithMissingCampaignDetails(rawThreads);
 
       setThreads(nextThreads);
       setActorRole(String(mePayload?.role || "").toLowerCase());
@@ -1286,6 +1324,8 @@ export default function RepliesPage() {
                 {filteredThreads.map((thread) => {
                   const active = thread._id === selectedThreadId;
                   const brandName = getBrandDisplayName(thread);
+                  const brandEmail = canSeeBrandEmail ? thread.prospectId?.primaryContact?.email || thread.brandEmail || "" : "";
+                  const campaignName = thread.campaignId?.name || "No campaign";
                   const previewText = getThreadPreviewText(thread);
 
                   return (
@@ -1310,9 +1350,16 @@ export default function RepliesPage() {
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
-                              <p className="truncate text-sm font-semibold text-slate-900">
-                                {brandName}
-                              </p>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">
+                                  {brandName}
+                                </p>
+                                {brandEmail ? (
+                                  <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+                                    {brandEmail}
+                                  </p>
+                                ) : null}
+                              </div>
 
                               <span className="shrink-0 text-xs text-slate-500">
                                 {formatShortDateTime(
@@ -1324,14 +1371,12 @@ export default function RepliesPage() {
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                               <span className="truncate">{previewText}</span>
 
-                              {thread.campaignId?.name ? (
-                                <>
-                                  <span>•</span>
-                                  <span className="truncate font-medium text-slate-700">
-                                    {thread.campaignId.name}
-                                  </span>
-                                </>
-                              ) : null}
+                              <>
+                                <span>•</span>
+                                <span className="truncate font-medium text-slate-700">
+                                  {campaignName}
+                                </span>
+                              </>
                             </div>
                           </div>
                         </div>
@@ -1375,7 +1420,13 @@ export default function RepliesPage() {
                         </h3>
 
                         <p className="mt-1 truncate text-sm text-slate-500">
-                          {getBrandDisplayName(selectedThreadMeta)} · {getThreadTeamLabel(selectedThreadMeta)}
+                          {getBrandDisplayName(selectedThreadMeta)}
+                          {canSeeBrandEmail && (selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail)
+                            ? ` · ${selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail}`
+                            : ""}
+                          {selectedThreadMeta.campaignId?.name ? ` · ${selectedThreadMeta.campaignId.name}` : ""}
+                          {" · "}
+                          {getThreadTeamLabel(selectedThreadMeta)}
                         </p>
 
                         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1407,21 +1458,6 @@ export default function RepliesPage() {
                     </div>
 
                     <div className="hidden items-center gap-3 sm:flex">
-                      {/* {canOpenCrmProfile ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(
-                              selectedThreadMeta.prospectId?._id
-                                ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
-                                : "/admin/crm/review-queue"
-                            )
-                          }
-                          className="inline-flex rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          Open CRM Profile
-                        </button>
-                      ) : null} */}
 
                       <button
                         type="button"
@@ -1434,22 +1470,6 @@ export default function RepliesPage() {
                   </div>
 
                   <div className="flex gap-3 sm:hidden">
-                    {canOpenCrmProfile ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          router.push(
-                            selectedThreadMeta.prospectId?._id
-                              ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
-                              : "/admin/crm/review-queue"
-                          )
-                        }
-                        className="inline-flex flex-1 items-center justify-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                      >
-                        Open CRM
-                      </button>
-                    ) : null}
-
                     <button
                       type="button"
                       onClick={openReplyModal}
