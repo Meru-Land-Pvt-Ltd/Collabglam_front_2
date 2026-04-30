@@ -21,6 +21,8 @@ type ThreadRow = {
   status?: string;
   brandEmail?: string;
   brandName?: string;
+  brandDisplayName?: string;
+  teamDisplayName?: string;
   instantlyThreadId?: string;
   campaignId?: { _id?: string; name?: string } | null;
   sdrId?: { _id?: string; name?: string; email?: string } | null;
@@ -43,6 +45,8 @@ type ThreadMessage = {
   direction: "inbound" | "outbound" | string;
   from?: string;
   to?: string[];
+  fromDisplayName?: string;
+  toDisplayNames?: string[];
   cc?: string[];
   bcc?: string[];
   subject?: string;
@@ -106,6 +110,76 @@ function isEditorHtmlEmpty(value = "") {
   ).trim();
 
   return !plain;
+}
+
+function htmlToPlainText(value = "") {
+  return decodeEmailEntities(
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(div|p|li|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<[^>]*>/g, "")
+  )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function normalizeComposerHtmlForSend(value = "") {
+  const html = String(value || "").trim();
+
+  if (!html) return "";
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body;
+
+  root.querySelectorAll("script, style, iframe, object, embed").forEach((node) => {
+    node.remove();
+  });
+
+  root.querySelectorAll("*").forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const attrValue = attr.value || "";
+
+      if (name.startsWith("on")) {
+        node.removeAttribute(attr.name);
+      }
+
+      if (name === "href") {
+        const safeHref =
+          /^https?:\/\//i.test(attrValue) ||
+          /^mailto:/i.test(attrValue) ||
+          /^tel:/i.test(attrValue);
+
+        if (!safeHref) {
+          node.removeAttribute(attr.name);
+        }
+      }
+    });
+  });
+
+  root.querySelectorAll("a").forEach((link) => {
+    const href = link.getAttribute("href") || "";
+
+    if (!href) {
+      link.replaceWith(doc.createTextNode(link.textContent || ""));
+      return;
+    }
+
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  });
+
+  return root.innerHTML
+    .replace(/<div><br><\/div>/gi, "<br>")
+    .replace(/<div>/gi, "")
+    .replace(/<\/div>/gi, "<br>")
+    .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
+    .trim();
 }
 
 function stripHtml(value = "") {
@@ -347,8 +421,78 @@ function getStatusPillClasses(status?: string) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
+function isGenericDisplayName(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    !normalized ||
+    normalized === "lead" ||
+    normalized === "brand" ||
+    normalized === "unknown brand" ||
+    normalized === "unknown company" ||
+    normalized === "unknown contact" ||
+    normalized === "outreach team" ||
+    normalized === "collabglam" ||
+    normalized === "sdr" ||
+    normalized === "bme" ||
+    normalized === "ime" ||
+    normalized === "revenue head"
+  );
+}
+
+function firstUsefulName(...values: Array<string | null | undefined>) {
+  const found = values.find((value) => !isGenericDisplayName(value));
+  return String(found || "").trim();
+}
+
 function getBrandDisplayName(thread?: ThreadRow | null) {
-  return thread?.prospectId?.companyName || thread?.brandName || "Unknown Brand";
+  return (
+    firstUsefulName(
+      thread?.brandDisplayName,
+      thread?.brandName,
+      thread?.prospectId?.companyName,
+      thread?.prospectId?.primaryContact?.name
+    ) || "Lead"
+  );
+}
+
+function getThreadTeamLabel(thread?: ThreadRow | null) {
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return firstUsefulName(
+      thread?.assignedBmeId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name,
+      thread?.RHId?.name
+    ) || "BME";
+  }
+
+  if (ownerRole === "ime") {
+    return firstUsefulName(
+      thread?.assignedImeId?.name,
+      thread?.IMEId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name
+    ) || "IME";
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return firstUsefulName(
+      thread?.RHId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name
+    ) || "Revenue Head";
+  }
+
+  return (
+    firstUsefulName(
+      thread?.assignedBmeId?.name,
+      thread?.sdrId?.name,
+      thread?.RHId?.name,
+      thread?.teamDisplayName
+    ) || "Team Member"
+  );
 }
 
 function getThreadPreviewText(thread?: ThreadRow | null) {
@@ -397,13 +541,18 @@ function GmailThreadReader({
         {messages.map((msg) => {
           const isInbound = String(msg.direction || "").toLowerCase() === "inbound";
 
-          const senderLabel = isInbound
-            ? getSenderNameFromEmail(msg.from || "", "Lead")
-            : "CollabGlam";
+          const brandLabel = getBrandDisplayName(thread);
+          const teamLabel = getThreadTeamLabel(thread);
 
-          const recipientLine = isInbound
-            ? "to CollabGlam"
-            : `to ${msg.to?.join(", ") || "lead"}`;
+          const senderLabel =
+            firstUsefulName(msg.fromDisplayName, isInbound ? brandLabel : teamLabel) ||
+            (isInbound ? brandLabel : teamLabel);
+
+          const recipientName =
+            firstUsefulName(msg.toDisplayNames?.[0], isInbound ? teamLabel : brandLabel) ||
+            (isInbound ? teamLabel : brandLabel);
+
+          const recipientLine = `to ${recipientName}`;
 
           const messageParts = getGmailMessageParts(msg);
 
@@ -958,8 +1107,10 @@ export default function RepliesPage() {
       if (!selectedThreadId) throw new Error("Select a conversation first");
 
       const editorHtml = composerEditorRef.current?.innerHTML || composerBody || "";
+      const bodyHtml = normalizeComposerHtmlForSend(editorHtml);
+      const bodyText = htmlToPlainText(bodyHtml);
 
-      if (isEditorHtmlEmpty(editorHtml)) {
+      if (!bodyText) {
         throw new Error("Reply body is required");
       }
 
@@ -970,7 +1121,8 @@ export default function RepliesPage() {
         `/outreach/threads/${selectedThreadId}/reply`,
         {
           subject: composerSubject.trim(),
-          bodyText: editorHtml.trim(),
+          bodyText,
+          bodyHtml,
         }
       );
 
@@ -1223,10 +1375,7 @@ export default function RepliesPage() {
                         </h3>
 
                         <p className="mt-1 truncate text-sm text-slate-500">
-                          {getBrandDisplayName(selectedThreadMeta)}
-                          {selectedThreadMeta.prospectId?.primaryContact?.email
-                            ? ` · ${selectedThreadMeta.prospectId.primaryContact.email}`
-                            : ""}
+                          {getBrandDisplayName(selectedThreadMeta)} · {getThreadTeamLabel(selectedThreadMeta)}
                         </p>
 
                         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1258,7 +1407,7 @@ export default function RepliesPage() {
                     </div>
 
                     <div className="hidden items-center gap-3 sm:flex">
-                      {canOpenCrmProfile ? (
+                      {/* {canOpenCrmProfile ? (
                         <button
                           type="button"
                           onClick={() =>
@@ -1272,7 +1421,7 @@ export default function RepliesPage() {
                         >
                           Open CRM Profile
                         </button>
-                      ) : null}
+                      ) : null} */}
 
                       <button
                         type="button"

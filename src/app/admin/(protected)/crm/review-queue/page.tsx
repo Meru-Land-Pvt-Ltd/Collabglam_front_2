@@ -54,6 +54,10 @@ type ReviewRow = {
 type ThreadRow = {
   _id: string;
   prospectId?: { _id?: string } | null;
+  campaignId?: { _id?: string; name?: string } | null;
+  sdrId?: { _id?: string; name?: string; email?: string } | null;
+  RHId?: { _id?: string; name?: string; email?: string } | null;
+  assignedBmeId?: { _id?: string; name?: string; email?: string } | null;
 };
 
 type ThreadMessage = {
@@ -61,6 +65,8 @@ type ThreadMessage = {
   direction: "inbound" | "outbound" | string;
   from?: string;
   to?: string[];
+  fromDisplayName?: string;
+  toDisplayNames?: string[];
   cc?: string[];
   bcc?: string[];
   subject?: string;
@@ -220,7 +226,44 @@ function parseThreads(payload: any): ThreadRow[] {
   return rows.map((item: any) => ({
     _id: String(item?._id || ""),
     prospectId: item?.prospectId ? { _id: String(item.prospectId?._id || "") } : null,
+    campaignId: item?.campaignId
+      ? {
+          _id: String(item.campaignId?._id || ""),
+          name: item.campaignId?.name || "",
+        }
+      : null,
+    sdrId: item?.sdrId || null,
+    RHId: item?.RHId || null,
+    assignedBmeId: item?.assignedBmeId || null,
   }));
+}
+
+function hydrateRepliesWithThreadFallbacks(replies: ReviewRow[], threads: ThreadRow[]) {
+  const threadByProspectId = new Map<string, ThreadRow>();
+
+  threads.forEach((thread) => {
+    const prospectId = String(thread?.prospectId?._id || "");
+    if (prospectId && !threadByProspectId.has(prospectId)) {
+      threadByProspectId.set(prospectId, thread);
+    }
+  });
+
+  return replies.map((reply) => {
+    const prospectId = String(reply?.prospectId?._id || "");
+    const thread = threadByProspectId.get(prospectId);
+
+    if (!thread) return reply;
+
+    return {
+      ...reply,
+      campaignId: reply.campaignId?._id ? reply.campaignId : thread.campaignId || reply.campaignId || null,
+      sdrId: reply.sdrId?._id ? reply.sdrId : thread.sdrId || reply.sdrId || null,
+      RHId: reply.RHId?._id ? reply.RHId : thread.RHId || reply.RHId || null,
+      assignedBmeId: reply.assignedBmeId?._id
+        ? reply.assignedBmeId
+        : thread.assignedBmeId || reply.assignedBmeId || null,
+    };
+  });
 }
 
 function parseThreadDetail(payload: any): ThreadDetailResponse {
@@ -305,6 +348,91 @@ function getSenderLabel(value = "", fallback = "Unknown Sender") {
     .trim();
 }
 
+function isGenericDisplayName(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    !normalized ||
+    normalized === "lead" ||
+    normalized === "brand" ||
+    normalized === "unknown brand" ||
+    normalized === "unknown company" ||
+    normalized === "unknown contact" ||
+    normalized === "outreach team" ||
+    normalized === "collabglam" ||
+    normalized === "sdr" ||
+    normalized === "bme" ||
+    normalized === "ime" ||
+    normalized === "revenue head"
+  );
+}
+
+function firstUsefulName(...values: Array<string | null | undefined>) {
+  const found = values.find((value) => !isGenericDisplayName(value));
+  return String(found || "").trim();
+}
+
+function getBrandLabel(review: ReviewRow | null, thread: any | null) {
+  return (
+    firstUsefulName(
+      thread?.brandDisplayName,
+      thread?.brandName,
+      thread?.prospectId?.companyName,
+      thread?.prospectId?.primaryContact?.name,
+      review?.prospectId?.companyName,
+      review?.prospectId?.primaryContact?.name
+    ) || "Lead"
+  );
+}
+
+function getTeamLabel(review: ReviewRow | null, thread: any | null) {
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return firstUsefulName(
+      thread?.assignedBmeId?.name,
+      review?.assignedBmeId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name,
+      review?.sdrId?.name,
+      thread?.RHId?.name,
+      review?.RHId?.name
+    ) || "BME";
+  }
+
+  if (ownerRole === "ime") {
+    return firstUsefulName(
+      thread?.assignedImeId?.name,
+      thread?.IMEId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name,
+      review?.sdrId?.name
+    ) || "IME";
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return firstUsefulName(
+      thread?.RHId?.name,
+      review?.RHId?.name,
+      thread?.teamDisplayName,
+      thread?.sdrId?.name,
+      review?.sdrId?.name
+    ) || "Revenue Head";
+  }
+
+  return (
+    firstUsefulName(
+      thread?.assignedBmeId?.name,
+      review?.assignedBmeId?.name,
+      thread?.sdrId?.name,
+      review?.sdrId?.name,
+      thread?.RHId?.name,
+      review?.RHId?.name,
+      thread?.teamDisplayName
+    ) || "Team Member"
+  );
+}
+
 function MetricCard({
   label,
   value,
@@ -363,11 +491,15 @@ function GmailConversationThread({
   messages,
   loading,
   fallbackMessage,
+  brandLabel,
+  teamLabel,
 }: {
   subject: string;
   messages: ThreadMessage[];
   loading: boolean;
   fallbackMessage: ThreadMessage | null;
+  brandLabel: string;
+  teamLabel: string;
 }) {
   const threadMessages = messages.length ? messages : fallbackMessage ? [fallbackMessage] : [];
   const messageKey = threadMessages.map((message) => message._id).join("|");
@@ -414,7 +546,15 @@ function GmailConversationThread({
         {threadMessages.map((message, index) => {
           const isInbound = String(message.direction || "").toLowerCase() === "inbound";
           const isExpanded = Boolean(expanded[message._id]);
-          const senderLabel = getSenderLabel(message.from || "", isInbound ? "Lead" : "CollabGlam");
+          const senderLabel = firstUsefulName(
+            message.fromDisplayName,
+            isInbound ? brandLabel : teamLabel
+          ) || (isInbound ? brandLabel : teamLabel);
+          const recipientLabel =
+            firstUsefulName(
+              message.toDisplayNames?.[0],
+              isInbound ? teamLabel : brandLabel
+            ) || (isInbound ? teamLabel : brandLabel);
           const messageDate = getMessageDate(message);
           const preview = getMessagePreview(message);
 
@@ -448,7 +588,7 @@ function GmailConversationThread({
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-sm font-semibold text-slate-900">{senderLabel}</p>
                         <span className="text-xs text-slate-500">
-                          {isInbound ? "to CollabGlam" : `to ${message.to?.join(", ") || "lead"}`}
+                          {`to ${recipientLabel}`}
                         </span>
                       </div>
 
@@ -689,11 +829,15 @@ export default function ReviewQueuePage() {
         adminGet("/admins/me"),
       ]);
 
-      const nextReplies = parsePendingReplies(repliesPayload);
+      const parsedThreads = parseThreads(threadsPayload);
+      const nextReplies = hydrateRepliesWithThreadFallbacks(
+        parsePendingReplies(repliesPayload),
+        parsedThreads
+      );
       const nextRole = String(mePayload?.role || "").toLowerCase();
 
       setPendingReplies(nextReplies);
-      setThreads(parseThreads(threadsPayload));
+      setThreads(parsedThreads);
       setActorRole(nextRole);
 
       const prospectIdFromQuery = String(searchParams.get("prospectId") || "");
@@ -853,9 +997,10 @@ export default function ReviewQueuePage() {
   const canAssign = Boolean(selectedReview && selectedBmeId && submittingKey === "");
   const canReject = Boolean(selectedReview && submittingKey === "");
 
-  const selectedCompany = selectedReview?.prospectId?.companyName || "Unknown Company";
-  const selectedContact = selectedReview?.prospectId?.primaryContact?.name || "Unknown Contact";
-  const selectedEmail = selectedReview?.prospectId?.primaryContact?.email || "";
+  const brandLabel = getBrandLabel(selectedReview, threadDetail.thread);
+  const teamLabel = getTeamLabel(selectedReview, threadDetail.thread);
+  const selectedCompany = brandLabel || "Unknown Company";
+  const selectedContact = selectedReview?.prospectId?.primaryContact?.name || selectedCompany || "Unknown Contact";
   const selectedSubject =
     selectedReview?.latestReplySubject ||
     selectedReview?.prospectId?.reply?.subject ||
@@ -870,8 +1015,10 @@ export default function ReviewQueuePage() {
     ? {
         _id: `fallback-${selectedReview._id}`,
         direction: "inbound",
-        from: selectedEmail || selectedContact || "Lead",
-        to: ["CollabGlam Outreach Team"],
+        from: brandLabel,
+        to: [teamLabel],
+        fromDisplayName: brandLabel,
+        toDisplayNames: [teamLabel],
         subject: selectedSubject,
         bodyText: selectedSnippet,
         bodyHtml: "",
@@ -963,7 +1110,7 @@ export default function ReviewQueuePage() {
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search company, contact, email, subject..."
+                    placeholder="Search company, contact, campaign, subject..."
                     className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-4 focus:ring-blue-50"
                   />
                 </div>
@@ -1049,7 +1196,7 @@ export default function ReviewQueuePage() {
                     const active = item._id === selectedReviewId;
                     const companyName = item.prospectId?.companyName || "Unknown Company";
                     const contactName = item.prospectId?.primaryContact?.name || "Unknown Contact";
-                    const contactEmail = item.prospectId?.primaryContact?.email || "—";
+                    const campaignName = item.campaignId?.name || "No campaign";
                     const subject = item.latestReplySubject || item.prospectId?.reply?.subject || "(No subject)";
                     const snippet = item.latestReplySnippet || item.prospectId?.reply?.snippet || "—";
 
@@ -1071,7 +1218,7 @@ export default function ReviewQueuePage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-bold text-slate-950">{companyName}</p>
-                                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">{contactName} · {contactEmail}</p>
+                                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">{contactName} · {campaignName}</p>
                               </div>
 
                               <span className="shrink-0 text-xs font-semibold text-slate-400">
@@ -1087,7 +1234,7 @@ export default function ReviewQueuePage() {
                                 {normalizeStageLabel(item.prospectId?.stage)}
                               </span>
                               <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">
-                                {item.campaignId?.name || "No campaign"}
+                                {campaignName}
                               </span>
                             </div>
                           </div>
@@ -1123,26 +1270,20 @@ export default function ReviewQueuePage() {
 
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-500">
                           <span>{selectedContact}</span>
-                          {selectedEmail ? (
-                            <>
-                              <span>·</span>
-                              <a href={`mailto:${selectedEmail}`} className="font-semibold text-blue-600 hover:underline">
-                                {selectedEmail}
-                              </a>
-                            </>
-                          ) : null}
+                          <span>·</span>
+                          <span>{teamLabel}</span>
                         </div>
                       </div>
                     </div>
 
-                    <button
+                    {/* <button
                       type="button"
                       onClick={openFullThread}
                       className="inline-flex h-10 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
                     >
                       <ExternalLink className="h-4 w-4" />
                       <span className="hidden sm:inline">Open full thread</span>
-                    </button>
+                    </button> */}
                   </div>
                 </div>
 
@@ -1172,6 +1313,8 @@ export default function ReviewQueuePage() {
                       messages={threadDetail.messages}
                       loading={threadLoading}
                       fallbackMessage={fallbackLatestMessage}
+                      brandLabel={brandLabel}
+                      teamLabel={teamLabel}
                     />
 
                     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
