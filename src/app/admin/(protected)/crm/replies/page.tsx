@@ -15,10 +15,15 @@ type AdminOption = {
 
 type ThreadMailboxes = {
   campaignSenderEmail?: string;
+  campaignSenderName?: string;
   currentReplyFromEmail?: string;
+  currentReplyFromName?: string;
   RHEmail?: string;
+  RHName?: string;
   bmeEmail?: string;
+  bmeName?: string;
   imeEmail?: string;
+  imeName?: string;
 };
 
 type ThreadRow = {
@@ -53,11 +58,15 @@ type ThreadMessage = {
   _id: string;
   direction: "inbound" | "outbound" | string;
   from?: string;
+  fromName?: string;
   to?: string[];
+  toNames?: string[];
   fromDisplayName?: string;
   toDisplayNames?: string[];
   cc?: string[];
+  ccNames?: string[];
   bcc?: string[];
+  bccNames?: string[];
   subject?: string;
   bodyText?: string;
   bodyHtml?: string;
@@ -492,8 +501,8 @@ function getPreferredMailboxEmail(thread?: ThreadRow | null) {
 
   if (ownerRole === "bme") {
     return (
-      mailboxes.bmeEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.bmeEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -501,8 +510,8 @@ function getPreferredMailboxEmail(thread?: ThreadRow | null) {
 
   if (ownerRole === "ime") {
     return (
-      mailboxes.imeEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.imeEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -510,8 +519,8 @@ function getPreferredMailboxEmail(thread?: ThreadRow | null) {
 
   if (ownerRole === "revenue_head" || ownerRole === "rh") {
     return (
-      mailboxes.RHEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.RHEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -527,8 +536,48 @@ function getPreferredMailboxEmail(thread?: ThreadRow | null) {
   );
 }
 
+function getPreferredMailboxName(thread?: ThreadRow | null) {
+  const mailboxes = thread?.mailboxes || {};
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.bmeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "ime") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.imeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.RHName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  return firstUsefulName(
+    mailboxes.currentReplyFromName,
+    mailboxes.campaignSenderName,
+    mailboxes.RHName,
+    mailboxes.bmeName,
+    mailboxes.imeName
+  );
+}
+
 function getThreadTeamLabel(thread?: ThreadRow | null) {
-  return emailToDisplayName(getPreferredMailboxEmail(thread)) || "Mailbox";
+  const mailboxName = getPreferredMailboxName(thread);
+  const mailboxEmail = getPreferredMailboxEmail(thread);
+
+  return mailboxName || emailToDisplayName(mailboxEmail) || "Mailbox";
 }
 
 function getMessageMailboxLabel(
@@ -536,6 +585,15 @@ function getMessageMailboxLabel(
   thread: ThreadRow | null,
   mode: "outbound_sender" | "inbound_recipient"
 ) {
+  const storedMessageName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromName)
+      : firstUsefulName(message.toNames?.[0]);
+
+  if (storedMessageName) {
+    return storedMessageName;
+  }
+
   const raw =
     mode === "outbound_sender"
       ? message.from
@@ -547,7 +605,12 @@ function getMessageMailboxLabel(
     return emailToDisplayName(raw);
   }
 
-  return getThreadTeamLabel(thread);
+  const serializedDisplayName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromDisplayName)
+      : firstUsefulName(message.toDisplayNames?.[0]);
+
+  return serializedDisplayName || getThreadTeamLabel(thread);
 }
 
 function getThreadPreviewText(thread?: ThreadRow | null) {

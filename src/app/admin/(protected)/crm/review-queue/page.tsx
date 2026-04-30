@@ -32,10 +32,15 @@ type AdminOption = {
 
 type ThreadMailboxes = {
   campaignSenderEmail?: string;
+  campaignSenderName?: string;
   currentReplyFromEmail?: string;
+  currentReplyFromName?: string;
   RHEmail?: string;
+  RHName?: string;
   bmeEmail?: string;
+  bmeName?: string;
   imeEmail?: string;
+  imeName?: string;
 };
 
 type ReviewRow = {
@@ -74,11 +79,15 @@ type ThreadMessage = {
   _id: string;
   direction: "inbound" | "outbound" | string;
   from?: string;
+  fromName?: string;
   to?: string[];
+  toNames?: string[];
   fromDisplayName?: string;
   toDisplayNames?: string[];
   cc?: string[];
+  ccNames?: string[];
   bcc?: string[];
+  bccNames?: string[];
   subject?: string;
   bodyText?: string;
   bodyHtml?: string;
@@ -221,6 +230,7 @@ function parsePendingReplies(payload: any): ReviewRow[] {
     sdrId: item?.sdrId || null,
     RHId: item?.RHId || null,
     assignedBmeId: item?.assignedBmeId || null,
+    mailboxes: item?.mailboxes || null,
     latestReplySnippet: item?.latestReplySnippet || "",
     latestReplySubject: item?.latestReplySubject || "",
     reviewStatus: item?.reviewStatus || "",
@@ -323,6 +333,7 @@ async function hydrateRepliesWithThreadDetailsForMissingCampaigns(
             reply.assignedBmeId?._id
               ? reply.assignedBmeId
               : detailThread?.assignedBmeId || thread.assignedBmeId || reply.assignedBmeId || null,
+          mailboxes: reply.mailboxes || detailThread?.mailboxes || thread.mailboxes || null,
         };
       } catch {
         return reply;
@@ -473,8 +484,8 @@ function getPreferredMailboxEmail(review: ReviewRow | null, thread: any | null) 
 
   if (ownerRole === "bme") {
     return (
-      mailboxes.bmeEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.bmeEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -482,8 +493,8 @@ function getPreferredMailboxEmail(review: ReviewRow | null, thread: any | null) 
 
   if (ownerRole === "ime") {
     return (
-      mailboxes.imeEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.imeEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -491,8 +502,8 @@ function getPreferredMailboxEmail(review: ReviewRow | null, thread: any | null) 
 
   if (ownerRole === "revenue_head" || ownerRole === "rh") {
     return (
-      mailboxes.RHEmail ||
       mailboxes.currentReplyFromEmail ||
+      mailboxes.RHEmail ||
       mailboxes.campaignSenderEmail ||
       ""
     );
@@ -505,6 +516,43 @@ function getPreferredMailboxEmail(review: ReviewRow | null, thread: any | null) 
     mailboxes.bmeEmail ||
     mailboxes.imeEmail ||
     ""
+  );
+}
+
+function getPreferredMailboxName(review: ReviewRow | null, thread: any | null) {
+  const mailboxes = getMailboxObject(review, thread);
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.bmeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "ime") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.imeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.RHName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  return firstUsefulName(
+    mailboxes.currentReplyFromName,
+    mailboxes.campaignSenderName,
+    mailboxes.RHName,
+    mailboxes.bmeName,
+    mailboxes.imeName
   );
 }
 
@@ -522,9 +570,10 @@ function getBrandLabel(review: ReviewRow | null, thread: any | null) {
 }
 
 function getTeamLabel(review: ReviewRow | null, thread: any | null) {
+  const mailboxName = getPreferredMailboxName(review, thread);
   const mailboxEmail = getPreferredMailboxEmail(review, thread);
 
-  return emailToDisplayName(mailboxEmail) || "Mailbox";
+  return mailboxName || emailToDisplayName(mailboxEmail) || "Mailbox";
 }
 
 function getMessageMailboxLabel(
@@ -533,6 +582,15 @@ function getMessageMailboxLabel(
   thread: any | null,
   mode: "outbound_sender" | "inbound_recipient"
 ) {
+  const storedMessageName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromName)
+      : firstUsefulName(message.toNames?.[0]);
+
+  if (storedMessageName) {
+    return storedMessageName;
+  }
+
   const raw =
     mode === "outbound_sender"
       ? message.from
@@ -544,7 +602,12 @@ function getMessageMailboxLabel(
     return emailToDisplayName(raw);
   }
 
-  return getTeamLabel(review, thread);
+  const serializedDisplayName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromDisplayName)
+      : firstUsefulName(message.toDisplayNames?.[0]);
+
+  return serializedDisplayName || getTeamLabel(review, thread);
 }
 
 function MetricCard({
