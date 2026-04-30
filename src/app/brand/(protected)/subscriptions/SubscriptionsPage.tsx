@@ -20,7 +20,14 @@ type PaymentStatus = "idle" | "processing" | "success" | "failed";
 
 interface Feature {
   key: string;
-  value: number | boolean | string | string[] | null | undefined | { unlimited?: boolean };
+  value:
+    | number
+    | boolean
+    | string
+    | string[]
+    | null
+    | undefined
+    | { unlimited?: boolean };
   note?: string;
 }
 
@@ -102,8 +109,11 @@ interface VerifyCouponResponse {
 
 const STRIPE_HANDLED_KEY = "stripe_subscription_handled_session";
 
-const currencySymbol = (c?: string) => (c === "INR" ? "₹" : c === "EUR" ? "€" : "$");
-const capitalize = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
+const currencySymbol = (c?: string) =>
+  c === "INR" ? "₹" : c === "EUR" ? "€" : "$";
+
+const capitalize = (s: string) =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1) : "";
 
 const UPGRADE_REST =
   "radial-gradient(140% 140% at 0% 20%, rgba(255, 140, 1, 0.80) 5%, rgba(255, 191, 0, 0.30) 31%, rgba(255, 255, 255, 0.50) 100%)";
@@ -283,8 +293,14 @@ const getPlanTheme = (name: string) => {
 };
 
 const getAnnualTotal = (plan: Plan) => {
-  if (typeof plan.annualCost === "number" && plan.annualCost > 0) return plan.annualCost;
-  if (!plan.isCustomPricing && plan.monthlyCost > 0) return plan.monthlyCost * 12;
+  if (typeof plan.annualCost === "number" && plan.annualCost > 0) {
+    return plan.annualCost;
+  }
+
+  if (!plan.isCustomPricing && plan.monthlyCost > 0) {
+    return plan.monthlyCost * 12;
+  }
+
   return 0;
 };
 
@@ -308,7 +324,11 @@ const normalizeBillingMode = (value?: string | null): BillingCycle | null => {
   const normalized = String(value || "").trim().toLowerCase();
 
   if (normalized === "monthly") return "monthly";
-  if (normalized === "annual" || normalized === "annually" || normalized === "yearly") {
+  if (
+    normalized === "annual" ||
+    normalized === "annually" ||
+    normalized === "yearly"
+  ) {
     return "annually";
   }
 
@@ -333,7 +353,10 @@ const getPlanBillingModes = (plan?: Plan | null) => {
 
 const formatPlanName = (name?: string) => {
   if (!name) return "Plan";
-  return name.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+  return name
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
 const formatPlanAmount = (plan: Plan, amount: number) => {
@@ -350,12 +373,17 @@ const getDiscountAmount = (coupon?: VerifiedCouponData | null) => {
   return discountAmount;
 };
 
-const getDiscountedAmount = (baseAmount: number, coupon?: VerifiedCouponData | null) => {
+const getDiscountedAmount = (
+  baseAmount: number,
+  coupon?: VerifiedCouponData | null
+) => {
   const discountAmount = getDiscountAmount(coupon);
   return Math.max(baseAmount - discountAmount, 0);
 };
 
-const mapAdminSubscriptionToPlan = (item: AdminSubscriptionListItem): Plan => {
+const mapAdminSubscriptionToPlan = (
+  item: AdminSubscriptionListItem
+): Plan => {
   return {
     _id: item._id,
     planId: item._id,
@@ -404,11 +432,16 @@ const resolveMarketingCopy = (plan: Plan) => {
     MARKETING_COPY[key] ?? {
       title: plan.displayName || plan.name.toUpperCase(),
       subtitle: plan.overview || "Built for growing brands.",
-      description: plan.overview || "Flexible creator collaboration tools for your brand.",
+      description:
+        plan.overview || "Flexible creator collaboration tools for your brand.",
       cta: plan.monthlyCost <= 0 ? "Start Free" : "Upgrade",
       sections: [
         {
-          items: ["Instagram creator access", "TikTok creator access", "YouTube creator access"],
+          items: [
+            "Instagram creator access",
+            "TikTok creator access",
+            "YouTube creator access",
+          ],
         },
       ],
     }
@@ -433,7 +466,8 @@ export default function BrandSubscriptionPage() {
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
 
-  const [verifiedCoupon, setVerifiedCoupon] = useState<VerifiedCouponData | null>(null);
+  const [verifiedCoupon, setVerifiedCoupon] =
+    useState<VerifiedCouponData | null>(null);
   const [verifyingCoupon, setVerifyingCoupon] = useState(false);
   const [promoSubscriptionId, setPromoSubscriptionId] = useState("");
   const [promoMode, setPromoMode] = useState<BillingCycle>("monthly");
@@ -514,7 +548,8 @@ export default function BrandSubscriptionPage() {
         return null;
       }
 
-      const brandId = typeof window !== "undefined" ? localStorage.getItem("brandId") : "";
+      const brandId =
+        typeof window !== "undefined" ? localStorage.getItem("brandId") : "";
 
       if (!brandId) {
         const message = "Missing brand ID. Please log in again.";
@@ -551,7 +586,8 @@ export default function BrandSubscriptionPage() {
         }
 
         const couponData = resp.data;
-        const verifiedSubscriptionId = getCouponSubscriptionId(couponData) || subscriptionId;
+        const verifiedSubscriptionId =
+          getCouponSubscriptionId(couponData) || subscriptionId;
         const verifiedMode = normalizeBillingMode(couponData.mode) || mode;
         const verifiedCode = getCouponCode(couponData) || cleanPromoCode;
 
@@ -646,9 +682,12 @@ export default function BrandSubscriptionPage() {
           }
 
           const brandId = localStorage.getItem("brandId");
-          const planId = verifyResp.planId || localStorage.getItem("pendingPlanId") || "";
+          const planId =
+            verifyResp.planId || localStorage.getItem("pendingPlanId") || "";
           const billingCycle =
-            (localStorage.getItem("pendingBillingCycle") as BillingCycle | null) || "monthly";
+            (localStorage.getItem("pendingBillingCycle") as
+              | BillingCycle
+              | null) || "monthly";
 
           if (!brandId || !planId) {
             throw new Error("Missing brandId/planId for subscription assignment.");
@@ -656,7 +695,11 @@ export default function BrandSubscriptionPage() {
 
           const assignResp = await post<{
             message: string;
-            subscription?: { planId?: string; planName?: string; expiresAt?: string | null };
+            subscription?: {
+              planId?: string;
+              planName?: string;
+              expiresAt?: string | null;
+            };
           }>("/subscription/assign", {
             userType: "Brand",
             userId: brandId,
@@ -687,7 +730,9 @@ export default function BrandSubscriptionPage() {
           router.refresh?.();
         } catch (e: any) {
           setPaymentStatus("failed");
-          setPaymentMessage(e?.message || "Payment verification failed. Please contact support.");
+          setPaymentMessage(
+            e?.message || "Payment verification failed. Please contact support."
+          );
         }
       })();
     }
@@ -698,7 +743,8 @@ export default function BrandSubscriptionPage() {
 
     const subscriptionId = searchParams.get("subscriptionId") || "";
     const mode = normalizeBillingMode(searchParams.get("mode"));
-    const promoCode = searchParams.get("promoCode") || searchParams.get("promocode") || "";
+    const promoCode =
+      searchParams.get("promoCode") || searchParams.get("promocode") || "";
 
     if (!subscriptionId || !mode || !promoCode) return;
     if (!plans.length) return;
@@ -709,7 +755,8 @@ export default function BrandSubscriptionPage() {
     autoCouponKeyRef.current = key;
 
     const matchedPlan =
-      plans.find((plan) => getPlanSubscriptionId(plan) === subscriptionId) || null;
+      plans.find((plan) => getPlanSubscriptionId(plan) === subscriptionId) ||
+      null;
 
     setBilling(mode);
     setPromoSubscriptionId(subscriptionId);
@@ -750,7 +797,10 @@ export default function BrandSubscriptionPage() {
               fully_managed: 4,
             };
 
-            return (order[a.name.toLowerCase()] ?? 999) - (order[b.name.toLowerCase()] ?? 999);
+            return (
+              (order[a.name.toLowerCase()] ?? 999) -
+              (order[b.name.toLowerCase()] ?? 999)
+            );
           });
 
         setPlans(sorted);
@@ -830,7 +880,10 @@ export default function BrandSubscriptionPage() {
   }, [fullyManagedPlan, requestedSubscriptionId]);
 
   const visiblePlans = useMemo(() => {
-    return [...visibleStandardPlans, ...(visibleFullyManagedPlan ? [visibleFullyManagedPlan] : [])];
+    return [
+      ...visibleStandardPlans,
+      ...(visibleFullyManagedPlan ? [visibleFullyManagedPlan] : []),
+    ];
   }, [visibleFullyManagedPlan, visibleStandardPlans]);
 
   const promoPlanOptions = useMemo(() => {
@@ -839,7 +892,11 @@ export default function BrandSubscriptionPage() {
   }, [plans, requestedSubscriptionId, visiblePlans]);
 
   const selectedPromoPlan = useMemo(() => {
-    return promoPlanOptions.find((plan) => getPlanSubscriptionId(plan) === promoSubscriptionId) || null;
+    return (
+      promoPlanOptions.find(
+        (plan) => getPlanSubscriptionId(plan) === promoSubscriptionId
+      ) || null
+    );
   }, [promoPlanOptions, promoSubscriptionId]);
 
   useEffect(() => {
@@ -879,7 +936,11 @@ export default function BrandSubscriptionPage() {
       const planSubscriptionId = getPlanSubscriptionId(plan);
       const couponMode = normalizeBillingMode(verifiedCoupon.mode);
 
-      if (!couponSubscriptionId || !planSubscriptionId || couponSubscriptionId !== planSubscriptionId) {
+      if (
+        !couponSubscriptionId ||
+        !planSubscriptionId ||
+        couponSubscriptionId !== planSubscriptionId
+      ) {
         return null;
       }
 
@@ -896,8 +957,14 @@ export default function BrandSubscriptionPage() {
     [billing, verifiedCoupon]
   );
 
-  const getBasePayAmount = (plan: Plan, billingOverride: BillingCycle = billing) => {
-    if (billingOverride === "annually") return getAnnualTotal(plan) || plan.monthlyCost * 12;
+  const getBasePayAmount = (
+    plan: Plan,
+    billingOverride: BillingCycle = billing
+  ) => {
+    if (billingOverride === "annually") {
+      return getAnnualTotal(plan) || plan.monthlyCost * 12;
+    }
+
     return plan.monthlyCost;
   };
 
@@ -948,7 +1015,11 @@ export default function BrandSubscriptionPage() {
 
       const assignResp = await post<{
         message: string;
-        subscription?: { planId?: string; planName?: string; expiresAt?: string | null };
+        subscription?: {
+          planId?: string;
+          planName?: string;
+          expiresAt?: string | null;
+        };
       }>("/subscription/assign", {
         userType: "Brand",
         userId: brandId,
@@ -980,7 +1051,9 @@ export default function BrandSubscriptionPage() {
     couponOverride?: VerifiedCouponData | null,
     billingOverride: BillingCycle = billing
   ) => {
-    if (processing || plan.name.toLowerCase() === currentPlan?.toLowerCase()) return;
+    if (processing || plan.name.toLowerCase() === currentPlan?.toLowerCase()) {
+      return;
+    }
 
     if (plan.monthlyCost <= 0) {
       await assignFreePlan(plan);
@@ -1121,14 +1194,19 @@ export default function BrandSubscriptionPage() {
       setContactToast({ type: "success", message: "Message sent successfully!" });
       setShowContactModal(false);
     } catch {
-      setContactToast({ type: "failed", message: "Could not send message. Please try again." });
+      setContactToast({
+        type: "failed",
+        message: "Could not send message. Please try again.",
+      });
     } finally {
       setContactSubmitting(false);
     }
   };
 
   const handleSelect = async (plan: Plan) => {
-    if (processing || plan.name.toLowerCase() === currentPlan?.toLowerCase()) return;
+    if (processing || plan.name.toLowerCase() === currentPlan?.toLowerCase()) {
+      return;
+    }
 
     if (plan.monthlyCost <= 0) {
       if (currentPlanIsPaid) {
@@ -1143,27 +1221,50 @@ export default function BrandSubscriptionPage() {
 
     const planSubscriptionId = getPlanSubscriptionId(plan);
     const planModes = getPlanBillingModes(plan);
-    const nextPromoMode = planModes.includes(billing) ? billing : planModes[0] || billing;
+    const nextPromoMode = planModes.includes(billing)
+      ? billing
+      : planModes[0] || billing;
     const existingCoupon = getAppliedCouponForPlan(plan);
-    const urlPromoCode =
-      searchParams.get("promoCode") || searchParams.get("promocode") || "";
 
-    setPlanPendingPromo(plan);
+    const urlPromoCode = (
+      searchParams.get("promoCode") ||
+      searchParams.get("promocode") ||
+      ""
+    ).trim();
+
+    if (urlPromoCode) {
+      setPlanPendingPromo(plan);
+      setPromoSubscriptionId(planSubscriptionId);
+      setPromoMode(nextPromoMode);
+      setPromoCodeInput(
+        existingCoupon ? getCouponCode(existingCoupon) : urlPromoCode
+      );
+      setPromoMessage(
+        existingCoupon
+          ? {
+              type: "success",
+              message: "Promo code already applied. Continue to checkout.",
+            }
+          : {
+              type: "idle",
+              message: "",
+            }
+      );
+      setShowPromoDialog(true);
+      return;
+    }
+
+    setPlanPendingPromo(null);
     setPromoSubscriptionId(planSubscriptionId);
     setPromoMode(nextPromoMode);
-    setPromoCodeInput(existingCoupon ? getCouponCode(existingCoupon) : urlPromoCode);
-    setPromoMessage(
-      existingCoupon
-        ? {
-            type: "success",
-            message: "Promo code already applied. Continue to checkout.",
-          }
-        : {
-            type: "idle",
-            message: "",
-          }
-    );
-    setShowPromoDialog(true);
+    setPromoCodeInput("");
+    setPromoMessage({
+      type: "idle",
+      message: "",
+    });
+    setShowPromoDialog(false);
+
+    await proceedToCheckout(plan, null, nextPromoMode);
   };
 
   if (!authReady || loading) {
@@ -1557,7 +1658,9 @@ export default function BrandSubscriptionPage() {
           ) : null}
 
           <div className="mt-12 rounded-[28px] border border-[#eadcf5] bg-white px-8 py-8 shadow-sm">
-            <h3 className="text-center text-xl font-bold text-[#250054]">All paid plans include</h3>
+            <h3 className="text-center text-xl font-bold text-[#250054]">
+              All paid plans include
+            </h3>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
               {[
@@ -1606,7 +1709,9 @@ export default function BrandSubscriptionPage() {
               <div className="border-b border-[#ece7f2] bg-[#fcf8ff] px-7 py-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-2xl font-bold text-[#250054]">Apply Promo Code</h3>
+                    <h3 className="text-2xl font-bold text-[#250054]">
+                      Apply Promo Code
+                    </h3>
                     <p className="mt-1 text-sm text-slate-600">
                       Enter your promo code to continue.
                     </p>
@@ -1699,7 +1804,9 @@ export default function BrandSubscriptionPage() {
               <div className="border-b border-[#ece7f2] bg-[#fcf8ff] px-8 py-6">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <h3 className="text-2xl font-bold text-[#250054]">Contact Sales</h3>
+                    <h3 className="text-2xl font-bold text-[#250054]">
+                      Contact Sales
+                    </h3>
                     <p className="mt-1 text-sm text-slate-600">
                       Tell us what you need and our team will reach out.
                     </p>
@@ -1754,7 +1861,10 @@ export default function BrandSubscriptionPage() {
                   <input
                     value={contactForm.subject}
                     onChange={(e) =>
-                      setContactForm((prev) => ({ ...prev, subject: e.target.value }))
+                      setContactForm((prev) => ({
+                        ...prev,
+                        subject: e.target.value,
+                      }))
                     }
                     className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-[#1a1a1a]"
                     required
@@ -1766,7 +1876,10 @@ export default function BrandSubscriptionPage() {
                   <textarea
                     value={contactForm.message}
                     onChange={(e) =>
-                      setContactForm((prev) => ({ ...prev, message: e.target.value }))
+                      setContactForm((prev) => ({
+                        ...prev,
+                        message: e.target.value,
+                      }))
                     }
                     className="mt-2 min-h-[140px] w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-[#1a1a1a]"
                     required
