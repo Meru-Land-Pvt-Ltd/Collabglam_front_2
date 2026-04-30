@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  Info,
   Paperclip,
   Send,
   X,
@@ -118,6 +119,7 @@ interface Dispute {
   brandId: string;
   influencerId: string;
   issueType?: string[];
+  otherIssueDescription?: string | null;
   assignedTo?: AssignedAdmin | null;
   comments: Comment[];
   attachments?: Attachment[];
@@ -143,6 +145,7 @@ interface MetaItem {
   label: string;
   value: string;
   sub?: string;
+  tooltip?: string;
 }
 
 interface FaqItem {
@@ -261,6 +264,34 @@ function formatIssueTypeLabel(value?: string | null): string {
     ISSUE_TYPE_LABELS[value] ??
     value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   );
+}
+
+
+function getIssueTypeMeta(dispute: Dispute): {
+  value: string;
+  sub?: string;
+  tooltip?: string;
+} {
+  const issueTypes = Array.isArray(dispute.issueType) ? dispute.issueType : [];
+
+  const labels = issueTypes.length
+    ? issueTypes.map(formatIssueTypeLabel).join(", ")
+    : "—";
+
+  const otherReason = String(
+    dispute.otherIssueDescription || dispute.description || ""
+  ).trim();
+
+  if (issueTypes.includes("other")) {
+    return {
+      value: labels,
+      tooltip: otherReason || "Not provided",
+    };
+  }
+
+  return {
+    value: labels,
+  };
 }
 
 function daysSince(dateStr: string): number {
@@ -563,23 +594,56 @@ function MetaGrid({ items }: { items: MetaItem[] }) {
       <div
         className={`grid gap-3 rounded-[12px] px-4 py-5 ${MUTED_BG} [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]`}
       >
-        {items.map((item) => (
-          <div key={item.label} className="min-w-0">
-            <p className="mb-1 text-[11px] leading-4 text-[#999]">
-              {item.label}
-            </p>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
-                {item.value}
-              </p>
-              {item.sub && (
-                <p className="mt-0.5 truncate text-xs leading-4 text-[#888]">
-                  {item.sub}
+        {items.map((item) => {
+          const isOtherDisputeType =
+            item.label === "Dispute Type" &&
+            item.value.toLowerCase().includes("other") &&
+            Boolean(item.tooltip);
+
+          return (
+            <div key={item.label} className="relative min-w-0">
+              <div className="mb-1 flex min-w-0 items-center gap-1.5">
+                <p className="min-w-0 truncate text-[11px] leading-4 text-[#999]">
+                  {item.label}
                 </p>
-              )}
+
+                {isOtherDisputeType ? (
+                  <span className="group relative inline-flex shrink-0">
+                    <button
+                      type="button"
+                      aria-label="View other issue reason"
+                      className="inline-flex size-3.5 items-center cursor-pointer justify-center rounded-full bg-white text-[#777] outline-none transition hover:border-[#1a1a1a] hover:text-[#1a1a1a] focus:border-[#1a1a1a] focus:text-[#1a1a1a]"
+                    >
+                      <Info className="size-3.5" strokeWidth={2.5} />
+                    </button>
+
+                    <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem))] max-w-[22rem] -translate-x-1/2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-xs leading-5 text-[#333] shadow-lg group-hover:block group-focus-within:block">
+                      <p className="mb-1 font-semibold text-[#1a1a1a]">
+                        Other issue reason
+                      </p>
+
+                      <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                        {item.tooltip}
+                      </p>
+                    </div>
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
+                  {item.value}
+                </p>
+
+                {!isOtherDisputeType && item.sub ? (
+                  <p className="mt-0.5 max-w-[220px] truncate text-xs leading-4 text-[#777]">
+                    {item.sub}
+                  </p>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1352,6 +1416,7 @@ interface EditableDisputeSeed {
   subject: string;
   description?: string | null;
   issueType?: string[];
+  otherIssueDescription?: string | null;
   /** Server-persisted attachments to display inside the edit dialog. */
   existingAttachments?: ExistingAttachment[];
 }
@@ -1383,6 +1448,7 @@ function EditDisputeDialog({
         subject: dispute.subject,
         description: dispute.description ?? "",
         issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
+        otherIssueDescription: dispute.otherIssueDescription ?? "",
       }}
       influencerDisplayName={dispute.influencerName ?? undefined}
       existingAttachments={dispute.existingAttachments}
@@ -1397,6 +1463,7 @@ function EditDisputeDialog({
           subject: values.subject,
           description: values.description,
           issueType: values.issueType,
+          otherIssueDescription: values.otherIssueDescription,
           attachments: values.attachments,
           removedAttachmentUrls: removedExistingUrls,
         });
@@ -1707,6 +1774,7 @@ export default function BrandDisputeDetailPage() {
     const daysOpen = daysSince(dispute.createdAt);
     const imageAttachments = getImageAttachments(dispute.attachments);
     const fileAttachments = getFileAttachments(dispute.attachments);
+    const issueTypeMeta = getIssueTypeMeta(dispute);
 
     const metaItems: MetaItem[] = [
       {
@@ -1724,7 +1792,9 @@ export default function BrandDisputeDetailPage() {
       },
       {
         label: "Dispute Type",
-        value: formatIssueTypeLabel(dispute.issueType?.[0]),
+        value: issueTypeMeta.value,
+        sub: issueTypeMeta.sub,
+        tooltip: issueTypeMeta.tooltip,
       },
       {
         label: "Dispute ID",
@@ -1829,24 +1899,30 @@ export default function BrandDisputeDetailPage() {
           </SectionCard>
 
           {/* Summary card */}
-          <SectionCard className={`${SURFACE_BORDER} px-6 py-5`}>
+          <SectionCard className={`${SURFACE_BORDER} min-w-0 overflow-hidden px-6 py-5`}>
             <div
-              className={`mb-3 flex items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
+              className={`mb-3 flex min-w-0 items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
             >
-              <NoteIcon className="size-4" />
-              <h2 className="text-sm font-semibold text-[#1a1a1a]">
+              <NoteIcon className="size-4 shrink-0" />
+              <h2 className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">
                 Dispute Summary
               </h2>
             </div>
 
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#555]">
+            <p
+              title={dispute.description || "No description provided."}
+              className="min-w-0 max-w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-[#555] [overflow-wrap:anywhere]"
+            >
               {dispute.description || "No description provided."}
             </p>
 
             {dispute.campaignName && (
-              <p className="mt-3 text-xs text-[#888]">
+              <p className="mt-3 min-w-0 text-xs text-[#888]">
                 Campaign:{" "}
-                <span className="font-medium text-[#555]">
+                <span
+                  title={dispute.campaignName}
+                  className="font-medium text-[#555] break-words [overflow-wrap:anywhere]"
+                >
                   {dispute.campaignName}
                 </span>
               </p>
@@ -1938,7 +2014,8 @@ export default function BrandDisputeDetailPage() {
           subject: dispute.subject,
           description: dispute.description,
           issueType: dispute.issueType,
-          existingAttachments: dispute.attachments ?? [],   // ← ADD THIS
+          otherIssueDescription: dispute.otherIssueDescription ?? "",
+          existingAttachments: dispute.attachments ?? [],
         }}
       />
 

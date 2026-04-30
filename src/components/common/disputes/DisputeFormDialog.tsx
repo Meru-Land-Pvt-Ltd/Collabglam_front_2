@@ -54,6 +54,7 @@ export type DisputeFormValues = {
   subject: string;
   description: string;
   issueType: string[];
+  otherIssueDescription: string;
   attachments: File[];
 };
 
@@ -123,6 +124,7 @@ const DEFAULT_DISPUTE_FORM_VALUES: DisputeFormValues = {
   subject: "",
   description: "",
   issueType: [],
+  otherIssueDescription: "",
   attachments: [],
 };
 
@@ -152,6 +154,7 @@ function buildDisputeFormValues(
       initialValues?.issueType && initialValues.issueType.length > 0
         ? initialValues.issueType
         : [],
+    otherIssueDescription: initialValues?.otherIssueDescription || "",
     attachments: initialValues?.attachments || [],
   };
 }
@@ -366,6 +369,7 @@ export function DisputeFormDialog({
 
   const isCampaignLocked = Boolean(lockedCampaignId) || disableCampaign;
   const isInfluencerMode = mode === "influencer";
+  const showOtherIssueDescription = values.issueType.includes("other");
 
   const readStoredInfluencerId = useCallback(() => {
     if (typeof window === "undefined") return "";
@@ -743,6 +747,13 @@ export function DisputeFormDialog({
     if (!values.campaignId) return "Campaign name is required.";
     if (!values.issueType.length) return "Issue type is required.";
 
+    if (
+      values.issueType.includes("other") &&
+      !values.otherIssueDescription.trim()
+    ) {
+      return "Other issue description is required.";
+    }
+
     if (!isInfluencerMode && !values.influencerId) {
       return "Influencer name is required.";
     }
@@ -772,6 +783,9 @@ export function DisputeFormDialog({
         : values.influencerId,
       subject: values.subject.trim(),
       description: values.description.trim(),
+      otherIssueDescription: values.issueType.includes("other")
+        ? values.otherIssueDescription.trim()
+        : "",
     };
 
     setSubmitting(true);
@@ -965,16 +979,30 @@ export function DisputeFormDialog({
               label="Description"
               value={values.description}
               onChange={(e) => updateField("description", e.target.value)}
-              placeholder="Describe the issue in detail…"
+              placeholder="Describe the dispute clearly..."
               maxLength={500}
               rows={4}
-              className="min-h-28!"
+              className="min-h-28! w-full"
             />
 
             <IssueTypeSelect
               value={values.issueType}
               onChange={(v) => updateField("issueType", v)}
             />
+
+            {showOtherIssueDescription ? (
+              <LabeledTextarea
+                label="Other Issue Description"
+                value={values.otherIssueDescription}
+                onChange={(e) =>
+                  updateField("otherIssueDescription", e.target.value)
+                }
+                placeholder="Please describe the other issue..."
+                maxLength={300}
+                rows={3}
+                className="min-h-24! w-full"
+              />
+            ) : null}
 
             <ProductCardUpload
               showLabel={false}

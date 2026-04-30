@@ -241,7 +241,7 @@ const InfluencerDisputesPage: React.FC = () => {
   }, [page, totalPages]);
 
   return (
-    <div className="mx-auto w-full">
+    <div className="mx-auto w-full min-w-0 overflow-hidden">
       <Suspense fallback={<div>Loading filters...</div>}>
         <DisputeFilters
           mode="influencer"

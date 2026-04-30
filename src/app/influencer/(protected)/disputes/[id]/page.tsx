@@ -9,12 +9,13 @@ import React, {
 } from "react";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
-import { get, postFormData } from "@/lib/api";
+import api, { get, postFormData } from "@/lib/api";
 import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Info,
   Paperclip,
   Send,
   X,
@@ -31,11 +32,21 @@ import {
   ChatTeardropTextIcon,
   CheckIcon,
   DotsThreeIcon,
+  FlagIcon,
   NoteIcon,
   NotePencilIcon,
+  PencilSimpleLineIcon,
+  TrashIcon,
 } from "@phosphor-icons/react";
 import Swal from "sweetalert2";
 import ConfirmActionModal from "@/components/common/disputes/ConfirmActionModal";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "@/components/ui/toast";
 import {
   DisputeFormDialog,
   type DisputeFormValues,
@@ -102,6 +113,7 @@ interface Dispute {
   brandId: string;
   influencerId: string;
   issueType?: string[];
+  otherIssueDescription?: string | null;
   assignedTo?: AssignedAdmin | null;
   comments: Comment[];
   attachments?: Attachment[];
@@ -127,6 +139,7 @@ interface MetaItem {
   label: string;
   value: string;
   sub?: string;
+  tooltip?: string;
 }
 
 interface FaqItem {
@@ -231,6 +244,34 @@ function formatIssueTypeLabel(value?: string | null): string {
     ISSUE_TYPE_LABELS[value] ??
     value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
   );
+}
+
+
+function getIssueTypeMeta(dispute: Dispute): {
+  value: string;
+  sub?: string;
+  tooltip?: string;
+} {
+  const issueTypes = Array.isArray(dispute.issueType) ? dispute.issueType : [];
+
+  const labels = issueTypes.length
+    ? issueTypes.map(formatIssueTypeLabel).join(", ")
+    : "—";
+
+  const otherReason = String(
+    dispute.otherIssueDescription || dispute.description || ""
+  ).trim();
+
+  if (issueTypes.includes("other")) {
+    return {
+      value: labels,
+      tooltip: otherReason || "Not provided",
+    };
+  }
+
+  return {
+    value: labels,
+  };
 }
 
 function daysSince(dateStr: string): number {
@@ -560,25 +601,56 @@ function MetaGrid({ items }: { items: MetaItem[] }) {
       <div
         className={`grid gap-3 rounded-[12px] px-4 py-5 ${MUTED_BG} [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]`}
       >
-        {items.map((item) => (
-          <div key={item.label} className="min-w-0">
-            <p className="mb-1 text-[11px] leading-4 text-[#999]">
-              {item.label}
-            </p>
+        {items.map((item) => {
+          const isOtherDisputeType =
+            item.label === "Dispute Type" &&
+            item.value.toLowerCase().includes("other") &&
+            Boolean(item.tooltip);
 
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
-                {item.value}
-              </p>
-
-              {item.sub && (
-                <p className="mt-0.5 truncate text-xs leading-4 text-[#888]">
-                  {item.sub}
+          return (
+            <div key={item.label} className="relative min-w-0">
+              <div className="mb-1 flex min-w-0 items-center gap-1.5">
+                <p className="min-w-0 truncate text-[11px] leading-4 text-[#999]">
+                  {item.label}
                 </p>
-              )}
+
+                {isOtherDisputeType ? (
+                  <span className="group relative inline-flex shrink-0">
+                    <button
+                      type="button"
+                      aria-label="View other issue reason"
+                      className="inline-flex size-3.5 items-center cursor-pointer justify-center rounded-full bg-white text-[#777] outline-none transition hover:border-[#1a1a1a] hover:text-[#1a1a1a] focus:border-[#1a1a1a] focus:text-[#1a1a1a]"
+                    >
+                      <Info className="size-3.5" strokeWidth={2.5} />
+                    </button>
+
+                    <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem))] max-w-[22rem] -translate-x-1/2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-xs leading-5 text-[#333] shadow-lg group-hover:block group-focus-within:block">
+                      <p className="mb-1 font-semibold text-[#1a1a1a]">
+                        Other issue reason
+                      </p>
+
+                      <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                        {item.tooltip}
+                      </p>
+                    </div>
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
+                  {item.value}
+                </p>
+
+                {!isOtherDisputeType && item.sub ? (
+                  <p className="mt-0.5 max-w-[220px] truncate text-xs leading-4 text-[#777]">
+                    {item.sub}
+                  </p>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -772,6 +844,112 @@ function FaqSection() {
   );
 }
 
+
+/** Three-dot menu shown on the initial "dispute raised" system log entry — always disabled. */
+function DisabledLogActionsMenu() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Open log actions"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+        >
+          <DotsThreeIcon size={18} weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-[204px] rounded-[24px] border border-[#EAEAEA] bg-white p-3 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+      >
+        <DropdownMenuItem
+          disabled
+          className="flex h-14 items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
+        >
+          <PencilSimpleLineIcon size={24} className="text-[#444]" />
+          <span>Edit</span>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem
+          disabled
+          className="mt-1 flex h-14 items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
+        >
+          <TrashIcon size={24} className="text-[#444]" />
+          <span>Delete</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/** Three-dot menu shown on the Collabglam system log entry. */
+function SystemLogActionsMenu({ onRaiseFlag }: { onRaiseFlag?: () => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label="Open system log actions"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+        >
+          <DotsThreeIcon size={18} weight="bold" />
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="w-[180px] rounded-[20px] border border-[#EAEAEA] bg-white p-2 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+      >
+        <DropdownMenuItem
+          onClick={onRaiseFlag}
+          className="flex h-11 cursor-pointer items-center gap-2 rounded-[14px] px-3 text-sm font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+        >
+          <FlagIcon color="#1A1A1A" />
+          <span>Raise flag</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function getCommentProfileImage({
+  comment,
+  dispute,
+  currentUserImageUrl,
+}: {
+  comment: Comment;
+  dispute: Dispute;
+  currentUserImageUrl?: string | null;
+}) {
+  if (
+    canManageComment(comment, dispute.influencerId) &&
+    currentUserImageUrl
+  ) {
+    return currentUserImageUrl;
+  }
+
+  if (
+    dispute.raisedBy &&
+    String(comment.authorRole) === String(dispute.raisedBy.role) &&
+    String(comment.authorId) === String(dispute.raisedBy.id)
+  ) {
+    return dispute.raisedBy.profilePic || null;
+  }
+
+  if (
+    dispute.raisedAgainst &&
+    String(comment.authorRole) === String(dispute.raisedAgainst.role) &&
+    String(comment.authorId) === String(dispute.raisedAgainst.id)
+  ) {
+    return dispute.raisedAgainst.profilePic || null;
+  }
+
+  return null;
+}
+
 function ProfileAvatar({
   name,
   role,
@@ -826,6 +1004,9 @@ function ActivityFeed({
   isFinalized,
   onStartReply,
   onOpenLightbox,
+  onEditComment,
+  onDeleteComment,
+  onRaiseSystemFlag,
 }: {
   dispute: Dispute;
   influencerId?: string | null;
@@ -836,6 +1017,9 @@ function ActivityFeed({
   isFinalized: boolean;
   onStartReply: (comment: Comment) => void;
   onOpenLightbox: (images: Attachment[], index: number) => void;
+  onEditComment?: (comment: Comment) => void;
+  onDeleteComment?: (comment: Comment) => void;
+  onRaiseSystemFlag?: () => void;
 }) {
   const raisedNarrative = getDisputeNarrative(dispute);
 
@@ -849,11 +1033,14 @@ function ActivityFeed({
       </div>
 
       <div className="space-y-4">
+        {/* Initial "dispute raised" entry */}
         <div className="rounded-lg bg-[#fafafa] px-4 py-3">
           <div className="flex items-start gap-3">
             <ProfileAvatar
               name={dispute.viewerIsRaiser ? "You" : dispute.raisedBy?.name}
-              role={dispute.viewerIsRaiser ? "Influencer" : dispute.raisedBy?.role}
+              role={
+                dispute.viewerIsRaiser ? "Influencer" : dispute.raisedBy?.role
+              }
               imageUrl={
                 dispute.viewerIsRaiser
                   ? currentUserImageUrl
@@ -875,9 +1062,7 @@ function ActivityFeed({
                   </span>
                 </div>
 
-                <IconButton className="text-[#888]">
-                  <DotsThreeIcon className="size-4" weight="bold" />
-                </IconButton>
+                <DisabledLogActionsMenu />
               </div>
 
               <p className="mt-2 text-sm leading-6 text-[#666]">
@@ -893,10 +1078,11 @@ function ActivityFeed({
           </div>
         </div>
 
+        {/* User comments */}
         {rootComments.map((commentItem) => {
           const commentImages = getImageAttachments(commentItem.attachments);
           const commentName = getCommentAuthorLabel(commentItem, influencerId);
-          const isOwnComment = canManageComment(commentItem, influencerId);
+          const showActions = canManageComment(commentItem, influencerId);
 
           return (
             <div
@@ -907,7 +1093,11 @@ function ActivityFeed({
                 <ProfileAvatar
                   name={commentName}
                   role={commentItem.authorRole}
-                  imageUrl={isOwnComment ? currentUserImageUrl : undefined}
+                  imageUrl={getCommentProfileImage({
+                    comment: commentItem,
+                    dispute,
+                    currentUserImageUrl,
+                  })}
                   size="sm"
                 />
 
@@ -922,14 +1112,47 @@ function ActivityFeed({
                       </span>
                     </div>
 
-                    {isOwnComment && (
-                      <IconButton className="text-[#888]">
-                        <DotsThreeIcon className="size-4" weight="bold" />
-                      </IconButton>
+                    {showActions && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="Open comment actions"
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f0f0f0] hover:text-[#1a1a1a]"
+                          >
+                            <DotsThreeIcon size={18} weight="bold" />
+                          </button>
+                        </DropdownMenuTrigger>
+
+                        <DropdownMenuContent
+                          align="end"
+                          sideOffset={8}
+                          className="w-[204px] rounded-[24px] border border-[#EAEAEA] bg-white p-3 shadow-[0_20px_50px_rgba(0,0,0,0.16)]"
+                        >
+                          <DropdownMenuItem
+                            onClick={() => onEditComment?.(commentItem)}
+                            className="flex h-14 cursor-pointer items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+                          >
+                            <PencilSimpleLineIcon
+                              size={24}
+                              className="text-[#444]"
+                            />
+                            <span>Edit</span>
+                          </DropdownMenuItem>
+
+                          <DropdownMenuItem
+                            onClick={() => onDeleteComment?.(commentItem)}
+                            className="mt-1 flex h-14 cursor-pointer items-center gap-3 rounded-[16px] px-4 text-[18px] font-medium text-[#1a1a1a] outline-none focus:bg-[#f6f6f6]"
+                          >
+                            <TrashIcon size={24} className="text-[#444]" />
+                            <span>Delete</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
 
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#666]">
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[#666] [overflow-wrap:anywhere]">
                     {commentItem.text}
                   </p>
 
@@ -944,7 +1167,9 @@ function ActivityFeed({
                         >
                           <Image
                             src={attachment.url}
-                            alt={attachment.originalName ?? "Comment attachment"}
+                            alt={
+                              attachment.originalName ?? "Comment attachment"
+                            }
                             fill
                             unoptimized
                             sizes="80px"
@@ -980,8 +1205,10 @@ function ActivityFeed({
                         {(repliesByParent[commentItem.commentId] ?? []).map(
                           (reply) => {
                             const replyImages = getImageAttachments(reply.attachments);
-                            const replyName = getCommentAuthorLabel(reply, influencerId);
-                            const isOwnReply = canManageComment(reply, influencerId);
+                            const replyName = getCommentAuthorLabel(
+                              reply,
+                              influencerId
+                            );
 
                             return (
                               <div
@@ -992,7 +1219,11 @@ function ActivityFeed({
                                   <ProfileAvatar
                                     name={replyName}
                                     role={reply.authorRole}
-                                    imageUrl={isOwnReply ? currentUserImageUrl : undefined}
+                                    imageUrl={getCommentProfileImage({
+                                      comment: reply,
+                                      dispute,
+                                      currentUserImageUrl,
+                                    })}
                                     size="sm"
                                   />
 
@@ -1006,7 +1237,7 @@ function ActivityFeed({
                                       </span>
                                     </div>
 
-                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#666]">
+                                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[#666] [overflow-wrap:anywhere]">
                                       {reply.text}
                                     </p>
 
@@ -1023,7 +1254,10 @@ function ActivityFeed({
                                           >
                                             <Image
                                               src={attachment.url}
-                                              alt={attachment.originalName ?? "Reply attachment"}
+                                              alt={
+                                                attachment.originalName ??
+                                                "Reply attachment"
+                                              }
                                               fill
                                               unoptimized
                                               sizes="80px"
@@ -1048,6 +1282,7 @@ function ActivityFeed({
           );
         })}
 
+        {/* Collabglam system log entry */}
         <div className="rounded-lg bg-[#fafafa] px-4 py-3">
           <div className="flex items-start gap-3">
             <ProfileAvatar name="Collabglam" imageUrl="/logo.png" size="sm" />
@@ -1063,9 +1298,7 @@ function ActivityFeed({
                   </span>
                 </div>
 
-                <IconButton className="text-[#888]">
-                  <DotsThreeIcon className="size-4" weight="bold" />
-                </IconButton>
+                <SystemLogActionsMenu onRaiseFlag={onRaiseSystemFlag} />
               </div>
 
               <p className="mt-2 text-sm leading-6 text-[#666]">
@@ -1078,6 +1311,7 @@ function ActivityFeed({
     </SectionCard>
   );
 }
+
 
 function CommentComposer({
   currentUserName,
@@ -1364,6 +1598,96 @@ export default function InfluencerDisputeDetailPage() {
     loadDispute,
   ]);
 
+  const handleEditComment = useCallback(
+    async (target: Comment) => {
+      if (!influencerId) return;
+
+      const result = await Swal.fire({
+        title: "Edit comment",
+        input: "textarea",
+        inputValue: target.text,
+        inputPlaceholder: "Update your comment",
+        showCancelButton: true,
+        confirmButtonText: "Save",
+        cancelButtonText: "Cancel",
+        customClass: {
+          popup: "swal2-border-radius",
+          confirmButton: "swal2-confirm-button",
+        },
+        inputValidator: (value) =>
+          !String(value ?? "").trim() ? "Comment text is required" : null,
+      });
+
+      if (!result.isConfirmed) return;
+
+      const nextText = String(result.value ?? "").trim();
+      if (!nextText) return;
+
+      try {
+        const formData = new FormData();
+        formData.append("influencerId", influencerId);
+        formData.append("text", nextText);
+
+        await api.patch(`/dispute/influencer/comment/${target.commentId}`, formData);
+
+        toast({ icon: "success", title: "Comment updated", text: "" });
+        await loadDispute();
+      } catch (err) {
+        toast({
+          icon: "error",
+          title: "Failed to update comment",
+          text: getErrorMessage(err, "Failed to update comment."),
+        });
+      }
+    },
+    [influencerId, loadDispute]
+  );
+
+  const handleDeleteComment = useCallback(
+    async (target: Comment) => {
+      if (!influencerId) return;
+
+      const result = await Swal.fire({
+        icon: "warning",
+        title: "Delete comment?",
+        text: "This action cannot be undone.",
+        showCancelButton: true,
+        confirmButtonText: "Delete",
+        cancelButtonText: "Cancel",
+        customClass: {
+          popup: "swal2-border-radius",
+          confirmButton: "swal2-confirm-button",
+        },
+      });
+
+      if (!result.isConfirmed) return;
+
+      try {
+        await api.delete(`/dispute/influencer/comment/${target.commentId}`, {
+          data: { influencerId },
+        });
+
+        toast({ icon: "success", title: "Comment deleted", text: "" });
+        await loadDispute();
+      } catch (err) {
+        toast({
+          icon: "error",
+          title: "Failed to delete comment",
+          text: getErrorMessage(err, "Failed to delete comment."),
+        });
+      }
+    },
+    [influencerId, loadDispute]
+  );
+
+  const handleRaiseSystemFlag = useCallback(() => {
+    toast({
+      icon: "success",
+      title: "Flag raised",
+      text: "The system log has been flagged for review.",
+    });
+  }, []);
+
   const handleEditDispute = useCallback(
     async ({
       influencerId: submittedInfluencerId,
@@ -1469,6 +1793,7 @@ export default function InfluencerDisputeDetailPage() {
     const daysOpen = daysSince(dispute.createdAt);
     const imageAttachments = getImageAttachments(dispute.attachments);
     const fileAttachments = getFileAttachments(dispute.attachments);
+    const issueTypeMeta = getIssueTypeMeta(dispute);
 
     const isFinalized =
       dispute.status === "resolved" ||
@@ -1489,7 +1814,9 @@ export default function InfluencerDisputeDetailPage() {
       },
       {
         label: "Dispute Type",
-        value: formatIssueTypeLabel(dispute.issueType?.[0]),
+        value: issueTypeMeta.value,
+        sub: issueTypeMeta.sub,
+        tooltip: issueTypeMeta.tooltip,
       },
       {
         label: "Dispute ID",
@@ -1618,24 +1945,30 @@ export default function InfluencerDisputeDetailPage() {
             <MetaGrid items={derived.metaItems} />
           </SectionCard>
 
-          <SectionCard className={`${SURFACE_BORDER} px-6 py-5`}>
+          <SectionCard className={`${SURFACE_BORDER} min-w-0 overflow-hidden px-6 py-5`}>
             <div
-              className={`mb-3 flex items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
+              className={`mb-3 flex min-w-0 items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
             >
-              <NoteIcon className="size-4" />
-              <h2 className="text-sm font-semibold text-[#1a1a1a]">
+              <NoteIcon className="size-4 shrink-0" />
+              <h2 className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">
                 Dispute Summary
               </h2>
             </div>
 
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#555]">
+            <p
+              title={dispute.description || "No description provided."}
+              className="min-w-0 max-w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-[#555] [overflow-wrap:anywhere]"
+            >
               {dispute.description || "No description provided."}
             </p>
 
             {dispute.campaignName && (
-              <p className="mt-3 text-xs text-[#888]">
+              <p className="mt-3 min-w-0 text-xs text-[#888]">
                 Campaign:{" "}
-                <span className="font-medium text-[#555]">
+                <span
+                  title={dispute.campaignName}
+                  className="font-medium text-[#555] break-words [overflow-wrap:anywhere]"
+                >
                   {dispute.campaignName}
                 </span>
               </p>
@@ -1673,6 +2006,9 @@ export default function InfluencerDisputeDetailPage() {
                 );
               }}
               onOpenLightbox={handleOpenLightbox}
+              onEditComment={handleEditComment}
+              onDeleteComment={handleDeleteComment}
+              onRaiseSystemFlag={handleRaiseSystemFlag}
             />
 
             <div className="space-y-3">
@@ -1737,6 +2073,7 @@ export default function InfluencerDisputeDetailPage() {
           subject: dispute.subject || "",
           description: dispute.description || "",
           issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
+          otherIssueDescription: dispute.otherIssueDescription ?? "",
           attachments: [],
         }}
         existingAttachments={(dispute.attachments ?? []) as ExistingAttachment[]}

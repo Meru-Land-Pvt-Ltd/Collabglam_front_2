@@ -221,7 +221,7 @@ const BrandDisputesPage: React.FC = () => {
   }, [page, totalPages]);
 
   return (
-    <div className="w-full mx-auto">
+    <div className="mx-auto w-full min-w-0 overflow-hidden">
       <Suspense fallback={<div>Loading filters...</div>}>
         <DisputeFilters
           mode="brand"
