@@ -5683,13 +5683,13 @@ export default function CampaignDetailPage() {
                 ) : null}
               </div>
 
-              <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+              {/* <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">Advanced Deliverability</p>
                 <p className="mt-1 text-xs text-slate-500">
                   Domain limiter, custom routing, and workspace-wide deliverability boosters can stay
                   provider-driven for now.
                 </p>
-              </div>
+              </div> */}
 
               <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-5">
                 <button
