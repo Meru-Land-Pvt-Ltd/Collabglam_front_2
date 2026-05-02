@@ -566,17 +566,37 @@ function getPreferredMailboxName(review: ReviewRow | null, thread: any | null) {
   );
 }
 
+function normalizeComparableName(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function getBrandLabel(review: ReviewRow | null, thread: any | null) {
-  return (
-    firstUsefulName(
-      thread?.brandDisplayName,
-      thread?.brandName,
-      thread?.prospectId?.companyName,
-      thread?.prospectId?.primaryContact?.name,
-      review?.prospectId?.companyName,
-      review?.prospectId?.primaryContact?.name
-    ) || "Lead"
+  const prospectName = firstUsefulName(
+    review?.prospectId?.companyName,
+    review?.prospectId?.primaryContact?.name,
+    thread?.prospectId?.companyName,
+    thread?.prospectId?.primaryContact?.name
   );
+
+  if (prospectName) return prospectName;
+
+  const mailboxNames = [
+    getPreferredMailboxName(review, thread),
+    emailToDisplayName(getPreferredMailboxEmail(review, thread)),
+  ]
+    .map(normalizeComparableName)
+    .filter(Boolean);
+
+  const fallbackBrand = [thread?.brandName, thread?.brandDisplayName].find((value) => {
+    const cleaned = firstUsefulName(value);
+    if (!cleaned) return false;
+    return !mailboxNames.includes(normalizeComparableName(cleaned));
+  });
+
+  return firstUsefulName(fallbackBrand) || "Lead";
 }
 
 function getTeamLabel(review: ReviewRow | null, thread: any | null) {
