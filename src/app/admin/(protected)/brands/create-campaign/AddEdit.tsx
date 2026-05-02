@@ -20,6 +20,7 @@ import {
   EditDraftPayload,
   EnrichedCampaignDoc,
   apiUploadImages,
+  apiAdminEditCampaign,
 } from "../../../../brand/services/brandApi";
 
 import {
@@ -187,6 +188,19 @@ function FixedBottomBar({
 /* ============================================================================
    Forms
 ============================================================================ */
+
+type ExistingProductImage = {
+  dataUrl?: string;
+  url?: string;
+  name?: string;
+  type?: string;
+  contentType?: string;
+  originalSize?: number;
+  size?: number;
+  key?: string;
+};
+
+
 type ManualForm = {
   title: string;
   description: string;
@@ -532,8 +546,13 @@ function buildEditDraftPayload(
 /* ============================================================================
    Validation
 ============================================================================ */
-function validateManualForm(args: { form: ManualForm; dateOk: boolean; blockingFileErrors: string[] }) {
-  const { form, dateOk, blockingFileErrors } = args;
+function validateManualForm(args: {
+  form: ManualForm;
+  dateOk: boolean;
+  blockingFileErrors: string[];
+  isEditMode?: boolean;
+}) {
+  const { form, dateOk, blockingFileErrors, isEditMode = false } = args;
   const e: Record<string, string> = {};
 
   if (!form.title.trim()) e.title = "Campaign title is required.";
@@ -546,7 +565,9 @@ function validateManualForm(args: { form: ManualForm; dateOk: boolean; blockingF
   if (!form.targetCountry?.length) e.targetCountry = "Select at least 1 country.";
   if (!form.targetAgeGroups?.length) e.targetAgeGroups = "Select at least 1 age group.";
 
-  if (!form.productFiles?.length) e.productFiles = "Upload at least 1 product image/file.";
+  if (!isEditMode && !form.productFiles?.length) {
+    e.productFiles = "Upload at least 1 product image/file.";
+  }
   if (blockingFileErrors?.length) e.productFiles = blockingFileErrors[0];
 
   if (!form.paymentType.trim()) e.paymentType = "Payment type is required.";
@@ -665,6 +686,7 @@ function CreateManualScreen({
   lists,
   initialFromCampaign,
   targetBrandId,
+  isEditMode = false,
   onAfterPublish,
 }: {
   sidebarOffsetPx: number;
@@ -673,6 +695,7 @@ function CreateManualScreen({
   lists: ReturnType<typeof useCampaignLists>;
   initialFromCampaign?: EnrichedCampaignDoc | null;
   targetBrandId?: string;
+  isEditMode?: boolean;
   onAfterPublish?: () => void;
 }) {
   const router = useRouter();
@@ -680,6 +703,8 @@ function CreateManualScreen({
 
   const [productFileErrors, setProductFileErrors] = useState<string[]>([]);
   const followersTouchedRef = useRef({ min: false, max: false });
+
+  const [existingProductImages, setExistingProductImages] = useState<ExistingProductImage[]>([]);
 
   const [campaignId, setCampaignId] = useState<string>("");
   const [publishing, setPublishing] = useState(false);
@@ -765,6 +790,35 @@ function CreateManualScreen({
     return null;
   }, []);
 
+  const normalizeExistingProductImages = useCallback((images: any[] = []) => {
+    return images
+      .map((img: any) => {
+        if (typeof img === "string") {
+          return {
+            dataUrl: img,
+            name: img.split("/").pop() || "Campaign image",
+            type: "image/jpeg",
+            contentType: "image/jpeg",
+          };
+        }
+
+        const url = img?.dataUrl || img?.url || "";
+        if (!url) return null;
+
+        return {
+          dataUrl: url,
+          url,
+          name: img?.name || url.split("/").pop() || "Campaign image",
+          type: img?.type || img?.contentType || "image/jpeg",
+          contentType: img?.contentType || img?.type || "image/jpeg",
+          originalSize: img?.originalSize || img?.size || 0,
+          size: img?.size || img?.originalSize || 0,
+          key: img?.key || url.split("/").pop() || "",
+        };
+      })
+      .filter(Boolean) as ExistingProductImage[];
+  }, []);
+
   const loadCampaignIntoForm = useCallback(
     (doc: any) => {
       const normalizePaymentType = (v: any) => {
@@ -779,7 +833,9 @@ function CreateManualScreen({
       if (id) setCampaignId(id);
 
       const details = doc?.details ?? null;
-      setLoadedDetails(details);
+      setExistingProductImages(
+        normalizeExistingProductImages(doc?.productImages || doc?.images || [])
+      );
 
       const nextCategoryId = String(doc?.categoryId ?? details?.category?.id ?? "").trim();
       const categoryFromPicker = categoryPicker.categoryOptions.find((o) => o.value === nextCategoryId);
@@ -1009,6 +1065,7 @@ function CreateManualScreen({
   const resetForm = useCallback(() => {
     setForm({ ...EMPTY_MANUAL });
     setProductFileErrors([]);
+    setExistingProductImages([]);
     setCampaignId("");
     setLoadedDetails(null);
 
@@ -1088,7 +1145,16 @@ function CreateManualScreen({
     };
   }, []);
 
-  const manualErrors = useMemo(() => validateManualForm({ form, dateOk, blockingFileErrors: productFileErrors }), [form, dateOk, productFileErrors]);
+  const manualErrors = useMemo(
+    () =>
+      validateManualForm({
+        form,
+        dateOk,
+        blockingFileErrors: productFileErrors,
+        isEditMode,
+      }),
+    [form, dateOk, productFileErrors, isEditMode]
+  );
 
   const combinedErrors = useMemo(() => {
     return { ...manualErrors, ...(serverFieldErrors || {}) };
@@ -1101,7 +1167,12 @@ function CreateManualScreen({
     setSubmitAttempted(true);
     setServerFieldErrors({});
 
-    const errs = validateManualForm({ form, dateOk, blockingFileErrors: productFileErrors });
+    const errs = validateManualForm({
+      form,
+      dateOk,
+      blockingFileErrors: productFileErrors,
+      isEditMode,
+    });
     if (Object.values(errs).some(Boolean)) return;
 
     const adminActor = getOptionalAdminPayload();
@@ -1131,6 +1202,8 @@ function CreateManualScreen({
         key: string;
       }> = [];
 
+      let productImagesForPayload: any[] = isEditMode ? existingProductImages : [];
+
       if (form.productFiles?.length) {
         const uploadRes = await apiUploadImages(form.productFiles);
         const urls: string[] = uploadRes?.urls ?? uploadRes?.data?.urls ?? [];
@@ -1149,13 +1222,15 @@ function CreateManualScreen({
             key,
           };
         });
+        productImagesForPayload = isEditMode
+          ? [...existingProductImages, ...uploadedImages]
+          : uploadedImages;
       }
 
       if (campaignId) {
-        const payload: ActorAwareEditPayload = compact({
+        const commonPayload = compact({
           brandId,
           campaignId,
-          status: "active" as CampaignStatus,
           ...getOptionalAdminPayload(),
 
           campaignTitle: form.title.trim(),
@@ -1164,7 +1239,7 @@ function CreateManualScreen({
           categoryId: form.categoryId,
           subcategoryIds: form.subcategories,
           productLink: form.productLink.trim(),
-          productImages: uploadedImages.length ? uploadedImages : undefined,
+          productImages: productImagesForPayload.length ? productImagesForPayload : undefined,
           campaignGoals: form.goals,
           influencerTierIds: form.influencerTier,
           contentFormats: form.contentFormats,
@@ -1181,22 +1256,33 @@ function CreateManualScreen({
           additionalNotes: form.additionalNotes || undefined,
           startAt: form.startDate || undefined,
           endAt: form.endDate || undefined,
-        }) as ActorAwareEditPayload;
+        });
 
-        const updated: any = await apiCampaignEditDraft(payload);
+        const updated: any = isEditMode
+          ? await apiAdminEditCampaign(commonPayload)
+          : await apiCampaignEditDraft({
+            ...commonPayload,
+            status: "active" as CampaignStatus,
+          } as ActorAwareEditPayload);
+
         const cid = pickCampaignId(updated) || campaignId;
 
         publishedCampaignId = cid;
 
         if (cid) setCampaignId(cid);
 
-        toastSuccess(extractBackendSuccessMessage(updated, "Campaign published"));
+        toastSuccess(
+          extractBackendSuccessMessage(
+            updated,
+            isEditMode ? "Campaign changes saved" : "Campaign published"
+          )
+        );
       } else {
         const base = buildCreateManualPayload(brandId, form, false) as ActorAwareCreatePayload;
 
         const created: any = await apiCampaignCreate({
           ...base,
-          productImages: uploadedImages,
+          productImages: productImagesForPayload,
           status: "active" as CampaignStatus,
         });
 
@@ -1227,6 +1313,7 @@ function CreateManualScreen({
     }
   }, [
     campaignId,
+    isEditMode,
     form,
     dateOk,
     productFileErrors,
@@ -1237,6 +1324,7 @@ function CreateManualScreen({
     extractBackendMessage,
     extractBackendFieldErrors,
     extractBackendSuccessMessage,
+    existingProductImages,
     router,
   ]);
 
@@ -1256,7 +1344,9 @@ function CreateManualScreen({
             <div className="flex min-h-0 flex-col border-0">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="cg-accordion-title">Create Campaing</div>
+                  <div className="cg-accordion-title">
+                    {isEditMode ? "Edit Campaign" : "Create Campaign"}
+                  </div>
                 </div>
               </div>
 
@@ -1366,6 +1456,45 @@ function CreateManualScreen({
                             setField("productFiles", next);
                           }}
                         />
+
+                        {isEditMode && existingProductImages.length > 0 ? (
+                          <div className="rounded-xl border border-neutral-200 bg-white p-3">
+                            <div className="mb-2 text-sm font-medium text-neutral-800">
+                              Existing Campaign Images
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                              {existingProductImages.map((img, index) => {
+                                const src = img.dataUrl || img.url || "";
+
+                                return (
+                                  <div
+                                    key={`${src}-${index}`}
+                                    className="relative overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50"
+                                  >
+                                    <img
+                                      src={src}
+                                      alt={img.name || `Campaign image ${index + 1}`}
+                                      className="h-28 w-full object-cover"
+                                    />
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExistingProductImages((prev) =>
+                                          prev.filter((_, i) => i !== index)
+                                        )
+                                      }
+                                      className="absolute right-2 top-2 rounded-full bg-black/75 px-2 py-1 text-xs font-semibold text-white"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
 
                         <FloatingInput
                           label="Product Link / Video references"
@@ -1649,7 +1778,13 @@ function CreateManualScreen({
         right={
           <Button onClick={publishCampaign} disabled={publishing}>
             <PaperPlaneTilt size={16} className="mr-2" />
-            {publishing ? "Publishing…" : "Publish Campaign"}
+            {publishing
+              ? isEditMode
+                ? "Saving Changes…"
+                : "Publishing…"
+              : isEditMode
+                ? "Save Changes"
+                : "Publish Campaign"}
           </Button>
         }
       />
@@ -1662,11 +1797,21 @@ function CreateManualScreen({
 ============================================================================ */
 export default function CreateCampaignPage() {
   const searchParams = useSearchParams();
-  const editCampaignId = searchParams.get("campaignId");
-  const queryBrandId = searchParams.get("brandId");
+
+  // Accept both params:
+  // View page currently sends ?id=
+  // Some pages may send ?campaignId=
+  const editCampaignId =
+    searchParams.get("campaignId") ||
+    searchParams.get("id") ||
+    "";
+
+  const queryBrandId = searchParams.get("brandId") || "";
 
   const sidebarOffsetPx = useSidebarOffsetPx();
-  const [manualFromCampaign, setManualFromCampaign] = useState<EnrichedCampaignDoc | null>(null);
+  const [manualFromCampaign, setManualFromCampaign] =
+    useState<EnrichedCampaignDoc | null>(null);
+
   const [loading, setLoading] = useState(Boolean(editCampaignId));
 
   const lists = useCampaignLists(true);
@@ -1685,15 +1830,20 @@ export default function CreateCampaignPage() {
     let cancelled = false;
 
     (async () => {
+      setLoading(true);
+
       try {
-        const res: any = await apiCampaignGetById({
-          campaignId: editCampaignId,
-          brandId: resolvedBrandId || undefined,
-        });
+        const res: any = await apiCampaignGetById(editCampaignId);
 
         if (cancelled) return;
 
-        const doc = res?.data ?? res;
+        const doc =
+          res?.data?.data ||
+          res?.data?.campaign ||
+          res?.campaign ||
+          res?.data ||
+          res;
+
         setManualFromCampaign(doc as EnrichedCampaignDoc);
       } catch (e) {
         if (cancelled) return;
@@ -1706,7 +1856,7 @@ export default function CreateCampaignPage() {
     return () => {
       cancelled = true;
     };
-  }, [editCampaignId, resolvedBrandId]);
+  }, [editCampaignId, resolvedBrandId, queryBrandId]);
 
   if (loading) {
     return (
@@ -1729,6 +1879,7 @@ export default function CreateCampaignPage() {
       lists={lists}
       initialFromCampaign={manualFromCampaign}
       targetBrandId={resolvedBrandId}
+      isEditMode={Boolean(editCampaignId)}
       onAfterPublish={() => setManualFromCampaign(null)}
     />
   );
