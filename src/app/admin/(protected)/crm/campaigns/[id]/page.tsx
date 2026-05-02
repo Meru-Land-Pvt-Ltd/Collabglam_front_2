@@ -243,6 +243,23 @@ type StepAnalyticsRow = {
   opportunities: number;
 };
 
+type DailyAnalyticsRow = {
+  date: string;
+  sent: number;
+  contacted: number;
+  opened: number;
+  uniqueOpened: number;
+  replies: number;
+  uniqueReplies: number;
+  automaticReplies: number;
+  clicks: number;
+  uniqueClicks: number;
+  opportunities: number;
+  openRate: number;
+  clickRate: number;
+  replyRate: number;
+};
+
 type ApiState = {
   type: "success" | "error" | "info";
   text: string;
@@ -912,9 +929,9 @@ function parseOverview(payload: any, campaign: CampaignDetail | null, contacts: 
   );
 
   const totalSent = toSafeNumber(root?.totalSent, root?.total_sent, campaign?.stats?.totalSent);
-  const totalOpened = toSafeNumber(root?.totalOpened, root?.total_opened, campaign?.stats?.totalOpened);
-  const totalClicked = toSafeNumber(root?.totalClicked, root?.total_clicked, campaign?.stats?.totalClicked);
-  const totalReplies = toSafeNumber(root?.totalReplies, root?.total_replies, root?.total_replied, campaign?.stats?.totalReplies);
+  const totalOpened = toSafeNumber(root?.totalOpened, root?.total_opened, root?.open_count_unique, root?.open_count, campaign?.stats?.totalOpened);
+  const totalClicked = toSafeNumber(root?.totalClicked, root?.total_clicked, root?.link_click_count_unique, root?.link_click_count, campaign?.stats?.totalClicked);
+  const totalReplies = toSafeNumber(root?.totalReplies, root?.total_replies, root?.total_replied, root?.reply_count_unique, root?.reply_count, campaign?.stats?.totalReplies);
   const totalOpportunities = toSafeNumber(root?.totalOpportunities, root?.total_opportunities, campaign?.stats?.totalOpportunities);
   const totalQualified = toSafeNumber(root?.totalQualified, root?.total_conversions, campaign?.stats?.totalQualified);
   const totalAssigned = toSafeNumber(root?.totalAssigned, campaign?.stats?.totalAssigned);
@@ -966,6 +983,43 @@ function parseStepAnalytics(payload: any, campaign: CampaignDetail | null): Step
     clicked: index === 0 ? toSafeNumber(campaign?.stats?.totalClicked) : 0,
     opportunities: index === 0 ? toSafeNumber(campaign?.stats?.totalOpportunities) : 0,
   }));
+}
+
+
+function parseDailyAnalytics(payload: any): DailyAnalyticsRow[] {
+  const rows = getArrayPayload(payload?.data || payload);
+
+  return rows
+    .map((row: any) => {
+      const sent = toSafeNumber(row?.sent, row?.totalSent, row?.emails_sent_count);
+      const opened = toSafeNumber(row?.opened, row?.totalOpened, row?.open_count);
+      const uniqueOpened = toSafeNumber(row?.uniqueOpened, row?.unique_opened, row?.open_count_unique, opened);
+      const clicks = toSafeNumber(row?.clicks, row?.totalClicked, row?.link_click_count);
+      const uniqueClicks = toSafeNumber(row?.uniqueClicks, row?.unique_clicks, row?.link_click_count_unique, clicks);
+      const replies = toSafeNumber(row?.replies, row?.totalReplies, row?.reply_count);
+      const uniqueReplies = toSafeNumber(row?.uniqueReplies, row?.unique_replies, row?.reply_count_unique, replies);
+
+      return {
+        date: String(row?.date || row?.label || row?.day || ""),
+        sent,
+        contacted: toSafeNumber(row?.contacted, row?.contacted_count),
+        opened,
+        uniqueOpened,
+        replies,
+        uniqueReplies,
+        automaticReplies: toSafeNumber(row?.replies_automatic, row?.unique_replies_automatic, row?.reply_count_automatic),
+        clicks,
+        uniqueClicks,
+        opportunities: toSafeNumber(row?.opportunities, row?.unique_opportunities, row?.total_opportunities),
+        openRate: sent > 0 ? Number(((uniqueOpened / sent) * 100).toFixed(2)) : 0,
+        clickRate: sent > 0 ? Number(((uniqueClicks / sent) * 100).toFixed(2)) : 0,
+        replyRate: sent > 0 ? Number(((uniqueReplies / sent) * 100).toFixed(2)) : 0,
+      };
+    })
+    .filter((row: DailyAnalyticsRow) => row.date)
+    .sort((a: DailyAnalyticsRow, b: DailyAnalyticsRow) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
 }
 
 function getWindowDaySummary(days?: Record<string, boolean>) {
@@ -1348,6 +1402,7 @@ export default function CampaignDetailPage() {
     progressPercent: 0,
   });
   const [stepAnalytics, setStepAnalytics] = useState<StepAnalyticsRow[]>([]);
+  const [dailyAnalytics, setDailyAnalytics] = useState<DailyAnalyticsRow[]>([]);
   const [configuration, setConfiguration] = useState<CampaignConfiguration>(getDefaultConfiguration());
 
   const [selectedScheduleIndex, setSelectedScheduleIndex] = useState(0);
@@ -1613,6 +1668,7 @@ export default function CampaignDetailPage() {
         contactsPayload,
         overviewPayload,
         stepsPayload,
+        dailyPayload,
         templateVarsPayload,
         templatesPayload,
         sidebarPayload,
@@ -1622,6 +1678,7 @@ export default function CampaignDetailPage() {
         adminGet(`/outreach/campaigns/${campaignId}/contacts`, { _ts: cacheBust }),
         adminGet(`/outreach/campaigns/${campaignId}/analytics/overview`, { range: timeRange, _ts: cacheBust }).catch(() => null),
         adminGet(`/outreach/campaigns/${campaignId}/analytics/steps`, { range: timeRange, _ts: cacheBust }).catch(() => null),
+        adminGet(`/outreach/campaigns/${campaignId}/analytics/daily`, { range: timeRange, _ts: cacheBust }).catch(() => null),
         adminGet(`/outreach/campaigns/${campaignId}/template-variables`, { _ts: cacheBust }).catch(() => null),
         adminGet(`/outreach/campaigns/${campaignId}/templates`, { _ts: cacheBust }).catch(() => null),
         adminGet<SidebarRoleResponse>(`/outreach/sidebar`, { _ts: cacheBust }).catch(() => null),
@@ -1669,6 +1726,7 @@ export default function CampaignDetailPage() {
 
       setOverview(parseOverview(overviewPayload, nextCampaign, nextContacts));
       setStepAnalytics(parseStepAnalytics(stepsPayload, nextCampaign));
+      setDailyAnalytics(parseDailyAnalytics(dailyPayload));
 
       const varsFromApi = Array.isArray(templateVarsPayload?.data?.templateVariables)
         ? templateVarsPayload.data.templateVariables
@@ -2929,27 +2987,46 @@ export default function CampaignDetailPage() {
   const totalAssigned = overview.totalAssigned || campaign?.stats?.totalAssigned || 0;
   const progressPercent = overview.progressPercent || campaign?.stats?.progressPercent || 0;
 
+  function formatRate(numerator: number, denominator: number) {
+    if (!denominator || denominator <= 0) return "0%";
+    const rate = (Number(numerator || 0) / Number(denominator || 0)) * 100;
+    return `${Number(rate.toFixed(rate >= 10 ? 1 : 2))}%`;
+  }
+
+  const visibleReplies = includeAutoReplies
+    ? totalReplies
+    : Math.max(0, totalReplies - dailyAnalytics.reduce((sum, item) => sum + item.automaticReplies, 0));
+
+  const dailyTotals = dailyAnalytics.reduce(
+    (acc, item) => {
+      acc.sent += item.sent;
+      acc.opened += item.uniqueOpened || item.opened;
+      acc.clicked += item.uniqueClicks || item.clicks;
+      acc.replies += includeAutoReplies ? item.replies : item.uniqueReplies;
+      acc.autoReplies += item.automaticReplies;
+      acc.opportunities += item.opportunities;
+      return acc;
+    },
+    { sent: 0, opened: 0, clicked: 0, replies: 0, autoReplies: 0, opportunities: 0 }
+  );
+
   const clickRate =
     overview.clickRate !== null && overview.clickRate !== undefined
-      ? `${overview.clickRate}%`
-      : totalSent > 0
-        ? `${Math.round((totalClicked / totalSent) * 100)}%`
-        : "0%";
+      ? `${Number(overview.clickRate).toFixed(Number(overview.clickRate) % 1 === 0 ? 0 : 2)}%`
+      : formatRate(totalClicked || dailyTotals.clicked, totalSent || dailyTotals.sent);
 
   const openRateText =
     configuration.sendingOptions.openTracking === false
       ? "Disabled"
       : overview.openRate !== null && overview.openRate !== undefined
-        ? `${overview.openRate}%`
-        : totalSent > 0 && totalOpened > 0
-          ? `${Math.round((totalOpened / totalSent) * 100)}%`
+        ? `${Number(overview.openRate).toFixed(Number(overview.openRate) % 1 === 0 ? 0 : 2)}%`
+        : totalSent > 0
+          ? formatRate(totalOpened || dailyTotals.opened, totalSent || dailyTotals.sent)
           : "Enabled";
 
-  const replyRate =
-    totalSent > 0 ? `${Math.round((totalReplies / totalSent) * 100)}%` : "0%";
+  const replyRate = formatRate(visibleReplies || dailyTotals.replies, totalSent || dailyTotals.sent);
 
-  const positiveReplyRate =
-    totalReplies > 0 ? `${Math.round((totalQualified / totalReplies) * 100)}%` : "0%";
+  const positiveReplyRate = formatRate(totalQualified, visibleReplies || totalReplies);
 
   const topActionIsPause = campaign?.status === "launched";
   const topActionLabel =
@@ -2977,7 +3054,7 @@ export default function CampaignDetailPage() {
         key: "click_rate",
         label: "Click rate",
         value: clickRate,
-        subValue: "-",
+        subValue: `${totalClicked || dailyTotals.clicked} clicks`,
         icon: <MousePointerClick className="h-4 w-4" />,
       },
     ]
@@ -2998,21 +3075,21 @@ export default function CampaignDetailPage() {
         key: "click_rate",
         label: "Click rate",
         value: clickRate,
-        subValue: "-",
+        subValue: `${totalClicked || dailyTotals.clicked} clicks`,
         icon: <MousePointerClick className="h-4 w-4" />,
       },
       {
         key: "reply_rate",
         label: "Reply rate",
         value: replyRate,
-        subValue: "-",
+        subValue: `${visibleReplies || dailyTotals.replies} replies`,
         icon: <Reply className="h-4 w-4" />,
       },
       {
         key: "positive_reply_rate",
         label: "Positive Reply Rate",
         value: positiveReplyRate,
-        subValue: "-",
+        subValue: `${totalQualified} positive`,
         icon: <Sparkles className="h-4 w-4" />,
       },
       {
@@ -4071,19 +4148,21 @@ export default function CampaignDetailPage() {
                   <div className="px-6 py-6">
                     {canViewReplyAnalytics ? (
                       <>
-                        <div className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        <div className="grid grid-cols-[1.8fr_repeat(7,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                           <div>Step</div>
                           <div>Sent</div>
                           <div>Opened</div>
+                          <div>Open Rate</div>
                           <div>Replied</div>
                           <div>Clicked</div>
+                          <div>Click Rate</div>
                           <div>Opportunities</div>
                         </div>
 
                         {stepAnalytics.map((step) => (
                           <div
                             key={`${step.stepOrder}-${step.label}`}
-                            className="grid grid-cols-[1.8fr_repeat(5,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                            className="grid grid-cols-[1.8fr_repeat(7,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
                           >
                             <div>
                               <p className="font-medium text-slate-900">{step.label}</p>
@@ -4091,25 +4170,28 @@ export default function CampaignDetailPage() {
                             </div>
                             <div>{step.sent}</div>
                             <div>{step.opened ?? "-"}</div>
+                            <div>{formatRate(Number(step.opened || 0), Number(step.sent || 0))}</div>
                             <div>{step.replied}</div>
                             <div>{step.clicked}</div>
+                            <div>{formatRate(Number(step.clicked || 0), Number(step.sent || 0))}</div>
                             <div>{step.opportunities}</div>
                           </div>
                         ))}
                       </>
                     ) : (
                       <>
-                        <div className="grid grid-cols-[1.8fr_repeat(3,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        <div className="grid grid-cols-[1.8fr_repeat(4,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                           <div>Step</div>
                           <div>Sent</div>
                           <div>Opened</div>
                           <div>Clicked</div>
+                          <div>Click Rate</div>
                         </div>
 
                         {stepAnalytics.map((step) => (
                           <div
                             key={`${step.stepOrder}-${step.label}`}
-                            className="grid grid-cols-[1.8fr_repeat(3,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                            className="grid grid-cols-[1.8fr_repeat(4,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
                           >
                             <div>
                               <p className="font-medium text-slate-900">{step.label}</p>
@@ -4118,6 +4200,7 @@ export default function CampaignDetailPage() {
                             <div>{step.sent}</div>
                             <div>{step.opened ?? "-"}</div>
                             <div>{step.clicked}</div>
+                            <div>{formatRate(Number(step.clicked || 0), Number(step.sent || 0))}</div>
                           </div>
                         ))}
                       </>
@@ -4130,31 +4213,54 @@ export default function CampaignDetailPage() {
                     </p>
                   </div>
                 )
-              ) : filteredContacts.length ? (
+              ) : dailyAnalytics.length ? (
                 <div className="px-6 py-6">
-                  <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    <div>Company</div>
-                    <div>Stage</div>
-                    <div>Launched</div>
+                  <div className="mb-5 grid gap-4 md:grid-cols-4">
+                    {[
+                      { label: "Daily Sent", value: dailyTotals.sent },
+                      { label: "Daily Opens", value: dailyTotals.opened },
+                      { label: "Daily Clicks", value: dailyTotals.clicked },
+                      { label: "Daily Click Rate", value: formatRate(dailyTotals.clicked, dailyTotals.sent) },
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">{item.label}</p>
+                        <p className="mt-2 text-2xl font-bold text-slate-900">{item.value}</p>
+                      </div>
+                    ))}
                   </div>
 
-                  {filteredContacts.slice(0, 20).map((row) => (
-                    <div
-                      key={row._id}
-                      className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
-                    >
-                      <div>
-                        <p className="font-medium text-slate-900">{row.companyName || "—"}</p>
-                        <p className="mt-1 text-xs text-slate-400">{row.primaryContact?.email || "—"}</p>
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[920px]">
+                      <div className="grid grid-cols-[1.2fr_repeat(8,minmax(0,1fr))] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        <div>Date</div>
+                        <div>Sent</div>
+                        <div>Opened</div>
+                        <div>Open Rate</div>
+                        <div>Clicked</div>
+                        <div>Click Rate</div>
+                        <div>Replies</div>
+                        <div>Reply Rate</div>
+                        <div>Opp.</div>
                       </div>
-                      <div>
-                        <span className={cx("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", getStagePillClasses(row.stage))}>
-                          {row.stage || "—"}
-                        </span>
-                      </div>
-                      <div>{formatDate(row.launchedAt)}</div>
+
+                      {dailyAnalytics.map((row) => (
+                        <div
+                          key={row.date}
+                          className="grid grid-cols-[1.2fr_repeat(8,minmax(0,1fr))] gap-4 border-b border-slate-100 py-5 text-sm text-slate-700 last:border-b-0"
+                        >
+                          <div className="font-medium text-slate-900">{formatDate(row.date)}</div>
+                          <div>{row.sent}</div>
+                          <div>{row.uniqueOpened || row.opened}</div>
+                          <div>{formatRate(row.uniqueOpened || row.opened, row.sent)}</div>
+                          <div>{row.uniqueClicks || row.clicks}</div>
+                          <div>{formatRate(row.uniqueClicks || row.clicks, row.sent)}</div>
+                          <div>{includeAutoReplies ? row.replies : row.uniqueReplies}</div>
+                          <div>{formatRate(includeAutoReplies ? row.replies : row.uniqueReplies, row.sent)}</div>
+                          <div>{row.opportunities}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
                 </div>
               ) : (
                 <div className="px-6 py-16">
