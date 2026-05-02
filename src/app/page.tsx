@@ -11,8 +11,6 @@ import FAQ from "@/components/common/faq";
 import HowItWorks from "@/components/common/HowItWorks";
 import Pricing from "@/components/common/Pricing";
 import SocialProof from "@/components/common/SocialProof";
-import SuccessStories from "@/components/common/SuccessStories";
-import React from "react";
 
 export default function HomePage() {
   return (

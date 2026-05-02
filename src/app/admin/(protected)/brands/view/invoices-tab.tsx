@@ -186,11 +186,10 @@ function TypeBadge({ type }: { type: PaymentHistoryItem["paymentType"] }) {
 
   return (
     <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black capitalize ${
-        isPlan
+      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black capitalize ${isPlan
           ? "border-blue-200 bg-blue-50 text-blue-700"
           : "border-purple-200 bg-purple-50 text-purple-700"
-      }`}
+        }`}
     >
       {isPlan ? "Plan" : "Milestone"}
     </span>
@@ -249,7 +248,7 @@ export function BrandInvoicesTab({ brandId }: { brandId: string }) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<InvoiceStatusFilter>("all");
   const [paymentType, setPaymentType] = useState<PaymentTypeFilter>("all");
-  const [range, setRange] = useState<DateRangeFilter>("30d");
+  const [range, setRange] = useState<DateRangeFilter>("all");
 
   const [history, setHistory] = useState<PaymentHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -597,43 +596,43 @@ export function BrandInvoicesTab({ brandId }: { brandId: string }) {
             sortOrder={sortAsc ? "asc" : "desc"}
             onSort={handleSort}
             tableClassName="bg-white"
-            // actions={{
-            //   header: "Actions",
-            //   align: "right",
-            //   cellClassName: "min-w-[150px]",
-            //   render: (item) => (
-            //     <div className="flex justify-end gap-2">
-            //       <Button
-            //         size="sm"
-            //         variant="outline"
-            //         disabled={!item.invoiceFilePath}
-            //         onClick={() => {
-            //           if (item.invoiceFilePath) {
-            //             window.open(item.invoiceFilePath, "_blank", "noopener,noreferrer");
-            //           }
-            //         }}
-            //         className="rounded-full border-black/10 text-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-50"
-            //       >
-            //         <Eye className="mr-2 h-4 w-4" />
-            //         View
-            //       </Button>
+          // actions={{
+          //   header: "Actions",
+          //   align: "right",
+          //   cellClassName: "min-w-[150px]",
+          //   render: (item) => (
+          //     <div className="flex justify-end gap-2">
+          //       <Button
+          //         size="sm"
+          //         variant="outline"
+          //         disabled={!item.invoiceFilePath}
+          //         onClick={() => {
+          //           if (item.invoiceFilePath) {
+          //             window.open(item.invoiceFilePath, "_blank", "noopener,noreferrer");
+          //           }
+          //         }}
+          //         className="rounded-full border-black/10 text-[#1a1a1a] disabled:cursor-not-allowed disabled:opacity-50"
+          //       >
+          //         <Eye className="mr-2 h-4 w-4" />
+          //         View
+          //       </Button>
 
-            //       <Button
-            //         size="sm"
-            //         disabled={!item.invoiceFilePath}
-            //         onClick={() => {
-            //           if (item.invoiceFilePath) {
-            //             window.open(item.invoiceFilePath, "_blank", "noopener,noreferrer");
-            //           }
-            //         }}
-            //         className="rounded-full bg-[#1a1a1a] text-white hover:bg-[#1a1a1a]/90 disabled:cursor-not-allowed disabled:opacity-50"
-            //       >
-            //         <Download className="mr-2 h-4 w-4" />
-            //         PDF
-            //       </Button>
-            //     </div>
-            //   ),
-            // }}
+          //       <Button
+          //         size="sm"
+          //         disabled={!item.invoiceFilePath}
+          //         onClick={() => {
+          //           if (item.invoiceFilePath) {
+          //             window.open(item.invoiceFilePath, "_blank", "noopener,noreferrer");
+          //           }
+          //         }}
+          //         className="rounded-full bg-[#1a1a1a] text-white hover:bg-[#1a1a1a]/90 disabled:cursor-not-allowed disabled:opacity-50"
+          //       >
+          //         <Download className="mr-2 h-4 w-4" />
+          //         PDF
+          //       </Button>
+          //     </div>
+          //   ),
+          // }}
           />
         </div>
       </div>

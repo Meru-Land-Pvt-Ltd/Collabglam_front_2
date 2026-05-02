@@ -13,6 +13,19 @@ type AdminOption = {
   role?: string;
 };
 
+type ThreadMailboxes = {
+  campaignSenderEmail?: string;
+  campaignSenderName?: string;
+  currentReplyFromEmail?: string;
+  currentReplyFromName?: string;
+  RHEmail?: string;
+  RHName?: string;
+  bmeEmail?: string;
+  bmeName?: string;
+  imeEmail?: string;
+  imeName?: string;
+};
+
 type ThreadRow = {
   _id: string;
   ownerRole?: string;
@@ -21,7 +34,10 @@ type ThreadRow = {
   status?: string;
   brandEmail?: string;
   brandName?: string;
+  brandDisplayName?: string;
+  teamDisplayName?: string;
   instantlyThreadId?: string;
+  mailboxes?: ThreadMailboxes | null;
   campaignId?: { _id?: string; name?: string } | null;
   sdrId?: { _id?: string; name?: string; email?: string } | null;
   RHId?: { _id?: string; name?: string; email?: string } | null;
@@ -40,14 +56,24 @@ type ThreadRow = {
 
 type ThreadMessage = {
   _id: string;
-  direction: "inbound" | "outbound";
+  direction: "inbound" | "outbound" | string;
   from?: string;
+  fromName?: string;
   to?: string[];
+  toNames?: string[];
+  fromDisplayName?: string;
+  toDisplayNames?: string[];
+  cc?: string[];
+  ccNames?: string[];
+  bcc?: string[];
+  bccNames?: string[];
   subject?: string;
   bodyText?: string;
-  sentAt?: string;
-  receivedAt?: string;
-  createdAt?: string;
+  bodyHtml?: string;
+  sentAt?: string | null;
+  receivedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type ThreadDetailResponse = {
@@ -60,10 +86,20 @@ function cx(...classes: Array<string | false | null | undefined>) {
 }
 
 function escapeHtml(value = "") {
-  return String(value)
+  return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function decodeEmailEntities(value = "") {
+  return String(value || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
 }
 
 function looksLikeHtml(value = "") {
@@ -84,36 +120,274 @@ function normalizeInsertLinkUrl(value = "") {
 }
 
 function isEditorHtmlEmpty(value = "") {
-  const plain = String(value || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/div>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .trim();
+  const plain = decodeEmailEntities(
+    String(value || "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/div>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+  ).trim();
 
   return !plain;
 }
 
-function stripHtml(value = "") {
-  return String(value || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/div>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
+function htmlToPlainText(value = "") {
+  return decodeEmailEntities(
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(div|p|li|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<[^>]*>/g, "")
+  )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function getInitials(name?: string) {
-  if (!name) return "?";
-  const parts = name.trim().split(" ");
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+function normalizeComposerHtmlForSend(value = "") {
+  const html = String(value || "").trim();
+
+  if (!html) return "";
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+  const root = doc.body;
+
+  root.querySelectorAll("script, style, iframe, object, embed").forEach((node) => {
+    node.remove();
+  });
+
+  root.querySelectorAll("*").forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const attrValue = attr.value || "";
+
+      if (name.startsWith("on")) {
+        node.removeAttribute(attr.name);
+      }
+
+      if (name === "href") {
+        const safeHref =
+          /^https?:\/\//i.test(attrValue) ||
+          /^mailto:/i.test(attrValue) ||
+          /^tel:/i.test(attrValue);
+
+        if (!safeHref) {
+          node.removeAttribute(attr.name);
+        }
+      }
+    });
+  });
+
+  root.querySelectorAll("a").forEach((link) => {
+    const href = link.getAttribute("href") || "";
+
+    if (!href) {
+      link.replaceWith(doc.createTextNode(link.textContent || ""));
+      return;
+    }
+
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+  });
+
+  return root.innerHTML
+    .replace(/<div><br><\/div>/gi, "<br>")
+    .replace(/<div>/gi, "")
+    .replace(/<\/div>/gi, "<br>")
+    .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
+    .trim();
 }
 
-function formatDateTime(value?: string) {
+function stripHtml(value = "") {
+  return decodeEmailEntities(
+    String(value || "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>/gi, "\n")
+      .replace(/<\/div>/gi, "\n")
+      .replace(/<\/li>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+  )
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function sanitizeEmailHtml(value = "") {
+  return String(value || "")
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, "")
+    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, "")
+    .replace(/<object[\s\S]*?>[\s\S]*?<\/object>/gi, "")
+    .replace(/<embed[\s\S]*?>[\s\S]*?<\/embed>/gi, "")
+    .replace(/\s+on[a-z]+\s*=\s*(['"]).*?\1/gi, "")
+    .replace(/\s+href\s*=\s*(['"])\s*javascript:[\s\S]*?\1/gi, "")
+    .trim();
+}
+
+function removeProviderArtifacts(value = "") {
+  return String(value || "")
+    .replace(/\[image:\s*line\]/gi, "")
+    .replace(/\[cid:[^\]]+\]/gi, "")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function splitGmailQuotedText(value = "") {
+  const text = removeProviderArtifacts(decodeEmailEntities(value))
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
+
+  if (!text) {
+    return { mainText: "", quotedText: "" };
+  }
+
+  const inlineQuoteMatch = text.match(/\sOn\s[\s\S]{10,300}?wrote:\s*/i);
+
+  if (
+    inlineQuoteMatch &&
+    typeof inlineQuoteMatch.index === "number" &&
+    inlineQuoteMatch.index > 0
+  ) {
+    const mainText = text.slice(0, inlineQuoteMatch.index).trim();
+    const quotedText = text
+      .slice(inlineQuoteMatch.index)
+      .replace(/(^|\n)\s*>+\s?/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    return { mainText, quotedText };
+  }
+
+  const lines = text.split("\n");
+
+  const quoteStartIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+
+    return (
+      /^On\s.+wrote:\s*$/i.test(trimmed) ||
+      /^On\s.+wrote:\s*>/i.test(trimmed) ||
+      /^-+\s*Original Message\s*-+$/i.test(trimmed) ||
+      /^From:\s.+/i.test(trimmed) ||
+      /^Sent:\s.+/i.test(trimmed) ||
+      /^To:\s.+/i.test(trimmed) ||
+      /^Subject:\s.+/i.test(trimmed) ||
+      /^>/.test(trimmed)
+    );
+  });
+
+  if (quoteStartIndex === -1) {
+    return { mainText: text, quotedText: "" };
+  }
+
+  const mainText = lines.slice(0, quoteStartIndex).join("\n").trim();
+
+  const quotedText = lines
+    .slice(quoteStartIndex)
+    .join("\n")
+    .replace(/(^|\n)\s*>+\s?/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  return { mainText, quotedText };
+}
+
+function autoLinkEscapedHtml(value = "") {
+  return String(value || "").replace(
+    /(https?:\/\/[^\s<]+)/gi,
+    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>'
+  );
+}
+
+function textToGmailHtml(value = "") {
+  const clean = String(value || "").trim();
+  if (!clean) return "";
+
+  return clean
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => {
+      const escaped = escapeHtml(paragraph).replace(/\n/g, "<br/>");
+      return `<p>${autoLinkEscapedHtml(escaped)}</p>`;
+    })
+    .join("");
+}
+
+function getMessageRawText(message: ThreadMessage) {
+  if (String(message.bodyHtml || "").trim()) {
+    return stripHtml(message.bodyHtml || "");
+  }
+
+  if (looksLikeHtml(message.bodyText || "")) {
+    return stripHtml(message.bodyText || "");
+  }
+
+  return String(message.bodyText || "").trim();
+}
+
+function getGmailMessageParts(message: ThreadMessage) {
+  const rawText = getMessageRawText(message);
+  const { mainText, quotedText } = splitGmailQuotedText(rawText);
+
+  const hasQuotedText = Boolean(quotedText.trim());
+
+  const rawHtml =
+    String(message.bodyHtml || "").trim() ||
+    (looksLikeHtml(message.bodyText || "") ? String(message.bodyText || "").trim() : "");
+
+  const mainHtml =
+    !hasQuotedText && rawHtml
+      ? sanitizeEmailHtml(rawHtml)
+      : textToGmailHtml(mainText);
+
+  return {
+    mainText,
+    quotedText,
+    mainHtml,
+    quotedHtml: textToGmailHtml(quotedText),
+    previewText: (mainText || quotedText || "No message content")
+      .replace(/\s+/g, " ")
+      .trim(),
+  };
+}
+
+function getInitials(name?: string) {
+  const value = String(name || "").trim();
+  if (!value) return "?";
+
+  const parts = value.split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+
+  return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+}
+
+function getSenderNameFromEmail(value = "", fallback = "Unknown") {
+  const input = String(value || "").trim();
+  if (!input) return fallback;
+
+  const namePart = input.includes("<")
+    ? input.split("<")[0].trim()
+    : input.split("@")[0];
+
+  return (
+    namePart
+      .replace(/[._-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+      .trim() || fallback
+  );
+}
+
+function formatDateTime(value?: string | null) {
   if (!value) return "—";
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
+
   return date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -126,8 +400,10 @@ function formatDateTime(value?: string) {
 
 function formatShortDateTime(value?: string) {
   if (!value) return "—";
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
+
   return date.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -143,46 +419,355 @@ function getAdminLabel(admin: any) {
 
 function getStagePillClasses(stage?: string) {
   const value = String(stage || "").toLowerCase();
+
   if (value.includes("replied")) return "border-blue-200 bg-blue-50 text-blue-700";
   if (value.includes("assigned_to_bme")) return "border-violet-200 bg-violet-50 text-violet-700";
   if (value.includes("assigned_to_ime")) return "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700";
   if (value.includes("unqualified")) return "border-rose-200 bg-rose-50 text-rose-700";
   if (value.includes("qualified")) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+
   return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
 function getStatusPillClasses(status?: string) {
   const value = String(status || "").toLowerCase();
+
   if (value === "waiting_on_us") return "border-amber-200 bg-amber-50 text-amber-700";
   if (value === "waiting_on_brand") return "border-blue-200 bg-blue-50 text-blue-700";
   if (value === "closed") return "border-slate-200 bg-slate-100 text-slate-600";
+
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
-function MetricCard({ label, value }: { label: string; value: string | number }) {
+function isGenericDisplayName(value?: string | null) {
+  const normalized = String(value || "").trim().toLowerCase();
+
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-    </div>
+    !normalized ||
+    normalized === "lead" ||
+    normalized === "brand" ||
+    normalized === "unknown brand" ||
+    normalized === "unknown company" ||
+    normalized === "unknown contact" ||
+    normalized === "outreach team" ||
+    normalized === "collabglam" ||
+    normalized === "sdr" ||
+    normalized === "bme" ||
+    normalized === "ime" ||
+    normalized === "revenue head"
   );
 }
 
-function DetailCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 break-words text-sm font-semibold text-slate-900">{value || "—"}</p>
-    </div>
-  );
+function firstUsefulName(...values: Array<string | null | undefined>) {
+  const found = values.find((value) => !isGenericDisplayName(value));
+  return String(found || "").trim();
 }
 
 function getBrandDisplayName(thread?: ThreadRow | null) {
-  return thread?.prospectId?.companyName || thread?.brandName || "Unknown Brand";
+  return (
+    firstUsefulName(
+      thread?.brandDisplayName,
+      thread?.brandName,
+      thread?.prospectId?.companyName,
+      thread?.prospectId?.primaryContact?.name
+    ) || "Lead"
+  );
+}
+
+function isEmailLike(value?: string | null) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || "").trim());
+}
+
+function emailToDisplayName(value?: string | null) {
+  const input = String(value || "").trim();
+
+  if (!input) return "";
+
+  const emailMatch = input.match(/<([^>]+)>/);
+  const email = emailMatch?.[1] || input;
+  const localPart = email.includes("@") ? email.split("@")[0] : email;
+
+  return localPart
+    .replace(/\+.*/, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getPreferredMailboxEmail(thread?: ThreadRow | null) {
+  const mailboxes = thread?.mailboxes || {};
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return (
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.bmeEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  if (ownerRole === "ime") {
+    return (
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.imeEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return (
+      mailboxes.currentReplyFromEmail ||
+      mailboxes.RHEmail ||
+      mailboxes.campaignSenderEmail ||
+      ""
+    );
+  }
+
+  return (
+    mailboxes.currentReplyFromEmail ||
+    mailboxes.campaignSenderEmail ||
+    mailboxes.RHEmail ||
+    mailboxes.bmeEmail ||
+    mailboxes.imeEmail ||
+    ""
+  );
+}
+
+function getPreferredMailboxName(thread?: ThreadRow | null) {
+  const mailboxes = thread?.mailboxes || {};
+  const ownerRole = String(thread?.ownerRole || "").trim().toLowerCase();
+
+  if (ownerRole === "bme") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.bmeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "ime") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.imeName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  if (ownerRole === "revenue_head" || ownerRole === "rh") {
+    return firstUsefulName(
+      mailboxes.currentReplyFromName,
+      mailboxes.RHName,
+      mailboxes.campaignSenderName
+    );
+  }
+
+  return firstUsefulName(
+    mailboxes.currentReplyFromName,
+    mailboxes.campaignSenderName,
+    mailboxes.RHName,
+    mailboxes.bmeName,
+    mailboxes.imeName
+  );
+}
+
+function getThreadTeamLabel(thread?: ThreadRow | null) {
+  const mailboxName = getPreferredMailboxName(thread);
+  const mailboxEmail = getPreferredMailboxEmail(thread);
+
+  return mailboxName || emailToDisplayName(mailboxEmail) || "Mailbox";
+}
+
+function getMessageMailboxLabel(
+  message: ThreadMessage,
+  thread: ThreadRow | null,
+  mode: "outbound_sender" | "inbound_recipient"
+) {
+  const storedMessageName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromName)
+      : firstUsefulName(message.toNames?.[0]);
+
+  if (storedMessageName) {
+    return storedMessageName;
+  }
+
+  const raw =
+    mode === "outbound_sender"
+      ? message.from
+      : Array.isArray(message.to)
+        ? message.to.find((item) => isEmailLike(item)) || message.to[0]
+        : "";
+
+  if (isEmailLike(raw)) {
+    return emailToDisplayName(raw);
+  }
+
+  const serializedDisplayName =
+    mode === "outbound_sender"
+      ? firstUsefulName(message.fromDisplayName)
+      : firstUsefulName(message.toDisplayNames?.[0]);
+
+  return serializedDisplayName || getThreadTeamLabel(thread);
 }
 
 function getThreadPreviewText(thread?: ThreadRow | null) {
   return thread?.subject || "No subject";
+}
+
+function getMessageDate(message: ThreadMessage) {
+  return message.receivedAt || message.sentAt || message.createdAt || message.updatedAt || "";
+}
+
+async function hydrateThreadsWithMissingCampaignDetails(threads: ThreadRow[]) {
+  const hydrated = await Promise.all(
+    threads.map(async (thread) => {
+      const hasCampaign = Boolean(thread.campaignId?._id && thread.campaignId?.name);
+      const hasDisplayNames = Boolean(thread.brandDisplayName && thread.teamDisplayName);
+
+      if (hasCampaign && hasDisplayNames) {
+        return thread;
+      }
+
+      try {
+        const payload: any = await adminGet(`/outreach/threads/${thread._id}`);
+        const detailThread = payload?.thread || payload?.data?.thread || null;
+
+        return {
+          ...thread,
+          ...detailThread,
+          campaignId: detailThread?.campaignId || thread.campaignId || null,
+          sdrId: detailThread?.sdrId || thread.sdrId || null,
+          RHId: detailThread?.RHId || thread.RHId || null,
+          IMEId: detailThread?.IMEId || thread.IMEId || null,
+          assignedBmeId: detailThread?.assignedBmeId || thread.assignedBmeId || null,
+          assignedImeId: detailThread?.assignedImeId || thread.assignedImeId || null,
+          brandDisplayName: detailThread?.brandDisplayName || thread.brandDisplayName || "",
+          teamDisplayName: detailThread?.teamDisplayName || thread.teamDisplayName || "",
+        };
+      } catch {
+        return thread;
+      }
+    })
+  );
+
+  return hydrated;
+}
+
+function GmailThreadReader({
+  thread,
+  messages,
+  loading,
+}: {
+  thread: ThreadRow;
+  messages: ThreadMessage[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-white p-10 text-center">
+        <div>
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          <p className="mt-4 text-sm font-semibold text-slate-500">
+            Loading conversation...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!messages.length) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-white p-10 text-center">
+        <p className="text-sm font-semibold text-slate-500">
+          No messages in this thread yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full w-full bg-white">
+      <div className="divide-y divide-slate-100">
+        {messages.map((msg) => {
+          const isInbound = String(msg.direction || "").toLowerCase() === "inbound";
+
+          const brandLabel = getBrandDisplayName(thread);
+          const mailboxLabel = getMessageMailboxLabel(
+            msg,
+            thread,
+            isInbound ? "inbound_recipient" : "outbound_sender"
+          );
+
+          const senderLabel = isInbound ? brandLabel : mailboxLabel;
+          const recipientName = isInbound ? mailboxLabel : brandLabel;
+
+          const recipientLine = `to ${recipientName}`;
+
+          const messageParts = getGmailMessageParts(msg);
+
+          return (
+            <article key={msg._id} className="w-full px-6 py-6">
+              <div className="flex items-start gap-4">
+                <div
+                  className={cx(
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white",
+                    isInbound ? "bg-blue-600" : "bg-slate-700"
+                  )}
+                >
+                  {getInitials(senderLabel)}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {senderLabel}
+                        </p>
+
+                        <span className="text-xs text-slate-500">
+                          {recipientLine}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="shrink-0 text-xs text-slate-500">
+                      {formatDateTime(getMessageDate(msg))}
+                    </span>
+                  </div>
+
+                  <div
+                    className="gmail-message-body mt-5 max-w-none text-[14px] leading-7 text-slate-800 [&_a]:font-medium [&_a]:text-blue-600 [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-slate-200 [&_blockquote]:pl-4 [&_blockquote]:text-slate-500 [&_p]:mb-4"
+                    dangerouslySetInnerHTML={{
+                      __html: messageParts.mainHtml || "<p>—</p>",
+                    }}
+                  />
+
+                  {messageParts.quotedHtml ? (
+                    <div className="mt-5 border-l-2 border-slate-300 pl-4">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                        Previous message
+                      </p>
+
+                      <div
+                        className="max-w-none text-[13px] leading-6 text-slate-500 [&_a]:text-blue-600 [&_a]:underline [&_p]:mb-3"
+                        dangerouslySetInnerHTML={{
+                          __html: messageParts.quotedHtml,
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export default function RepliesPage() {
@@ -198,6 +783,7 @@ export default function RepliesPage() {
     thread: null,
     messages: [],
   });
+
   const [actorRole, setActorRole] = useState("");
   const [search, setSearch] = useState("");
   const [composerSubject, setComposerSubject] = useState("");
@@ -217,7 +803,10 @@ export default function RepliesPage() {
   const selectedLinkElementRef = useRef<HTMLAnchorElement | null>(null);
 
   const [isLinkToolsOpen, setIsLinkToolsOpen] = useState(false);
-  const [linkToolsPosition, setLinkToolsPosition] = useState<{ top: number; left: number } | null>(null);
+  const [linkToolsPosition, setLinkToolsPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
 
   const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(false);
   const [linkEditorMode, setLinkEditorMode] = useState<"insert" | "edit">("insert");
@@ -225,28 +814,34 @@ export default function RepliesPage() {
   const [linkEditorText, setLinkEditorText] = useState("");
 
   const canFilterByRh = actorRole === "super_admin";
-  const canFilterBySdr =
-    actorRole === "super_admin" || actorRole === "revenue_head";
-  const canFilterByBme =
-    actorRole === "super_admin" || actorRole === "revenue_head";
-
+  const canFilterBySdr = actorRole === "super_admin" || actorRole === "revenue_head";
+  const canFilterByBme = actorRole === "super_admin" || actorRole === "revenue_head";
   const canOpenCrmProfile = actorRole !== "bme";
+  const canSeeBrandEmail = actorRole === "super_admin";
 
   const campaignOptions = useMemo(() => {
     const map = new Map<string, { _id: string; name: string }>();
+
     threads.forEach((item) => {
       const id = String(item.campaignId?._id || "");
       if (!id) return;
-      map.set(id, { _id: id, name: item.campaignId?.name || "Unnamed Campaign" });
+
+      map.set(id, {
+        _id: id,
+        name: item.campaignId?.name || "Unnamed Campaign",
+      });
     });
+
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [threads]);
 
   const sdrFilterOptions = useMemo(() => {
     const map = new Map<string, AdminOption>();
+
     threads.forEach((item) => {
       const id = String(item.sdrId?._id || "");
       if (!id) return;
+
       map.set(id, {
         _id: id,
         name: item.sdrId?.name || "",
@@ -254,14 +849,19 @@ export default function RepliesPage() {
         role: "sdr",
       });
     });
-    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+
+    return Array.from(map.values()).sort((a, b) =>
+      getAdminLabel(a).localeCompare(getAdminLabel(b))
+    );
   }, [threads]);
 
   const rhFilterOptions = useMemo(() => {
     const map = new Map<string, AdminOption>();
+
     threads.forEach((item) => {
       const id = String(item.RHId?._id || "");
       if (!id) return;
+
       map.set(id, {
         _id: id,
         name: item.RHId?.name || "",
@@ -269,14 +869,19 @@ export default function RepliesPage() {
         role: "revenue_head",
       });
     });
-    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+
+    return Array.from(map.values()).sort((a, b) =>
+      getAdminLabel(a).localeCompare(getAdminLabel(b))
+    );
   }, [threads]);
 
   const bmeFilterOptions = useMemo(() => {
     const map = new Map<string, AdminOption>();
+
     threads.forEach((item) => {
       const id = String(item.assignedBmeId?._id || "");
       if (!id) return;
+
       map.set(id, {
         _id: id,
         name: item.assignedBmeId?.name || "",
@@ -284,40 +889,35 @@ export default function RepliesPage() {
         role: "bme",
       });
     });
-    return Array.from(map.values()).sort((a, b) => getAdminLabel(a).localeCompare(getAdminLabel(b)));
+
+    return Array.from(map.values()).sort((a, b) =>
+      getAdminLabel(a).localeCompare(getAdminLabel(b))
+    );
   }, [threads]);
 
   const filteredThreads = useMemo(() => threads, [threads]);
 
-  const selectedThread = useMemo(
-    () =>
+  const selectedThread = useMemo(() => {
+    return (
       filteredThreads.find((item) => item._id === selectedThreadId) ||
       threads.find((item) => item._id === selectedThreadId) ||
-      null,
-    [filteredThreads, threads, selectedThreadId]
-  );
+      null
+    );
+  }, [filteredThreads, threads, selectedThreadId]);
 
   const selectedThreadMeta = threadDetail.thread || selectedThread;
-
-  const waitingOnUsCount = useMemo(
-    () => threads.filter((item) => item.status === "waiting_on_us").length,
-    [threads]
-  );
-
-  const waitingOnBrandCount = useMemo(
-    () => threads.filter((item) => item.status === "waiting_on_brand").length,
-    [threads]
-  );
 
   function saveComposerSelection() {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
+
     composerSelectionRef.current = selection.getRangeAt(0).cloneRange();
   }
 
   function restoreComposerSelection() {
     const selection = window.getSelection();
     if (!selection || !composerSelectionRef.current) return;
+
     selection.removeAllRanges();
     selection.addRange(composerSelectionRef.current);
   }
@@ -374,11 +974,14 @@ export default function RepliesPage() {
 
   function openReplyModal() {
     if (!selectedThreadMeta) return;
+
     setComposerSubject(selectedThreadMeta.subject || "");
     setComposerBody("");
+
     if (composerEditorRef.current) {
       composerEditorRef.current.innerHTML = "";
     }
+
     setIsReplyModalOpen(true);
     closeLinkTools();
     resetLinkEditor();
@@ -416,6 +1019,7 @@ export default function RepliesPage() {
     const currentLink = selectedLinkElementRef.current;
     const url = currentLink?.getAttribute("href");
     if (!url) return;
+
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -461,17 +1065,20 @@ export default function RepliesPage() {
         type: "success",
         text: "Link updated",
       });
+
       return;
     }
 
     restoreComposerSelection();
 
     const selection = window.getSelection();
+
     if (!selection || selection.rangeCount === 0) {
       const currentHtml = composerEditorRef.current?.innerHTML || "";
-      const appended = `${currentHtml}${currentHtml ? "<br>" : ""}<a href="${normalizedUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-        finalText
-      )}</a>`;
+      const appended = `${currentHtml}${currentHtml ? "<br>" : ""
+        }<a href="${normalizedUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+          finalText
+        )}</a>`;
 
       if (composerEditorRef.current) {
         composerEditorRef.current.innerHTML = appended;
@@ -484,6 +1091,7 @@ export default function RepliesPage() {
         type: "success",
         text: "Link inserted",
       });
+
       return;
     }
 
@@ -518,9 +1126,11 @@ export default function RepliesPage() {
   async function loadPage(showLoader = true) {
     try {
       if (showLoader) setLoading(true);
+
       setMessage(null);
 
       const query: Record<string, string> = {};
+
       if (campaignFilter) query.campaignId = campaignFilter;
       if (sdrFilter) query.sdrId = sdrFilter;
       if (bmeFilter) query.assignedBmeId = bmeFilter;
@@ -532,7 +1142,12 @@ export default function RepliesPage() {
         adminGet("/admins/me"),
       ]);
 
-      const nextThreads = Array.isArray(threadsPayload?.data) ? threadsPayload.data : [];
+      const rawThreads = Array.isArray(threadsPayload?.data)
+        ? threadsPayload.data
+        : [];
+
+      const nextThreads = await hydrateThreadsWithMissingCampaignDetails(rawThreads);
+
       setThreads(nextThreads);
       setActorRole(String(mePayload?.role || "").toLowerCase());
 
@@ -540,18 +1155,26 @@ export default function RepliesPage() {
       const prospectIdFromQuery = String(searchParams.get("prospectId") || "");
 
       setSelectedThreadId((prev) => {
-        if (threadIdFromQuery && nextThreads.some((t: any) => t._id === threadIdFromQuery)) {
+        if (
+          threadIdFromQuery &&
+          nextThreads.some((thread: any) => thread._id === threadIdFromQuery)
+        ) {
           return threadIdFromQuery;
         }
 
         if (prospectIdFromQuery) {
           const match = nextThreads.find(
-            (item: any) => String(item?.prospectId?._id || "") === prospectIdFromQuery
+            (item: any) =>
+              String(item?.prospectId?._id || "") === prospectIdFromQuery
           );
+
           if (match?._id) return match._id;
         }
 
-        if (prev && nextThreads.some((item: any) => item._id === prev)) return prev;
+        if (prev && nextThreads.some((item: any) => item._id === prev)) {
+          return prev;
+        }
+
         return nextThreads[0]?._id || "";
       });
     } catch (error) {
@@ -570,13 +1193,16 @@ export default function RepliesPage() {
         setThreadDetail({ thread: null, messages: [] });
         setComposerSubject("");
         setComposerBody("");
+
         if (composerEditorRef.current) {
           composerEditorRef.current.innerHTML = "";
         }
+
         return;
       }
 
       setThreadLoading(true);
+
       const payload: any = await adminGet(`/outreach/threads/${selectedThreadId}`);
 
       setThreadDetail({
@@ -594,7 +1220,10 @@ export default function RepliesPage() {
       setThreadDetail({ thread: null, messages: [] });
       setMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to load conversation",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Failed to load conversation",
       });
     } finally {
       setThreadLoading(false);
@@ -603,15 +1232,19 @@ export default function RepliesPage() {
 
   useEffect(() => {
     void loadPage(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignFilter, sdrFilter, bmeFilter, rhFilter, search]);
 
   useEffect(() => {
     void loadSelectedThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedThreadId]);
 
   useEffect(() => {
     if (!composerEditorRef.current) return;
+
     const nextHtml = bodyToEditorHtml(composerBody || "");
+
     if (composerEditorRef.current.innerHTML !== nextHtml) {
       composerEditorRef.current.innerHTML = nextHtml;
     }
@@ -629,21 +1262,31 @@ export default function RepliesPage() {
       if (!selectedThreadId) throw new Error("Select a conversation first");
 
       const editorHtml = composerEditorRef.current?.innerHTML || composerBody || "";
-      if (isEditorHtmlEmpty(editorHtml)) throw new Error("Reply body is required");
+      const bodyHtml = normalizeComposerHtmlForSend(editorHtml);
+      const bodyText = htmlToPlainText(bodyHtml);
+
+      if (!bodyText) {
+        throw new Error("Reply body is required");
+      }
 
       setSubmittingKey("reply");
       setMessage(null);
 
-      const payload: any = await adminPost(`/outreach/threads/${selectedThreadId}/reply`, {
-        subject: composerSubject.trim(),
-        bodyText: editorHtml.trim(),
-      });
+      const payload: any = await adminPost(
+        `/outreach/threads/${selectedThreadId}/reply`,
+        {
+          subject: composerSubject.trim(),
+          bodyText,
+          bodyHtml,
+        }
+      );
 
       if (payload?.success === false) {
         throw new Error(payload?.message || "Failed to send reply");
       }
 
       setComposerBody("");
+
       if (composerEditorRef.current) {
         composerEditorRef.current.innerHTML = "";
       }
@@ -675,20 +1318,17 @@ export default function RepliesPage() {
         <div
           className={cx(
             "rounded-2xl border px-4 py-3 text-sm font-medium shadow-sm",
-            message.type === "success" && "border-emerald-200 bg-emerald-50 text-emerald-700",
-            message.type === "error" && "border-rose-200 bg-rose-50 text-rose-700",
-            message.type === "info" && "border-blue-200 bg-blue-50 text-blue-700"
+            message.type === "success" &&
+            "border-emerald-200 bg-emerald-50 text-emerald-700",
+            message.type === "error" &&
+            "border-rose-200 bg-rose-50 text-rose-700",
+            message.type === "info" &&
+            "border-blue-200 bg-blue-50 text-blue-700"
           )}
         >
           {message.text}
         </div>
       )}
-
-      {/* <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <MetricCard label="Total Threads" value={threads.length} />
-        <MetricCard label="Waiting on Us" value={waitingOnUsCount} />
-        <MetricCard label="Waiting on Brand" value={waitingOnBrandCount} />
-      </div> */}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)] xl:flex-row">
         <aside
@@ -717,18 +1357,19 @@ export default function RepliesPage() {
                   d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
                 />
               </svg>
+
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search brands, campaigns, people..."
-                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-slate-400"
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400"
               />
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
               <select
                 value={campaignFilter}
-                onChange={(e) => setCampaignFilter(e.target.value)}
+                onChange={(event) => setCampaignFilter(event.target.value)}
                 className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
               >
                 <option value="">All Campaigns</option>
@@ -742,7 +1383,7 @@ export default function RepliesPage() {
               {canFilterBySdr && (
                 <select
                   value={sdrFilter}
-                  onChange={(e) => setSdrFilter(e.target.value)}
+                  onChange={(event) => setSdrFilter(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
                 >
                   <option value="">All SDRs</option>
@@ -757,7 +1398,7 @@ export default function RepliesPage() {
               {canFilterByBme && (
                 <select
                   value={bmeFilter}
-                  onChange={(e) => setBmeFilter(e.target.value)}
+                  onChange={(event) => setBmeFilter(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
                 >
                   <option value="">All BMEs</option>
@@ -772,7 +1413,7 @@ export default function RepliesPage() {
               {canFilterByRh && (
                 <select
                   value={rhFilter}
-                  onChange={(e) => setRhFilter(e.target.value)}
+                  onChange={(event) => setRhFilter(event.target.value)}
                   className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400"
                 >
                   <option value="">All RHs</option>
@@ -788,19 +1429,26 @@ export default function RepliesPage() {
 
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             {loading ? (
-              <div className="p-8 text-center text-sm text-slate-500">Loading inbox...</div>
+              <div className="p-8 text-center text-sm text-slate-500">
+                Loading inbox...
+              </div>
             ) : filteredThreads.length === 0 ? (
-              <div className="p-8 text-center text-sm text-slate-500">No conversations found.</div>
+              <div className="p-8 text-center text-sm text-slate-500">
+                No conversations found.
+              </div>
             ) : (
               <ul className="space-y-2">
                 {filteredThreads.map((thread) => {
                   const active = thread._id === selectedThreadId;
                   const brandName = getBrandDisplayName(thread);
+                  const brandEmail = canSeeBrandEmail ? thread.prospectId?.primaryContact?.email || thread.brandEmail || "" : "";
+                  const campaignName = thread.campaignId?.name || "No campaign";
                   const previewText = getThreadPreviewText(thread);
 
                   return (
                     <li key={thread._id}>
                       <button
+                        type="button"
                         onClick={() => {
                           setSelectedThreadId(thread._id);
                           setShowMobileThread(true);
@@ -819,24 +1467,33 @@ export default function RepliesPage() {
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
-                              <p className="truncate text-sm font-semibold text-slate-900">
-                                {brandName}
-                              </p>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-900">
+                                  {brandName}
+                                </p>
+                                {brandEmail ? (
+                                  <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
+                                    {brandEmail}
+                                  </p>
+                                ) : null}
+                              </div>
+
                               <span className="shrink-0 text-xs text-slate-500">
-                                {formatShortDateTime(thread.lastMessageAt || thread.updatedAt)}
+                                {formatShortDateTime(
+                                  thread.lastMessageAt || thread.updatedAt
+                                )}
                               </span>
                             </div>
 
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
                               <span className="truncate">{previewText}</span>
-                              {thread.campaignId?.name ? (
-                                <>
-                                  <span>•</span>
-                                  <span className="truncate font-medium text-slate-700">
-                                    {thread.campaignId.name}
-                                  </span>
-                                </>
-                              ) : null}
+
+                              <>
+                                <span>•</span>
+                                <span className="truncate font-medium text-slate-700">
+                                  {campaignName}
+                                </span>
+                              </>
                             </div>
                           </div>
                         </div>
@@ -874,18 +1531,34 @@ export default function RepliesPage() {
                       </button>
 
                       <div className="min-w-0">
-                        <h3 className="truncate text-xl font-bold text-slate-900 sm:text-2xl">
-                          {getBrandDisplayName(selectedThreadMeta)}
+                        <h3 className="truncate text-xl font-semibold text-slate-900 sm:text-2xl">
+                          {selectedThreadMeta.subject ||
+                            getBrandDisplayName(selectedThreadMeta)}
                         </h3>
+
+                        <p className="mt-1 truncate text-sm text-slate-500">
+                          {getBrandDisplayName(selectedThreadMeta)}
+                          {canSeeBrandEmail && (selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail)
+                            ? ` · ${selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail}`
+                            : ""}
+                          {selectedThreadMeta.campaignId?.name ? ` · ${selectedThreadMeta.campaignId.name}` : ""}
+                          {" · "}
+                          {getThreadTeamLabel(selectedThreadMeta)}
+                        </p>
 
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                           <span
                             className={cx(
                               "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
-                              getStagePillClasses(selectedThreadMeta.prospectId?.stage)
+                              getStagePillClasses(
+                                selectedThreadMeta.prospectId?.stage
+                              )
                             )}
                           >
-                            {selectedThreadMeta.prospectId?.stage?.replace(/_/g, " ") || "No Stage"}
+                            {selectedThreadMeta.prospectId?.stage?.replace(
+                              /_/g,
+                              " "
+                            ) || "No Stage"}
                           </span>
 
                           <span
@@ -894,29 +1567,17 @@ export default function RepliesPage() {
                               getStatusPillClasses(selectedThreadMeta.status)
                             )}
                           >
-                            {selectedThreadMeta.status?.replace(/_/g, " ") || "No Status"}
+                            {selectedThreadMeta.status?.replace(/_/g, " ") ||
+                              "No Status"}
                           </span>
                         </div>
                       </div>
                     </div>
 
                     <div className="hidden items-center gap-3 sm:flex">
-                      {canOpenCrmProfile ? (
-                        <button
-                          onClick={() =>
-                            router.push(
-                              selectedThreadMeta.prospectId?._id
-                                ? `/admin/crm/review-queue?prospectId=${selectedThreadMeta.prospectId._id}`
-                                : "/admin/crm/review-queue"
-                            )
-                          }
-                          className="inline-flex rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          Open CRM Profile
-                        </button>
-                      ) : null}
 
                       <button
+                        type="button"
                         onClick={openReplyModal}
                         className="inline-flex rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
                       >
@@ -925,21 +1586,10 @@ export default function RepliesPage() {
                     </div>
                   </div>
 
-                  {/* <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-                    <DetailCard label="Campaign" value={selectedThreadMeta.campaignId?.name || "—"} />
-                    <DetailCard label="Brand" value={getBrandDisplayName(selectedThreadMeta)} />
-                    <DetailCard label="SDR" value={getAdminLabel(selectedThreadMeta.sdrId)} />
-                    <DetailCard label="RH" value={getAdminLabel(selectedThreadMeta.RHId)} />
-                    <DetailCard label="BME" value={getAdminLabel(selectedThreadMeta.assignedBmeId)} />
-                    <DetailCard
-                      label="IME"
-                      value={getAdminLabel(selectedThreadMeta.assignedImeId || selectedThreadMeta.IMEId)}
-                    />
-                  </div> */}
-
                   <div className="flex gap-3 sm:hidden">
                     {canOpenCrmProfile ? (
                       <button
+                        type="button"
                         onClick={() =>
                           router.push(
                             selectedThreadMeta.prospectId?._id
@@ -954,6 +1604,7 @@ export default function RepliesPage() {
                     ) : null}
 
                     <button
+                      type="button"
                       onClick={openReplyModal}
                       className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black"
                     >
@@ -963,82 +1614,12 @@ export default function RepliesPage() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-3 sm:p-5 lg:p-6">
-                {threadLoading ? (
-                  <div className="text-center text-sm text-slate-500">Loading conversation...</div>
-                ) : threadDetail.messages.length === 0 ? (
-                  <div className="text-center text-sm text-slate-500">No messages in this thread yet.</div>
-                ) : (
-                  <div className="mx-auto flex max-w-5xl flex-col gap-4">
-                    {threadDetail.messages.map((msg) => {
-                      const isInbound = msg.direction === "inbound";
-                      const senderLabel = isInbound ? "Brand" : "You";
-                      const previewBody = looksLikeHtml(msg.bodyText || "")
-                        ? stripHtml(msg.bodyText || "")
-                        : (msg.bodyText || "—");
-
-                      return (
-                        <div
-                          key={msg._id}
-                          className={cx(
-                            "overflow-hidden rounded-3xl border shadow-sm",
-                            isInbound
-                              ? "border-slate-200 bg-white"
-                              : "border-slate-900 bg-slate-900 text-white"
-                          )}
-                        >
-                          <div
-                            className={cx(
-                              "border-b px-4 py-4 sm:px-5",
-                              isInbound
-                                ? "border-slate-100 bg-slate-50/70"
-                                : "border-slate-800 bg-slate-950"
-                            )}
-                          >
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div className="min-w-0">
-                                <p
-                                  className={cx(
-                                    "text-sm font-semibold",
-                                    isInbound ? "text-slate-900" : "text-white"
-                                  )}
-                                >
-                                  {senderLabel}
-                                </p>
-                                <p
-                                  className={cx(
-                                    "mt-2 break-words text-sm",
-                                    isInbound ? "text-slate-700" : "text-slate-200"
-                                  )}
-                                >
-                                  Subject: {msg.subject || "(No Subject)"}
-                                </p>
-                              </div>
-
-                              <span
-                                className={cx(
-                                  "shrink-0 text-xs",
-                                  isInbound ? "text-slate-500" : "text-slate-300"
-                                )}
-                              >
-                                {formatDateTime(msg.receivedAt || msg.sentAt || msg.createdAt)}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div
-                            className={cx(
-                              "whitespace-pre-wrap break-words px-4 py-4 text-sm leading-7 sm:px-5",
-                              isInbound ? "text-slate-800" : "text-slate-100"
-                            )}
-                          >
-                            {previewBody || "—"}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className="min-h-0 flex-1 overflow-y-auto bg-white">
+                <GmailThreadReader
+                  thread={selectedThreadMeta}
+                  messages={threadDetail.messages}
+                  loading={threadLoading}
+                />
               </div>
             </>
           )}
@@ -1067,7 +1648,9 @@ export default function RepliesPage() {
               <div className="border-b border-slate-100 px-4 py-4 sm:px-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-base font-semibold text-slate-900">Reply</p>
+                    <p className="text-base font-semibold text-slate-900">
+                      Reply
+                    </p>
                     <p className="mt-1 text-sm text-slate-500">
                       {getBrandDisplayName(selectedThreadMeta)}
                     </p>
@@ -1076,7 +1659,7 @@ export default function RepliesPage() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onMouseDown={(e) => e.preventDefault()}
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={handleComposerInsertLink}
                       className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                     >
@@ -1098,11 +1681,12 @@ export default function RepliesPage() {
                 <span className="shrink-0 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
                   Subject
                 </span>
+
                 <input
                   value={composerSubject}
-                  onChange={(e) => setComposerSubject(e.target.value)}
+                  onChange={(event) => setComposerSubject(event.target.value)}
                   placeholder="Re: Subject"
-                  className="flex-1 bg-transparent text-sm font-semibold text-slate-900 placeholder:text-slate-400 outline-none"
+                  className="flex-1 bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </div>
 
@@ -1160,7 +1744,9 @@ export default function RepliesPage() {
                     <button
                       type="button"
                       onClick={handleReply}
-                      disabled={submittingKey !== "" || isEditorHtmlEmpty(composerBody)}
+                      disabled={
+                        submittingKey !== "" || isEditorHtmlEmpty(composerBody)
+                      }
                       className="inline-flex flex-1 items-center justify-center rounded-2xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                     >
                       {submittingKey === "reply" ? "Sending..." : "Send Reply"}
@@ -1220,7 +1806,9 @@ export default function RepliesPage() {
                 <h3 className="text-lg font-bold text-slate-900">
                   {linkEditorMode === "edit" ? "Edit link" : "Insert link"}
                 </h3>
-                <p className="mt-1 text-sm text-slate-500">Add or update link details.</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Add or update link details.
+                </p>
               </div>
 
               <button
@@ -1237,9 +1825,10 @@ export default function RepliesPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Link text
                 </label>
+
                 <input
                   value={linkEditorText}
-                  onChange={(e) => setLinkEditorText(e.target.value)}
+                  onChange={(event) => setLinkEditorText(event.target.value)}
                   placeholder="Enter link text"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
                 />
@@ -1249,9 +1838,10 @@ export default function RepliesPage() {
                 <label className="mb-2 block text-sm font-medium text-slate-700">
                   Web address
                 </label>
+
                 <input
                   value={linkEditorUrl}
-                  onChange={(e) => setLinkEditorUrl(e.target.value)}
+                  onChange={(event) => setLinkEditorUrl(event.target.value)}
                   placeholder="https://example.com"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-400"
                 />

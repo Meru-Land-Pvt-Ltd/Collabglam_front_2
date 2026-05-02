@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Select from "react-select";
 import {
@@ -20,11 +20,9 @@ import {
   Pause,
   Play,
   Plus,
-  RefreshCw,
   Reply,
   Search,
   Settings,
-  Share2,
   Sparkles,
   Target,
   Trash2,
@@ -34,7 +32,6 @@ import {
   Wrench,
   X,
   Link2,
-  CheckSquare,
   ExternalLink,
   Pencil,
   Unlink,
@@ -49,6 +46,8 @@ import {
   getApiErrorMessage,
 } from "@/lib/api";
 import AdminTable, { AdminTableColumn } from "../../../../components/table";
+import { CsvImportPanel } from "./components/CsvImportPanel";
+import { buildCsvTemplateVariables } from "./utils/csvVariables";
 
 type CampaignFlowType = "standard_brand" | "ime_influencer";
 type CampaignStatus = "draft" | "ready" | "launched" | "paused" | "completed" | "error";
@@ -74,6 +73,8 @@ type CampaignScheduleWindow = {
 type CampaignSequenceVariant = {
   subject: string;
   body: string;
+  preheaderText?: string;
+  signatureHtml?: string;
 };
 
 type CampaignSequenceStep = {
@@ -310,6 +311,23 @@ type CampaignSubsequence = {
   updatedAt?: string;
 };
 
+type SequencePreviewData = {
+  stepOrder: number;
+  variantIndex: number;
+  subject: string;
+  bodyText: string;
+  bodyHtml: string;
+  preheaderText?: string;
+  signatureHtml?: string;
+  previewVars?: Record<string, string>;
+  lead?: {
+    _id: string;
+    leadName: string;
+    contactName: string;
+    email: string;
+  } | null;
+};
+
 const weekdayLabels = [
   { key: "1", label: "Mon", full: "Monday" },
   { key: "2", label: "Tue", full: "Tuesday" },
@@ -342,20 +360,6 @@ const subsequenceActivityOptions = [
   { label: "Bounced", value: "bounced" },
   { label: "Interested", value: "interested" },
   { label: "Not Interested", value: "not_interested" },
-];
-
-const csvTypeOptions: Array<{ value: CsvColumnType; label: string }> = [
-  { value: "ignore", label: "Ignore" },
-  { value: "first_name", label: "First Name" },
-  { value: "last_name", label: "Last Name" },
-  { value: "full_name", label: "Full Name" },
-  { value: "email", label: "Email" },
-  { value: "company_name", label: "Company Name" },
-  { value: "job_title", label: "Job Title" },
-  { value: "website", label: "Website" },
-  { value: "phone", label: "Phone" },
-  { value: "linkedin_url", label: "LinkedIn URL" },
-  { value: "custom", label: "Custom Variable" },
 ];
 
 const stageOptions = [
@@ -841,8 +845,10 @@ function normalizeConfiguration(input: any, flowType: CampaignFlowType): Campaig
               ? step.variants.map((variant: any) => ({
                 subject: variant?.subject || "",
                 body: variant?.body || "",
+                preheaderText: variant?.preheaderText || variant?.preheader_text || "",
+                signatureHtml: variant?.signatureHtml || variant?.signature_html || "",
               }))
-              : [{ subject: "", body: "" }],
+              : [{ subject: "", body: "", preheaderText: "", signatureHtml: "" }],
         }))
         : fallback.sequences,
     sendingOptions: {
@@ -1143,10 +1149,12 @@ function normalizeSubsequence(input: any): CampaignSubsequence {
           variants:
             Array.isArray(step?.variants) && step.variants.length
               ? step.variants.map((variant: any) => ({
-                subject: String(variant?.subject || ""),
-                body: String(variant?.body || ""),
+                subject: variant?.subject || "",
+                body: variant?.body || "",
+                preheaderText: variant?.preheaderText || variant?.preheader_text || "",
+                signatureHtml: variant?.signatureHtml || variant?.signature_html || "",
               }))
-              : [{ subject: "", body: "" }],
+              : [{ subject: "", body: "", preheaderText: "", signatureHtml: "" }],
         }))
         : fallback.sequences,
     createdAt: input?.createdAt || "",
@@ -1182,14 +1190,28 @@ function bodyToEditorHtml(value = "") {
   return escapeHtml(value).replace(/\n/g, "<br>");
 }
 
-function plainTextFromHtml(value = "") {
+function decodeHtmlEntities(value = "") {
   return String(value || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(div|p|li)>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+}
+
+function plainTextFromHtml(value = "") {
+  return decodeHtmlEntities(
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(div|p|li|tr|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<[^>]*>/g, "")
+  )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -1401,6 +1423,10 @@ export default function CampaignDetailPage() {
     tiktok_agency: false,
   });
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("lead_generation_quick_question");
+
+  const [isSequencePreviewOpen, setIsSequencePreviewOpen] = useState(false);
+  const [sequencePreview, setSequencePreview] = useState<SequencePreviewData | null>(null);
+  const [previewLeadId, setPreviewLeadId] = useState("");
 
   const sequenceEditorRef = useRef<HTMLDivElement | null>(null);
   const subjectInputRef = useRef<HTMLInputElement | null>(null);
@@ -2044,46 +2070,149 @@ export default function CampaignDetailPage() {
     setSelectedScheduleIndex((prev) => Math.max(0, prev - 1));
   }
 
+  const previewLeadOptions = useMemo(() => {
+    return contacts.map((row) => ({
+      value: row._id,
+      label: `${getResolvedLeadName(row)} • ${getResolvedContactName(row)} • ${getResolvedContactMeta(row)}`,
+    }));
+  }, [contacts]);
+
+  useEffect(() => {
+    if (!previewLeadId && contacts.length > 0) {
+      setPreviewLeadId(contacts[0]._id);
+    }
+  }, [contacts, previewLeadId]);
+
+  function normalizeEditorHtmlForEmail(value = "") {
+    const html = String(value || "").trim();
+
+    if (!html) return "";
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${html}</div>`, "text/html");
+    const root = doc.body;
+
+    root.querySelectorAll("script, style, iframe, object, embed").forEach((node) => {
+      node.remove();
+    });
+
+    root.querySelectorAll("*").forEach((node) => {
+      Array.from(node.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const attrValue = attr.value || "";
+
+        if (name.startsWith("on")) {
+          node.removeAttribute(attr.name);
+        }
+
+        if (name === "href") {
+          const safeHref =
+            /^https?:\/\//i.test(attrValue) ||
+            /^mailto:/i.test(attrValue) ||
+            /^tel:/i.test(attrValue);
+
+          if (!safeHref) {
+            node.removeAttribute(attr.name);
+          }
+        }
+
+        if (name === "style" || name === "class") {
+          node.removeAttribute(attr.name);
+        }
+      });
+    });
+
+    root.querySelectorAll("a").forEach((link) => {
+      const href = link.getAttribute("href") || "";
+
+      if (!href) {
+        link.replaceWith(doc.createTextNode(link.textContent || ""));
+        return;
+      }
+
+      link.setAttribute("target", "_blank");
+      link.setAttribute("rel", "noopener noreferrer");
+    });
+
+    const normalized = root.innerHTML
+      .replace(/<div><br><\/div>/gi, "<br>")
+      .replace(/<div>/gi, "")
+      .replace(/<\/div>/gi, "<br>")
+      .replace(/<p><br><\/p>/gi, "<br>")
+      .replace(/(<br\s*\/?>\s*){3,}/gi, "<br><br>")
+      .trim();
+
+    return plainTextFromHtml(normalized) ? normalized : "";
+  }
+
   function buildLatestConfigurationForSave(): CampaignConfiguration {
     const domBody = sequenceEditorRef.current?.innerHTML || "";
-    const domPlainBody = plainTextFromHtml(domBody);
+    const latestBodyHtml = normalizeEditorHtmlForEmail(domBody);
 
-    const latestBody = domPlainBody || selectedSequenceVariant?.body || "";
+    const latestBody =
+      latestBodyHtml ||
+      selectedSequenceVariant?.body ||
+      "";
 
     const latestSubject =
-      subjectInputRef.current?.value ?? selectedSequenceVariant?.subject ?? "";
+      subjectInputRef.current?.value ??
+      selectedSequenceVariant?.subject ??
+      "";
 
-    if (!plainTextFromHtml(latestBody)) {
-      throw new Error("Email body is required. Please write the sequence email body before saving or launching.");
-    }
-
-    return {
+    const nextConfiguration: CampaignConfiguration = {
       ...configuration,
       sequences: configuration.sequences.map((step, stepIndex) => {
-        if (stepIndex !== selectedSequenceStepIndex) return step;
-
         return {
           ...step,
           variants: step.variants.map((variant, variantIndex) => {
-            if (variantIndex !== selectedSequenceVariantIndex) return variant;
+            const isActiveVariant =
+              stepIndex === selectedSequenceStepIndex &&
+              variantIndex === selectedSequenceVariantIndex;
+
+            const nextVariant = isActiveVariant
+              ? {
+                ...variant,
+                subject: latestSubject,
+                body: latestBody,
+              }
+              : variant;
 
             return {
-              ...variant,
-              subject: latestSubject,
-              body: latestBody,
+              ...nextVariant,
+              subject: String(nextVariant.subject || "").trim(),
+              body: normalizeEditorHtmlForEmail(nextVariant.body || ""),
             };
           }),
         };
       }),
     };
+
+    nextConfiguration.sequences.forEach((step, stepIndex) => {
+      const variants = Array.isArray(step.variants) ? step.variants : [];
+
+      if (!variants.length) {
+        throw new Error(`Step ${stepIndex + 1} must have at least one variant.`);
+      }
+
+      variants.forEach((variant, variantIndex) => {
+        const bodyText = plainTextFromHtml(variant.body || "");
+
+        if (!bodyText) {
+          throw new Error(
+            `Step ${stepIndex + 1}, Variant ${variantIndex + 1}: email body is empty. Please write the email body before saving or launching.`
+          );
+        }
+      });
+    });
+
+    return nextConfiguration;
   }
 
-  async function handleSaveConfiguration(syncNow = false) {
+  async function handleSaveConfiguration(syncNow = true) {
     try {
       setSubmittingKey(syncNow ? "save-sync" : "save-config");
 
-      const nextConfiguration =
-        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
+      const nextConfiguration = buildLatestConfigurationForSave();
 
       setConfiguration(nextConfiguration);
 
@@ -2114,7 +2243,14 @@ export default function CampaignDetailPage() {
   async function handleDirectSync() {
     try {
       setSubmittingKey("sync");
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/sync`, {
+
+      const latestConfiguration = buildLatestConfigurationForSave();
+
+      setConfiguration(latestConfiguration);
+
+      const payload: any = await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
+        configuration: latestConfiguration,
+        syncNow: true,
         senderAccountEmail: selectedSenderEmail,
         accountEmails: selectedAccountEmails,
       });
@@ -2283,17 +2419,24 @@ export default function CampaignDetailPage() {
     try {
       setSubmittingKey("launch");
 
-      const latestConfiguration =
-        activeTab === "sequences" ? buildLatestConfigurationForSave() : configuration;
-
-      await adminPatch(`/outreach/campaigns/${campaignId}/configuration`, {
-        configuration: latestConfiguration,
-        syncNow: false,
-        senderAccountEmail: selectedSenderEmail,
-        accountEmails: selectedAccountEmails,
-      });
+      // Always read latest editor DOM, not only when activeTab === "sequences"
+      const latestConfiguration = buildLatestConfigurationForSave();
 
       setConfiguration(latestConfiguration);
+
+      const savePayload: any = await adminPatch(
+        `/outreach/campaigns/${campaignId}/configuration`,
+        {
+          configuration: latestConfiguration,
+          syncNow: false,
+          senderAccountEmail: selectedSenderEmail,
+          accountEmails: selectedAccountEmails,
+        }
+      );
+
+      if (savePayload?.success === false) {
+        throw new Error(savePayload?.message || "Failed to save campaign configuration");
+      }
 
       const route = campaign?.status === "paused" ? "activate" : "launch";
 
@@ -2342,36 +2485,36 @@ export default function CampaignDetailPage() {
     }
   }
 
-  async function handleShare() {
-    try {
-      setSubmittingKey("share");
+  // async function handleShare() {
+  //   try {
+  //     setSubmittingKey("share");
 
-      const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/share`);
-      const shareLink =
-        payload?.data?.shareLink ||
-        campaign?.instantly?.shareLink ||
-        "";
+  //     const payload: any = await adminPost(`/outreach/campaigns/${campaignId}/share`);
+  //     const shareLink =
+  //       payload?.data?.shareLink ||
+  //       campaign?.instantly?.shareLink ||
+  //       "";
 
-      if (!shareLink || !/^https?:\/\//i.test(String(shareLink))) {
-        setMessage({
-          type: "info",
-          text: payload?.message || "Campaign shared, but no share link was returned",
-        });
-        return;
-      }
+  //     if (!shareLink || !/^https?:\/\//i.test(String(shareLink))) {
+  //       setMessage({
+  //         type: "info",
+  //         text: payload?.message || "Campaign shared, but no share link was returned",
+  //       });
+  //       return;
+  //     }
 
-      await navigator.clipboard.writeText(String(shareLink));
+  //     await navigator.clipboard.writeText(String(shareLink));
 
-      setMessage({
-        type: "success",
-        text: "Share link copied to clipboard",
-      });
-    } catch (error) {
-      await showApiError(error, "Failed to share campaign");
-    } finally {
-      setSubmittingKey("");
-    }
-  }
+  //     setMessage({
+  //       type: "success",
+  //       text: "Share link copied to clipboard",
+  //     });
+  //   } catch (error) {
+  //     await showApiError(error, "Failed to share campaign");
+  //   } finally {
+  //     setSubmittingKey("");
+  //   }
+  // }
 
   async function handleLeadStageChange(prospectId: string, stage: string) {
     try {
@@ -2396,6 +2539,57 @@ export default function CampaignDetailPage() {
       });
     } catch (error) {
       await showApiError(error, "Failed to update lead stage");
+    } finally {
+      setSubmittingKey("");
+    }
+  }
+
+  async function handleOpenSequencePreview(nextProspectId?: string) {
+    try {
+      setSubmittingKey("sequence-preview");
+
+      const latestConfiguration = buildLatestConfigurationForSave();
+
+      const currentStep =
+        latestConfiguration.sequences[selectedSequenceStepIndex] ||
+        latestConfiguration.sequences[0];
+
+      const currentVariant =
+        currentStep?.variants?.[selectedSequenceVariantIndex] ||
+        currentStep?.variants?.[0] || {
+          subject: "",
+          body: "",
+          preheaderText: "",
+          signatureHtml: "",
+        };
+
+      const chosenProspectId =
+        nextProspectId || previewLeadId || contacts[0]?._id || "";
+
+      const payload: any = await adminPost(
+        `/outreach/campaigns/${campaignId}/sequence-preview`,
+        {
+          stepOrder: Number(currentStep?.stepOrder || 1),
+          variantIndex: selectedSequenceVariantIndex,
+          prospectId: chosenProspectId,
+          variantOverride: {
+            subject: currentVariant.subject || "",
+            body: currentVariant.body || "",
+            preheaderText: currentVariant.preheaderText || "",
+            signatureHtml: currentVariant.signatureHtml || "",
+          },
+        }
+      );
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to generate preview");
+      }
+
+      setSequencePreview(payload?.data || null);
+      setPreviewLeadId(payload?.data?.lead?._id || chosenProspectId);
+      setIsSequencePreviewOpen(true);
+    } catch (error) {
+      await showApiError(error, "Failed to generate preview");
     } finally {
       setSubmittingKey("");
     }
@@ -2648,26 +2842,6 @@ export default function CampaignDetailPage() {
 
   const baseContactColumns: AdminTableColumn<ContactRow>[] = [
     {
-      id: "companyName",
-      header: flowType === "ime_influencer" ? "Lead / Influencer" : "Lead",
-      sortable: true,
-      render: (row) => {
-        const resolvedLeadName = getResolvedLeadName(row);
-
-        return (
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-              {(resolvedLeadName || "U").charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">{resolvedLeadName}</p>
-              <p className="mt-1 text-xs text-slate-400">{row._id}</p>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
       id: "contactName",
       header: "Contact",
       render: (row) => {
@@ -2713,44 +2887,6 @@ export default function CampaignDetailPage() {
     }));
 
   const tailContactColumns: AdminTableColumn<ContactRow>[] = [
-    {
-      id: "stage",
-      header: "Stage",
-      render: (row) =>
-        isSdrViewer ? (
-          <span
-            className={cx(
-              "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
-              getStagePillClasses(row.stage)
-            )}
-          >
-            {row.stage || "—"}
-          </span>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span
-              className={cx(
-                "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",
-                getStagePillClasses(row.stage)
-              )}
-            >
-              {row.stage || "—"}
-            </span>
-            <select
-              value={row.stage || "new"}
-              onChange={(e) => handleLeadStageChange(row._id, e.target.value)}
-              disabled={submittingKey === `stage-${row._id}`}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700"
-            >
-              {stageOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        ),
-    },
     {
       id: "launchedAt",
       header: "Launched",
@@ -3105,14 +3241,20 @@ export default function CampaignDetailPage() {
       .join(" ");
   }
 
-  const sequenceVariableOptions = useMemo<SequenceVariableOption[]>(() => {
-    const uniqueValues = Array.from(new Set(templateVariables || []));
+  const csvOnlyTemplateVariables = useMemo(() => {
+    const csvColumns = csvPreviewColumns.length
+      ? csvPreviewColumns
+      : campaign?.csvSchema?.columns || [];
 
-    return uniqueValues.map((variable) => ({
+    return buildCsvTemplateVariables(csvColumns);
+  }, [csvPreviewColumns, campaign?.csvSchema?.columns]);
+
+  const sequenceVariableOptions = useMemo<SequenceVariableOption[]>(() => {
+    return csvOnlyTemplateVariables.map((variable) => ({
       label: formatSequenceVariableLabel(variable),
       value: variable,
     }));
-  }, [templateVariables]);
+  }, [csvOnlyTemplateVariables]);
 
   function handleInsertSequenceVariable(variable: string) {
     const target = sequenceInsertTarget || {
@@ -3303,6 +3445,21 @@ export default function CampaignDetailPage() {
     updateLinkToolsFromSelection();
   }
 
+  function hydrateSequenceEditorFromState() {
+    const editor = sequenceEditorRef.current;
+    if (!editor) return;
+
+    const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
+
+    if (document.activeElement === editor) return;
+
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml;
+    }
+
+    savedSelectionRangeRef.current = null;
+  }
+
   function handleOpenInsertLinkEditor() {
     const selection = window.getSelection();
     const selectedText = selection?.toString() || "";
@@ -3436,23 +3593,32 @@ export default function CampaignDetailPage() {
     });
   }
 
-  useEffect(() => {
-    const editor = sequenceEditorRef.current;
-    if (!editor) return;
+  useLayoutEffect(() => {
+    if (activeTab !== "sequences") return;
 
-    if (document.activeElement === editor) return;
+    hydrateSequenceEditorFromState();
 
-    const nextHtml = bodyToEditorHtml(selectedSequenceVariant.body || "");
+    const frame = window.requestAnimationFrame(() => {
+      hydrateSequenceEditorFromState();
+    });
 
-    if (editor.innerHTML !== nextHtml) {
-      editor.innerHTML = nextHtml;
-    }
+    const timer = window.setTimeout(() => {
+      hydrateSequenceEditorFromState();
+    }, 80);
 
-    savedSelectionRangeRef.current = null;
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
   }, [
+    activeTab,
+    loading,
+    campaign?._id,
     selectedSequenceStepIndex,
     selectedSequenceVariantIndex,
+    selectedSequenceVariant.subject,
     selectedSequenceVariant.body,
+    configuration.sequences.length,
   ]);
 
   const flatFilteredTemplates = useMemo(() => {
@@ -3583,41 +3749,6 @@ export default function CampaignDetailPage() {
               </h1>
 
               <div className="mt-2 flex flex-wrap items-end gap-4 text-sm text-slate-500">
-                <div className="flex min-w-[260px] flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Sender Email
-                  </span>
-
-                  {selectedAccountEmails.length > 1 ? (
-                    <select
-                      value={selectedSenderEmail}
-                      onChange={(e) => {
-                        const nextEmail = normalizeEmailValue(e.target.value);
-                        setSelectedSenderEmail(nextEmail);
-                        setSelectedAccountEmails((prev) =>
-                          prev.includes(nextEmail) ? prev : [nextEmail, ...prev]
-                        );
-                      }}
-                      className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none"
-                    >
-                      {selectedAccountEmails.map((email) => (
-                        <option key={email} value={email}>
-                          {email}
-                          {normalizeEmailValue(campaign?.instantly?.senderAccountEmail) === normalizeEmailValue(email)
-                            ? " (Primary)"
-                            : ""}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      {selectedSenderEmail || selectedAccountEmails[0] || "—"}
-                    </div>
-                  )}
-                </div>
-
-                <span>Owner: {getAdminLabel(flowType === "ime_influencer" ? campaign?.IMEId : campaign?.sdrId)}</span>
-                {/* <span>Instantly ID: {campaign?.instantly?.campaignId || "Not launched yet"}</span> */}
                 <span>Last analytics sync: {formatDateTime(campaign?.sync?.lastAnalyticsSyncedAt)}</span>
               </div>
             </div>
@@ -3654,7 +3785,19 @@ export default function CampaignDetailPage() {
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                if (activeTab === "sequences") {
+                  syncEditorBodyToState();
+                }
+
+                setActiveTab(tab.key);
+
+                if (tab.key === "sequences") {
+                  window.setTimeout(() => {
+                    hydrateSequenceEditorFromState();
+                  }, 0);
+                }
+              }}
               className={cx(
                 "whitespace-nowrap border-b-2 pb-4 pt-1 text-[15px] font-medium transition",
                 activeTab === tab.key
@@ -3715,7 +3858,7 @@ export default function CampaignDetailPage() {
                     </button>
                   </Tooltip>
 
-                  <Tooltip label="Copy campaign share link">
+                  {/* <Tooltip label="Copy campaign share link">
                     <button
                       type="button"
                       onClick={handleShare}
@@ -3725,7 +3868,7 @@ export default function CampaignDetailPage() {
                       <Share2 className="h-4 w-4" />
                       {submittingKey === "share" ? "Sharing..." : "Share"}
                     </button>
-                  </Tooltip>
+                  </Tooltip> */}
 
                   <div className="relative">
                     <select
@@ -3768,22 +3911,24 @@ export default function CampaignDetailPage() {
                         </div>
 
                         <div className="max-h-[360px] overflow-auto py-1">
-                          <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
-                            <div className="flex items-center gap-2">
-                              <span>Include auto replies</span>
-                              <CircleAlert className="h-3.5 w-3.5 text-slate-300" />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setIncludeAutoReplies((prev) => !prev)}
-                              className={cx(
-                                "flex h-6 w-6 items-center justify-center rounded-full text-white",
-                                includeAutoReplies ? "bg-emerald-500" : "bg-slate-300"
-                              )}
-                            >
-                              <Check className="h-4 w-4" />
-                            </button>
-                          </label>
+                          {!isSdrViewer && (
+                            <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50">
+                              <div className="flex items-center gap-2">
+                                <span>Include auto replies</span>
+                                <CircleAlert className="h-3.5 w-3.5 text-slate-300" />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setIncludeAutoReplies((prev) => !prev)}
+                                className={cx(
+                                  "flex h-6 w-6 items-center justify-center rounded-full text-white",
+                                  includeAutoReplies ? "bg-emerald-500" : "bg-slate-300"
+                                )}
+                              >
+                                <Check className="h-4 w-4" />
+                              </button>
+                            </label>
+                          )}
 
                           {filteredMetricList.map((metric) => (
                             <label
@@ -3964,9 +4109,9 @@ export default function CampaignDetailPage() {
               ) : filteredContacts.length ? (
                 <div className="px-6 py-6">
                   <div className="grid grid-cols-[1.6fr_1fr_1fr_1fr] gap-4 border-b border-slate-100 pb-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    <div>Company</div>
                     <div>Stage</div>
                     <div>Launched</div>
-                    <div>Thread</div>
                   </div>
 
                   {filteredContacts.slice(0, 20).map((row) => (
@@ -3984,7 +4129,6 @@ export default function CampaignDetailPage() {
                         </span>
                       </div>
                       <div>{formatDate(row.launchedAt)}</div>
-                      <div>{row.instantly?.threadId || "—"}</div>
                     </div>
                   ))}
                 </div>
@@ -4145,16 +4289,8 @@ export default function CampaignDetailPage() {
               <div className="fixed inset-0 z-[100] bg-white">
                 <div className="flex h-full min-h-screen flex-col bg-[#f8fafc]">
                   <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={leadImportMode ? () => setLeadImportMode(null) : closeLeadImportModal}
-                      className="inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
-                    >
-                      <ArrowLeft className="h-5 w-5" />
-                      {leadImportMode ? "Back" : "Cancel"}
-                    </button>
 
-                    <div className="text-center">
+                    <div className="text-center item center flex-1">
                       <p className="text-sm font-bold text-slate-950">
                         {leadImportMode === "csv" && "Upload CSV"}
                         {leadImportMode === "manual" && "Enter Emails Manually"}
@@ -4254,7 +4390,7 @@ export default function CampaignDetailPage() {
                             className="group flex w-full items-center gap-5 rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)]"
                           >
                             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
-                              <CheckSquare className="h-7 w-7" />
+                              <CheckCircle2 className="h-7 w-7" />
                             </div>
 
                             <div className="min-w-0 flex-1">
@@ -4277,307 +4413,18 @@ export default function CampaignDetailPage() {
                   )}
 
                   {leadImportMode === "csv" && (
-                    <div className="flex-1 overflow-auto px-5 py-8">
-                      <div className="mx-auto max-w-6xl">
-                        <div className="mb-6">
-                          <h2 className="text-2xl font-bold tracking-tight text-slate-950">
-                            Upload CSV
-                          </h2>
-                          <p className="mt-2 text-sm text-slate-500">
-                            Upload your CSV file, verify column mappings, and import leads into the campaign.
-                          </p>
-                        </div>
-
-                        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
-                          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                            <div>
-                              <h3 className="text-base font-semibold text-slate-950">
-                                CSV Mapping Import
-                              </h3>
-                              <p className="mt-1 text-sm text-slate-500">
-                                Preview the file, map every column, then import.
-                              </p>
-                            </div>
-
-                            {csvPreviewFileName ? (
-                              <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                                File processed
-                              </span>
-                            ) : null}
-                          </div>
-
-                          <div className="space-y-5">
-                            <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[28px] border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center transition hover:border-blue-300 hover:bg-blue-50">
-                              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
-                                <Upload className="h-7 w-7" />
-                              </div>
-
-                              <div>
-                                <p className="text-base font-semibold text-slate-800">
-                                  {csvFile ? csvFile.name : "Choose a CSV file"}
-                                </p>
-                                <p className="mt-1 text-sm text-slate-500">
-                                  Drop a file here or click to browse
-                                </p>
-                              </div>
-
-                              <input
-                                type="file"
-                                accept=".csv"
-                                className="sr-only"
-                                onChange={async (e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) await handlePreviewCsv(file);
-                                }}
-                              />
-                            </label>
-
-                            {leadImportMode === "csv" && (
-                              <div className="flex-1 overflow-auto px-5 py-8">
-                                <div className="mx-auto max-w-6xl">
-                                  <div className="mb-6">
-                                    <h2 className="text-2xl font-bold tracking-tight text-slate-950">
-                                      Upload CSV
-                                    </h2>
-                                    <p className="mt-2 text-sm text-slate-500">
-                                      Upload your CSV file, verify column mappings, and import leads into the campaign.
-                                    </p>
-                                  </div>
-
-                                  <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)]">
-                                    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                      <div>
-                                        <h3 className="text-base font-semibold text-slate-950">
-                                          CSV Mapping Import
-                                        </h3>
-                                        <p className="mt-1 text-sm text-slate-500">
-                                          Preview the file, map every column, then import.
-                                        </p>
-                                      </div>
-
-                                      {csvPreviewFileName ? (
-                                        <span className="inline-flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-600">
-                                          <CheckCircle2 className="h-3.5 w-3.5" />
-                                          File processed
-                                        </span>
-                                      ) : null}
-                                    </div>
-
-                                    <div className="space-y-5">
-                                      <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-[28px] border-2 border-dashed border-slate-200 bg-slate-50 p-10 text-center transition hover:border-blue-300 hover:bg-blue-50">
-                                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
-                                          <Upload className="h-7 w-7" />
-                                        </div>
-
-                                        <div>
-                                          <p className="text-base font-semibold text-slate-800">
-                                            {csvFile ? csvFile.name : "Choose a CSV file"}
-                                          </p>
-                                          <p className="mt-1 text-sm text-slate-500">
-                                            Drop a file here or click to browse
-                                          </p>
-                                        </div>
-
-                                        <input
-                                          type="file"
-                                          accept=".csv"
-                                          className="sr-only"
-                                          onChange={async (e) => {
-                                            const file = e.target.files?.[0];
-                                            if (file) await handlePreviewCsv(file);
-                                          }}
-                                        />
-                                      </label>
-
-                                      {csvPreviewColumns.length > 0 ? (
-                                        <>
-                                          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
-                                            <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-                                              <div className="flex flex-wrap items-center justify-between gap-3">
-                                                <div>
-                                                  <p className="text-sm font-semibold text-slate-900">
-                                                    {csvPreviewFileName}
-                                                  </p>
-                                                  <p className="mt-1 text-xs text-slate-500">
-                                                    {csvPreviewTotalRows} rows detected
-                                                  </p>
-                                                </div>
-
-                                                <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                                                  <Sparkles className="h-3.5 w-3.5" />
-                                                  Variables auto-generated
-                                                </div>
-                                              </div>
-                                            </div>
-
-                                            <div className="max-h-[520px] overflow-auto">
-                                              <table className="min-w-full text-left">
-                                                <thead className="sticky top-0 z-10 bg-white">
-                                                  <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                                    <th className="px-5 py-3">Column</th>
-                                                    <th className="px-5 py-3">Type</th>
-                                                    <th className="px-5 py-3">Variable</th>
-                                                    <th className="px-5 py-3">Samples</th>
-                                                  </tr>
-                                                </thead>
-
-                                                <tbody>
-                                                  {csvPreviewColumns.map((column) => (
-                                                    <tr
-                                                      key={column.header}
-                                                      className="border-b border-slate-100 align-top last:border-b-0"
-                                                    >
-                                                      <td className="px-5 py-4">
-                                                        <p className="text-sm font-semibold text-slate-900">
-                                                          {column.header}
-                                                        </p>
-                                                        <p className="mt-1 text-xs text-slate-400">
-                                                          Auto-detected: {column.inferredType.replaceAll("_", " ")}
-                                                        </p>
-                                                      </td>
-
-                                                      <td className="px-5 py-4">
-                                                        <select
-                                                          value={column.selectedType}
-                                                          onChange={(e) =>
-                                                            updateCsvPreviewColumn(column.header, {
-                                                              selectedType: e.target.value as CsvColumnType,
-                                                            })
-                                                          }
-                                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                                                        >
-                                                          {csvTypeOptions.map((option) => (
-                                                            <option key={option.value} value={option.value}>
-                                                              {option.label}
-                                                            </option>
-                                                          ))}
-                                                        </select>
-                                                      </td>
-
-                                                      <td className="px-5 py-4">
-                                                        <input
-                                                          value={column.variableKey}
-                                                          onChange={(e) =>
-                                                            updateCsvPreviewColumn(column.header, {
-                                                              variableKey: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
-                                                            })
-                                                          }
-                                                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
-                                                        />
-
-                                                        <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                                                          {`{{${column.variableKey}}}`}
-                                                        </p>
-                                                      </td>
-
-                                                      <td className="px-5 py-4">
-                                                        <div className="space-y-1">
-                                                          {column.samples.map((sample, index) => (
-                                                            <p key={index} className="text-sm text-slate-600">
-                                                              {sample}
-                                                            </p>
-                                                          ))}
-                                                        </div>
-                                                      </td>
-                                                    </tr>
-                                                  ))}
-                                                </tbody>
-                                              </table>
-                                            </div>
-
-                                            <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                                              <p className="text-xs text-slate-500">
-                                                Review all column mappings before importing.
-                                              </p>
-
-                                              <button
-                                                type="button"
-                                                onClick={handleConfirmCsvImport}
-                                                disabled={submittingKey !== ""}
-                                                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                              >
-                                                <Upload className="h-4 w-4" />
-                                                {submittingKey === "csv-import" ? "Importing..." : "Import with Mapping"}
-                                              </button>
-                                            </div>
-                                          </div>
-
-                                          {csvPreviewRows.length > 0 ? (
-                                            <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
-                                              <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-                                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                                  <div>
-                                                    <p className="text-sm font-semibold text-slate-900">
-                                                      CSV Row Preview
-                                                    </p>
-                                                    <p className="mt-1 text-xs text-slate-500">
-                                                      Showing first {csvPreviewRows.length} rows from the uploaded file
-                                                    </p>
-                                                  </div>
-
-                                                  <span className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                                                    <Eye className="h-3.5 w-3.5" />
-                                                    Raw CSV preview
-                                                  </span>
-                                                </div>
-                                              </div>
-
-                                              <div className="max-h-[420px] overflow-auto">
-                                                <table className="min-w-full text-left">
-                                                  <thead className="sticky top-0 z-10 bg-white">
-                                                    <tr className="border-b border-slate-200 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                                                      {csvPreviewColumns.map((column) => (
-                                                        <th key={column.header} className="px-5 py-3 whitespace-nowrap">
-                                                          {column.header}
-                                                        </th>
-                                                      ))}
-                                                    </tr>
-                                                  </thead>
-
-                                                  <tbody>
-                                                    {csvPreviewRows.map((row, rowIndex) => (
-                                                      <tr
-                                                        key={`csv-row-${rowIndex}`}
-                                                        className="border-b border-slate-100 last:border-b-0"
-                                                      >
-                                                        {csvPreviewColumns.map((column) => (
-                                                          <td
-                                                            key={`${rowIndex}-${column.header}`}
-                                                            className="px-5 py-3 align-top text-sm text-slate-700"
-                                                          >
-                                                            {String(row?.[column.header] ?? "—")}
-                                                          </td>
-                                                        ))}
-                                                      </tr>
-                                                    ))}
-                                                  </tbody>
-                                                </table>
-                                              </div>
-                                            </div>
-                                          ) : null}
-                                        </>
-                                      ) : (
-                                        <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-5 py-12 text-center">
-                                          <p className="text-base font-semibold text-slate-800">
-                                            Upload a CSV to preview mappings
-                                          </p>
-                                          <p className="mt-1 text-sm text-slate-500">
-                                            Every header will become an available template variable.
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <CsvImportPanel
+                      csvFile={csvFile}
+                      csvPreviewColumns={csvPreviewColumns}
+                      csvPreviewFileName={csvPreviewFileName}
+                      csvPreviewRows={csvPreviewRows}
+                      csvPreviewTotalRows={csvPreviewTotalRows}
+                      submittingKey={submittingKey}
+                      onPreviewCsv={handlePreviewCsv}
+                      onUpdateColumn={updateCsvPreviewColumn}
+                      onConfirmImport={handleConfirmCsvImport}
+                    />
                   )}
-
                   {leadImportMode === "manual" && (
                     <div className="flex flex-1 items-start justify-center overflow-auto px-5 py-12">
                       <div className="w-full max-w-2xl">
@@ -4659,7 +4506,7 @@ export default function CampaignDetailPage() {
                       <div className="w-full max-w-3xl">
                         <div className="mb-6 text-center">
                           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-amber-50 text-amber-600">
-                            <CheckSquare className="h-7 w-7" />
+                            <CheckCircle2 className="h-7 w-7" />
                           </div>
 
                           <h2 className="text-2xl font-bold tracking-tight text-slate-950">
@@ -4692,7 +4539,7 @@ export default function CampaignDetailPage() {
                               disabled={submittingKey !== ""}
                               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              <CheckSquare className="h-4 w-4" />
+                              <CheckCircle2 className="h-4 w-4" />
                               {submittingKey === "sheet" ? "Importing..." : "Import Sheet"}
                             </button>
                           </div>
@@ -4891,11 +4738,12 @@ export default function CampaignDetailPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled
-                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-400 cursor-not-allowed"
+                    onClick={() => handleOpenSequencePreview()}
+                    disabled={!contacts.length || submittingKey === "sequence-preview"}
+                    className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Eye className="h-4 w-4" />
-                    Preview
+                    {submittingKey === "sequence-preview" ? "Loading..." : "Preview"}
                   </button>
                 </div>
               </div>
@@ -5071,7 +4919,7 @@ export default function CampaignDetailPage() {
                               ))
                             ) : (
                               <div className="px-4 py-6 text-sm text-slate-500">
-                                No variables available. Import a CSV first.
+                                No CSV variables available. Upload or import a CSV first.
                               </div>
                             )}
                           </div>
@@ -5531,13 +5379,13 @@ export default function CampaignDetailPage() {
                 ) : null}
               </div>
 
-              <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+              {/* <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm font-semibold text-slate-900">Advanced Deliverability</p>
                 <p className="mt-1 text-xs text-slate-500">
                   Domain limiter, custom routing, and workspace-wide deliverability boosters can stay
                   provider-driven for now.
                 </p>
-              </div>
+              </div> */}
 
               <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-5">
                 <button
@@ -5913,7 +5761,7 @@ export default function CampaignDetailPage() {
                     disabled={!selectedTemplate}
                     className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
                   >
-                    <CheckSquare className="h-4 w-4" />
+                    <CheckCircle2 className="h-4 w-4" />
                     Use template
                   </button>
                 </div>
@@ -6521,6 +6369,301 @@ export default function CampaignDetailPage() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {isSequencePreviewOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="flex h-[92vh] w-full max-w-7xl overflow-hidden rounded-[32px] border border-white/20 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.35)]">
+            <aside className="hidden w-[390px] shrink-0 flex-col border-r border-slate-200 bg-slate-50/80 lg:flex">
+              <div className="border-b border-slate-200 bg-white px-6 py-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.14em] text-blue-700">
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview Mode
+                    </div>
+
+                    <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-950">
+                      Email Preview
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsSequencePreviewOpen(false)}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto px-6 py-6">
+                <div>
+                  <label className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                    Select Lead
+                  </label>
+
+                  <div className="relative">
+                    <select
+                      value={previewLeadId}
+                      onChange={(e) => {
+                        const nextId = e.target.value;
+                        setPreviewLeadId(nextId);
+                        handleOpenSequencePreview(nextId);
+                      }}
+                      className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                    >
+                      {previewLeadOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                      <Users className="h-5 w-5" />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                        Selected Lead
+                      </p>
+
+                      <p className="mt-2 truncate text-base font-bold text-slate-950">
+                        {sequencePreview?.lead?.leadName || "Lead Unknown"}
+                      </p>
+
+                      <p className="mt-1 truncate text-sm text-slate-600">
+                        {sequencePreview?.lead?.contactName || "Contact Unknown"}
+                      </p>
+
+                      <p className="mt-1 truncate text-sm text-slate-500">
+                        {sequencePreview?.lead?.email || "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                        Sequence Details
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        Step {sequencePreview?.stepOrder || selectedSequenceStep?.stepOrder || 1}
+                        {" · "}
+                        Variant {String.fromCharCode(65 + (sequencePreview?.variantIndex || 0))}
+                      </p>
+                    </div>
+
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        From
+                      </p>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-700">
+                        {selectedSenderEmail || campaign?.instantly?.senderAccountEmail || "—"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        To
+                      </p>
+                      <p className="mt-1 truncate text-xs font-semibold text-slate-700">
+                        {sequencePreview?.lead?.email || "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Variable className="h-4 w-4 text-slate-400" />
+                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Variable Snapshot
+                    </p>
+                  </div>
+
+                  <div className="mt-4 max-h-[220px] space-y-2 overflow-auto pr-1">
+                    {Object.entries(sequencePreview?.previewVars || {}).slice(0, 18).length ? (
+                      Object.entries(sequencePreview?.previewVars || {})
+                        .slice(0, 18)
+                        .map(([key, value]) => (
+                          <div
+                            key={key}
+                            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2"
+                          >
+                            <span className="truncate text-xs font-semibold text-slate-500">
+                              {key}
+                            </span>
+                            <span className="max-w-[170px] truncate text-xs font-bold text-slate-900">
+                              {String(value || "—")}
+                            </span>
+                          </div>
+                        ))
+                    ) : (
+                      <p className="rounded-2xl bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                        No variables found for this lead.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <main className="flex min-w-0 flex-1 flex-col bg-[#f8fafc]">
+              <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4 lg:hidden">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-blue-600">
+                    Preview Mode
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-950">Email Preview</h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSequencePreviewOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="border-b border-slate-200 bg-white px-6 py-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-100">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Rendered with lead data
+                      </span>
+
+                      <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                        Step {sequencePreview?.stepOrder || selectedSequenceStep?.stepOrder || 1}
+                      </span>
+                    </div>
+
+                    <h2 className="mt-3 truncate text-2xl font-bold tracking-tight text-slate-950">
+                      {sequencePreview?.subject || "No subject"}
+                    </h2>
+
+                    {sequencePreview?.preheaderText ? (
+                      <p className="mt-2 text-sm text-slate-500">
+                        Preheader: {sequencePreview.preheaderText}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-5 grid gap-3 lg:hidden">
+                  <label className="block">
+                    <span className="mb-2 block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Select Lead
+                    </span>
+
+                    <div className="relative">
+                      <select
+                        value={previewLeadId}
+                        onChange={(e) => {
+                          const nextId = e.target.value;
+                          setPreviewLeadId(nextId);
+                          handleOpenSequencePreview(nextId);
+                        }}
+                        className="h-12 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 pr-10 text-sm font-medium text-slate-900 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                      >
+                        {previewLeadOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-10">
+                <div className="mx-auto max-w-4xl">
+                  <div className="mb-4 rounded-[26px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="grid gap-3 text-sm lg:grid-cols-3">
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          From
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {selectedSenderEmail || campaign?.instantly?.senderAccountEmail || "—"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          To
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {sequencePreview?.lead?.email || "—"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          Lead
+                        </p>
+                        <p className="mt-1 truncate font-semibold text-slate-800">
+                          {sequencePreview?.lead?.leadName || "Lead Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+                    <div className="border-b border-slate-100 bg-white px-6 py-5">
+                      <div className="flex items-start gap-4">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
+                          <Mail className="h-5 w-5" />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                            Email Subject
+                          </p>
+                          <p className="mt-1 text-lg font-bold leading-7 text-slate-950">
+                            {sequencePreview?.subject || "No subject"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-white px-6 py-8 sm:px-9">
+                      <div
+                        className="prose prose-slate max-w-none text-[15px] leading-8 text-slate-700 prose-a:text-blue-600 prose-a:underline prose-p:my-3 prose-strong:text-slate-950 [&_a]:font-semibold [&_a]:text-blue-600 [&_a]:underline [&_br]:leading-8"
+                        dangerouslySetInnerHTML={{
+                          __html:
+                            sequencePreview?.bodyHtml ||
+                            "<p>No preview available.</p>",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </main>
           </div>
         </div>
       )}
