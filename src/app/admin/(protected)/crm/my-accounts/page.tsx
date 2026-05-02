@@ -125,6 +125,7 @@ type AccountDetailPayload = {
 };
 
 type TabKey = "warmup" | "settings" | "campaigns";
+type WarmupRangeKey = "daily" | "weekly";
 
 type WarmupChartPoint = {
   label: string;
@@ -333,12 +334,52 @@ function ToggleRow({
   );
 }
 
+function getWeekStartLabel(value = "") {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return value || "Unknown";
+
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(date);
+  monday.setDate(date.getDate() + diff);
+
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  const start = monday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const end = sunday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  return `${start} - ${end}`;
+}
+
+function groupWarmupChartByWeek(data: WarmupChartPoint[]) {
+  const groups = new Map<string, WarmupChartPoint>();
+
+  data.forEach((item) => {
+    const label = getWeekStartLabel(item.label);
+    const existing = groups.get(label) || { label, sent: 0, received: 0, savedFromSpam: 0 };
+
+    existing.sent += Number(item.sent || 0);
+    existing.received += Number(item.received || 0);
+    existing.savedFromSpam += Number(item.savedFromSpam || 0);
+
+    groups.set(label, existing);
+  });
+
+  return Array.from(groups.values());
+}
+
 function WarmupChart({
   data,
   enabled,
+  range,
+  onRangeChange,
 }: {
   data: WarmupChartPoint[];
   enabled: boolean;
+  range: WarmupRangeKey;
+  onRangeChange: (range: WarmupRangeKey) => void;
 }) {
   const safeData = data.length
     ? data
@@ -387,7 +428,7 @@ function WarmupChart({
               Warmup Performance
             </h3>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              Hover or tap a day to view exact values.
+              Hover or tap a bar to view exact warmup values.
             </p>
           </div>
         </div>
@@ -407,6 +448,27 @@ function WarmupChart({
             <span className="h-2 w-2 rounded-full bg-violet-500" />
             Saved
           </span>
+
+          <div className="inline-flex overflow-hidden rounded-full border border-slate-200 bg-white p-0.5">
+            {[
+              { value: "daily" as WarmupRangeKey, label: "Day Wise" },
+              { value: "weekly" as WarmupRangeKey, label: "Week Wise" },
+            ].map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => onRangeChange(item.value)}
+                className={cx(
+                  "rounded-full px-3 py-1 text-[11px] font-bold transition",
+                  range === item.value
+                    ? "bg-slate-950 text-white"
+                    : "text-slate-500 hover:bg-slate-50"
+                )}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
           <span
             className={cx(
@@ -453,7 +515,7 @@ function WarmupChart({
 
         <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
-            Selected Day
+            Selected Period
           </p>
           <p className="mt-1 truncate text-sm font-bold text-slate-950">
             {activePoint.label || "—"}
@@ -558,6 +620,7 @@ export default function MyAccountsPage() {
   const [selectedEmail, setSelectedEmail] = useState("");
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("warmup");
+  const [warmupRange, setWarmupRange] = useState<WarmupRangeKey>("daily");
   const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
 
   const [settingsForm, setSettingsForm] = useState({
@@ -675,6 +738,7 @@ export default function MyAccountsPage() {
   function openAccountDrawer(email: string) {
     setSelectedEmail(email);
     setActiveTab("warmup");
+    setWarmupRange("daily");
     setDetail(null);
     setIsAccountDrawerOpen(true);
   }
@@ -856,6 +920,16 @@ export default function MyAccountsPage() {
       ),
     [accounts]
   );
+
+  const visibleWarmupChart = useMemo(() => {
+    const chart = detail?.warmup?.chart || [];
+
+    if (warmupRange === "weekly") {
+      return groupWarmupChartByWeek(chart);
+    }
+
+    return chart;
+  }, [detail?.warmup?.chart, warmupRange]);
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-50 p-3 font-sans sm:p-4">
@@ -1108,23 +1182,6 @@ export default function MyAccountsPage() {
                     </button>
                   ) : null}
 
-                  <button
-                    type="button"
-                    onClick={handlePauseResume}
-                    disabled={submittingEmail === detail.account.email}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    {detail.account.isPaused ? (
-                      <PlayCircle className="h-4 w-4" />
-                    ) : (
-                      <PauseCircle className="h-4 w-4" />
-                    )}
-                    {submittingEmail === detail.account.email
-                      ? "Updating..."
-                      : detail.account.isPaused
-                        ? "Resume Mailbox"
-                        : "Pause Mailbox"}
-                  </button>
                 </div>
               ) : null}
 
@@ -1215,30 +1272,11 @@ export default function MyAccountsPage() {
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <MetricCard
-                          label="Received"
-                          value={detail.warmup.summary.received}
-                          icon={<Inbox className="h-5 w-5" />}
-                          tone="green"
-                        />
-                        <MetricCard
-                          label="Sent"
-                          value={detail.warmup.summary.sent}
-                          icon={<Send className="h-5 w-5" />}
-                          tone="blue"
-                        />
-                        <MetricCard
-                          label="Saved from Spam"
-                          value={detail.warmup.summary.savedFromSpam}
-                          icon={<ShieldCheck className="h-5 w-5" />}
-                          tone="slate"
-                        />
-                      </div>
-
                       <WarmupChart
-                        data={detail.warmup.chart || []}
+                        data={visibleWarmupChart}
                         enabled={detail.warmup.enabled}
+                        range={warmupRange}
+                        onRangeChange={setWarmupRange}
                       />
                     </div>
                   )}
@@ -1284,20 +1322,6 @@ export default function MyAccountsPage() {
                                   lastName: value,
                                 }))
                               }
-                            />
-                          </div>
-
-                          <div>
-                            <FieldLabel>Reply To Address</FieldLabel>
-                            <TextInput
-                              value={settingsForm.replyToAddress}
-                              onChange={(value) =>
-                                setSettingsForm((prev) => ({
-                                  ...prev,
-                                  replyToAddress: value,
-                                }))
-                              }
-                              placeholder="reply@company.com"
                             />
                           </div>
 

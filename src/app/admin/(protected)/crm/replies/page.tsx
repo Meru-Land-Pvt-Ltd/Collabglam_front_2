@@ -463,15 +463,35 @@ function firstUsefulName(...values: Array<string | null | undefined>) {
   return String(found || "").trim();
 }
 
+function normalizeComparableName(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function getBrandDisplayName(thread?: ThreadRow | null) {
-  return (
-    firstUsefulName(
-      thread?.brandDisplayName,
-      thread?.brandName,
-      thread?.prospectId?.companyName,
-      thread?.prospectId?.primaryContact?.name
-    ) || "Lead"
+  const prospectName = firstUsefulName(
+    thread?.prospectId?.companyName,
+    thread?.prospectId?.primaryContact?.name
   );
+
+  if (prospectName) return prospectName;
+
+  const mailboxNames = [
+    getPreferredMailboxName(thread),
+    emailToDisplayName(getPreferredMailboxEmail(thread)),
+  ]
+    .map(normalizeComparableName)
+    .filter(Boolean);
+
+  const fallbackBrand = [thread?.brandName, thread?.brandDisplayName].find((value) => {
+    const cleaned = firstUsefulName(value);
+    if (!cleaned) return false;
+    return !mailboxNames.includes(normalizeComparableName(cleaned));
+  });
+
+  return firstUsefulName(fallbackBrand) || "Lead";
 }
 
 function isEmailLike(value?: string | null) {

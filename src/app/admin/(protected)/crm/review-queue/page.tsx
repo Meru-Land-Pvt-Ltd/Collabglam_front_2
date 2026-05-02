@@ -224,18 +224,18 @@ function parsePendingReplies(payload: any): ReviewRow[] {
     _id: String(item?._id || ""),
     campaignId: item?.campaignId
       ? {
-          _id: String(item.campaignId?._id || ""),
-          name: item.campaignId?.name || "",
-        }
+        _id: String(item.campaignId?._id || ""),
+        name: item.campaignId?.name || "",
+      }
       : null,
     prospectId: item?.prospectId
       ? {
-          _id: String(item.prospectId?._id || ""),
-          companyName: item.prospectId?.companyName || "",
-          primaryContact: item.prospectId?.primaryContact || {},
-          reply: item.prospectId?.reply || {},
-          stage: item.prospectId?.stage || "",
-        }
+        _id: String(item.prospectId?._id || ""),
+        companyName: item.prospectId?.companyName || "",
+        primaryContact: item.prospectId?.primaryContact || {},
+        reply: item.prospectId?.reply || {},
+        stage: item.prospectId?.stage || "",
+      }
       : null,
     sdrId: item?.sdrId || null,
     RHId: item?.RHId || null,
@@ -258,9 +258,9 @@ function parseThreads(payload: any): ThreadRow[] {
     prospectId: item?.prospectId ? { _id: String(item.prospectId?._id || "") } : null,
     campaignId: item?.campaignId
       ? {
-          _id: String(item.campaignId?._id || ""),
-          name: item.campaignId?.name || "",
-        }
+        _id: String(item.campaignId?._id || ""),
+        name: item.campaignId?.name || "",
+      }
       : null,
     sdrId: item?.sdrId || null,
     RHId: item?.RHId || null,
@@ -566,17 +566,37 @@ function getPreferredMailboxName(review: ReviewRow | null, thread: any | null) {
   );
 }
 
+function normalizeComparableName(value?: string | null) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
 function getBrandLabel(review: ReviewRow | null, thread: any | null) {
-  return (
-    firstUsefulName(
-      thread?.brandDisplayName,
-      thread?.brandName,
-      thread?.prospectId?.companyName,
-      thread?.prospectId?.primaryContact?.name,
-      review?.prospectId?.companyName,
-      review?.prospectId?.primaryContact?.name
-    ) || "Lead"
+  const prospectName = firstUsefulName(
+    review?.prospectId?.companyName,
+    review?.prospectId?.primaryContact?.name,
+    thread?.prospectId?.companyName,
+    thread?.prospectId?.primaryContact?.name
   );
+
+  if (prospectName) return prospectName;
+
+  const mailboxNames = [
+    getPreferredMailboxName(review, thread),
+    emailToDisplayName(getPreferredMailboxEmail(review, thread)),
+  ]
+    .map(normalizeComparableName)
+    .filter(Boolean);
+
+  const fallbackBrand = [thread?.brandName, thread?.brandDisplayName].find((value) => {
+    const cleaned = firstUsefulName(value);
+    if (!cleaned) return false;
+    return !mailboxNames.includes(normalizeComparableName(cleaned));
+  });
+
+  return firstUsefulName(fallbackBrand) || "Lead";
 }
 
 function getTeamLabel(review: ReviewRow | null, thread: any | null) {
@@ -1322,18 +1342,18 @@ export default function ReviewQueuePage() {
 
   const fallbackLatestMessage: ThreadMessage | null = selectedReview
     ? {
-        _id: `fallback-${selectedReview._id}`,
-        direction: "inbound",
-        from: brandLabel,
-        to: [getPreferredMailboxEmail(selectedReview, threadDetail.thread) || teamLabel],
-        fromDisplayName: brandLabel,
-        toDisplayNames: [teamLabel],
-        subject: selectedSubject,
-        bodyText: selectedSnippet,
-        bodyHtml: "",
-        receivedAt: selectedReview.createdAt || null,
-        createdAt: selectedReview.createdAt || null,
-      }
+      _id: `fallback-${selectedReview._id}`,
+      direction: "inbound",
+      from: brandLabel,
+      to: [getPreferredMailboxEmail(selectedReview, threadDetail.thread) || teamLabel],
+      fromDisplayName: brandLabel,
+      toDisplayNames: [teamLabel],
+      subject: selectedSubject,
+      bodyText: selectedSnippet,
+      bodyHtml: "",
+      receivedAt: selectedReview.createdAt || null,
+      createdAt: selectedReview.createdAt || null,
+    }
     : null;
 
   const selectedThreadMeta = threadDetail.thread || null;
