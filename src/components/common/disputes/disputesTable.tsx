@@ -339,10 +339,10 @@ export function DisputeTable({
         cancelLabel="Cancel"
       />
 
-      <div className="w-full overflow-x-auto px-4 py-2">
+      <div className="w-full overflow-x-auto px-6 py-2">
         <div className="mt-6 w-full min-w-[76rem] pb-10">
           <div
-            className={`grid ${TABLE_GRID} h-12 items-center rounded-lg bg-[#E6E6E6] px-3`}
+            className={`grid ${TABLE_GRID} h-12 items-center rounded-lg bg-[#F9F9F9] px-3`}
           >
             <div className="flex items-center justify-start">
               <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
@@ -459,7 +459,7 @@ export function DisputeTable({
                 return (
                   <div
                     key={row.disputeId}
-                    className={`grid ${TABLE_GRID} h-20 items-center rounded-lg border border-[#D6D6D6] bg-white px-3 transition-colors hover:bg-[#fafafa]`}
+                    className={`grid ${TABLE_GRID} h-20 items-center rounded-[1rem] border border-[#D6D6D6] bg-white px-3 transition-colors hover:bg-[#fafafa]`}
                   >
                     <div className="flex items-center justify-start">
                       <Checkbox
