@@ -3256,6 +3256,30 @@ export default function CampaignDetailPage() {
     }));
   }, [csvOnlyTemplateVariables]);
 
+  const sequencePreviewMappedVars = useMemo(() => {
+    const allowedKeys = csvOnlyTemplateVariables
+      .map((variable) => variable.replace(/[{}]/g, '').trim())
+      .filter(Boolean);
+
+    const source = sequencePreview?.previewVars || {};
+
+    return allowedKeys.reduce<Record<string, string>>((acc, key) => {
+      const exactValue = source[key];
+
+      if (exactValue !== undefined && exactValue !== null) {
+        acc[key] = String(exactValue);
+        return acc;
+      }
+
+      const matchedKey = Object.keys(source).find(
+        (candidate) => candidate.toLowerCase() === key.toLowerCase()
+      );
+
+      acc[key] = matchedKey ? String(source[matchedKey] ?? '') : '';
+      return acc;
+    }, {});
+  }, [csvOnlyTemplateVariables, sequencePreview?.previewVars]);
+
   function handleInsertSequenceVariable(variable: string) {
     const target = sequenceInsertTarget || {
       stepIndex: selectedSequenceStepIndex,
@@ -6500,8 +6524,8 @@ export default function CampaignDetailPage() {
                   </div>
 
                   <div className="mt-4 max-h-[220px] space-y-2 overflow-auto pr-1">
-                    {Object.entries(sequencePreview?.previewVars || {}).slice(0, 18).length ? (
-                      Object.entries(sequencePreview?.previewVars || {})
+                    {Object.entries(sequencePreviewMappedVars).slice(0, 18).length ? (
+                      Object.entries(sequencePreviewMappedVars)
                         .slice(0, 18)
                         .map(([key, value]) => (
                           <div
