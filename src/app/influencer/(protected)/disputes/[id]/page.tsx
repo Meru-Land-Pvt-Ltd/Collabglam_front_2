@@ -1577,7 +1577,7 @@ function CommentComposer({
               onChange={handleFileChange}
             />
 
-            <Button
+            {/* <Button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={posting}
@@ -1585,7 +1585,7 @@ function CommentComposer({
             >
               <Paperclip className="size-3.5" />
               Attach
-            </Button>
+            </Button> */}
 
             <Button
               type="button"
@@ -1606,7 +1606,7 @@ function CommentComposer({
                 <span className="text-xs">Posting…</span>
               ) : (
                 <>
-                  <Send className="size-3.5" />
+                  <Send className="size-3.5 mr-2" />
                   Submit
                 </>
               )}

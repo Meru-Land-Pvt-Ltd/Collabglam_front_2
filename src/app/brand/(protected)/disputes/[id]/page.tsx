@@ -1573,13 +1573,13 @@ function CommentComposer({
               type="button"
               onClick={() => void onSubmit()}
               disabled={posting || !canSubmit}
-              className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#1a1a1a] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#1a1a1a] px-5 py-2  text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-40"
             >
               {posting ? (
                 <span className="text-xs">Posting…</span>
               ) : (
                 <>
-                  <Send className="size-3.5" />
+                  <Send className="size-3.5 mr-2" />
                   Submit
                 </>
               )}
