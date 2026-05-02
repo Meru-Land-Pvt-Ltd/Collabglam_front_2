@@ -13,7 +13,6 @@ import { FloatingTagInput } from "@/components/ui/tagInput";
 import {
   apiCampaignCreate,
   apiCampaignEditDraft,
-  apiCampaignGetById,
   getApiErrorMessage,
   CampaignStatus,
   CreateCampaignManualPayload,
@@ -21,6 +20,7 @@ import {
   EnrichedCampaignDoc,
   apiUploadImages,
   apiAdminEditCampaign,
+  apiCampaignGetById2,
 } from "../../../../brand/services/brandApi";
 
 import {
@@ -1833,7 +1833,7 @@ export default function CreateCampaignPage() {
       setLoading(true);
 
       try {
-        const res: any = await apiCampaignGetById(editCampaignId);
+        const res: any = await apiCampaignGetById2(editCampaignId);
 
         if (cancelled) return;
 

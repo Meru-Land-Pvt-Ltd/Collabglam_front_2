@@ -550,6 +550,12 @@ export async function apiCampaignGetById(payload: { campaignId: string; brandId?
   return apiPost<EnrichedCampaignDoc>(`${CAMPAIGN_BASE}/get-by-id`, payload);
 }
 
+export async function apiCampaignGetById2(campaignId: string) {
+  return apiGet<EnrichedCampaignDoc>(
+    `${CAMPAIGN_BASE}/get-by-id/${encodeURIComponent(campaignId)}`
+  );
+}
+
 export type EditDraftPayload = {
   brandId: string;
   campaignId: string;
