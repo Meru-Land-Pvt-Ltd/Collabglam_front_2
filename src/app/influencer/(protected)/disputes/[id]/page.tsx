@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Info,
   Paperclip,
   Send,
   X,
@@ -95,6 +94,7 @@ interface DisputeParty {
   handle?: string | null;
   provider?: string | null;
   profilePic?: string | null;
+  logoUrl?: string | null;
 }
 
 interface AssignedAdmin {
@@ -140,6 +140,8 @@ interface MetaItem {
   value: string;
   sub?: string;
   tooltip?: string;
+  issueTypes?: string[];
+  otherIssueDescription?: string | null;
 }
 
 interface FaqItem {
@@ -251,6 +253,8 @@ function getIssueTypeMeta(dispute: Dispute): {
   value: string;
   sub?: string;
   tooltip?: string;
+  issueTypes: string[];
+  otherIssueDescription?: string | null;
 } {
   const issueTypes = Array.isArray(dispute.issueType) ? dispute.issueType : [];
 
@@ -258,19 +262,15 @@ function getIssueTypeMeta(dispute: Dispute): {
     ? issueTypes.map(formatIssueTypeLabel).join(", ")
     : "—";
 
-  const otherReason = String(
-    dispute.otherIssueDescription || dispute.description || ""
-  ).trim();
-
-  if (issueTypes.includes("other")) {
-    return {
-      value: labels,
-      tooltip: otherReason || "Not provided",
-    };
-  }
+  const otherReason = String(dispute.otherIssueDescription || "").trim();
 
   return {
     value: labels,
+    tooltip: issueTypes.includes("other")
+      ? otherReason || "No other issue reason provided."
+      : undefined,
+    issueTypes,
+    otherIssueDescription: dispute.otherIssueDescription ?? "",
   };
 }
 
@@ -309,6 +309,10 @@ function formatDateTime(dateStr?: string | null): string {
 function formatHandle(handle?: string | null): string | null {
   if (!handle) return null;
   return handle.startsWith("@") ? handle : `@${handle}`;
+}
+
+function getPartyImage(party?: DisputeParty | null): string | null {
+  return party?.profilePic || party?.logoUrl || null;
 }
 
 function isImageAttachment(attachment: Attachment): boolean {
@@ -394,19 +398,70 @@ function getDisputeNarrative(dispute: Dispute): string {
     } raised this dispute against you`;
 }
 
+function sameId(a?: string | null, b?: string | null): boolean {
+  return String(a || "").trim() === String(b || "").trim();
+}
+
+function getPartyForAuthor(
+  dispute: Dispute,
+  authorRole?: string | null,
+  authorId?: string | null
+): DisputeParty | null {
+  const parties = [dispute.raisedBy, dispute.raisedAgainst].filter(
+    Boolean
+  ) as DisputeParty[];
+
+  const exactMatch = parties.find(
+    (party) =>
+      String(party.role) === String(authorRole) &&
+      sameId(party.id, authorId)
+  );
+
+  if (exactMatch) return exactMatch;
+
+  return (
+    parties.find((party) => String(party.role) === String(authorRole)) || null
+  );
+}
+
+function getViewerParty(
+  dispute: Dispute,
+  viewerRole: "Brand" | "Influencer",
+  viewerId?: string | null
+): DisputeParty | null {
+  const parties = [dispute.raisedBy, dispute.raisedAgainst].filter(
+    Boolean
+  ) as DisputeParty[];
+
+  if (viewerId) {
+    const exactMatch = parties.find(
+      (party) => party.role === viewerRole && sameId(party.id, viewerId)
+    );
+
+    if (exactMatch) return exactMatch;
+  }
+
+  return parties.find((party) => party.role === viewerRole) || null;
+}
+
 function getCommentAuthorLabel(
   comment: Comment,
+  dispute: Dispute,
   influencerId?: string | null
 ): string {
+  if (comment.authorRole === "Admin") return "Collabglam";
+
   if (
     comment.authorRole === "Influencer" &&
     influencerId &&
-    String(comment.authorId) === String(influencerId)
+    sameId(comment.authorId, influencerId)
   ) {
     return "You";
   }
 
-  return comment.authorRole;
+  const party = getPartyForAuthor(dispute, comment.authorRole, comment.authorId);
+
+  return party?.name || (comment.authorRole === "Brand" ? "Brand" : "Creator");
 }
 
 function canManageComment(
@@ -595,6 +650,112 @@ function LightboxModal({
   );
 }
 
+function IssueTypeChipSummary({
+  issueTypes,
+  otherIssueDescription,
+}: {
+  issueTypes?: string[];
+  otherIssueDescription?: string | null;
+}) {
+  const safeIssueTypes = Array.isArray(issueTypes) ? issueTypes.filter(Boolean) : [];
+
+  if (!safeIssueTypes.length) {
+    return <span className="text-sm font-medium leading-5 text-[#999]">—</span>;
+  }
+
+  const labels = safeIssueTypes.map(formatIssueTypeLabel);
+  const [firstLabel, ...restLabels] = labels;
+  const hasOther = safeIssueTypes.includes("other");
+  const otherReason = String(otherIssueDescription || "").trim();
+
+  const chipClass =
+    "inline-flex max-w-[170px] items-center rounded-full border border-[#e8e8e8] bg-white px-2.5 py-1 text-[11px] font-medium leading-none text-[#444]";
+
+  if (safeIssueTypes.length === 1 && hasOther) {
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="group relative inline-flex shrink-0">
+          <button
+            type="button"
+            aria-label="View other issue reason"
+            className={`${chipClass} cursor-default gap-1.5 pr-2 outline-none`}
+          >
+            <span className="truncate">Other</span>
+            <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-[#d9d9d9] bg-[#fafafa] text-[9px] font-semibold leading-none text-[#777]">
+              i
+            </span>
+          </button>
+
+          <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden min-w-[260px] max-w-[320px] rounded-lg border border-[#e8e8e8] bg-white p-3 text-xs leading-5 text-[#333] shadow-[0_12px_32px_rgba(0,0,0,0.10)] group-hover:block group-focus-within:block">
+            <div className="rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+                Other Issue Reason
+              </p>
+
+              <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[#333] [overflow-wrap:anywhere]">
+                {otherReason || "No other issue reason provided."}
+              </p>
+            </div>
+          </div>
+        </span>
+      </div>
+    );
+  }
+
+  const tooltip = (
+    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden min-w-[260px] max-w-[320px] rounded-lg border border-[#e8e8e8] bg-white p-3 text-xs leading-5 text-[#333] shadow-[0_12px_32px_rgba(0,0,0,0.10)] group-hover:block group-focus-within:block">
+      {restLabels.length > 0 ? (
+        <>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+            Other Issue Types
+          </p>
+
+          <div className="flex flex-wrap gap-1.5">
+            {restLabels.map((label, index) => (
+              <span key={`${label}-${index}`} className={chipClass}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {hasOther ? (
+        <div className={restLabels.length > 0 ? "mt-3 rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2" : "rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2"}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+            Other Issue Reason
+          </p>
+
+          <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[#333] [overflow-wrap:anywhere]">
+            {otherReason || "No other issue reason provided."}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className={chipClass}>
+        <span className="truncate">{firstLabel}</span>
+      </span>
+
+      {restLabels.length > 0 ? (
+        <span className="group relative inline-flex shrink-0">
+          <button
+            type="button"
+            aria-label={`${restLabels.length} more issue types`}
+            className="inline-flex cursor-default items-center rounded-full border border-[#1a1a1a] bg-[#1a1a1a] px-2.5 py-1 text-[11px] font-semibold leading-none text-white outline-none"
+          >
+            +{restLabels.length}
+          </button>
+          {tooltip}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function MetaGrid({ items }: { items: MetaItem[] }) {
   return (
     <div className="mt-5 pt-5">
@@ -602,10 +763,8 @@ function MetaGrid({ items }: { items: MetaItem[] }) {
         className={`grid gap-3 rounded-[12px] px-4 py-5 ${MUTED_BG} [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]`}
       >
         {items.map((item) => {
-          const isOtherDisputeType =
-            item.label === "Dispute Type" &&
-            item.value.toLowerCase().includes("other") &&
-            Boolean(item.tooltip);
+          const isDisputeType =
+            item.label === "Dispute Type" && Array.isArray(item.issueTypes);
 
           return (
             <div key={item.label} className="relative min-w-0">
@@ -613,40 +772,27 @@ function MetaGrid({ items }: { items: MetaItem[] }) {
                 <p className="min-w-0 truncate text-[11px] leading-4 text-[#999]">
                   {item.label}
                 </p>
-
-                {isOtherDisputeType ? (
-                  <span className="group relative inline-flex shrink-0">
-                    <button
-                      type="button"
-                      aria-label="View other issue reason"
-                      className="inline-flex size-3.5 items-center cursor-pointer justify-center rounded-full bg-white text-[#777] outline-none transition hover:border-[#1a1a1a] hover:text-[#1a1a1a] focus:border-[#1a1a1a] focus:text-[#1a1a1a]"
-                    >
-                      <Info className="size-3.5" strokeWidth={2.5} />
-                    </button>
-
-                    <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-[min(22rem,calc(100vw-2rem))] max-w-[22rem] -translate-x-1/2 rounded-lg border border-[#e8e8e8] bg-white px-3 py-2 text-xs leading-5 text-[#333] shadow-lg group-hover:block group-focus-within:block">
-                      <p className="mb-1 font-semibold text-[#1a1a1a]">
-                        Other issue reason
-                      </p>
-
-                      <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                        {item.tooltip}
-                      </p>
-                    </div>
-                  </span>
-                ) : null}
               </div>
 
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
-                  {item.value}
-                </p>
+                {isDisputeType ? (
+                  <IssueTypeChipSummary
+                    issueTypes={item.issueTypes}
+                    otherIssueDescription={item.otherIssueDescription}
+                  />
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
+                      {item.value}
+                    </p>
 
-                {!isOtherDisputeType && item.sub ? (
-                  <p className="mt-0.5 max-w-[220px] truncate text-xs leading-4 text-[#777]">
-                    {item.sub}
-                  </p>
-                ) : null}
+                    {item.sub ? (
+                      <p className="mt-0.5 max-w-[220px] truncate text-xs leading-4 text-[#777]">
+                        {item.sub}
+                      </p>
+                    ) : null}
+                  </>
+                )}
               </div>
             </div>
           );
@@ -936,7 +1082,7 @@ function getCommentProfileImage({
     String(comment.authorRole) === String(dispute.raisedBy.role) &&
     String(comment.authorId) === String(dispute.raisedBy.id)
   ) {
-    return dispute.raisedBy.profilePic || null;
+    return getPartyImage(dispute.raisedBy);
   }
 
   if (
@@ -944,7 +1090,7 @@ function getCommentProfileImage({
     String(comment.authorRole) === String(dispute.raisedAgainst.role) &&
     String(comment.authorId) === String(dispute.raisedAgainst.id)
   ) {
-    return dispute.raisedAgainst.profilePic || null;
+    return getPartyImage(dispute.raisedAgainst);
   }
 
   return null;
@@ -1043,8 +1189,8 @@ function ActivityFeed({
               }
               imageUrl={
                 dispute.viewerIsRaiser
-                  ? currentUserImageUrl
-                  : dispute.raisedBy?.profilePic
+                  ? currentUserImageUrl || getPartyImage(dispute.raisedBy)
+                  : getPartyImage(dispute.raisedBy)
               }
               size="sm"
             />
@@ -1081,7 +1227,7 @@ function ActivityFeed({
         {/* User comments */}
         {rootComments.map((commentItem) => {
           const commentImages = getImageAttachments(commentItem.attachments);
-          const commentName = getCommentAuthorLabel(commentItem, influencerId);
+          const commentName = getCommentAuthorLabel(commentItem, dispute, influencerId);
           const showActions = canManageComment(commentItem, influencerId);
 
           return (
@@ -1207,6 +1353,7 @@ function ActivityFeed({
                             const replyImages = getImageAttachments(reply.attachments);
                             const replyName = getCommentAuthorLabel(
                               reply,
+                              dispute,
                               influencerId
                             );
 
@@ -1817,6 +1964,8 @@ export default function InfluencerDisputeDetailPage() {
         value: issueTypeMeta.value,
         sub: issueTypeMeta.sub,
         tooltip: issueTypeMeta.tooltip,
+        issueTypes: issueTypeMeta.issueTypes,
+        otherIssueDescription: issueTypeMeta.otherIssueDescription,
       },
       {
         label: "Dispute ID",
@@ -1852,6 +2001,20 @@ export default function InfluencerDisputeDetailPage() {
   const canManageOwnDispute = Boolean(
     dispute.viewerIsRaiser && !derived.isFinalized
   );
+
+  const currentInfluencerParty = getViewerParty(
+    dispute,
+    "Influencer",
+    influencerId
+  );
+
+  const currentInfluencerDisplayName =
+    currentInfluencerParty?.name ||
+    (influencerName && influencerName !== "Influencer" ? influencerName : null) ||
+    "Creator";
+
+  const currentInfluencerProfilePic =
+    influencerProfilePic || getPartyImage(currentInfluencerParty);
 
   return (
     <>
@@ -1961,7 +2124,6 @@ export default function InfluencerDisputeDetailPage() {
             >
               {dispute.description || "No description provided."}
             </p>
-
             {dispute.campaignName && (
               <p className="mt-3 min-w-0 text-xs text-[#888]">
                 Campaign:{" "}
@@ -1992,7 +2154,7 @@ export default function InfluencerDisputeDetailPage() {
             <ActivityFeed
               dispute={dispute}
               influencerId={influencerId}
-              currentUserImageUrl={influencerProfilePic}
+              currentUserImageUrl={currentInfluencerProfilePic}
               rootComments={rootComments}
               repliesByParent={repliesByParent}
               activeReplyCommentId={activeReplyCommentId}
@@ -2002,7 +2164,7 @@ export default function InfluencerDisputeDetailPage() {
                 setComment((prev) =>
                   prev.trim()
                     ? prev
-                    : `@${getCommentAuthorLabel(targetComment, influencerId)} `
+                    : `@${getCommentAuthorLabel(targetComment, dispute, influencerId)} `
                 );
               }}
               onOpenLightbox={handleOpenLightbox}
@@ -2035,13 +2197,8 @@ export default function InfluencerDisputeDetailPage() {
               )}
 
               <CommentComposer
-                currentUserName={
-                  influencerName ??
-                  dispute.raisedBy?.name ??
-                  dispute.raisedAgainst?.name ??
-                  "Influencer"
-                }
-                currentUserImageUrl={influencerProfilePic}
+                currentUserName={currentInfluencerDisplayName}
+                currentUserImageUrl={currentInfluencerProfilePic}
                 isFinalized={derived.isFinalized}
                 comment={comment}
                 setComment={setComment}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api, { get, post } from "@/lib/api";
+import api, { post } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FloatingInput } from "@/components/ui/floatingInput";
@@ -20,6 +20,7 @@ import {
 
 export type Campaign = {
   _id?: string;
+  campaignId?: string;
   campaignsId?: string;
   campaignTitle?: string;
   productOrServiceName?: string;
@@ -28,13 +29,16 @@ export type Campaign = {
 };
 
 export type Applicant = {
+  _id?: string;
   influencerId: string;
   name?: string;
+  fullName?: string;
+  email?: string;
   handle?: string | null;
 };
 
 export function getCampaignId(c: Campaign): string {
-  return c.campaignsId || c._id || "";
+  return c.campaignId || c.campaignsId || c._id || "";
 }
 
 export function getCampaignLabel(c: Campaign): string {
@@ -60,10 +64,16 @@ export type DisputeFormValues = {
 
 type ViewerMode = "brand" | "influencer";
 
-type InfluencerCampaignListResponse = {
+type CampaignListResponse = {
   success?: boolean;
   data?: {
     items?: Campaign[];
+    meta?: {
+      total?: number;
+      page?: number;
+      limit?: number;
+      totalPages?: number;
+    };
     pagination?: {
       total?: number;
       page?: number;
@@ -71,10 +81,13 @@ type InfluencerCampaignListResponse = {
       totalPages?: number;
     };
   };
+  items?: Campaign[];
+  campaigns?: Campaign[];
   requestId?: string;
 };
 
 type CampaignBrandResponse = {
+  success?: boolean;
   message?: string;
   brand?: {
     _id?: string;
@@ -175,8 +188,8 @@ function formatBytes(bytes?: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function normalizeInfluencerCampaignsResponse(
-  response: InfluencerCampaignListResponse | Campaign[] | undefined | null
+function normalizeCampaignsResponse(
+  response: CampaignListResponse | Campaign[] | undefined | null
 ): Campaign[] {
   if (!response) return [];
 
@@ -184,9 +197,19 @@ function normalizeInfluencerCampaignsResponse(
     return response.filter((item) => Boolean(getCampaignId(item)));
   }
 
-  const items = Array.isArray(response.data?.items) ? response.data.items : [];
+  const raw = response as any;
 
-  return items.filter((item) => Boolean(getCampaignId(item)));
+  const items = Array.isArray(raw?.data?.items)
+    ? raw.data.items
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(raw?.campaigns)
+        ? raw.campaigns
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : [];
+
+  return items.filter((item: Campaign) => Boolean(getCampaignId(item)));
 }
 
 function getBearerHeaders(token?: string | null): Record<string, string> {
@@ -489,22 +512,22 @@ export function DisputeFormDialog({
           }
 
           const response = await api.post(
-            "/campaign/influencer/get-all-active",
+            "/campaign/get-by-influencer",
             {
               influencerId: activeInfluencerId,
               page: 1,
               limit: 1000,
+              status: "active",
             },
             {
               headers: getBearerHeaders(activeInfluencerToken),
             }
           );
 
-          const res = ((response as any)?.data ??
-            response) as InfluencerCampaignListResponse;
+          const res = ((response as any)?.data ?? response) as CampaignListResponse;
 
           if (!cancelled) {
-            setCampaigns(normalizeInfluencerCampaignsResponse(res));
+            setCampaigns(normalizeCampaignsResponse(res));
           }
 
           return;
@@ -515,14 +538,15 @@ export function DisputeFormDialog({
           return;
         }
 
-        const res = await get<{ data: Campaign[] }>("/campaign/active", {
+        const res = await post<CampaignListResponse>("/campaign/get-by-brand", {
           brandId,
           page: 1,
           limit: 1000,
+          status: "active",
         });
 
         if (!cancelled) {
-          setCampaigns(Array.isArray(res?.data) ? res.data : []);
+          setCampaigns(normalizeCampaignsResponse(res));
         }
       } catch (err) {
         if (!cancelled) {
@@ -559,10 +583,12 @@ export function DisputeFormDialog({
     }
 
     let cancelled = false;
+
     setLoadingApplicants(true);
 
-    post<{ influencers: Applicant[] }>("/apply/list", {
+    post<{ influencers: Applicant[] }>("/campaign/influencer-list", {
       campaignId: values.campaignId,
+      brandId,
       page: 1,
       limit: 1000,
     })
@@ -579,7 +605,7 @@ export function DisputeFormDialog({
     return () => {
       cancelled = true;
     };
-  }, [values.campaignId, isInfluencerMode]);
+  }, [values.campaignId, isInfluencerMode, brandId]);
 
   useEffect(() => {
     if (!open || !isInfluencerMode) {
@@ -596,22 +622,25 @@ export function DisputeFormDialog({
     }
 
     let cancelled = false;
+
     setLoadingBrandDetails(true);
 
     const loadBrandDetails = async () => {
       try {
-        const response = await api.get("/campaign/brand-list", {
-          params: {
+        const response = await api.post(
+          "/campaign/brand-list",
+          {
             campaignId: values.campaignId,
             influencerId: activeInfluencerId,
           },
-          headers: getBearerHeaders(activeInfluencerToken),
-        });
+          {
+            headers: getBearerHeaders(activeInfluencerToken),
+          }
+        );
 
         if (cancelled) return;
 
-        const res = ((response as any)?.data ??
-          response) as CampaignBrandResponse;
+        const res = ((response as any)?.data ?? response) as CampaignBrandResponse;
 
         const nextBrandId = res?.brand?.brandId || res?.brand?._id || "";
         const nextBrandName = res?.brand?.brandName || res?.brand?.name || "";
@@ -963,7 +992,7 @@ export function DisputeFormDialog({
                 {applicants.length > 0 ? (
                   applicants.map((a) => (
                     <SelectItem key={a.influencerId} value={a.influencerId}>
-                      {a.name ?? a.influencerId}
+                      {a.name ?? a.fullName ?? a.email ?? a.influencerId}
                       {a.handle ? ` (${a.handle})` : ""}
                     </SelectItem>
                   ))
