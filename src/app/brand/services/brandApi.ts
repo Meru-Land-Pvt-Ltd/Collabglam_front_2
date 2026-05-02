@@ -546,10 +546,8 @@ export async function apiCampaignGetByBrand(payload: ListCampaignsPayload) {
   );
 }
 
-export async function apiCampaignGetById(campaignId: string) {
-  return apiGet<EnrichedCampaignDoc>(
-    `${CAMPAIGN_BASE}/get-by-id/${encodeURIComponent(campaignId)}`
-  );
+export async function apiCampaignGetById(payload: { campaignId: string; brandId?: string }) {
+  return apiPost<EnrichedCampaignDoc>(`${CAMPAIGN_BASE}/get-by-id`, payload);
 }
 
 export type EditDraftPayload = {
