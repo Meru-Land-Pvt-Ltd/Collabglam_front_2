@@ -656,6 +656,18 @@ function toSafeNullableNumber(...values: any[]) {
   return null;
 }
 
+function clampPercentNumber(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function computeRatePercent(numerator: number, denominator: number) {
+  const bottom = Number(denominator || 0);
+  if (!bottom || bottom <= 0) return 0;
+
+  return Number(clampPercentNumber((Number(numerator || 0) / bottom) * 100).toFixed(2));
+}
+
 function getArrayPayload(payload: any): any[] {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data)) return payload.data;
@@ -928,9 +940,27 @@ function parseOverview(payload: any, campaign: CampaignDetail | null, contacts: 
     contacts.length
   );
 
-  const totalSent = toSafeNumber(root?.totalSent, root?.total_sent, campaign?.stats?.totalSent);
-  const totalOpened = toSafeNumber(root?.totalOpened, root?.total_opened, root?.open_count_unique, root?.open_count, campaign?.stats?.totalOpened);
-  const totalClicked = toSafeNumber(root?.totalClicked, root?.total_clicked, root?.link_click_count_unique, root?.link_click_count, campaign?.stats?.totalClicked);
+  const totalSent = toSafeNumber(root?.totalSent, root?.total_sent, root?.emails_sent_count, campaign?.stats?.totalSent);
+  const totalOpened = toSafeNumber(
+    root?.totalOpened,
+    root?.total_opened,
+    root?.open_count_unique,
+    root?.open_count_unique_by_step,
+    root?.unique_opened,
+    root?.opened,
+    root?.open_count,
+    campaign?.stats?.totalOpened
+  );
+  const totalClicked = toSafeNumber(
+    root?.totalClicked,
+    root?.total_clicked,
+    root?.link_click_count_unique,
+    root?.link_click_count_unique_by_step,
+    root?.unique_clicks,
+    root?.clicked,
+    root?.link_click_count,
+    campaign?.stats?.totalClicked
+  );
   const totalReplies = toSafeNumber(root?.totalReplies, root?.total_replies, root?.total_replied, root?.reply_count_unique, root?.reply_count, campaign?.stats?.totalReplies);
   const totalOpportunities = toSafeNumber(root?.totalOpportunities, root?.total_opportunities, campaign?.stats?.totalOpportunities);
   const totalQualified = toSafeNumber(root?.totalQualified, root?.total_conversions, campaign?.stats?.totalQualified);
@@ -950,8 +980,12 @@ function parseOverview(payload: any, campaign: CampaignDetail | null, contacts: 
     totalAssigned,
     progressPercent,
     sequenceStartedAt: root?.sequenceStartedAt || root?.sequence_started_at || campaign?.launchedAt,
-    openRate: toSafeNullableNumber(root?.openRate, root?.open_rate),
-    clickRate: toSafeNullableNumber(root?.clickRate, root?.click_rate),
+    openRate: clampPercentNumber(
+      toSafeNullableNumber(root?.openRate, root?.open_rate) ?? computeRatePercent(totalOpened, totalSent)
+    ),
+    clickRate: clampPercentNumber(
+      toSafeNullableNumber(root?.clickRate, root?.click_rate) ?? computeRatePercent(totalClicked, totalSent)
+    ),
   };
 }
 
@@ -965,10 +999,10 @@ function parseStepAnalytics(payload: any, campaign: CampaignDetail | null): Step
       type: row?.type || "email",
       subject: row?.subject || row?.email_subject || "",
       sent: toSafeNumber(row?.sent, row?.total_sent),
-      opened: toSafeNullableNumber(row?.opened, row?.total_opened),
-      replied: toSafeNumber(row?.replied, row?.total_replied),
-      clicked: toSafeNumber(row?.clicked, row?.total_clicked),
-      opportunities: toSafeNumber(row?.opportunities, row?.total_opportunities),
+      opened: toSafeNullableNumber(row?.unique_opened, row?.opened, row?.total_opened),
+      replied: toSafeNumber(row?.unique_replies, row?.replies, row?.replied, row?.total_replied),
+      clicked: toSafeNumber(row?.unique_clicks, row?.clicks, row?.clicked, row?.total_clicked),
+      opportunities: toSafeNumber(row?.unique_opportunities, row?.opportunities, row?.total_opportunities),
     }));
   }
 
@@ -1011,9 +1045,9 @@ function parseDailyAnalytics(payload: any): DailyAnalyticsRow[] {
         clicks,
         uniqueClicks,
         opportunities: toSafeNumber(row?.opportunities, row?.unique_opportunities, row?.total_opportunities),
-        openRate: sent > 0 ? Number(((uniqueOpened / sent) * 100).toFixed(2)) : 0,
-        clickRate: sent > 0 ? Number(((uniqueClicks / sent) * 100).toFixed(2)) : 0,
-        replyRate: sent > 0 ? Number(((uniqueReplies / sent) * 100).toFixed(2)) : 0,
+        openRate: computeRatePercent(uniqueOpened, sent),
+        clickRate: computeRatePercent(uniqueClicks, sent),
+        replyRate: computeRatePercent(uniqueReplies, sent),
       };
     })
     .filter((row: DailyAnalyticsRow) => row.date)
@@ -2987,10 +3021,14 @@ export default function CampaignDetailPage() {
   const totalAssigned = overview.totalAssigned || campaign?.stats?.totalAssigned || 0;
   const progressPercent = overview.progressPercent || campaign?.stats?.progressPercent || 0;
 
+  function formatPercent(value: number) {
+    const safeValue = clampPercentNumber(Number(value || 0));
+    return `${Number(safeValue.toFixed(safeValue >= 10 ? 1 : 2))}%`;
+  }
+
   function formatRate(numerator: number, denominator: number) {
     if (!denominator || denominator <= 0) return "0%";
-    const rate = (Number(numerator || 0) / Number(denominator || 0)) * 100;
-    return `${Number(rate.toFixed(rate >= 10 ? 1 : 2))}%`;
+    return formatPercent(computeRatePercent(numerator, denominator));
   }
 
   const visibleReplies = includeAutoReplies
@@ -3012,14 +3050,14 @@ export default function CampaignDetailPage() {
 
   const clickRate =
     overview.clickRate !== null && overview.clickRate !== undefined
-      ? `${Number(overview.clickRate).toFixed(Number(overview.clickRate) % 1 === 0 ? 0 : 2)}%`
+      ? formatPercent(overview.clickRate)
       : formatRate(totalClicked || dailyTotals.clicked, totalSent || dailyTotals.sent);
 
   const openRateText =
     configuration.sendingOptions.openTracking === false
       ? "Disabled"
       : overview.openRate !== null && overview.openRate !== undefined
-        ? `${Number(overview.openRate).toFixed(Number(overview.openRate) % 1 === 0 ? 0 : 2)}%`
+        ? formatPercent(overview.openRate)
         : totalSent > 0
           ? formatRate(totalOpened || dailyTotals.opened, totalSent || dailyTotals.sent)
           : "Enabled";
