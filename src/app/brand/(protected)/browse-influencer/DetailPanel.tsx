@@ -140,6 +140,15 @@ type InvitationCreateResp = {
     updatedAt: string;
   };
   message?: string;
+  emailSent?: boolean;
+  emailSkippedReason?: string | null;
+  emailMeta?: {
+    recipientEmail?: string;
+    emailSource?: string;
+    messageId?: string | null;
+    subject?: string;
+    campaignId?: string | null;
+  } | null;
 };
 
 type CreateMissingResp = {
@@ -209,6 +218,21 @@ type EmailDraftState = {
   subject: string;
   initialBody: string;
   initialHtmlBody: string;
+};
+
+type EmailEditorSendPayload = {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  htmlBody: string;
+  attachments: Array<{
+    filename: string;
+    contentType: string;
+    size: number;
+    contentBase64: string;
+  }>;
 };
 
 type CampaignInvitePickerProps = {
@@ -1734,7 +1758,10 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
     };
 
-    const finalizeCampaignInvitations = async (chosenCampaignIds?: string[]) => {
+    const finalizeCampaignInvitations = async (
+      chosenCampaignIds?: string[],
+      editorPayload?: EmailEditorSendPayload
+    ) => {
       const rawHandle = handle ? String(handle).trim() : '';
       const safeHandle = rawHandle
         ? rawHandle.startsWith('@')
@@ -1802,18 +1829,38 @@ export const DetailPanel = React.memo<DetailPanelProps>(
               brandId,
               status: 'invited',
               campaignId: campaignIdItem,
+              emailTemplate: editorPayload
+                ? {
+                  subject: editorPayload.subject,
+                  body: editorPayload.body,
+                  htmlBody: editorPayload.htmlBody,
+                  cc: editorPayload.cc,
+                  bcc: editorPayload.bcc,
+                  attachments: editorPayload.attachments,
+                  fromEmail: emailDraft?.fromEmail || '',
+                  fromName: emailDraft?.fromName || 'CollabGlam',
+                }
+                : undefined,
             })
           )
         );
 
         let savedCount = 0;
         let existsCount = 0;
+        let emailSentCount = 0;
+        const emailSkipReasons: string[] = [];
 
         invitationResults.forEach((result) => {
           if (result.status === 'fulfilled') {
             const resp = result.value;
             if (resp?.status === 'saved') savedCount += 1;
             else if (resp?.status === 'exists') existsCount += 1;
+
+            if (resp?.emailSent) {
+              emailSentCount += 1;
+            } else if (resp?.emailSkippedReason) {
+              emailSkipReasons.push(resp.emailSkippedReason);
+            }
           } else {
             console.error('Invitation/create failed', result.reason);
           }
@@ -1831,23 +1878,30 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         setCampaignPickerOpen(false);
         setEmailEditorOpen(false);
 
+        const uniqueSkipReason = [...new Set(emailSkipReasons)].filter(Boolean)[0];
+        const emailSummary = editorPayload
+          ? emailSentCount > 0
+            ? `${emailSentCount} email${emailSentCount > 1 ? 's' : ''} sent.`
+            : uniqueSkipReason || 'Invitation saved, but email was not sent.'
+          : '';
+
         if (savedCount > 0 && existsCount === 0) {
           await Swal.fire(
-            'Invitation sent',
-            `We’ve sent invitations for ${savedCount} campaign${savedCount > 1 ? 's' : ''}.`,
-            'success'
+            emailSentCount > 0 ? 'Invitation email sent' : 'Invitation saved',
+            `Processed ${savedCount} campaign${savedCount > 1 ? 's' : ''}. ${emailSummary}`.trim(),
+            emailSentCount > 0 || !editorPayload ? 'success' : 'warning'
           );
         } else if (savedCount === 0 && existsCount > 0) {
           await Swal.fire(
-            'Already invited',
-            `This creator was already invited for ${existsCount} campaign${existsCount > 1 ? 's' : ''}.`,
-            'info'
+            emailSentCount > 0 ? 'Invitation email sent' : 'Already invited',
+            `This creator was already invited for ${existsCount} campaign${existsCount > 1 ? 's' : ''}. ${emailSummary}`.trim(),
+            emailSentCount > 0 ? 'success' : 'info'
           );
         } else {
           await Swal.fire(
             'Invitations processed',
-            `${savedCount} new invitation${savedCount > 1 ? 's' : ''} sent, ${existsCount} already existed.`,
-            'success'
+            `${savedCount} new invitation${savedCount > 1 ? 's' : ''} processed, ${existsCount} already existed. ${emailSummary}`.trim(),
+            emailSentCount > 0 || !editorPayload ? 'success' : 'warning'
           );
         }
 
@@ -2409,21 +2463,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
     };
 
-    const handleEditorSend = async (_payload: {
-      to: string;
-      cc: string;
-      bcc: string;
-      subject: string;
-      body: string;
-      htmlBody: string;
-      attachments: Array<{
-        filename: string;
-        contentType: string;
-        size: number;
-        contentBase64: string;
-      }>;
-    }) => {
-      await finalizeCampaignInvitations(emailDraft?.campaignIds || []);
+    const handleEditorSend = async (payload: EmailEditorSendPayload) => {
+      await finalizeCampaignInvitations(emailDraft?.campaignIds || [], payload);
     };
 
     const showRefreshButton = Boolean(onRefreshReport);
