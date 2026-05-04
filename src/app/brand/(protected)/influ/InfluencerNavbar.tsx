@@ -5,15 +5,26 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useInfluencerCounts } from "./InfluencerCountsContext";
-import { apiCampaignViewByBrand, getApiErrorMessage } from "@/app/brand/services/brandApi";
+import {
+  apiCampaignViewByBrand,
+  getApiErrorMessage,
+} from "@/app/brand/services/brandApi";
 
 type TabKey =
   | "all influencer"
   | "applied"
   | "active"
+  | "pitch-sheet"
   | "shortlisted"
   | "undecided"
   | "rejected";
+
+type TabItem = {
+  key: TabKey;
+  label: string;
+  href: string;
+  showCount?: boolean;
+};
 
 export default function CampaignNavBar() {
   const pathname = usePathname();
@@ -21,7 +32,11 @@ export default function CampaignNavBar() {
   const searchParams = useSearchParams();
   const { counts } = useInfluencerCounts();
 
-  const campaignId = (searchParams.get("campaignId") || searchParams.get("id") || "").trim();
+  const campaignId = (
+    searchParams.get("campaignId") ||
+    searchParams.get("id") ||
+    ""
+  ).trim();
 
   const [brandId, setBrandId] = useState("");
   const [isAdminCreatedCampaign, setIsAdminCreatedCampaign] = useState(false);
@@ -46,10 +61,16 @@ export default function CampaignNavBar() {
 
     const run = async () => {
       try {
-        const res: any = await apiCampaignViewByBrand({ brandId, campaignId });
+        const res: any = await apiCampaignViewByBrand({
+          brandId,
+          campaignId,
+        });
+
         if (cancelled) return;
 
-        const campaign = ((res as any)?.data?.doc ?? (res as any)?.doc ?? res) as any;
+        const campaign = ((res as any)?.data?.doc ??
+          (res as any)?.doc ??
+          res) as any;
 
         const createdByRole = String(campaign?.createdBy?.role ?? "")
           .trim()
@@ -58,7 +79,11 @@ export default function CampaignNavBar() {
         setIsAdminCreatedCampaign(createdByRole === "admin");
       } catch (e) {
         if (cancelled) return;
-        console.error(getApiErrorMessage(e, "Failed to load campaign creator role"));
+
+        console.error(
+          getApiErrorMessage(e, "Failed to load campaign creator role")
+        );
+
         setIsAdminCreatedCampaign(false);
       }
     };
@@ -72,30 +97,66 @@ export default function CampaignNavBar() {
 
   const withCampaignId = (href: string) => {
     if (!campaignId) return href;
+
     const join = href.includes("?") ? "&" : "?";
+
     return `${href}${join}campaignId=${encodeURIComponent(campaignId)}`;
   };
 
-  const tabs: { key: TabKey; label: string; href: string }[] = [
-    { key: "all influencer", label: "All Influencer", href: "/brand/influ/all" },
-    { key: "applied", label: "Applied", href: "/brand/influ/applied" },
-    { key: "active", label: "Active", href: "/brand/influ/active" },
-    { key: "shortlisted", label: "Shortlisted", href: "/brand/influ/shortlisted" },
-    { key: "undecided", label: "Undecided", href: "/brand/influ/undecided" },
-    { key: "rejected", label: "Rejected", href: "/brand/influ/rejected" },
+  const tabs: TabItem[] = [
+    {
+      key: "all influencer",
+      label: "All Influencer",
+      href: "/brand/influ/all",
+    },
+    {
+      key: "applied",
+      label: "Applied",
+      href: "/brand/influ/applied",
+    },
+    {
+      key: "active",
+      label: "Active",
+      href: "/brand/influ/active",
+    },
+    {
+      key: "pitch-sheet",
+      label: "Pitch Sheet",
+      href: "/brand/influ/pitch-sheet",
+      showCount: false,
+    },
+    {
+      key: "shortlisted",
+      label: "Shortlisted",
+      href: "/brand/influ/shortlisted",
+    },
+    {
+      key: "undecided",
+      label: "Undecided",
+      href: "/brand/influ/undecided",
+    },
+    {
+      key: "rejected",
+      label: "Rejected",
+      href: "/brand/influ/rejected",
+    },
   ];
 
   const visibleTabs = useMemo(() => {
     if (isAdminCreatedCampaign) {
-      return tabs.filter((tab) => tab.key === "active");
+      return tabs.filter(
+        (tab) => tab.key === "active" || tab.key === "pitch-sheet"
+      );
     }
-    return tabs;
+
+    return tabs.filter((tab) => tab.key !== "pitch-sheet");
   }, [isAdminCreatedCampaign]);
 
   const tabCounts: Record<TabKey, number> = {
     "all influencer": counts.all,
     applied: counts.applied,
     active: counts.active,
+    "pitch-sheet": 0,
     shortlisted: counts.shortlisted,
     undecided: counts.undecided,
     rejected: counts.rejected,
@@ -113,6 +174,7 @@ export default function CampaignNavBar() {
         {visibleTabs.map((t) => {
           const isActive = isActiveHref(t.href);
           const count = tabCounts[t.key];
+          const shouldShowCount = t.showCount !== false;
 
           return (
             <Link
@@ -134,22 +196,25 @@ export default function CampaignNavBar() {
             >
               <span className="inline-flex items-center gap-[var(--Spacing-8,0.5rem)]">
                 <span>{t.label}</span>
-                <span
-                  className={[
-                    "inline-flex items-center justify-center",
-                    "w-6 h-6",
-                    "shrink-0",
-                    "rounded-[1.25rem]",
-                    "border border-[var(--Light-Border-Subtle,#E6E6E6)]",
-                    "font-[Inter]",
-                    "text-[0.75rem]",
-                    "font-semibold",
-                    "leading-none",
-                    isActive ? "text-neutral-900" : "text-neutral-600",
-                  ].join(" ")}
-                >
-                  {count}
-                </span>
+
+                {shouldShowCount ? (
+                  <span
+                    className={[
+                      "inline-flex items-center justify-center",
+                      "w-6 h-6",
+                      "shrink-0",
+                      "rounded-[1.25rem]",
+                      "border border-[var(--Light-Border-Subtle,#E6E6E6)]",
+                      "font-[Inter]",
+                      "text-[0.75rem]",
+                      "font-semibold",
+                      "leading-none",
+                      isActive ? "text-neutral-900" : "text-neutral-600",
+                    ].join(" ")}
+                  >
+                    {count}
+                  </span>
+                ) : null}
               </span>
             </Link>
           );

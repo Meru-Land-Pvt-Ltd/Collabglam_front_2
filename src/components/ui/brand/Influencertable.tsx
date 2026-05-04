@@ -3,19 +3,15 @@
 import * as React from "react";
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import {
-  ChartLine,
-  X,
-  QuestionMark,
-  Check,
-  DotsThree,
-} from "@phosphor-icons/react";
+import { Check, QuestionMark, X } from "@phosphor-icons/react";
 
 export type PlatformType = "instagram" | "youtube" | "tiktok";
+
 export type ApplicantDecisionField =
   | "isShortlisted"
   | "isUndicided"
   | "isRejected";
+
 export type InfluencerRow = {
   id: string;
   profile: {
@@ -27,10 +23,8 @@ export type InfluencerRow = {
   platforms?: Array<{
     platform: PlatformType;
     followers: number;
-    engagement: number;
   }>;
   followers?: number;
-  engagement?: number;
   appliedDate: string;
   status?: string;
   budget?: string;
@@ -59,7 +53,6 @@ type InfluencerTableProps = {
   onToggleRow?: (id: string) => void;
   onToggleAll?: () => void;
   isRowSelectable?: (row: InfluencerRow) => boolean;
-
   renderBulkHeader?: BulkHeaderRenderer;
   onClearSelection?: () => void;
 };
@@ -103,30 +96,28 @@ function getPlatformRows(r: InfluencerRow) {
   if (r.platforms?.length) return r.platforms;
 
   const baseFollowers = r.followers ?? 0;
-  const baseEng = r.engagement ?? 0;
 
   const ig = Math.round(baseFollowers * 0.55);
   const yt = Math.round(baseFollowers * 0.25);
   const tt = Math.max(0, baseFollowers - ig - yt);
 
   return [
-    { platform: "instagram" as const, followers: ig, engagement: baseEng },
-    {
-      platform: "youtube" as const,
-      followers: yt,
-      engagement: Math.max(0, baseEng * 0.5),
-    },
-    {
-      platform: "tiktok" as const,
-      followers: tt,
-      engagement: Math.max(0, baseEng * 0.3),
-    },
+    { platform: "instagram" as const, followers: ig },
+    { platform: "youtube" as const, followers: yt },
+    { platform: "tiktok" as const, followers: tt },
   ];
 }
 
 function formatDDMMYY(input: string) {
-  const d = new Date(input);
-  if (Number.isNaN(d.getTime())) return input;
+  const cleanInput = String(input || "")
+    .replace(/^applied\s+/i, "")
+    .trim();
+
+  if (!cleanInput || cleanInput === "—") return "—";
+
+  const d = new Date(cleanInput);
+
+  if (Number.isNaN(d.getTime())) return cleanInput;
 
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -238,7 +229,6 @@ function PillTag({ text, title }: { text: string; title?: string }) {
   );
 }
 
-// AFTER
 export function ActionGroup({
   onReject,
   onUndecided,
@@ -248,17 +238,20 @@ export function ActionGroup({
   onReject?: () => void;
   onUndecided?: () => void;
   onSelect?: () => void;
-  disabledButtons?: { reject?: boolean; undecided?: boolean; select?: boolean };
+  disabledButtons?: {
+    reject?: boolean;
+    undecided?: boolean;
+    select?: boolean;
+  };
 }) {
   const b = "var(--Light-Border-Primary,#D6D6D6)";
 
   return (
-    <div className="inline-flex items-stretch justify-center h-[3.375rem] w-fit">
-
+    <div className="inline-flex h-[3.375rem] w-fit items-stretch justify-center">
       <button
         type="button"
         disabled={disabledButtons.reject}
-        className="flex items-center justify-center h-full w-[3.3125rem] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+        className="flex h-full w-[3.3125rem] cursor-pointer items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-30"
         style={{
           borderTop: `1px solid ${b}`,
           borderBottom: `1px solid ${b}`,
@@ -266,21 +259,24 @@ export function ActionGroup({
           borderRadius: "0.5rem 0 0 0.5rem",
         }}
         onMouseEnter={(e) => {
-          if (!disabledButtons.reject)
-            e.currentTarget.style.background = "var(--Light-Background-Negative-Subtle, #F9CACA)";
+          if (!disabledButtons.reject) {
+            e.currentTarget.style.background =
+              "var(--Light-Background-Negative-Subtle, #F9CACA)";
+          }
         }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
         aria-label="Reject"
         onClick={disabledButtons.reject ? undefined : onReject}
       >
         <X size={18} weight="bold" />
       </button>
 
-
       <button
         type="button"
         disabled={disabledButtons.undecided}
-        className="flex items-center justify-center h-full w-[3.3125rem] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+        className="flex h-full w-[3.3125rem] cursor-pointer items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-30"
         style={{
           borderTop: `1px solid ${b}`,
           borderBottom: `1px solid ${b}`,
@@ -288,21 +284,24 @@ export function ActionGroup({
           borderRadius: 0,
         }}
         onMouseEnter={(e) => {
-          if (!disabledButtons.undecided)
-            e.currentTarget.style.background = "var(--Light-Background-BrandSubtle, #FFF9E6)";
+          if (!disabledButtons.undecided) {
+            e.currentTarget.style.background =
+              "var(--Light-Background-BrandSubtle, #FFF9E6)";
+          }
         }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
         aria-label="Undecided"
         onClick={disabledButtons.undecided ? undefined : onUndecided}
       >
         <QuestionMark size={18} weight="bold" />
       </button>
 
-
       <button
         type="button"
         disabled={disabledButtons.select}
-        className="flex items-center justify-center h-full w-[3.3125rem] transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+        className="flex h-full w-[3.3125rem] cursor-pointer items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-30"
         style={{
           borderTop: `1px solid ${b}`,
           borderBottom: `1px solid ${b}`,
@@ -311,10 +310,13 @@ export function ActionGroup({
           borderRadius: "0 0.5rem 0.5rem 0",
         }}
         onMouseEnter={(e) => {
-          if (!disabledButtons.select)
+          if (!disabledButtons.select) {
             e.currentTarget.style.background = "var(--Success-50, #EAF6EC)";
+          }
         }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+        }}
         aria-label="Selected"
         onClick={disabledButtons.select ? undefined : onSelect}
       >
@@ -343,10 +345,12 @@ const colDefault = {
   category: "min-w-[10rem] flex-[2.2_1_0%] min-w-0",
   status: "min-w-[10rem] flex-[2.2_1_0%] min-w-0",
   followers: "min-w-[9rem] flex-[2.2_1_0%] min-w-0",
-  engagement: "min-w-[9rem] flex-[2.2_1_0%] min-w-0",
   applied: "min-w-[10rem] flex-[2.2_1_0%] min-w-0",
   actions: "min-w-[18rem] flex-[3_1_0%] min-w-0",
 };
+
+const DEFAULT_TABLE_GRID =
+  "grid w-full min-w-[78rem] grid-cols-[3rem_minmax(17rem,1.35fr)_minmax(13rem,1fr)_minmax(10rem,0.75fr)_minmax(8rem,0.65fr)_minmax(9rem,0.65fr)_8rem]";
 
 const colShort = {
   checkbox: "flex-none w-[3.5rem]",
@@ -386,13 +390,16 @@ function DefaultTable({
 
   const allChecked =
     rows.length > 0 && rows.every((r) => Boolean(selected[r.id]));
+
   const someChecked = rows.some((r) => Boolean(selected[r.id])) && !allChecked;
 
   const toggleAll = (checked: boolean) => {
     const next: Record<string, boolean> = {};
+
     rows.forEach((r) => {
       next[r.id] = checked;
     });
+
     setSelected(next);
   };
 
@@ -403,7 +410,7 @@ function DefaultTable({
   return (
     <div className="flex w-full flex-col">
       <XScroll>
-        <div className="min-w-full w-max">
+        <div className="w-full">
           {hasSelection && renderBulkHeader ? (
             <div className="mb-4">
               {renderBulkHeader({
@@ -414,68 +421,45 @@ function DefaultTable({
             </div>
           ) : (
             <div
-              className="
-                flex h-14 w-full min-w-full items-center
-                bg-[var(--Light-Background-Neutral,#F2F2F2)]
-                rounded-tr-[0.75rem]
-                rounded-bl-[0.75rem]
-                rounded-br-[0.75rem]
-              "
+              className={`${DEFAULT_TABLE_GRID} h-14 items-center rounded-br-[0.75rem] rounded-bl-[0.75rem] rounded-tr-[0.75rem] bg-[var(--Light-Background-Neutral,#F2F2F2)]`}
             >
-              <div className={`${colDefault.profile} flex h-14 items-center`}>
-                <div className="flex h-14 items-center justify-center gap-1 py-[0.625rem] pl-[1rem] pr-[0.75rem] rounded-tl-[0.75rem]">
-                  <Checkbox
-                    className="cursor-pointer"
-                    checked={
-                      allChecked ? true : someChecked ? "indeterminate" : false
-                    }
-                    onCheckedChange={(v) => toggleAll(Boolean(v))}
-                    aria-label="Select all influencers"
-                  />
-                </div>
-
-                <div className="flex h-14 flex-1 items-center justify-between px-4 py-[0.625rem]">
-                  <span style={headerTextStyle}>Profile</span>
-                  <HeaderCarets />
-                </div>
+              <div className="flex h-14 items-center justify-center rounded-tl-[0.75rem]">
+                <Checkbox
+                  className="cursor-pointer"
+                  checked={
+                    allChecked ? true : someChecked ? "indeterminate" : false
+                  }
+                  onCheckedChange={(v) => toggleAll(Boolean(v))}
+                  aria-label="Select all influencers"
+                />
               </div>
 
-              <div
-                className={`${colDefault.category} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
-              >
+              <div className="flex h-14 items-center justify-between px-4 py-[0.625rem]">
+                <span style={headerTextStyle}>Profile</span>
+                <HeaderCarets />
+              </div>
+
+              <div className="flex h-14 items-center justify-between px-4 py-[0.625rem]">
                 <span style={headerTextStyle}>Category</span>
                 <HeaderCarets />
               </div>
-              <div
-                className={`${colDefault.status} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
-              >
+
+              <div className="flex h-14 items-center justify-between px-4 py-[0.625rem]">
                 <span style={headerTextStyle}>Status</span>
                 <HeaderCarets />
               </div>
-              <div
-                className={`${colDefault.followers} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
-              >
+
+              <div className="flex h-14 items-center justify-between px-4 py-[0.625rem]">
                 <span style={headerTextStyle}>Followers</span>
                 <HeaderCarets />
               </div>
 
-              <div
-                className={`${colDefault.engagement} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
-              >
-                <span style={headerTextStyle}>Engagement</span>
-                <HeaderCarets />
-              </div>
-
-              <div
-                className={`${colDefault.applied} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
-              >
+              <div className="flex h-14 items-center justify-between px-4 py-[0.625rem]">
                 <span style={headerTextStyle}>Applied Date</span>
                 <HeaderCarets />
               </div>
 
-              <div
-                className={`${colDefault.actions} flex h-14 items-center pl-4 pr-4`}
-              >
+              <div className="flex h-14 items-center justify-center px-4 py-[0.625rem]">
                 <span style={headerTextStyle}>Action</span>
               </div>
             </div>
@@ -484,90 +468,81 @@ function DefaultTable({
           <div className="mt-[2rem] w-full space-y-3">
             {rows.map((r) => {
               const plat = getPlatformRows(r);
-              const appliedText =
-                typeof r.appliedDate === "string" &&
-                  r.appliedDate.toLowerCase().startsWith("applied")
-                  ? r.appliedDate
-                  : `applied ${r.appliedDate}`;
+              const appliedText = formatDDMMYY(r.appliedDate);
               const statusText = r.status ?? "Shortlisted";
+
               return (
                 <div
                   key={r.id}
-                  className="
-                    flex w-full min-w-full items-center
-                    rounded-[0.75rem]
-                    border border-[var(--Light-Border-Primary,#D6D6D6)]
-                    bg-[var(--Light-Background-Primary,#FFF)]
-                    overflow-hidden
-                  "
+                  className={`${DEFAULT_TABLE_GRID} items-center overflow-hidden rounded-[0.75rem] border border-[var(--Light-Border-Primary,#D6D6D6)] bg-white`}
                 >
-                  <div
-                    className={`${colDefault.profile} flex h-[5.5rem] items-center bg-white rounded-l-[12px] px-4 py-[10px]`}
-                  >
-                    <div className="flex w-full items-center gap-4">
-                      <Checkbox
-                        className="cursor-pointer"
-                        checked={Boolean(selected[r.id])}
-                        onCheckedChange={(v) => toggleOne(r.id, Boolean(v))}
-                        aria-label={`Select ${r.profile.name}`}
-                      />
+                  <div className="flex h-[5.5rem] items-center justify-center bg-white">
+                    <Checkbox
+                      className="cursor-pointer"
+                      checked={Boolean(selected[r.id])}
+                      onCheckedChange={(v) => toggleOne(r.id, Boolean(v))}
+                      aria-label={`Select ${r.profile.name}`}
+                    />
+                  </div>
 
-                      <div className="flex items-center gap-3 min-w-0">
-                        <AvatarThumb avatarUrl={r.profile.avatarUrl} />
+                  <div className="flex h-[5.5rem] min-w-0 items-center bg-white px-4 py-[0.625rem]">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <AvatarThumb avatarUrl={r.profile.avatarUrl} />
 
-                        <div className="flex min-w-0 flex-col">
-                          <span
-                            className="truncate hover:underline hover:cursor-pointer"
-                            style={{
-                              color: "var(--Light-Text-Primary, #1A1A1A)",
-                              fontFamily: "var(--Font-Family-Inter, Inter)",
-                              fontSize: "var(--Font-Size-16, 1rem)",
-                              fontStyle: "normal",
-                              fontWeight: 500,
-                              lineHeight: "var(--Line-Height-24, 1.5rem)",
-                              letterSpacing: "var(--Letter-Spacing-0, 0)",
-                            }}
-                            title={r.profile.name}
-                            onClick={() => window.open(`/mediakit/${r.id}`, "_blank")}
-                          >
-                            {r.profile.name}
-                          </span>
+                      <div className="flex min-w-0 flex-col">
+                        <span
+                          className="truncate hover:cursor-pointer hover:underline"
+                          style={{
+                            color: "var(--Light-Text-Primary, #1A1A1A)",
+                            fontFamily: "var(--Font-Family-Inter, Inter)",
+                            fontSize: "var(--Font-Size-16, 1rem)",
+                            fontStyle: "normal",
+                            fontWeight: 500,
+                            lineHeight: "var(--Line-Height-24, 1.5rem)",
+                            letterSpacing: "var(--Letter-Spacing-0, 0)",
+                          }}
+                          title={r.profile.name}
+                          onClick={() =>
+                            window.open(`/mediakit/${r.id}`, "_blank")
+                          }
+                        >
+                          {r.profile.name}
+                        </span>
 
-                          <span
-                            className="truncate"
-                            style={{
-                              marginTop: "0.25rem",
-                              color: "var(--Light-Text-Secondary, #969696)",
-                              fontFamily: "var(--Font-Family-Inter, Inter)",
-                              fontSize: "var(--Font-Size-14, 0.875rem)",
-                              fontStyle: "normal",
-                              fontWeight: 400,
-                              lineHeight: "var(--Line-Height-20, 1.25rem)",
-                              letterSpacing: "var(--Letter-Spacing-0, 0)",
-                            }}
-                            title={r.profile.handle ?? ""}
-                          >
-                            {r.profile.handle ?? ""}
-                          </span>
-                        </div>
+                        <span
+                          className="truncate"
+                          style={{
+                            marginTop: "0.25rem",
+                            color: "var(--Light-Text-Secondary, #969696)",
+                            fontFamily: "var(--Font-Family-Inter, Inter)",
+                            fontSize: "var(--Font-Size-14, 0.875rem)",
+                            fontStyle: "normal",
+                            fontWeight: 400,
+                            lineHeight: "var(--Line-Height-20, 1.25rem)",
+                            letterSpacing: "var(--Letter-Spacing-0, 0)",
+                          }}
+                          title={r.profile.handle ?? ""}
+                        >
+                          {r.profile.handle ?? ""}
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  <div
-                    className={`${colDefault.category} flex h-[5.5rem] items-center justify-center bg-white px-4 py-[0.625rem]`}
-                  >
+                  <div className="flex h-[5.5rem] min-w-0 items-center justify-center bg-white px-4 py-[0.625rem]">
                     <PillTag text={r.category} />
                   </div>
-                  <div
-                    className={`${colDefault.status} flex h-[5.5rem] items-center justify-center bg-white px-4 py-[0.625rem]`}
-                  >
-                    {renderStatus ? renderStatus(r) : <PillTag text={statusText} />}
+
+                  <div className="flex h-[5.5rem] min-w-0 items-center justify-center bg-white px-4 py-[0.625rem]">
+                    {renderStatus ? (
+                      renderStatus(r)
+                    ) : (
+                      <PillTag text={statusText} />
+                    )}
                   </div>
-                  <div
-                    className={`${colDefault.followers} flex h-[5.5rem] bg-white px-4 py-[0.625rem]`}
-                  >
-                    <div className="mx-auto flex w-fit flex-col justify-center gap-2">
+
+                  <div className="flex h-[5.5rem] items-center justify-center bg-white px-4 py-[0.625rem]">
+                    <div className="flex w-fit flex-col justify-center gap-2">
                       {plat.map((p) => (
                         <div
                           key={`f-${r.id}-${p.platform}`}
@@ -575,7 +550,10 @@ function DefaultTable({
                         >
                           <span
                             className="flex h-5 w-5 items-center justify-center rounded-full border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-white"
-                            style={{ borderWidth: "0.5px", padding: "0.25rem" }}
+                            style={{
+                              borderWidth: "0.5px",
+                              padding: "0.25rem",
+                            }}
                             aria-hidden="true"
                           >
                             <img
@@ -603,36 +581,7 @@ function DefaultTable({
                     </div>
                   </div>
 
-                  <div
-                    className={`${colDefault.engagement} flex h-[5.5rem] bg-white px-4 py-[0.625rem]`}
-                  >
-                    <div className="mx-auto flex w-fit flex-col justify-center gap-2">
-                      {plat.map((p) => (
-                        <div
-                          key={`e-${r.id}-${p.platform}`}
-                          className="flex w-fit items-center gap-2"
-                        >
-                          <ChartLine size={16} weight="bold" color="#D6D6D6" />
-                          <span
-                            style={{
-                              color: "var(--Light-Text-Primary, #1A1A1A)",
-                              fontFamily: "Inter",
-                              fontSize: "0.75rem",
-                              fontStyle: "normal",
-                              fontWeight: 400,
-                              lineHeight: "1rem",
-                            }}
-                          >
-                            {p.engagement.toFixed(2)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div
-                    className={`${colDefault.applied} flex h-[5.5rem] items-center justify-center bg-white px-4 py-[0.625rem]`}
-                  >
+                  <div className="flex h-[5.5rem] items-center justify-center bg-white px-4 py-[0.625rem]">
                     <span
                       className="truncate"
                       style={{
@@ -654,10 +603,7 @@ function DefaultTable({
                     </span>
                   </div>
 
-                  <div
-                    className={`${colDefault.actions} flex h-[5.5rem] items-center justify-end gap-2 bg-white pl-4 pr-4 py-[0.625rem] rounded-r-[0.75rem]`}
-                  >
-
+                  <div className="flex h-[5.5rem] items-center justify-center bg-white px-3 py-[0.625rem]">
                     {(renderActions ? renderActions(r) : null) ?? (
                       <ActionGroup
                         onReject={() => onActionClick?.(r, "isRejected")}
@@ -665,13 +611,6 @@ function DefaultTable({
                         onSelect={() => onActionClick?.(r, "isShortlisted")}
                       />
                     )}
-                    {/* <button
-                      type="button"
-                      aria-label="More actions"
-                      className="flex items-center justify-center h-9 w-9 aspect-square cursor-pointer rounded-[0.5rem] transition-colors hover:bg-[#EDEDED]"
-                    >
-                      <DotsThree size={20} weight="bold" />
-                    </button> */}
                   </div>
                 </div>
               );
@@ -777,6 +716,7 @@ function ShortlistedTable({
       onClearSelection?.();
       return;
     }
+
     setSelected({});
   };
 
@@ -795,10 +735,9 @@ function ShortlistedTable({
           ) : (
             <div
               className="
-                flex w-full min-w-[73rem] items-center
+                flex h-14 w-full min-w-[73rem] items-center
                 bg-[var(--Light-Background-Neutral,#F2F2F2)]
                 rounded-tr-[0.75rem] rounded-bl-[0.75rem] rounded-br-[0.75rem]
-                h-14
               "
             >
               <div
@@ -845,14 +784,14 @@ function ShortlistedTable({
               </div>
 
               <div
-                className={`${colShort.date} flex h-14 items-center justify-between px-4 py-[0.625rem]`}
+                className={`${colShort.date} flex h-14 shrink-0 items-center justify-between px-4 py-[0.625rem]`}
               >
                 <span style={headerTextStyle}>Date</span>
                 <HeaderCarets />
               </div>
 
               <div
-                className={`${colShort.actions} flex h-14 items-center pl-8 pr-4 py-[0.625rem]`}
+                className={`${colShort.actions} flex h-14 items-center justify-end py-[0.625rem] pl-8 pr-4`}
               >
                 <span style={headerTextStyle}>Action</span>
               </div>
@@ -895,6 +834,7 @@ function ShortlistedTable({
                           onToggleRow?.(r.id);
                           return;
                         }
+
                         toggleOneLocal(r.id, Boolean(v));
                       }}
                       aria-label={`Select ${r.profile.name}`}
@@ -904,12 +844,12 @@ function ShortlistedTable({
                   <div
                     className={`${colShort.profile} flex h-[5.5rem] items-center px-4`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex min-w-0 items-center gap-3">
                       <AvatarThumb avatarUrl={r.profile.avatarUrl} />
 
                       <div className="flex min-w-0 flex-col">
                         <span
-                          className="truncate hover:underline hover:cursor-pointer outline-none border-none focus:outline-none focus:ring-0"
+                          className="truncate border-none outline-none hover:cursor-pointer hover:underline focus:outline-none focus:ring-0"
                           style={{
                             color: "var(--Light-Text-Primary, #1A1A1A)",
                             fontFamily: "var(--Font-Family-Inter, Inter)",
@@ -920,7 +860,9 @@ function ShortlistedTable({
                             letterSpacing: "var(--Letter-Spacing-0, 0)",
                           }}
                           title={r.profile.name}
-                          onClick={() => window.open(`/mediakit/${r.id}`, "_blank")}
+                          onClick={() =>
+                            window.open(`/mediakit/${r.id}`, "_blank")
+                          }
                         >
                           {r.profile.name}
                         </span>
@@ -1026,7 +968,7 @@ function ShortlistedTable({
 }
 
 const RECO_MID_GRID =
-  "grid flex-1 grid-cols-[minmax(8rem,0.9fr)_minmax(9rem,1fr)_minmax(9rem,1fr)_minmax(10rem,1fr)]";
+  "grid flex-1 grid-cols-[minmax(8rem,0.9fr)_minmax(9rem,1fr)_minmax(10rem,1fr)]";
 
 function RecommendedTable({
   rows,
@@ -1043,14 +985,10 @@ function RecommendedTable({
         <div className="min-w-full w-max space-y-3">
           {rows.map((r) => {
             const plat = getPlatformRows(r);
-            const appliedText =
-              typeof r.appliedDate === "string" &&
-                r.appliedDate.toLowerCase().startsWith("applied")
-                ? r.appliedDate
-                : `applied ${r.appliedDate}`;
+            const appliedText = formatDDMMYY(r.appliedDate);
 
             return (
-              <div key={r.id} className="flex w-full min-w-[60rem]">
+              <div key={r.id} className="flex w-full min-w-[52rem]">
                 <div
                   style={{
                     display: "flex",
@@ -1068,12 +1006,12 @@ function RecommendedTable({
                     boxSizing: "border-box",
                   }}
                 >
-                  <div className="flex w-full items-center gap-3 min-w-0">
+                  <div className="flex w-full min-w-0 items-center gap-3">
                     <AvatarThumb avatarUrl={r.profile.avatarUrl} />
 
                     <div className="flex min-w-0 flex-col">
                       <span
-                        className="truncate hover:underline hover:cursor-pointer"
+                        className="truncate hover:cursor-pointer hover:underline"
                         style={{
                           color: "var(--Light-Text-Primary, #1A1A1A)",
                           fontFamily: "var(--Font-Family-Inter, Inter)",
@@ -1083,7 +1021,9 @@ function RecommendedTable({
                           letterSpacing: "var(--Letter-Spacing-0, 0)",
                         }}
                         title={r.profile.name}
-                        onClick={() => window.open(`/mediakit/${r.id}`, "_blank")}
+                        onClick={() =>
+                          window.open(`/mediakit/${r.id}`, "_blank")
+                        }
                       >
                         {r.profile.name}
                       </span>
@@ -1160,30 +1100,6 @@ function RecommendedTable({
                   </div>
 
                   <div className="flex items-center justify-center px-4">
-                    <div className="flex w-full flex-col justify-center gap-2">
-                      {plat.map((p) => (
-                        <div
-                          key={`pe-${r.id}-${p.platform}`}
-                          className="flex w-full items-center gap-2"
-                        >
-                          <ChartLine size={16} weight="bold" color="#D6D6D6" />
-                          <span
-                            style={{
-                              color: "var(--Light-Text-Primary, #1A1A1A)",
-                              fontFamily: "Inter",
-                              fontSize: "0.75rem",
-                              fontWeight: 400,
-                              lineHeight: "1rem",
-                            }}
-                          >
-                            {(p.engagement ?? 0).toFixed(2)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-center px-4">
                     <span
                       className="truncate"
                       style={{
@@ -1253,10 +1169,7 @@ export function InfluencerTable({
 }: InfluencerTableProps) {
   if (variant === "recommended") {
     return (
-      <RecommendedTable
-        rows={rows}
-        renderActions={renderRecommendedActions}
-      />
+      <RecommendedTable rows={rows} renderActions={renderRecommendedActions} />
     );
   }
 
@@ -1264,7 +1177,9 @@ export function InfluencerTable({
     return (
       <ShortlistedTable
         rows={rows}
-        renderActions={variant === "active" ? renderActiveActions : renderShortlistedActions}
+        renderActions={
+          variant === "active" ? renderActiveActions : renderShortlistedActions
+        }
         renderStatus={renderStatus}
         selectable={selectable}
         selectedIds={selectedIds}
@@ -1283,6 +1198,7 @@ export function InfluencerTable({
       onActionClick={onActionClick}
       renderBulkHeader={renderBulkHeader}
       renderActions={renderDefaultActions}
+      renderStatus={renderStatus}
     />
   );
 }

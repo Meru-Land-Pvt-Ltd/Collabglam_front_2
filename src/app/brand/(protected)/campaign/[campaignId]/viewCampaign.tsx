@@ -50,6 +50,7 @@ import {
   CaretRight,
   DownloadSimple,
   FilePdf,
+  FolderSimpleStarIcon,
 } from "@phosphor-icons/react";
 
 import {
@@ -1976,7 +1977,14 @@ export default function ViewCampaignPage() {
                   setDoc((prev: any) => (prev ? { ...prev, status: newStatus } : prev));
                 }}
               />
-
+              {/* <Button 
+                variant="raised"
+                size="sm" 
+                rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(`/brand/campaign/${encodeURIComponent(campaign?.campaignTitle || "")}/pitch-folder?id=${campaignId}`)}>
+                <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
+                  Pitch folder
+                </span>
+              </Button> */}
               {!isAdminCreatedCampaign ? (
                 <Button
                   variant="raised"
@@ -2607,7 +2615,7 @@ export default function ViewCampaignPage() {
           </div>
         ) : null}
       </div>
-       {!isAdminCreatedCampaign ? (
+      {!isAdminCreatedCampaign ? (
         <div className="mt-7 w-full flex flex-col items-start self-stretch">
           <div
             className="self-stretch text-[#1A1A1A] text-[1.25rem] font-semibold leading-[1.75rem]"

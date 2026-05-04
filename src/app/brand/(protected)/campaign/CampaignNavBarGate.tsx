@@ -8,8 +8,8 @@ const CAMPAIGN_LIST_PAGES = new Set([
   "all",
   "active",
   "draft",
-  "scheduled",          // ✅ make sure this matches your real route slug
-  // "scheduled-campaign" // only keep if your folder slug is actually this
+  "scheduled",
+  "scheduled-campaign",
 ]);
 
 export default function CampaignNavBarGate() {
@@ -18,17 +18,21 @@ export default function CampaignNavBarGate() {
 
   const hideNavbar = useMemo(() => {
     const p = (pathname ?? "").replace(/\/+$/, "");
-    const m = p.match(/^\/brand\/campaign\/([^/]+)$/);
-    if (!m) return false;
+    if (/^\/brand\/campaign\/[^/]+\/pitch-folder$/.test(p)) {
+      return true;
+    }
 
-    const slug = m[1];
+    const detailMatch = p.match(/^\/brand\/campaign\/([^/]+)$/);
+    if (!detailMatch) return false;
 
-    // don’t hide on known list pages
+    const slug = decodeURIComponent(detailMatch[1]);
+
     if (CAMPAIGN_LIST_PAGES.has(slug)) return false;
 
     return Boolean(searchParams?.get("id"));
   }, [pathname, searchParams]);
 
   if (hideNavbar) return null;
+
   return <CampaignNavBar />;
 }

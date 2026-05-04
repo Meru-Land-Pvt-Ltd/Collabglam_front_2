@@ -2170,3 +2170,7 @@ export async function apiEditDispute(payload: {
 export async function apiAdminEditCampaign(payload: any) {
   return apiPost(`/admin/campaign/edit`, payload);
 }
+
+export async function apiFetchCampaignPitchFolder(campaignId: string) {
+  return apiGet(`/pitch-folders/campaign/${campaignId}`);
+}

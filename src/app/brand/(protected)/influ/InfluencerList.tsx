@@ -25,18 +25,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   CircleNotch,
-  DotsThree,
   EnvelopeOpen,
   PaperPlaneTilt,
-  PencilSimpleIcon,
-  SealCheck,
   Signature,
 } from "@phosphor-icons/react";
 
 import {
   apiGetListByCampaign,
   apiSetApplicantDecisionStatus,
-  apiGetAcceptedAdminCreatedInfluencersByCampaign,
   apiCampaignViewByBrand,
   type ApplicantDecisionField,
   getApiErrorMessage,
@@ -196,7 +192,7 @@ function buildAvailablePlatforms(a: any): InfluencerRow["platforms"] {
     result.push({
       platform,
       followers: Number(followersValue ?? 0) || 0,
-      engagement: toEngagementPercent(engagementValue),
+      // engagement: toEngagementPercent(engagementValue),
     });
   };
 
@@ -216,6 +212,7 @@ function buildAvailablePlatforms(a: any): InfluencerRow["platforms"] {
 
   return result;
 }
+
 function mapAcceptedAdminCreatedInfluencerToRow(a: any): InfluencerRow {
   const influencerId = String(a?.influencerId ?? "").trim();
   const name = String(a?.influencerName ?? "Influencer").trim();
@@ -339,6 +336,7 @@ function hasMilestonesCreated(meta?: ContractMeta | null) {
     Boolean(meta.statusFlags?.hasMilestones)
   );
 }
+
 function getProfessionalContractStatusMessage(
   raw: any,
   meta?: ContractMeta | null
@@ -391,6 +389,7 @@ function getProfessionalContractStatusMessage(
       return "Contract in Progress";
   }
 }
+
 function getPrimaryAction(raw: any, meta?: ContractMeta | null): { label: string; viewOnly: boolean } {
   const statusStr = String(meta?.status || "");
   const locked = isLockedStatus(statusStr);
@@ -1090,43 +1089,74 @@ export default function InfluencerList() {
     try {
       const trimmedSearch = search.trim();
 
-      // Admin-created campaign + Active tab -> use new API
+      // Fully managed campaign + Active tab -> use /apply/list API
       if (tab === "active" && isAdminCreatedCampaign) {
-        const res: any = await apiGetAcceptedAdminCreatedInfluencersByCampaign({
+        const selectedCategoryIds = (filters.Category || []).filter(
+          (v) => v && v !== "All"
+        );
+
+        const payload: any = {
           campaignId,
-          brandId: brandId || undefined,
           page: 1,
           limit: 100,
-          includeCampaign: 1,
-          includeNames: 1,
-        });
+          search: trimmedSearch || undefined,
+          filterStatus: "active",
+          createdPage: "fullyManaged",
+          engagementRate: getApiEngagementRate(filters["Engagement Rate"]),
+          influencerTier: getApiInfluencerTier(filters.Follower),
+          platform: getApiPlatform(filters.Platform),
+          date: getApiDate(filters.Date),
+          sortBy: getApiSortBy(sortValue),
+          sortField: getApiSortField(sortValue),
+          sortOrder: getApiSortOrder(sortValue),
+        };
 
-        const influencers = Array.isArray(res?.influencers) ? res.influencers : [];
-        let mapped = influencers
-          .map(mapAcceptedAdminCreatedInfluencerToRow)
-          .filter((r: InfluencerRow) => String((r as any)?.id ?? "").trim());
-
-        if (trimmedSearch) {
-          const q = trimmedSearch.toLowerCase();
-          mapped = mapped.filter((row: InfluencerRow) => {
-            const raw = (row as any)?.__raw ?? {};
-            return [
-              row.profile?.name,
-              row.profile?.handle,
-              raw?.influencerEmail,
-              raw?.platform,
-              raw?.campaignTitle,
-            ].some((v) => String(v ?? "").toLowerCase().includes(q));
-          });
+        if (selectedCategoryIds.length === 1) {
+          payload.categoryId = selectedCategoryIds[0];
+        } else if (selectedCategoryIds.length > 1) {
+          payload.categoryIds = selectedCategoryIds;
         }
 
+        const res: any = await apiGetListByCampaign(payload);
+
+        const influencers = Array.isArray(res?.influencers)
+          ? res.influencers
+          : Array.isArray(res?.data?.influencers)
+            ? res.data.influencers
+            : [];
+
+        const mapped = influencers
+          .map((inf: any) => {
+            // If backend returns normal applicant shape
+            if (inf?.name || inf?.modashProfile || inf?.modashProfiles) {
+              return mapApplicantToRow({
+                ...inf,
+                isAccepted: 1,
+                lifecycleStatusRaw: inf?.lifecycleStatusRaw || "INFLUENCER_ACCEPTED",
+              });
+            }
+
+            // Fallback for old admin-created influencer shape
+            return mapAcceptedAdminCreatedInfluencerToRow(inf);
+          })
+          .filter((r: InfluencerRow) => String((r as any)?.id ?? "").trim());
+
+        const total =
+          res?.applicantCount ??
+          res?.total ??
+          res?.data?.applicantCount ??
+          res?.data?.total ??
+          mapped.length;
+
+        const statusCounts = res?.statusCounts ?? res?.data?.statusCounts ?? {};
+
         setCounts({
-          all: res?.total ?? influencers.length,
-          applied: 0,
-          active: res?.total ?? influencers.length,
-          shortlisted: 0,
-          undecided: 0,
-          rejected: 0,
+          all: total,
+          applied: statusCounts?.applied ?? 0,
+          active: statusCounts?.active ?? total,
+          shortlisted: statusCounts?.shortlisted ?? 0,
+          undecided: statusCounts?.undecided ?? 0,
+          rejected: statusCounts?.rejected ?? 0,
         });
 
         setApplicantRows(mapped);
