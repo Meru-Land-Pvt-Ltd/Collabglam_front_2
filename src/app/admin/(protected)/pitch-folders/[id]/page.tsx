@@ -149,6 +149,14 @@ type FolderItemCampaignActivation = {
   activatedByAdminId?: string | null;
 };
 
+type FolderItemCampaignInvitation = {
+  invitationId?: string | null;
+  campaignId?: string | null;
+  status?: string | null;
+  sentAt?: string | null;
+  updatedAt?: string | null;
+};
+
 type FolderItem = {
   _id: string;
   provider?: string;
@@ -174,11 +182,17 @@ type FolderItem = {
   mediaKitAccess?: FolderItemMediaKitAccess | null;
   createdInfluencerId?: string | null;
   influencerCreatedAt?: string | null;
+  influencerIsAdminCreated?: boolean | null;
+  influencerCreatedBySource?: string | null;
   linkedInfluencer?: {
     influencerId?: string | null;
     createdAt?: string | null;
+    isAdminCreated?: boolean | null;
+    createdBySource?: string | null;
+    signupCompleted?: boolean | null;
   } | null;
   campaignActivation?: FolderItemCampaignActivation | null;
+  campaignInvitation?: FolderItemCampaignInvitation | null;
 };
 
 type FolderResponse = {
@@ -225,6 +239,18 @@ type AdminInfluencerListItem = {
   _id?: string;
   email?: string | null;
   proxyEmail?: string | null;
+  isAdminCreated?: boolean | null;
+  signupCompleted?: boolean | null;
+  createdBySource?: string | null;
+  createdByLabel?: string | null;
+  currentStatus?: string | null;
+};
+
+type InfluencerMatchMeta = {
+  influencerId: string;
+  isAdminCreated?: boolean | null;
+  createdBySource?: string | null;
+  signupCompleted?: boolean | null;
 };
 
 type AdminInfluencerListResponse = {
@@ -427,12 +453,12 @@ function normalizeEmailForCompare(value?: string | null) {
   return asText(value).toLowerCase();
 }
 
-function getExistingInfluencerIdFromList(
+function getInfluencerMatchFromList(
   influencers: AdminInfluencerListItem[] = [],
   email: string
-) {
+): InfluencerMatchMeta | null {
   const targetEmail = normalizeEmailForCompare(email);
-  if (!targetEmail) return '';
+  if (!targetEmail) return null;
 
   const exactMatch = influencers.find((influencer) => {
     const influencerEmail = normalizeEmailForCompare(influencer.email);
@@ -441,18 +467,93 @@ function getExistingInfluencerIdFromList(
     return influencerEmail === targetEmail || proxyEmail === targetEmail;
   });
 
-  return exactMatch?._id ? String(exactMatch._id) : '';
+  if (!exactMatch?._id) return null;
+
+  return {
+    influencerId: String(exactMatch._id),
+    isAdminCreated:
+      exactMatch.isAdminCreated === true
+        ? true
+        : exactMatch.isAdminCreated === false
+          ? false
+          : null,
+    createdBySource: exactMatch.createdBySource || null,
+    signupCompleted:
+      exactMatch.signupCompleted === true
+        ? true
+        : exactMatch.signupCompleted === false
+          ? false
+          : null,
+  };
 }
 
-function markRowAsExistingInfluencer(row: FolderItem, influencerId: string) {
+function markRowAsExistingInfluencer(
+  row: FolderItem,
+  influencer: string | InfluencerMatchMeta
+) {
+  const meta: InfluencerMatchMeta =
+    typeof influencer === 'string'
+      ? { influencerId: influencer }
+      : influencer;
+
   return {
     ...row,
-    createdInfluencerId: row.createdInfluencerId || influencerId,
-    linkedInfluencer: row.linkedInfluencer || {
-      influencerId,
-      createdAt: row.influencerCreatedAt || null,
+    createdInfluencerId: row.createdInfluencerId || meta.influencerId,
+    influencerIsAdminCreated:
+      meta.isAdminCreated ?? row.influencerIsAdminCreated ?? null,
+    influencerCreatedBySource:
+      meta.createdBySource || row.influencerCreatedBySource || null,
+    linkedInfluencer: {
+      ...(row.linkedInfluencer || {}),
+      influencerId: row.linkedInfluencer?.influencerId || meta.influencerId,
+      createdAt: row.linkedInfluencer?.createdAt || row.influencerCreatedAt || null,
+      isAdminCreated:
+        meta.isAdminCreated ?? row.linkedInfluencer?.isAdminCreated ?? null,
+      createdBySource:
+        meta.createdBySource || row.linkedInfluencer?.createdBySource || null,
+      signupCompleted:
+        meta.signupCompleted ?? row.linkedInfluencer?.signupCompleted ?? null,
     },
   };
+}
+
+function getRowInfluencerId(row: FolderItem) {
+  const influencerId = asText(row.createdInfluencerId || row.linkedInfluencer?.influencerId);
+  return influencerId === 'already-created' ? '' : influencerId;
+}
+
+function getRowInfluencerSource(row: FolderItem): 'admin' | 'self' | 'unknown' {
+  const source = asText(
+    row.influencerCreatedBySource || row.linkedInfluencer?.createdBySource
+  ).toLowerCase();
+
+  const isAdminCreated =
+    row.influencerIsAdminCreated ?? row.linkedInfluencer?.isAdminCreated ?? null;
+
+  if (isAdminCreated === true || source === 'admin') return 'admin';
+
+  if (
+    isAdminCreated === false ||
+    source === 'self' ||
+    source === 'influencer' ||
+    source.includes('self')
+  ) {
+    return 'self';
+  }
+
+  return 'unknown';
+}
+
+function getCampaignInvitationStatus(row: FolderItem, campaignId?: string | null) {
+  const invitation = row.campaignInvitation;
+  if (!invitation?.status) return '';
+
+  const currentCampaignId = asText(campaignId);
+  if (currentCampaignId && invitation.campaignId && String(invitation.campaignId) !== currentCampaignId) {
+    return '';
+  }
+
+  return asText(invitation.status).toLowerCase();
 }
 
 function formatDate(iso?: string | null) {
@@ -1878,11 +1979,13 @@ type InfluencerTableRowProps = {
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onActivateOnCampaign: (row: FolderItem) => Promise<void>;
+  onSendCampaignInvitation: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   assignedCampaign?: AssignedCampaign | null;
   isCreateInfluencerLoading: boolean;
   isActivateCampaignLoading: boolean;
+  isCampaignInvitationLoading: boolean;
 };
 
 const InfluencerTableRowMemo = memo(function InfluencerTableRow({
@@ -1897,21 +2000,30 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   onTogglePdf,
   onCreateInfluencer,
   onActivateOnCampaign,
+  onSendCampaignInvitation,
   onEdit,
   onDelete,
   assignedCampaign,
   isCreateInfluencerLoading,
   isActivateCampaignLoading,
+  isCampaignInvitationLoading,
 }: InfluencerTableRowProps) {
   const hasLink = !!asText(row.mediaKitLink?.url);
   const hasPdf = !!asText(row.mediaKit?.s3Key);
   const access = row.mediaKitAccess;
   const profileUrl = getProfileUrl(row);
-  const influencerLinked = !!(row.createdInfluencerId || row.linkedInfluencer?.influencerId);
-  const canCreateInfluencer = !!asText(row.name) && !!asText(row.email);
+  const influencerLinked = !!getRowInfluencerId(row);
   const hasAssignedCampaign = !!assignedCampaign?.campaignId;
+  const hasCreateInfluencerRequiredFields = !!asText(row.name) && !!asText(row.email);
+  const canCreateInfluencer = hasAssignedCampaign && hasCreateInfluencerRequiredFields;
+  const influencerSource = getRowInfluencerSource(row);
+  const isSelfCreatedInfluencer = influencerSource === 'self';
   const isActiveOnCampaign = row.campaignActivation?.active === true;
+  const campaignInvitationStatus = getCampaignInvitationStatus(row, assignedCampaign?.campaignId);
+  const campaignInvitationSent = ['sent', 'accepted', 'reject', 'failed'].includes(campaignInvitationStatus);
   const canActivateOnCampaign = hasAssignedCampaign && influencerLinked && !isActiveOnCampaign;
+  const canSendCampaignInvitation =
+    hasAssignedCampaign && influencerLinked && isSelfCreatedInfluencer && !campaignInvitationSent;
 
   const visibleSource =
     access?.visibleSource === 'pdf'
@@ -2118,9 +2230,11 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
               className="rounded-xl"
               disabled={!canCreateInfluencer || isCreateInfluencerLoading}
               title={
-                !canCreateInfluencer
-                  ? 'Name and email are required to create influencer'
-                  : 'Create influencer account from this pitch folder row'
+                !hasAssignedCampaign
+                  ? 'Assign a campaign to this pitch folder first, then create influencer'
+                  : !hasCreateInfluencerRequiredFields
+                    ? 'Name and email are required to create influencer'
+                    : 'Create influencer account from this pitch folder row'
               }
               onClick={() => onCreateInfluencer(row)}
             >
@@ -2134,7 +2248,43 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
           )}
 
           {hasAssignedCampaign ? (
-            isActiveOnCampaign ? (
+            isSelfCreatedInfluencer ? (
+              campaignInvitationSent ? (
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-blue-200 bg-blue-50 px-3 py-1 text-blue-700"
+                  title="Campaign invitation already exists for this creator"
+                >
+                  <Mail className="mr-1.5 h-3.5 w-3.5" />
+                  {campaignInvitationStatus === 'accepted'
+                    ? 'Invitation Accepted'
+                    : campaignInvitationStatus === 'reject'
+                      ? 'Invitation Rejected'
+                      : campaignInvitationStatus === 'failed'
+                        ? 'Invitation Failed'
+                        : 'Invitation Sent'}
+                </Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  className="rounded-xl bg-blue-600 text-white hover:bg-blue-700"
+                  disabled={!canSendCampaignInvitation || isCampaignInvitationLoading}
+                  title={
+                    !influencerLinked
+                      ? 'Create/link influencer first, then send campaign invitation'
+                      : 'Send campaign invitation to this self-created influencer'
+                  }
+                  onClick={() => onSendCampaignInvitation(row)}
+                >
+                  {isCampaignInvitationLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Mail className="mr-2 h-4 w-4" />
+                  )}
+                  Send Campaign Invitation
+                </Button>
+              )
+            ) : isActiveOnCampaign ? (
               <Badge
                 variant="outline"
                 className="rounded-full border-slate-900 bg-slate-900 px-3 py-1 text-white"
@@ -2151,7 +2301,9 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
                 title={
                   !influencerLinked
                     ? 'Create/link influencer first, then activate on campaign'
-                    : 'Activate this influencer on the assigned campaign'
+                    : influencerSource === 'unknown'
+                      ? 'Creator source is not confirmed yet. Admin-created creators can be activated directly.'
+                      : 'Activate this admin-created influencer on the assigned campaign'
                 }
                 onClick={() => onActivateOnCampaign(row)}
               >
@@ -2208,6 +2360,7 @@ type InfluencerTableProps = {
   onTogglePdf: (row: FolderItem, nextValue: boolean) => Promise<void>;
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onActivateOnCampaign: (row: FolderItem) => Promise<void>;
+  onSendCampaignInvitation: (row: FolderItem) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   onGoToYoutube: () => void;
@@ -2216,6 +2369,7 @@ type InfluencerTableProps = {
   pdfToggleItemId: string;
   creatingInfluencerItemId: string;
   activatingCampaignItemId: string;
+  campaignInvitationItemId: string;
 };
 
 const InfluencerTableSection = memo(function InfluencerTableSection({
@@ -2236,6 +2390,7 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   onTogglePdf,
   onCreateInfluencer,
   onActivateOnCampaign,
+  onSendCampaignInvitation,
   onEdit,
   onDelete,
   onGoToYoutube,
@@ -2244,6 +2399,7 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   pdfToggleItemId,
   creatingInfluencerItemId,
   activatingCampaignItemId,
+  campaignInvitationItemId,
 }: InfluencerTableProps) {
   return (
     <Card className="rounded-2xl border border-slate-200 shadow-none">
@@ -2393,11 +2549,13 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
                       onTogglePdf={onTogglePdf}
                       onCreateInfluencer={onCreateInfluencer}
                       onActivateOnCampaign={onActivateOnCampaign}
+                      onSendCampaignInvitation={onSendCampaignInvitation}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       assignedCampaign={assignedCampaign}
                       isCreateInfluencerLoading={creatingInfluencerItemId === row._id}
                       isActivateCampaignLoading={activatingCampaignItemId === row._id}
+                      isCampaignInvitationLoading={campaignInvitationItemId === row._id}
                     />
                   ))}
                 </TableBody>
@@ -2455,6 +2613,7 @@ export default function PitchFolderDetailPage() {
   const [movingItems, setMovingItems] = useState(false);
   const [creatingInfluencerItemId, setCreatingInfluencerItemId] = useState('');
   const [activatingCampaignItemId, setActivatingCampaignItemId] = useState('');
+  const [campaignInvitationItemId, setCampaignInvitationItemId] = useState('');
 
   const rowMap = useMemo(() => {
     const map = new Map<string, FolderItem>();
@@ -2535,7 +2694,7 @@ export default function PitchFolderDetailPage() {
   }, [router]);
 
   const goToYoutube = useCallback(() => {
-    router.push(`/admin/youtube?folderId=${folderId}`);
+    router.push(`/admin/influencer-data?folderId=${folderId}`);
   }, [router, folderId]);
 
   const closeDrawer = useCallback(() => {
@@ -2607,7 +2766,6 @@ export default function PitchFolderDetailPage() {
       const emailsToCheck = Array.from(
         new Set(
           items
-            .filter((item) => !(item.createdInfluencerId || item.linkedInfluencer?.influencerId))
             .map((item) => normalizeEmailForCompare(item.email))
             .filter(Boolean)
         )
@@ -2615,7 +2773,7 @@ export default function PitchFolderDetailPage() {
 
       if (!emailsToCheck.length) return items;
 
-      const existingByEmail = new Map<string, string>();
+      const existingByEmail = new Map<string, InfluencerMatchMeta>();
       const batchSize = 8;
 
       for (let index = 0; index < emailsToCheck.length; index += batchSize) {
@@ -2635,12 +2793,12 @@ export default function PitchFolderDetailPage() {
                 }
               );
 
-              const influencerId = getExistingInfluencerIdFromList(
+              const influencerMatch = getInfluencerMatchFromList(
                 Array.isArray(resp?.influencers) ? resp.influencers : [],
                 email
               );
 
-              if (influencerId) existingByEmail.set(email, influencerId);
+              if (influencerMatch) existingByEmail.set(email, influencerMatch);
             } catch {
               // Keep folder loading even if the existing-influencer check fails.
             }
@@ -2651,15 +2809,65 @@ export default function PitchFolderDetailPage() {
       if (!existingByEmail.size) return items;
 
       return items.map((item) => {
-        if (item.createdInfluencerId || item.linkedInfluencer?.influencerId) {
-          return item;
+        const email = normalizeEmailForCompare(item.email);
+        const influencerMatch = existingByEmail.get(email);
+
+        return influencerMatch ? markRowAsExistingInfluencer(item, influencerMatch) : item;
+      });
+    },
+    []
+  );
+
+  const hydrateRowsWithCampaignInvitations = useCallback(
+    async (items: FolderItem[], assignedCampaign?: AssignedCampaign | null) => {
+      const campaignId = asText(assignedCampaign?.campaignId);
+      if (!campaignId) return items;
+
+      try {
+        const resp = await post<{
+          status?: string;
+          invitations?: Array<{
+            _id?: string;
+            influencerId?: string | null;
+            campaignId?: string | null;
+            status?: string | null;
+            sentAt?: string | null;
+            updatedAt?: string | null;
+          }>;
+        }>('/campaign-invitation/get-invitation-status-by-campaign-id', {
+          campaignId,
+          ...(assignedCampaign?.brandId ? { brandId: assignedCampaign.brandId } : {}),
+        });
+
+        const invitationsByInfluencerId = new Map<string, FolderItemCampaignInvitation>();
+
+        for (const invitation of resp?.invitations || []) {
+          const influencerId = asText(invitation.influencerId);
+          if (!influencerId || invitationsByInfluencerId.has(influencerId)) continue;
+
+          invitationsByInfluencerId.set(influencerId, {
+            invitationId: invitation._id || null,
+            campaignId: invitation.campaignId || campaignId,
+            status: invitation.status || null,
+            sentAt: invitation.sentAt || null,
+            updatedAt: invitation.updatedAt || null,
+          });
         }
 
-        const email = normalizeEmailForCompare(item.email);
-        const influencerId = existingByEmail.get(email);
+        if (!invitationsByInfluencerId.size) return items;
 
-        return influencerId ? markRowAsExistingInfluencer(item, influencerId) : item;
-      });
+        return items.map((item) => {
+          const influencerId = getRowInfluencerId(item);
+          const invitation = influencerId
+            ? invitationsByInfluencerId.get(influencerId)
+            : null;
+
+          return invitation ? { ...item, campaignInvitation: invitation } : item;
+        });
+      } catch {
+        // Keep folder loading even if invitation status lookup fails.
+        return items;
+      }
     },
     []
   );
@@ -2676,11 +2884,15 @@ export default function PitchFolderDetailPage() {
       const data = resp?.data || null;
       const nextRows = Array.isArray(data?.items) ? data.items : [];
       const rowsWithExistingInfluencers = await hydrateRowsWithExistingInfluencers(nextRows);
+      const rowsWithCampaignInvitations = await hydrateRowsWithCampaignInvitations(
+        rowsWithExistingInfluencers,
+        data?.assignedCampaign || null
+      );
 
       setFolder(data);
-      setRows(rowsWithExistingInfluencers);
+      setRows(rowsWithCampaignInvitations);
       setSelectedItemIds((prev) =>
-        prev.filter((id) => rowsWithExistingInfluencers.some((row) => row._id === id))
+        prev.filter((id) => rowsWithCampaignInvitations.some((row) => row._id === id))
       );
       setFolderBrandCount(
         data?.brandVisibleItemCount === null ||
@@ -2698,7 +2910,7 @@ export default function PitchFolderDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [folderId, hydrateRowsWithExistingInfluencers]);
+  }, [folderId, hydrateRowsWithExistingInfluencers, hydrateRowsWithCampaignInvitations]);
 
   useEffect(() => {
     if (!folderId) return;
@@ -2764,6 +2976,11 @@ export default function PitchFolderDetailPage() {
       try {
         if (!row?._id) {
           await showErr('Influencer row is missing.');
+          return;
+        }
+
+        if (!folder?.assignedCampaign?.campaignId) {
+          await showErr('Assign a campaign to this pitch folder first, then create influencer.');
           return;
         }
 
@@ -2833,9 +3050,14 @@ export default function PitchFolderDetailPage() {
                 ? {
                   ...item,
                   createdInfluencerId: influencerId,
+                  influencerIsAdminCreated: true,
+                  influencerCreatedBySource: 'admin',
                   linkedInfluencer: {
                     influencerId,
                     createdAt: new Date().toISOString(),
+                    isAdminCreated: true,
+                    createdBySource: 'admin',
+                    signupCompleted: false,
                   },
                 }
                 : item
@@ -2854,9 +3076,14 @@ export default function PitchFolderDetailPage() {
                 ? {
                   ...item,
                   createdInfluencerId: item.createdInfluencerId || 'already-created',
+                  influencerIsAdminCreated: item.influencerIsAdminCreated ?? null,
+                  influencerCreatedBySource: item.influencerCreatedBySource || null,
                   linkedInfluencer: item.linkedInfluencer || {
                     influencerId: 'already-created',
                     createdAt: new Date().toISOString(),
+                    isAdminCreated: null,
+                    createdBySource: null,
+                    signupCompleted: null,
                   },
                 }
                 : item
@@ -2883,7 +3110,9 @@ export default function PitchFolderDetailPage() {
           return;
         }
 
-        if (!(row.createdInfluencerId || row.linkedInfluencer?.influencerId)) {
+        const influencerId = getRowInfluencerId(row);
+
+        if (!influencerId) {
           await showErr('Create/link this influencer first, then activate them on the campaign.');
           return;
         }
@@ -2904,9 +3133,13 @@ export default function PitchFolderDetailPage() {
         if (nextFolder) {
           const nextRows = Array.isArray(nextFolder.items) ? nextFolder.items : [];
           const rowsWithExistingInfluencers = await hydrateRowsWithExistingInfluencers(nextRows);
+          const rowsWithCampaignInvitations = await hydrateRowsWithCampaignInvitations(
+            rowsWithExistingInfluencers,
+            nextFolder.assignedCampaign || folder?.assignedCampaign || null
+          );
 
           setFolder(nextFolder);
-          setRows(rowsWithExistingInfluencers);
+          setRows(rowsWithCampaignInvitations);
         } else {
           setRows((prev) =>
             prev.map((item) =>
@@ -2917,10 +3150,7 @@ export default function PitchFolderDetailPage() {
                     active: true,
                     campaignId: folder.assignedCampaign?.campaignId || null,
                     campaignsId: folder.assignedCampaign?.campaignsId || '',
-                    influencerId:
-                      row.createdInfluencerId ||
-                      row.linkedInfluencer?.influencerId ||
-                      null,
+                    influencerId,
                     activeAt: new Date().toISOString(),
                     activatedByAdminId: null,
                   },
@@ -2942,7 +3172,80 @@ export default function PitchFolderDetailPage() {
         setActivatingCampaignItemId('');
       }
     },
-    [folder, folderId, hydrateRowsWithExistingInfluencers]
+    [folder, folderId, hydrateRowsWithExistingInfluencers, hydrateRowsWithCampaignInvitations]
+  );
+
+  const sendCampaignInvitationForRow = useCallback(
+    async (row: FolderItem) => {
+      try {
+        const assignedCampaign = folder?.assignedCampaign || null;
+        const campaignId = asText(assignedCampaign?.campaignId);
+        const brandId = asText(assignedCampaign?.brandId);
+        const influencerId = getRowInfluencerId(row);
+
+        if (!campaignId) {
+          await showErr('Assign a campaign to this pitch folder first.');
+          return;
+        }
+
+        if (!brandId) {
+          await showErr('Assigned campaign brand ID is missing.');
+          return;
+        }
+
+        if (!influencerId) {
+          await showErr('Create/link this influencer first, then send campaign invitation.');
+          return;
+        }
+
+        setCampaignInvitationItemId(row._id);
+
+        const resp = await post<{
+          status?: string;
+          message?: string;
+          invitations?: Array<{
+            _id?: string;
+            campaignId?: string | null;
+            status?: string | null;
+            sentAt?: string | null;
+            updatedAt?: string | null;
+          }>;
+        }>('/campaign-invitation/create', {
+          brandId,
+          influencerId,
+          campaignIds: [campaignId],
+          platform: asText(row.provider).toLowerCase() || undefined,
+          handle: normalizeHandle(asText(row.handle)) || undefined,
+          emailTo: normalizeEmailForCompare(row.email) || undefined,
+        });
+
+        const invitation = resp?.invitations?.[0] || null;
+
+        setRows((prev) =>
+          prev.map((item) =>
+            item._id === row._id
+              ? {
+                ...item,
+                campaignInvitation: {
+                  invitationId: invitation?._id || null,
+                  campaignId: invitation?.campaignId || campaignId,
+                  status: invitation?.status || 'sent',
+                  sentAt: invitation?.sentAt || new Date().toISOString(),
+                  updatedAt: invitation?.updatedAt || new Date().toISOString(),
+                },
+              }
+              : item
+          )
+        );
+
+        await showSuccess(resp?.message || 'Campaign invitation sent successfully.');
+      } catch (e: any) {
+        await showErr(e?.message || 'Failed to send campaign invitation.');
+      } finally {
+        setCampaignInvitationItemId('');
+      }
+    },
+    [folder]
   );
 
   const deleteRow = useCallback(
@@ -3592,6 +3895,7 @@ export default function PitchFolderDetailPage() {
           onTogglePdf={handleMediaKitPdfToggle}
           onCreateInfluencer={createInfluencerFromRow}
           onActivateOnCampaign={activateRowOnCampaign}
+          onSendCampaignInvitation={sendCampaignInvitationForRow}
           onEdit={openEditDrawer}
           onDelete={deleteRow}
           onGoToYoutube={goToYoutube}
@@ -3600,6 +3904,7 @@ export default function PitchFolderDetailPage() {
           pdfToggleItemId={pdfToggleItemId}
           creatingInfluencerItemId={creatingInfluencerItemId}
           activatingCampaignItemId={activatingCampaignItemId}
+          campaignInvitationItemId={campaignInvitationItemId}
         />
       </div>
     </div>
