@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, Eye, Sparkles, Upload } from "lucide-react";
+import { getCsvTemplateVariableForColumn, normalizeCustomVariableKey } from "../utils/csvVariables";
 
 type CsvColumnType =
   | "ignore"
@@ -170,11 +171,16 @@ export function CsvImportPanel({
                             <td className="px-5 py-4 align-top">
                               <select
                                 value={column.selectedType}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  const selectedType = event.target.value as CsvColumnType;
                                   onUpdateColumn(column.header, {
-                                    selectedType: event.target.value as CsvColumnType,
-                                  })
-                                }
+                                    selectedType,
+                                    variableKey:
+                                      selectedType === "custom"
+                                        ? normalizeCustomVariableKey(column.variableKey || column.header)
+                                        : column.variableKey,
+                                  });
+                                }}
                                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
                               >
                                 {csvTypeOptions.map((option) => (
@@ -187,17 +193,22 @@ export function CsvImportPanel({
 
                             <td className="px-5 py-4 align-top">
                               <input
-                                value={column.variableKey}
+                                value={
+                                  column.selectedType === "custom"
+                                    ? column.variableKey
+                                    : getCsvTemplateVariableForColumn(column).replace(/[{}]/g, "")
+                                }
+                                disabled={column.selectedType !== "custom"}
                                 onChange={(event) =>
                                   onUpdateColumn(column.header, {
-                                    variableKey: event.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+                                    variableKey: normalizeCustomVariableKey(event.target.value),
                                   })
                                 }
-                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50"
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-50 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
                               />
 
                               <p className="mt-2 inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                                {`{{${column.variableKey}}}`}
+                                {getCsvTemplateVariableForColumn(column) || "Ignored"}
                               </p>
                             </td>
 

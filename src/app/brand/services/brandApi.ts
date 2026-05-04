@@ -272,6 +272,7 @@ export async function apiListContentLanguages(params: ListQuery = {}) {
   return apiGet<LangRow[]>(`${LIST_BASE}/content-languages`, params);
 }
 
+
 /** -------------------------
  *  ✅ CATEGORY APIs
  *  ------------------------*/
@@ -547,6 +548,12 @@ export async function apiCampaignGetByBrand(payload: ListCampaignsPayload) {
 
 export async function apiCampaignGetById(payload: { campaignId: string; brandId?: string }) {
   return apiPost<EnrichedCampaignDoc>(`${CAMPAIGN_BASE}/get-by-id`, payload);
+}
+
+export async function apiCampaignGetById2(campaignId: string) {
+  return apiGet<EnrichedCampaignDoc>(
+    `${CAMPAIGN_BASE}/get-by-id/${encodeURIComponent(campaignId)}`
+  );
 }
 
 export type EditDraftPayload = {
@@ -2158,4 +2165,8 @@ export async function apiEditDispute(payload: {
   }
 
   return apiPatch(`${DISPUTE_BASE}/brand/disputes/${disputeId}/edit`, form);
+}
+
+export async function apiAdminEditCampaign(payload: any) {
+  return apiPost(`/admin/campaign/edit`, payload);
 }

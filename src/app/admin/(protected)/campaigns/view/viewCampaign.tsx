@@ -2221,9 +2221,10 @@ export default function ViewCampaignPage() {
   const isDraft = c.isDraft === 1;
   const editHref =
     canEditCampaigns && c.brandId && effectiveCampaignId
-      ? `/admin/brands/create-campaign?brandId=${c.brandId}&id=${effectiveCampaignId}`
+      ? `/admin/brands/create-campaign?brandId=${encodeURIComponent(
+        c.brandId
+      )}&campaignId=${encodeURIComponent(effectiveCampaignId)}`
       : null;
-
   const heroImage = imageUrls[0] || "";
   const heroTags = Array.from(
     new Set(

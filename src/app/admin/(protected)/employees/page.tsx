@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Clock3,
   Download,
+  KeyRound,
   Mail,
   RefreshCw,
   Search,
@@ -399,6 +400,12 @@ export default function EmployeesPage() {
     row: AdminRow;
     nextStatus: AdminStatus;
   } | null>(null);
+
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwordEmployee, setPasswordEmployee] = useState<AdminRow | null>(null);
+  const [updatePassword, setUpdatePassword] = useState("");
+  const [passwordErr, setPasswordErr] = useState<string | null>(null);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   const [editErr, setEditErr] = useState<string | null>(null);
 
@@ -903,6 +910,78 @@ export default function EmployeesPage() {
     }
   }
 
+  function openPasswordModal(
+    row: AdminRow,
+    event?: React.MouseEvent<HTMLButtonElement>
+  ) {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    // Clear search because browser autofill / table click can put admin email here
+    setSearch("");
+
+    setPasswordEmployee(row);
+    setUpdatePassword("");
+    setPasswordErr(null);
+    setPasswordOpen(true);
+  }
+
+  function closePasswordModal() {
+    if (savingPassword) return;
+
+    setPasswordOpen(false);
+    setPasswordEmployee(null);
+    setUpdatePassword("");
+    setPasswordErr(null);
+  }
+
+  async function onUpdatePassword() {
+    if (!passwordEmployee || !canEditEmployees) return;
+
+    const password = updatePassword.trim();
+
+    if (!password) {
+      setPasswordErr("Password is required");
+      return;
+    }
+
+    if (password.length < 8) {
+      setPasswordErr("Password must be at least 8 characters");
+      return;
+    }
+
+    setSavingPassword(true);
+    setPasswordErr(null);
+
+    try {
+      const res = await fetch(toApiUrl("admins/update-employee-password"), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          employeeId: passwordEmployee._id,
+          updatedPassword: password,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to update password");
+      }
+
+      setRowMsg(data?.message || "Employee password updated successfully");
+      closePasswordModal();
+
+      await fetchEmployees();
+    } catch (e: any) {
+      setPasswordErr(e?.message || "Failed to update password");
+    } finally {
+      setSavingPassword(false);
+      setTimeout(() => setRowMsg(null), 2500);
+    }
+  }
+
   async function onSaveCurrent() {
     if (!selectedId) return;
 
@@ -1179,6 +1258,12 @@ export default function EmployeesPage() {
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
+                type="search"
+                name="employeeSearchInput"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 placeholder="Search name, email, proxy email or role..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -1256,6 +1341,19 @@ export default function EmployeesPage() {
                       className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                     >
                       Manage
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!canEditEmployees}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={(e) => openPasswordModal(row, e)}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      UpdatePassword
                     </button>
 
                     {!isPending ? (
@@ -1501,6 +1599,88 @@ export default function EmployeesPage() {
                 className="h-10 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
               >
                 {inviting ? "Sending..." : "Send Invite"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {passwordOpen && passwordEmployee ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-slate-950">
+                  Update Password
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Set a new password for this employee.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={closePasswordModal}
+                disabled={savingPassword}
+                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-5">
+              {passwordErr ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {passwordErr}
+                </div>
+              ) : null}
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-xs font-semibold text-slate-400">
+                  Employee Name
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-950">
+                  {passwordEmployee.name || "Unnamed Employee"}
+                </div>
+                <div className="mt-1 break-all text-xs text-slate-500">
+                  {passwordEmployee.email}
+                </div>
+              </div>
+
+              <Field label="Update Password">
+                <input
+                  type="password"
+                  name="newEmployeePassword"
+                  autoComplete="new-password"
+                  value={updatePassword}
+                  onChange={(e) => setUpdatePassword(e.target.value)}
+                  disabled={savingPassword || !canEditEmployees}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
+                  placeholder="Enter new password"
+                />
+              </Field>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+              <button
+                type="button"
+                onClick={closePasswordModal}
+                disabled={savingPassword}
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={onUpdatePassword}
+                disabled={
+                  savingPassword || !updatePassword.trim() || !canEditEmployees
+                }
+                className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                <KeyRound className="h-4 w-4" />
+                {savingPassword ? "Updating..." : "Update Password"}
               </button>
             </div>
           </div>
