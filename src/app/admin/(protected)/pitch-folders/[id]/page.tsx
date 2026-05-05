@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import swal from 'sweetalert';
 
-import { get, post } from '@/lib/api';
+import { adminPost, get, post } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -322,6 +322,56 @@ function showSuccess(message: string) {
   });
 }
 
+function getApiErrorMessage(error: any, fallback = 'Something went wrong.') {
+  const possibleMessage =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.data?.message ||
+    error?.data?.error ||
+    error?.error?.message ||
+    error?.message ||
+    '';
+
+  if (typeof possibleMessage === 'string') {
+    const trimmed = possibleMessage.trim();
+
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return parsed?.message || parsed?.error || fallback;
+      } catch {
+        return trimmed || fallback;
+      }
+    }
+
+    return trimmed || fallback;
+  }
+
+  return fallback;
+}
+
+function isBrandEmailRegisteredError(message?: string | null) {
+  const normalized = asText(message).toLowerCase();
+  return (
+    normalized.includes('already registered as a brand') ||
+    (normalized.includes('email') &&
+      normalized.includes('brand') &&
+      normalized.includes('already registered'))
+  );
+}
+
+function showCreateInfluencerError(message: string, email?: string) {
+  if (isBrandEmailRegisteredError(message)) {
+    return swal({
+      title: 'Email Already Registered as Brand',
+      text: `${email ? `${email} is` : 'This email is'} already registered as a brand. Please use a different influencer email address.`,
+      icon: 'error',
+    });
+  }
+
+  return showErr(message || 'Failed to create influencer.');
+}
+
 function asText(v: unknown) {
   if (v === undefined || v === null) return '';
   return String(v).trim();
@@ -544,6 +594,10 @@ function getRowInfluencerSource(row: FolderItem): 'admin' | 'self' | 'unknown' {
   return 'unknown';
 }
 
+function getAssignedCampaignId(assignedCampaign?: AssignedCampaign | null) {
+  return asText(assignedCampaign?.campaignId || assignedCampaign?.campaignsId);
+}
+
 function getCampaignInvitationStatus(row: FolderItem, campaignId?: string | null) {
   const invitation = row.campaignInvitation;
   if (!invitation?.status) return '';
@@ -554,6 +608,10 @@ function getCampaignInvitationStatus(row: FolderItem, campaignId?: string | null
   }
 
   return asText(invitation.status).toLowerCase();
+}
+
+function isRowGoodFit(row?: FolderItem | null) {
+  return row?.goodFit === true;
 }
 
 function formatDate(iso?: string | null) {
@@ -2013,17 +2071,19 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   const access = row.mediaKitAccess;
   const profileUrl = getProfileUrl(row);
   const influencerLinked = !!getRowInfluencerId(row);
-  const hasAssignedCampaign = !!assignedCampaign?.campaignId;
+  const assignedCampaignId = getAssignedCampaignId(assignedCampaign);
+  const hasAssignedCampaign = !!assignedCampaignId;
+  const isGoodFit = isRowGoodFit(row);
   const hasCreateInfluencerRequiredFields = !!asText(row.name) && !!asText(row.email);
-  const canCreateInfluencer = hasAssignedCampaign && hasCreateInfluencerRequiredFields;
+  const canCreateInfluencer = isGoodFit && hasAssignedCampaign && hasCreateInfluencerRequiredFields;
   const influencerSource = getRowInfluencerSource(row);
   const isSelfCreatedInfluencer = influencerSource === 'self';
   const isActiveOnCampaign = row.campaignActivation?.active === true;
-  const campaignInvitationStatus = getCampaignInvitationStatus(row, assignedCampaign?.campaignId);
+  const campaignInvitationStatus = getCampaignInvitationStatus(row, assignedCampaignId);
   const campaignInvitationSent = ['sent', 'accepted', 'reject', 'failed'].includes(campaignInvitationStatus);
-  const canActivateOnCampaign = hasAssignedCampaign && influencerLinked && !isActiveOnCampaign;
+  const canActivateOnCampaign = isGoodFit && hasAssignedCampaign && influencerLinked && !isActiveOnCampaign;
   const canSendCampaignInvitation =
-    hasAssignedCampaign && influencerLinked && isSelfCreatedInfluencer && !campaignInvitationSent;
+    isGoodFit && hasAssignedCampaign && influencerLinked && isSelfCreatedInfluencer && !campaignInvitationSent;
 
   const visibleSource =
     access?.visibleSource === 'pdf'
@@ -2230,11 +2290,13 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
               className="rounded-xl"
               disabled={!canCreateInfluencer || isCreateInfluencerLoading}
               title={
-                !hasAssignedCampaign
-                  ? 'Assign a campaign to this pitch folder first, then create influencer'
-                  : !hasCreateInfluencerRequiredFields
-                    ? 'Name and email are required to create influencer'
-                    : 'Create influencer account from this pitch folder row'
+                !isGoodFit
+                  ? 'Mark this influencer as Good Fit first, then create influencer'
+                  : !hasAssignedCampaign
+                    ? 'Assign a campaign to this pitch folder first, then create influencer'
+                    : !hasCreateInfluencerRequiredFields
+                      ? 'Name and email are required to create influencer'
+                      : 'Create influencer account from this pitch folder row'
               }
               onClick={() => onCreateInfluencer(row)}
             >
@@ -2270,9 +2332,11 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
                   className="rounded-xl bg-blue-600 text-white hover:bg-blue-700"
                   disabled={!canSendCampaignInvitation || isCampaignInvitationLoading}
                   title={
-                    !influencerLinked
-                      ? 'Create/link influencer first, then send campaign invitation'
-                      : 'Send campaign invitation to this self-created influencer'
+                    !isGoodFit
+                      ? 'Mark this influencer as Good Fit first, then send campaign invitation'
+                      : !influencerLinked
+                        ? 'Create/link influencer first, then send campaign invitation'
+                        : 'Send campaign invitation to this self-created influencer'
                   }
                   onClick={() => onSendCampaignInvitation(row)}
                 >
@@ -2299,11 +2363,13 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
                 className="rounded-xl bg-slate-900 text-white hover:bg-slate-800"
                 disabled={!canActivateOnCampaign || isActivateCampaignLoading}
                 title={
-                  !influencerLinked
-                    ? 'Create/link influencer first, then activate on campaign'
-                    : influencerSource === 'unknown'
-                      ? 'Creator source is not confirmed yet. Admin-created creators can be activated directly.'
-                      : 'Activate this admin-created influencer on the assigned campaign'
+                  !isGoodFit
+                    ? 'Mark this influencer as Good Fit first, then activate on campaign'
+                    : !influencerLinked
+                      ? 'Create/link influencer first, then activate on campaign'
+                      : influencerSource === 'unknown'
+                        ? 'Creator source is not confirmed yet. Admin-created creators can be activated directly.'
+                        : 'Activate this admin-created influencer on the assigned campaign'
                 }
                 onClick={() => onActivateOnCampaign(row)}
               >
@@ -2820,7 +2886,7 @@ export default function PitchFolderDetailPage() {
 
   const hydrateRowsWithCampaignInvitations = useCallback(
     async (items: FolderItem[], assignedCampaign?: AssignedCampaign | null) => {
-      const campaignId = asText(assignedCampaign?.campaignId);
+      const campaignId = getAssignedCampaignId(assignedCampaign);
       if (!campaignId) return items;
 
       try {
@@ -2973,19 +3039,29 @@ export default function PitchFolderDetailPage() {
 
   const createInfluencerFromRow = useCallback(
     async (row: FolderItem) => {
+      let attemptedEmail = '';
+
       try {
         if (!row?._id) {
           await showErr('Influencer row is missing.');
           return;
         }
 
-        if (!folder?.assignedCampaign?.campaignId) {
+        if (!isRowGoodFit(row)) {
+          await showErr('Mark this influencer as Good Fit first, then create influencer.');
+          return;
+        }
+
+        const assignedCampaignId = getAssignedCampaignId(folder?.assignedCampaign);
+
+        if (!assignedCampaignId) {
           await showErr('Assign a campaign to this pitch folder first, then create influencer.');
           return;
         }
 
         const name = asText(row.name);
         const email = asText(row.email).toLowerCase();
+        attemptedEmail = email;
         const platform = normalizeAdminCreatePlatform(row.provider);
         const username = getAdminCreateUsernameFromRow(row);
 
@@ -3041,6 +3117,10 @@ export default function PitchFolderDetailPage() {
           shippingAddress: getShippingAddress(row),
         });
 
+        if (resp?.success === false) {
+          throw new Error(resp?.message || 'Failed to create influencer.');
+        }
+
         const influencerId = resp?.influencer?._id || '';
 
         if (influencerId) {
@@ -3067,7 +3147,7 @@ export default function PitchFolderDetailPage() {
 
         await showSuccess(resp?.message || 'Influencer created successfully.');
       } catch (e: any) {
-        const message = e?.message || 'Failed to create influencer.';
+        const message = getApiErrorMessage(e, 'Failed to create influencer.');
 
         if (/influencer already exists/i.test(message)) {
           setRows((prev) =>
@@ -3094,18 +3174,25 @@ export default function PitchFolderDetailPage() {
           return;
         }
 
-        await showErr(message);
+        await showCreateInfluencerError(message, attemptedEmail);
       } finally {
         setCreatingInfluencerItemId('');
       }
     },
-    []
+    [folder?.assignedCampaign?.campaignId, folder?.assignedCampaign?.campaignsId]
   );
 
   const activateRowOnCampaign = useCallback(
     async (row: FolderItem) => {
       try {
-        if (!folder?.assignedCampaign?.campaignId) {
+        if (!isRowGoodFit(row)) {
+          await showErr('Mark this influencer as Good Fit first, then activate on campaign.');
+          return;
+        }
+
+        const assignedCampaignId = getAssignedCampaignId(folder?.assignedCampaign);
+
+        if (!assignedCampaignId) {
           await showErr('Assign a campaign to this pitch folder first.');
           return;
         }
@@ -3148,8 +3235,8 @@ export default function PitchFolderDetailPage() {
                   ...item,
                   campaignActivation: {
                     active: true,
-                    campaignId: folder.assignedCampaign?.campaignId || null,
-                    campaignsId: folder.assignedCampaign?.campaignsId || '',
+                    campaignId: assignedCampaignId || null,
+                    campaignsId: folder?.assignedCampaign?.campaignsId || '',
                     influencerId,
                     activeAt: new Date().toISOString(),
                     activatedByAdminId: null,
@@ -3162,9 +3249,9 @@ export default function PitchFolderDetailPage() {
 
         await showSuccess(
           resp?.message ||
-            (resp?.data?.alreadyActive
-              ? 'Influencer is already active on this campaign.'
-              : 'Influencer activated on campaign successfully.')
+          (resp?.data?.alreadyActive
+            ? 'Influencer is already active on this campaign.'
+            : 'Influencer activated on campaign successfully.')
         );
       } catch (e: any) {
         await showErr(e?.message || 'Failed to activate influencer on campaign.');
@@ -3178,8 +3265,13 @@ export default function PitchFolderDetailPage() {
   const sendCampaignInvitationForRow = useCallback(
     async (row: FolderItem) => {
       try {
+        if (!isRowGoodFit(row)) {
+          await showErr('Mark this influencer as Good Fit first, then send campaign invitation.');
+          return;
+        }
+
         const assignedCampaign = folder?.assignedCampaign || null;
-        const campaignId = asText(assignedCampaign?.campaignId);
+        const campaignId = getAssignedCampaignId(assignedCampaign);
         const brandId = asText(assignedCampaign?.brandId);
         const influencerId = getRowInfluencerId(row);
 
@@ -3200,7 +3292,7 @@ export default function PitchFolderDetailPage() {
 
         setCampaignInvitationItemId(row._id);
 
-        const resp = await post<{
+        const resp = await adminPost<{
           status?: string;
           message?: string;
           invitations?: Array<{
@@ -3210,7 +3302,7 @@ export default function PitchFolderDetailPage() {
             sentAt?: string | null;
             updatedAt?: string | null;
           }>;
-        }>('/campaign-invitation/create', {
+        }>('/campaign-invitation/admin/create', {
           brandId,
           influencerId,
           campaignIds: [campaignId],
