@@ -14,7 +14,6 @@ type TabKey =
   | "all influencer"
   | "applied"
   | "active"
-  | "pitch-sheet"
   | "shortlisted"
   | "undecided"
   | "rejected";
@@ -120,12 +119,6 @@ export default function CampaignNavBar() {
       href: "/brand/influ/active",
     },
     {
-      key: "pitch-sheet",
-      label: "Pitch Sheet",
-      href: "/brand/influ/pitch-sheet",
-      showCount: false,
-    },
-    {
       key: "shortlisted",
       label: "Shortlisted",
       href: "/brand/influ/shortlisted",
@@ -144,19 +137,16 @@ export default function CampaignNavBar() {
 
   const visibleTabs = useMemo(() => {
     if (isAdminCreatedCampaign) {
-      return tabs.filter(
-        (tab) => tab.key === "active" || tab.key === "pitch-sheet"
-      );
+      return tabs.filter((tab) => tab.key === "active");
     }
 
-    return tabs.filter((tab) => tab.key !== "pitch-sheet");
+    return tabs;
   }, [isAdminCreatedCampaign]);
 
   const tabCounts: Record<TabKey, number> = {
     "all influencer": counts.all,
     applied: counts.applied,
     active: counts.active,
-    "pitch-sheet": 0,
     shortlisted: counts.shortlisted,
     undecided: counts.undecided,
     rejected: counts.rejected,

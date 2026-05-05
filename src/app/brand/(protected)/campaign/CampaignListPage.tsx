@@ -207,7 +207,7 @@ function LockedShell({
 
   return (
     <div
-      className={`relative min-w-0 ${locked ? "cursor-pointer" : ""}`}
+      className={`relative h-full min-w-0 ${locked ? "cursor-pointer" : ""}`}
       aria-disabled={locked || undefined}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
@@ -229,13 +229,13 @@ function LockedShell({
       ) : null}
 
       <div
-        className={`relative ${radiusClass} ${locked ? "overflow-hidden" : ""}`}
+        className={`relative h-full ${radiusClass} ${locked ? "overflow-hidden" : ""}`}
       >
         <div
           className={
             locked
-              ? "pointer-events-none select-none blur-[1.25px] opacity-75"
-              : ""
+              ? "pointer-events-none h-full select-none blur-[1.25px] opacity-75"
+              : "h-full"
           }
         >
           {children}
@@ -399,9 +399,59 @@ function allImages(c: any): string[] {
   return Array.from(new Set(out.filter(Boolean)));
 }
 
+
+function PlatformMiniIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <rect x="1.25" y="3" width="10.5" height="7" rx="2" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5.25 5.1L8.15 6.5L5.25 7.9V5.1Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ContractMiniIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <path d="M3.15 1.65H7.4L10.05 4.3V11.25H3.15V1.65Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M7.3 1.65V4.45H10.05" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M4.7 7.05H8.35M4.7 9H8.35" stroke="currentColor" strokeWidth="1.05" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function InfluencerMiniIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5.1 6.55C6.35 6.55 7.35 5.55 7.35 4.3C7.35 3.05 6.35 2.05 5.1 2.05C3.85 2.05 2.85 3.05 2.85 4.3C2.85 5.55 3.85 6.55 5.1 6.55Z" stroke="currentColor" strokeWidth="1.15" />
+      <path d="M1.9 11.6C2.25 9.65 3.45 8.55 5.1 8.55C6.75 8.55 7.95 9.65 8.3 11.6" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+      <path d="M9 6.45C10 6.35 10.75 5.52 10.75 4.5C10.75 3.67 10.25 2.95 9.55 2.65" stroke="currentColor" strokeWidth="1.05" strokeLinecap="round" />
+      <path d="M9.3 8.75C10.72 9.05 11.65 10.05 11.95 11.55" stroke="currentColor" strokeWidth="1.05" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function WalletMiniIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <path d="M2.05 3.35H10.45C11.05 3.35 11.55 3.85 11.55 4.45V9.5C11.55 10.1 11.05 10.6 10.45 10.6H2.05C1.45 10.6 0.95 10.1 0.95 9.5V4.45C0.95 3.85 1.45 3.35 2.05 3.35Z" stroke="currentColor" strokeWidth="1.15" />
+      <path d="M2.55 3.35L8.45 2.05" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+      <path d="M8.55 7H11.55" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+      <circle cx="8.55" cy="7" r="0.55" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ChevronDownMiniIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+      <path d="M3 4.35L5.5 6.85L8 4.35" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 const GRID_WRAP = "mx-auto w-full max-w-[100vw]";
 const CARD_GRID =
-  "grid w-full min-w-0 gap-[clamp(12px,2vw,24px)] " +
+  "grid w-full min-w-0 auto-rows-fr gap-[clamp(12px,2vw,24px)] " +
   "[grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))]";
 
 export default function CampaignListPage({
@@ -680,6 +730,7 @@ export default function CampaignListPage({
   const renderGridCard = (c: any) => {
     const footerText = campaignFooterText(c);
     const locked = isCampaignLocked(c);
+    const fullyManaged = isFullyManagedCampaign(c);
 
     const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
     const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
@@ -692,6 +743,10 @@ export default function CampaignListPage({
     const acceptedCount = c.acceptedContracts ?? 0;
     const totalInfluencers = c.numberOfInfluencers ?? 0;
     const campaignBudget = c.campaignBudget ?? 0;
+    const imageUrls = allImages(c);
+    const platforms = ((c.platformSelection ?? []) as string[]);
+    const platformCount = platforms.length;
+    const platformDisplay = platformCount > 1 ? `+${platformCount}` : platformCount;
 
     const goToInfluencers = () => {
       if (locked) return;
@@ -727,30 +782,174 @@ export default function CampaignListPage({
       }
     };
 
+    if (fullyManaged) {
+      const metricLabelClass =
+        "text-[14px] font-normal leading-none text-[#858585] max-[420px]:text-[12.5px]";
+      const metricTextClass =
+        "mt-[9px] inline-flex min-w-0 items-center gap-[4px] text-[15px] font-semibold leading-none text-[#151515] no-underline max-[420px]:text-[13px]";
+      const metricIconClass = "shrink-0 text-[#9A9A9A]";
+      const fullyManagedBudget = Number.isFinite(Number(campaignBudget))
+        ? String(Number(campaignBudget))
+        : String(campaignBudget ?? 0);
+
+      return (
+        <LockedShell
+          key={campaignId}
+          locked={locked}
+          radiusClass="rounded-[17px]"
+        >
+          <article className="relative h-full min-h-[354px] w-full overflow-hidden rounded-[17px] border border-[#D9A342] bg-white shadow-none">
+            <div
+              className="absolute right-0 top-0 z-20 flex h-[30px] w-[116px] items-center justify-center rounded-tr-[17px] pl-[16px] text-[12px] font-medium leading-none text-white [clip-path:polygon(27px_0,100%_0,100%_100%,0_100%)]"
+              style={{
+                background:
+                  "linear-gradient(94deg, rgba(244, 211, 115, 0.00) 0.49%, #F4D373 12.4%, #7A501A 87.66%)",
+              }}
+            >
+              Fully Managed
+            </div>
+
+            <div className="relative px-[17px] pt-[21px] pb-[112px]">
+              <div className="flex min-w-0 items-start gap-[12px] pr-[126px]">
+                <div className="h-[44px] w-[44px] shrink-0 overflow-hidden rounded-[7px] bg-[#0B0B0B]">
+                  {imageUrls[0] ? (
+                    <img
+                      src={imageUrls[0]}
+                      alt="Product image"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[17px] font-bold uppercase text-white">
+                      {String(campaignTitle).charAt(0) || "C"}
+                    </div>
+                  )}
+                </div>
+
+                <h3 className="min-w-0 text-[16px] font-semibold leading-[1.28] text-[#151515] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
+                  {campaignTitle}
+                </h3>
+              </div>
+
+              <div className="absolute right-[12px] top-[42px] z-30 flex items-center gap-[6px] text-[#8E8E8E]">
+                <span className="h-[7px] w-[7px] rounded-full bg-[#21B44B]" />
+                <span className="text-[15px] font-normal leading-none">
+                  {statusLabel(c.status)}
+                </span>
+                <ChevronDownMiniIcon />
+                {locked ? null : (
+                  <div className="-ml-[1px] flex h-[21px] items-center">
+                    <CampaignCardMenu viewHref={viewHref} inviteHref={inviteHref} />
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-[26px]">
+                <span className="inline-flex h-[25px] items-center rounded-full bg-[#F7F7F7] px-[10px] text-[12px] font-normal leading-none text-[#686868]">
+                  {c.category?.name || "No Category"}
+                </span>
+              </div>
+
+              <div className="mt-[29px] grid min-w-0 grid-cols-4 gap-x-[14px] max-[420px]:gap-x-[8px]">
+                <div className="min-w-0 text-left">
+                  <div className={metricLabelClass}>Platform</div>
+                  <div className={metricTextClass}>
+                    <span className={metricIconClass}>
+                      <PlatformMiniIcon />
+                    </span>
+                    <span className="min-w-0 truncate">{platformDisplay}</span>
+                  </div>
+                </div>
+
+                <div className="min-w-0 text-left">
+                  <div className={metricLabelClass}>Applied</div>
+                  <button
+                    type="button"
+                    onClick={goToApplied}
+                    disabled={locked}
+                    className={`${metricTextClass} ${locked ? "cursor-default" : "cursor-pointer hover:underline"}`}
+                  >
+                    <span className={metricIconClass}>
+                      <ContractMiniIcon />
+                    </span>
+                    <span className="min-w-0 truncate">{applicantCount}</span>
+                  </button>
+                </div>
+
+                <div className="min-w-0 text-left">
+                  <div className={metricLabelClass}>Influencer</div>
+                  <button
+                    type="button"
+                    onClick={goToInfluencers}
+                    disabled={locked}
+                    className={`${metricTextClass} ${locked ? "cursor-default" : "cursor-pointer hover:underline"}`}
+                  >
+                    <span className={metricIconClass}>
+                      <InfluencerMiniIcon />
+                    </span>
+                    <span className="min-w-0 truncate">{acceptedCount}/{totalInfluencers}</span>
+                  </button>
+                </div>
+
+                <div className="min-w-0 text-left">
+                  <div className={metricLabelClass}>Budget</div>
+                  <div className={metricTextClass}>
+                    <span className={metricIconClass}>
+                      <WalletMiniIcon />
+                    </span>
+                    <span className="min-w-0 truncate">${fullyManagedBudget}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="absolute bottom-0 left-0 right-0 border-t border-[#EFEFEF] px-[29px] pb-[13px] pt-[15px]">
+              <div className="flex w-full items-center gap-[8px]">
+                <button
+                  type="button"
+                  className="h-[40px] min-w-0 flex-1 rounded-[7px] border border-[#E5E5E5] bg-white px-3 text-[13px] font-semibold text-[#202020] shadow-none transition hover:bg-[#FAFAFA] disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleView}
+                  disabled={locked}
+                >
+                  View Campaign
+                </button>
+
+                {showEditButton ? (
+                  <button
+                    type="button"
+                    className="flex h-[40px] w-[42px] shrink-0 items-center justify-center rounded-[7px] border border-[#E5E5E5] bg-white text-[#191919] shadow-none transition hover:bg-[#FAFAFA] disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={handleEdit}
+                    aria-label="Edit campaign"
+                    disabled={locked}
+                  >
+                    <PencilSimple size={17} weight="regular" />
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="mt-[10px] text-center text-[11.5px] font-normal leading-none text-[#9A9A9A]">
+                {locked ? LOCK_TOOLTIP : footerText}
+              </div>
+            </div>
+          </article>
+        </LockedShell>
+      );
+    }
+
     const edgeBadges = [
       ...(isAdminCreated(c)
         ? [
-          {
-            label: "By Admin",
-            className: "border-[#D7E3FF] bg-[#EEF4FF] text-[#2F5BFF]",
-          },
-        ]
-        : []),
-      ...(isFullyManagedCampaign(c)
-        ? [
-          {
-            label: "Fully Managed",
-            className: "border-[#8F6B00] bg-[#B8860B] text-white",
-          },
-        ]
+            {
+              label: "By Admin",
+              className: "border-[#D7E3FF] bg-[#EEF4FF] text-[#2F5BFF]",
+            },
+          ]
         : []),
     ];
-    const imageUrls = allImages(c);
 
     return (
       <LockedShell key={campaignId} locked={locked} radiusClass="rounded-[1rem]">
         <BrandCampaignCard
-          className="min-w-0"
+          className="h-full min-w-0"
           size="md"
           logoUrl={imageUrls[0] || ""}
           logoUrls={imageUrls}
@@ -768,7 +967,7 @@ export default function CampaignListPage({
           stats={[
             {
               label: "Platform",
-              value: ((c.platformSelection ?? []) as string[]).length,
+              value: platformCount,
             },
             {
               label: "Budget",

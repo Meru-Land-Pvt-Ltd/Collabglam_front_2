@@ -1977,32 +1977,36 @@ export default function ViewCampaignPage() {
                   setDoc((prev: any) => (prev ? { ...prev, status: newStatus } : prev));
                 }}
               />
-              {/* <Button 
-                variant="raised"
-                size="sm" 
-                rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(`/brand/campaign/${encodeURIComponent(campaign?.campaignTitle || "")}/pitch-folder?id=${campaignId}`)}>
-                <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
-                  Pitch folder
-                </span>
-              </Button> */}
+
               {!isAdminCreatedCampaign ? (
+                <>
+                  <Button
+                    variant="raised"
+                    size="sm"
+                    className="my-0 h-8 rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2"
+                    rightIcon={<UsersIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />}
+                    onClick={() => router.push("/brand/browse-influencer")}
+                  >
+                    <>
+                      <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
+                        Browse influencers
+                      </span>
+                      <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap sm:hidden">
+                        Influencers
+                      </span>
+                    </>
+                  </Button>
+                </>
+              ) : (
                 <Button
                   variant="raised"
                   size="sm"
-                  className="my-0 h-8 rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2"
-                  rightIcon={<UsersIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />}
-                  onClick={() => router.push("/brand/browse-influencer")}
-                >
-                  <>
-                    <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
-                      Browse influencers
-                    </span>
-                    <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap sm:hidden">
-                      Influencers
-                    </span>
-                  </>
+                  rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(`/brand/campaign/${encodeURIComponent(campaign?.campaignTitle || "")}/pitch-folder?id=${campaignId}`)}>
+                  <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
+                    Pitch folder
+                  </span>
                 </Button>
-              ) : null}
+              )}
 
               <InfluencerContextMenu
                 hideInviteInfluencer={isAdminCreatedCampaign}

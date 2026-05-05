@@ -14,10 +14,8 @@ import NotificationCard from "./notificationCard";
 import { apiGetBrandLite } from "@/app/brand/services/brandApi";
 import {
   BellIcon,
-  BookOpenIcon,
   CaretDownIcon,
   CaretRightIcon,
-  Coins,
   ListDashes,
 } from "@phosphor-icons/react";
 
@@ -297,21 +295,28 @@ export default function BrandTopbar({
     return features.slice(0, 4).map((item) => {
       const limit = normaliseNumber(item?.limit);
       const used = normaliseNumber(item?.used);
-      const progress = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+      const isUnlimited = limit === -1;
+      const remaining = isUnlimited ? Infinity : Math.max(0, limit - used);
+      const progress = !isUnlimited && limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
 
       return {
         key: String(item?.key || ""),
         label: prettifyFeatureLabel(item?.key),
         limit,
         used,
+        isUnlimited,
+        remaining,
         progress,
-        color: getProgressColor(limit > 0 ? used / limit : 0),
+        color: getProgressColor(!isUnlimited && limit > 0 ? used / limit : 0),
       };
     });
   }, [brandLite]);
 
-  const totalCredits = useMemo(() => {
-    return creditUsageItems.reduce((sum, item) => sum + item.limit, 0);
+  const remainingCredits = useMemo(() => {
+    const hasUnlimitedFeature = creditUsageItems.some((item) => item.isUnlimited);
+    if (hasUnlimitedFeature) return "∞";
+
+    return creditUsageItems.reduce((sum, item) => sum + item.remaining, 0);
   }, [creditUsageItems]);
 
   const updateNotificationPosition = useCallback(() => {
@@ -571,7 +576,7 @@ export default function BrandTopbar({
               >
                 <img src="/images/star_coin.png" alt="star_coin" className="h-6 w-6" />
                 <span className="text-[13px] sm:text-[14px] font-semibold text-[#1A1A1A]">
-                  {totalCredits}
+                  {remainingCredits}
                 </span>
                 <CaretDownIcon
                   size={14}
@@ -592,7 +597,7 @@ export default function BrandTopbar({
                 onClick={handleNotificationToggle}
                 className="grid h-10 w-10 border border-bd-subtle place-items-center rounded-lg hover:bg-neutral-50 transition"
               >
-                <BellIcon size={16} className="text-[#1A1A1A]" weight="bold"/>
+                <BellIcon size={16} className="text-[#1A1A1A]" weight="bold" />
               </button>
             </div>
             {/* <button className="flex gap-2 item-center font-bold text-xs p-3   border border-bd-subtle place-items-center rounded-lg hover:bg-neutral-50 transition">
@@ -634,7 +639,7 @@ export default function BrandTopbar({
                       {item.label}
                     </span>
                     <span className="text-[10px] font-medium text-[#9A9A9A]">
-                      {item.used}/{item.limit}
+                      {item.used}/{item.isUnlimited ? "∞" : item.limit}
                     </span>
                   </div>
 
