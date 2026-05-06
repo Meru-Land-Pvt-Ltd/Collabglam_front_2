@@ -799,14 +799,35 @@ export default function CampaignListPage({
           radiusClass="rounded-[17px]"
         >
           <article className="relative h-full min-h-[354px] w-full overflow-hidden rounded-[17px] border border-[#D9A342] bg-white shadow-none">
-            <div
-              className="absolute right-0 top-0 z-20 flex h-[30px] w-[116px] items-center justify-center rounded-tr-[17px] pl-[16px] text-[12px] font-medium leading-none text-white [clip-path:polygon(27px_0,100%_0,100%_100%,0_100%)]"
-              style={{
-                background:
-                  "linear-gradient(94deg, rgba(244, 211, 115, 0.00) 0.49%, #F4D373 12.4%, #7A501A 87.66%)",
-              }}
-            >
-              Fully Managed
+            <div className="absolute right-0 top-0 z-20 flex h-[28px] w-[129px] items-center justify-center pl-[20px] text-[12px] font-semibold leading-none text-white">
+              <svg
+                className="absolute inset-0"
+                xmlns="http://www.w3.org/2000/svg"
+                width="129"
+                height="28"
+                viewBox="0 0 129 28"
+                fill="none"
+              >
+                <path
+                  d="M0 0H129V28H30.2208C25.3805 28 20.8004 25.8089 17.763 22.0402L0 0Z"
+                  fill="url(#paint0_linear_6329_1002)"
+                />
+                <defs>
+                  <linearGradient
+                    id="paint0_linear_6329_1002"
+                    x1="9.7806e-08"
+                    y1="2.09762"
+                    x2="132.587"
+                    y2="44.4907"
+                    gradientUnits="userSpaceOnUse"
+                  >
+                    <stop stopColor="#F4D373" stopOpacity="0" />
+                    <stop offset="0.112416" stopColor="#F4D373" />
+                    <stop offset="0.822908" stopColor="#7A501A" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <span className="relative z-10">Fully Managed</span>
             </div>
 
             <div className="relative px-[17px] pt-[21px] pb-[112px]">
@@ -938,11 +959,11 @@ export default function CampaignListPage({
     const edgeBadges = [
       ...(isAdminCreated(c)
         ? [
-            {
-              label: "By Admin",
-              className: "border-[#D7E3FF] bg-[#EEF4FF] text-[#2F5BFF]",
-            },
-          ]
+          {
+            label: "By Admin",
+            className: "border-[#D7E3FF] bg-[#EEF4FF] text-[#2F5BFF]",
+          },
+        ]
         : []),
     ];
 

@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { LockKeyOpenIcon } from "@phosphor-icons/react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   GoogleReCaptchaProvider,
   useGoogleReCaptcha,
@@ -34,18 +33,7 @@ type ApiErrDetails = {
   status?: number;
 };
 
-type VerifyRecaptchaResponse = {
-  success?: boolean;
-  score?: number;
-  action?: string;
-};
-
-type OnboardingRoute =
-  | "page1"
-  | "page2"
-  | "page3"
-  | "campaign"
-  | "homepage";
+type OnboardingRoute = "page1" | "page2" | "page3" | "campaign" | "homepage";
 
 type BrandSignInResponse = {
   token: string;
@@ -78,9 +66,10 @@ function getStoredBrandResumeRoute(): OnboardingRoute | undefined {
 
 function getApiErrorDetails(
   err: any,
-  fallbackMsg = "Login failed"
+  fallbackMsg = "Login failed",
 ): ApiErrDetails {
-  const data = err?.response?.data ?? err?.data ?? err?.cause?.data ?? undefined;
+  const data =
+    err?.response?.data ?? err?.data ?? err?.cause?.data ?? undefined;
 
   const status =
     err?.response?.status ??
@@ -110,7 +99,7 @@ function prettifyRateLimitMessage(msg: string) {
   }
 
   const match = m.match(
-    /try again in\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)/i
+    /try again in\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)/i,
   );
 
   if (match) {
@@ -204,15 +193,21 @@ function mapLoginError(d: ApiErrDetails): {
   };
 }
 
-async function verifyRecaptchaToken(
-  token: string,
-  action: string
-): Promise<VerifyRecaptchaResponse> {
-  console.warn(
-    "verifyRecaptchaToken() is using a local mock. Replace it with your real backend call."
-  );
+async function runRecaptchaCheck(
+  executeRecaptcha: ((action: string) => Promise<string>) | undefined,
+  action: string,
+) {
+  if (!executeRecaptcha) {
+    throw new Error("Security check is still loading. Please try again.");
+  }
 
-  return { success: true, score: 0.9, action };
+  const token = await executeRecaptcha(action);
+
+  if (!token) {
+    throw new Error("Security verification failed. Please try again.");
+  }
+
+  return token;
 }
 
 function persistBrandOnboardingRoute(route?: OnboardingRoute) {
@@ -269,69 +264,35 @@ function normalizeReturnUrl(value?: string | null) {
   return "";
 }
 
-function SecurityCheckOverlay({
-  checking,
-  onRetry,
-}: {
-  checking: boolean;
-  onRetry: () => void;
-}) {
+function RecaptchaDisclosure() {
   return (
-    <div className="fixed inset-0 z-[200] bg-[#fbf8f3]/90 backdrop-blur-sm">
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div
-          className="w-full max-w-md rounded-[28px] border border-[#ead28a] px-7 py-8 text-center shadow-[0_24px_70px_rgba(183,145,35,0.14)]"
-          style={{
-            background:
-              "linear-gradient(156.55deg, #FFFBF04D 0%, #FBFAF9FF 50%, #FDF2FC33 100%)",
-          }}
-        >
-          <div className="mb-4 flex justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#e6c968] bg-gradient-to-b from-[#fff4c7] to-[#f1d05d] shadow-[0_8px_24px_rgba(212,173,58,0.18)]">
-              <LockKeyOpenIcon
-                size={26}
-                weight="duotone"
-                className="text-[#a97c00]"
-              />
-            </div>
-          </div>
-
-          <div className="mb-2 text-[28px] font-semibold leading-tight text-[#b88300]">
-            Security check required
-          </div>
-
-          <div className="mx-auto max-w-[320px] text-sm leading-6 text-[#7d6b45]">
-            You refreshed this page 3 times. We’re running an invisible security
-            verification before continuing.
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <div className="text-sm leading-6 text-[#7d6b45]">
-              {checking
-                ? "Running invisible security verification..."
-                : "Verification did not complete. Please try again."}
-            </div>
-
-            {!checking ? (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="inline-flex items-center justify-center rounded-full border border-[#e3c14e] bg-gradient-to-r from-[#f2d15b] to-[#e7bf43] px-5 py-2.5 text-sm font-medium text-[#5e470f] shadow-[0_10px_28px_rgba(212,173,58,0.22)]"
-              >
-                Try again
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
+    <p className="mt-3 text-center text-xs leading-5 text-[#969696]">
+      This site is protected by reCAPTCHA and the Google{" "}
+      <a
+        href="https://policies.google.com/privacy"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Privacy Policy
+      </a>{" "}
+      and{" "}
+      <a
+        href="https://policies.google.com/terms"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Terms of Service
+      </a>{" "}
+      apply.
+    </p>
   );
 }
 
 function BrandLoginContentInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const pathname = usePathname();
   const { executeRecaptcha } = useGoogleReCaptcha();
 
   const [authGuardReady, setAuthGuardReady] = React.useState(false);
@@ -344,14 +305,6 @@ function BrandLoginContentInner() {
   const emailInvalid = !!emailError;
   const passwordInvalid = !!passwordError;
   const emailTrimmed = email.trim();
-
-  const [, setRefreshCount] = React.useState(0);
-  const [captchaRequired, setCaptchaRequired] = React.useState(false);
-  const [captchaVerified, setCaptchaVerified] = React.useState(false);
-  const [captchaChecking, setCaptchaChecking] = React.useState(false);
-  const [captchaAttempt, setCaptchaAttempt] = React.useState(0);
-
-  const actionName = React.useMemo(() => "brand_login_refresh_gate", []);
 
   const hasActiveBrandSession = React.useCallback(() => {
     if (typeof window === "undefined") return false;
@@ -414,100 +367,6 @@ function BrandLoginContentInner() {
     };
   }, [redirectAuthenticatedBrandUser]);
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const countKey = `cg-refresh-count:${pathname}`;
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-
-    const navEntry = performance.getEntriesByType("navigation")[0] as
-      | PerformanceNavigationTiming
-      | undefined;
-
-    const isReload =
-      navEntry?.type === "reload" ||
-      (typeof performance !== "undefined" &&
-        typeof (performance as any).navigation !== "undefined" &&
-        (performance as any).navigation.type === 1);
-
-    const previousCount = Number(sessionStorage.getItem(countKey) || "0");
-    const nextCount = isReload ? previousCount + 1 : 0;
-
-    sessionStorage.setItem(countKey, String(nextCount));
-    setRefreshCount(nextCount);
-
-    const alreadyVerified = sessionStorage.getItem(verifiedKey) === "1";
-    setCaptchaVerified(alreadyVerified);
-    setCaptchaRequired(nextCount >= 3 && !alreadyVerified);
-  }, [pathname]);
-
-  const markCaptchaPassed = React.useCallback(() => {
-    const countKey = `cg-refresh-count:${pathname}`;
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-
-    sessionStorage.setItem(countKey, "0");
-    sessionStorage.setItem(verifiedKey, "1");
-
-    setRefreshCount(0);
-    setCaptchaVerified(true);
-    setCaptchaRequired(false);
-  }, [pathname]);
-
-  const markCaptchaFailed = React.useCallback(() => {
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-    sessionStorage.removeItem(verifiedKey);
-
-    setCaptchaVerified(false);
-    setCaptchaRequired(true);
-  }, [pathname]);
-
-  React.useEffect(() => {
-    if (!captchaRequired || captchaVerified) return;
-    if (!executeRecaptcha) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setCaptchaChecking(true);
-
-        const token = await executeRecaptcha(actionName);
-        const resp = await verifyRecaptchaToken(token, actionName);
-
-        if (cancelled) return;
-
-        const success = Boolean(resp?.success);
-        const score = Number(resp?.score ?? 0);
-        const actionMatches = !resp?.action || resp.action === actionName;
-
-        if (success && actionMatches && score >= 0.5) {
-          markCaptchaPassed();
-        } else {
-          markCaptchaFailed();
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("reCAPTCHA v3 verification failed:", error);
-          markCaptchaFailed();
-        }
-      } finally {
-        if (!cancelled) setCaptchaChecking(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    captchaRequired,
-    captchaVerified,
-    executeRecaptcha,
-    actionName,
-    captchaAttempt,
-    markCaptchaFailed,
-    markCaptchaPassed,
-  ]);
-
   const getSafeReturnUrl = () => {
     return getRequestedReturnUrl() || "/brand/dashboard";
   };
@@ -552,7 +411,8 @@ function BrandLoginContentInner() {
     let nextPasswordError = "";
 
     if (!e) nextEmailError = "Email is required.";
-    else if (!emailOk(e)) nextEmailError = "Please enter a valid email address.";
+    else if (!emailOk(e))
+      nextEmailError = "Please enter a valid email address.";
 
     if (!p) nextPasswordError = "Password is required.";
 
@@ -565,26 +425,19 @@ function BrandLoginContentInner() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (captchaRequired && !captchaVerified) {
-      toast({
-        icon: "error",
-        title: "Security check in progress",
-        text: "Please complete the invisible verification before signing in.",
-      });
-      return;
-    }
-
     const ok = validateAndSetFieldErrors();
     if (!ok) return;
 
     setLoading(true);
 
     try {
+      await runRecaptchaCheck(executeRecaptcha, "brand_login");
+
       clearClientAuthStorage();
 
       const res = (await apiSignInBrand(
         emailTrimmed,
-        password
+        password,
       )) as BrandSignInResponse;
 
       localStorage.setItem("token", res.token);
@@ -618,13 +471,6 @@ function BrandLoginContentInner() {
     <div className="min-h-screen bg-background text-foreground relative">
       <ToastStyles />
 
-      {captchaRequired && !captchaVerified ? (
-        <SecurityCheckOverlay
-          checking={captchaChecking}
-          onRetry={() => setCaptchaAttempt((x) => x + 1)}
-        />
-      ) : null}
-
       <header className="w-full bg-white border-b border-bd-primary">
         <div
           className="
@@ -657,7 +503,7 @@ function BrandLoginContentInner() {
             href={getCreatorLoginHref()}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none",
             )}
           >
             Join as a Creator
@@ -693,7 +539,8 @@ function BrandLoginContentInner() {
               <h1 className="cg-heading">Login to Continue</h1>
 
               <p className="mt-m cg-description">
-                Enter your registered details to access your dashboard and ongoing work.
+                Enter your registered details to access your dashboard and
+                ongoing work.
               </p>
 
               <form onSubmit={onSubmit} className="space-y-m mt-2xl">
@@ -743,7 +590,7 @@ function BrandLoginContentInner() {
                   variant="solid"
                   size="lg"
                   className="w-full rounded-m mt-xl"
-                  disabled={loading || (captchaRequired && !captchaVerified)}
+                  disabled={loading}
                 >
                   {loading ? "Signing in..." : "Continue"}
                 </Button>
@@ -761,6 +608,8 @@ function BrandLoginContentInner() {
                     Signup
                   </Link>
                 </p>
+
+                <RecaptchaDisclosure />
               </form>
             </div>
           </section>

@@ -2,24 +2,35 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { GoogleReCaptchaProvider, useGoogleReCaptcha } from "react-google-recaptcha-v3";
+import { useRouter } from "next/navigation";
+import {
+  GoogleReCaptchaProvider,
+  useGoogleReCaptcha,
+} from "react-google-recaptcha-v3";
 
 import { FloatingInput } from "@/components/ui/floatingInput";
 import { Button, buttonVariants } from "@/components/ui/buttonComp";
 import { cn } from "@/lib/utils";
 
 import { FloatingSelect, SelectItem } from "@/components/ui/selectComp";
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import {
+  InputOTP,
+  InputOTPGroup,
+  InputOTPSlot,
+} from "@/components/ui/input-otp";
 
 import { VggCardStack } from "@/components/ui/brand/VggAnimatedCard";
 
-import { apiSendSignupOtp, apiVerifyOtpSignup, getApiErrorMessage } from "../../services/brandApi";
+import {
+  apiSendSignupOtp,
+  apiVerifyOtpSignup,
+  getApiErrorMessage,
+} from "../../services/brandApi";
 
 import { CountdownTicker } from "@/components/ui/countdown-ticker";
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 import { PasswordInput } from "@/components/ui/password";
-import { CaretLeft, LockKeyOpenIcon } from "@phosphor-icons/react";
+import { CaretLeft } from "@phosphor-icons/react";
 
 import { toast, ToastStyles } from "@/components/ui/toast";
 
@@ -27,7 +38,12 @@ type SvgProps = { className?: string };
 
 function SvgTriangle({ className }: SvgProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 459 459" fill="none" className={className}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 459 459"
+      fill="none"
+      className={className}
+    >
       <g opacity="0.5">
         <path d="M459 -6.49999L459 452.5L0 -6.5L459 -6.49999Z" fill="#FFF9E6" />
         <path d="M229.5 223L229.5 452.5L0 223L229.5 223Z" fill="#FFF9E6" />
@@ -38,7 +54,12 @@ function SvgTriangle({ className }: SvgProps) {
 
 function SvgArcs({ className }: SvgProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 458" fill="none" className={className}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 560 458"
+      fill="none"
+      className={className}
+    >
       <g opacity="0.5">
         <path
           d="M74.87 525.996C26.1622 449.281 -0.999989 349.144 -1 244.998C-1 140.852 26.1622 40.7148 74.87 -36V525.996Z"
@@ -59,7 +80,12 @@ function SvgArcs({ className }: SvgProps) {
 
 function SvgChain({ className }: SvgProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -250 918 950" fill="none" className={className}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 -250 918 950"
+      fill="none"
+      className={className}
+    >
       <g opacity="0.5">
         <path
           d="M432.501 -83.886C432.501 -171.964 432.501 -216.002 403.351 -232.517C374.2 -249.031 335.333 -227.012 257.598 -182.973L201.403 -151.137C123.669 -107.098 84.8017 -85.0791 84.8017 -52.05C84.8017 -19.021 123.669 2.99843 201.403 47.0372L257.598 78.8733C335.333 122.912 374.2 144.931 403.351 128.417C432.501 111.902 432.501 67.8636 432.501 -20.2139V-83.886Z"
@@ -92,7 +118,12 @@ function SvgChain({ className }: SvgProps) {
 
 function SvgClover({ className }: SvgProps) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -44 535 535" fill="none" className={className}>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 -44 535 535"
+      fill="none"
+      className={className}
+    >
       <g opacity="0.5">
         <path
           d="M133.75 223.5C207.618 223.5 267.5 163.618 267.5 89.75C267.5 163.601 327.354 223.472 401.198 223.5C327.354 223.528 267.5 283.399 267.5 357.25C267.5 283.382 207.618 223.5 133.75 223.5C59.8819 223.5 0 283.382 0 357.25L0 491L133.75 491C207.618 491 267.5 431.118 267.5 357.25C267.5 431.118 327.382 491 401.25 491L535 491L535 357.25C535 283.399 475.146 223.528 401.302 223.5C475.146 223.472 535 163.601 535 89.7501L535 -43.9999L401.25 -43.9999C327.382 -44 267.5 15.8819 267.5 89.75C267.5 15.8819 207.618 -43.9999 133.75 -43.9999L0 -44L0 89.75C0 163.618 59.8819 223.5 133.75 223.5Z"
@@ -129,9 +160,17 @@ function useRandomSvgSwap(intervalMs: number, optionsCount: number) {
   return index;
 }
 
-const SUBTITLE_CLASS = "text-[14px] leading-[20px] text-[color:var(--Light-Text-Secondary,#969696)]";
+const SUBTITLE_CLASS =
+  "text-[14px] leading-[20px] text-[color:var(--Light-Text-Secondary,#969696)]";
 
-const COMPANY_SIZE_OPTIONS = ["Solo / Self-employed", "2–10 employees", "11–50 employees", "51–200 employees", "201–500 employees", "500+ employees"];
+const COMPANY_SIZE_OPTIONS = [
+  "Solo / Self-employed",
+  "2–10 employees",
+  "11–50 employees",
+  "51–200 employees",
+  "201–500 employees",
+  "500+ employees",
+];
 
 const INDUSTRY_OPTIONS = [
   "Beauty & Personal Care",
@@ -150,78 +189,51 @@ const INDUSTRY_OPTIONS = [
   "Other",
 ];
 
-type VerifyRecaptchaResponse = {
-  success?: boolean;
-  score?: number;
-  action?: string;
-};
+async function runRecaptchaCheck(
+  executeRecaptcha: ((action: string) => Promise<string>) | undefined,
+  action: string,
+) {
+  if (!executeRecaptcha) {
+    throw new Error("Security check is still loading. Please try again.");
+  }
 
-async function verifyRecaptchaToken(token: string, action: string): Promise<VerifyRecaptchaResponse> {
-  /**
-   * Replace this mock with your real backend verification endpoint.
-   */
-  console.warn("verifyRecaptchaToken() is using a local mock. Replace it with your real backend call.");
-  return { success: true, score: 0.9, action };
+  const token = await executeRecaptcha(action);
+
+  if (!token) {
+    throw new Error("Security verification failed. Please try again.");
+  }
+
+  return token;
 }
 
-function SecurityCheckOverlay({
-  checking,
-  onRetry,
-}: {
-  checking: boolean;
-  onRetry: () => void;
-}) {
+function RecaptchaDisclosure() {
   return (
-    <div className="fixed inset-0 z-[200] bg-[#fbf8f3]/90 backdrop-blur-sm">
-      <div className="flex min-h-screen items-center justify-center p-6">
-        <div
-          className="w-full max-w-md rounded-[28px] border border-[#ead28a] px-7 py-8 text-center shadow-[0_24px_70px_rgba(183,145,35,0.14)]"
-          style={{
-            background:
-              "linear-gradient(156.55deg, #FFFBF04D 0%, #FBFAF9FF 50%, #FDF2FC33 100%)",
-          }}
-        >
-          <div className="mb-4 flex justify-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[#e6c968] bg-gradient-to-b from-[#fff4c7] to-[#f1d05d] shadow-[0_8px_24px_rgba(212,173,58,0.18)]">
-              <LockKeyOpenIcon size={26} weight="duotone" className="text-[#a97c00]" />
-            </div>
-          </div>
-
-          <div className="mb-2 text-[28px] font-semibold leading-tight text-[#b88300]">
-            Security check required
-          </div>
-
-          <div className="mx-auto max-w-[320px] text-sm leading-6 text-[#7d6b45]">
-            You refreshed this page 3 times. We’re running an invisible security
-            verification before continuing.
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <div className="text-sm leading-6 text-[#7d6b45]">
-              {checking
-                ? "Running invisible security verification..."
-                : "Verification did not complete. Please try again."}
-            </div>
-
-            {!checking ? (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="inline-flex items-center justify-center rounded-full border border-[#e3c14e] bg-gradient-to-r from-[#f2d15b] to-[#e7bf43] px-5 py-2.5 text-sm font-medium text-[#5e470f] shadow-[0_10px_28px_rgba(212,173,58,0.22)]"
-              >
-                Try again
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
+    <p className="mt-3 text-center text-xs leading-5 text-[#969696]">
+      This site is protected by reCAPTCHA and the Google{" "}
+      <a
+        href="https://policies.google.com/privacy"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Privacy Policy
+      </a>{" "}
+      and{" "}
+      <a
+        href="https://policies.google.com/terms"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Terms of Service
+      </a>{" "}
+      apply.
+    </p>
   );
 }
 
 function BrandSignupInner() {
   const router = useRouter();
-  const pathname = usePathname();
   const { executeRecaptcha } = useGoogleReCaptcha();
 
   type Step = "form" | "otp";
@@ -265,13 +277,6 @@ function BrandSignupInner() {
   const [isSendingOtp, setIsSendingOtp] = React.useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = React.useState(false);
   const [passwordValid, setPasswordValid] = React.useState(false);
-
-  const [refreshCount, setRefreshCount] = React.useState(0);
-  const [captchaRequired, setCaptchaRequired] = React.useState(false);
-  const [captchaVerified, setCaptchaVerified] = React.useState(false);
-  const [captchaChecking, setCaptchaChecking] = React.useState(false);
-  const [captchaAttempt, setCaptchaAttempt] = React.useState(0);
-  const actionName = React.useMemo(() => "brand_signup_refresh_gate", []);
 
   const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
@@ -341,100 +346,6 @@ function BrandSignupInner() {
     return () => window.clearInterval(id);
   }, [secondsLeft, step]);
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const countKey = `cg-refresh-count:${pathname}`;
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-
-    const navEntry = performance.getEntriesByType("navigation")[0] as
-      | PerformanceNavigationTiming
-      | undefined;
-
-    const isReload =
-      navEntry?.type === "reload" ||
-      (typeof performance !== "undefined" &&
-        typeof (performance as any).navigation !== "undefined" &&
-        (performance as any).navigation.type === 1);
-
-    const previousCount = Number(sessionStorage.getItem(countKey) || "0");
-    const nextCount = isReload ? previousCount + 1 : 0;
-
-    sessionStorage.setItem(countKey, String(nextCount));
-    setRefreshCount(nextCount);
-
-    const alreadyVerified = sessionStorage.getItem(verifiedKey) === "1";
-    setCaptchaVerified(alreadyVerified);
-    setCaptchaRequired(nextCount >= 3 && !alreadyVerified);
-  }, [pathname]);
-
-  const markCaptchaPassed = React.useCallback(() => {
-    const countKey = `cg-refresh-count:${pathname}`;
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-
-    sessionStorage.setItem(countKey, "0");
-    sessionStorage.setItem(verifiedKey, "1");
-
-    setRefreshCount(0);
-    setCaptchaVerified(true);
-    setCaptchaRequired(false);
-  }, [pathname]);
-
-  const markCaptchaFailed = React.useCallback(() => {
-    const verifiedKey = `cg-refresh-verified:${pathname}`;
-    sessionStorage.removeItem(verifiedKey);
-
-    setCaptchaVerified(false);
-    setCaptchaRequired(true);
-  }, [pathname]);
-
-  React.useEffect(() => {
-    if (!captchaRequired || captchaVerified) return;
-    if (!executeRecaptcha) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        setCaptchaChecking(true);
-
-        const token = await executeRecaptcha(actionName);
-        const resp = await verifyRecaptchaToken(token, actionName);
-
-        if (cancelled) return;
-
-        const success = Boolean(resp?.success);
-        const score = Number(resp?.score ?? 0);
-        const actionMatches = !resp?.action || resp.action === actionName;
-
-        if (success && actionMatches && score >= 0.5) {
-          markCaptchaPassed();
-        } else {
-          markCaptchaFailed();
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error("reCAPTCHA v3 verification failed:", error);
-          markCaptchaFailed();
-        }
-      } finally {
-        if (!cancelled) setCaptchaChecking(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    captchaRequired,
-    captchaVerified,
-    executeRecaptcha,
-    actionName,
-    captchaAttempt,
-    markCaptchaFailed,
-    markCaptchaPassed,
-  ]);
-
   const sendOtp = async () => {
     await apiSendSignupOtp({
       brandName: brandName.trim(),
@@ -465,7 +376,7 @@ function BrandSignupInner() {
         email: email.trim(),
         companySize,
         industry,
-      })
+      }),
     );
 
     await fetch("/api-1/brand-auth", {
@@ -479,15 +390,6 @@ function BrandSignupInner() {
 
   const handleContinueFromForm = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (captchaRequired && !captchaVerified) {
-      toast({
-        icon: "error",
-        title: "Security check in progress",
-        text: "Please complete the invisible verification before continuing.",
-      });
-      return;
-    }
 
     resetClearedOnSubmit();
     setAttemptedSubmit(true);
@@ -506,6 +408,7 @@ function BrandSignupInner() {
 
     setIsSendingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "brand_signup_send_otp");
       await sendOtp();
       setStep("otp");
       setOtp("");
@@ -528,15 +431,6 @@ function BrandSignupInner() {
   };
 
   const handleVerifyOtp = async () => {
-    if (captchaRequired && !captchaVerified) {
-      toast({
-        icon: "error",
-        title: "Security check in progress",
-        text: "Please complete the invisible verification before continuing.",
-      });
-      return;
-    }
-
     if (otp.length !== 6) {
       setOtpError("Please enter the 6-digit OTP.");
       return;
@@ -544,6 +438,7 @@ function BrandSignupInner() {
 
     setIsVerifyingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "brand_signup_verify_otp");
       await verifyOtp(otp);
 
       toast({
@@ -562,15 +457,6 @@ function BrandSignupInner() {
   };
 
   const handleResendOtp = async () => {
-    if (captchaRequired && !captchaVerified) {
-      toast({
-        icon: "error",
-        title: "Security check in progress",
-        text: "Please complete the invisible verification before requesting another OTP.",
-      });
-      return;
-    }
-
     if (secondsLeft > 0 || isSendingOtp) return;
 
     setOtp("");
@@ -578,6 +464,7 @@ function BrandSignupInner() {
 
     setIsSendingOtp(true);
     try {
+      await runRecaptchaCheck(executeRecaptcha, "brand_signup_resend_otp");
       await sendOtp();
       toast({
         icon: "success",
@@ -606,28 +493,32 @@ function BrandSignupInner() {
     <div className="min-h-[100svh] bg-background text-foreground flex flex-col overflow-x-hidden relative">
       <ToastStyles />
 
-      {captchaRequired && !captchaVerified ? (
-        <SecurityCheckOverlay
-          checking={captchaChecking}
-          onRetry={() => setCaptchaAttempt((x) => x + 1)}
-        />
-      ) : null}
-
       <header className="w-full bg-white border-b border-bd-primary">
         <div
           className={cn(
             "mx-auto flex flex-wrap items-center justify-between content-center",
             "gap-m py-[16px]",
             "px-[20px] md:px-[48px] xl:px-[120px] 2xl:px-[160px]",
-            "max-w-full"
+            "max-w-full",
           )}
         >
           <Link href="/" className="flex items-center gap-s">
-            <img src="/logo.png" alt="CollabGlam Logo" width={40} height={40} className="object-contain" loading="eager" />
+            <img
+              src="/logo.png"
+              alt="CollabGlam Logo"
+              width={40}
+              height={40}
+              className="object-contain"
+              loading="eager"
+            />
 
             <span className="leading-tight">
-              <span className="block text-[20px] font-bold text-tx-primary">CollabGlam</span>
-              <span className="block text-[10px] leading-[12px] text-tx-tertiary -mt-[2px]">For Brands</span>
+              <span className="block text-[20px] font-bold text-tx-primary">
+                CollabGlam
+              </span>
+              <span className="block text-[10px] leading-[12px] text-tx-tertiary -mt-[2px]">
+                For Brands
+              </span>
             </span>
           </Link>
 
@@ -635,7 +526,7 @@ function BrandSignupInner() {
             href="/influencer/login"
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none",
             )}
           >
             Join as a Creator
@@ -643,8 +534,12 @@ function BrandSignupInner() {
         </div>
       </header>
 
-      <main className={cn("max-w-full flex-1 min-h-0 overflow-y-auto", "pt-[10px]")}>
-        <div className={cn("grid min-h-0", "h-full items-stretch lg:grid-cols-2")}>
+      <main
+        className={cn("max-w-full flex-1 min-h-0 overflow-y-auto", "pt-[10px]")}
+      >
+        <div
+          className={cn("grid min-h-0", "h-full items-stretch lg:grid-cols-2")}
+        >
           <section className="order-1 lg:h-full">
             <div className="flex w-full lg:h-full lg:items-stretch pr-[20px]">
               <div
@@ -676,16 +571,21 @@ function BrandSignupInner() {
             className={cn(
               "order-2 flex px-[20px] justify-center w-full items-start",
               step === "form" || step === "otp" ? "pt-[40px]" : "",
-              "lg:min-h-[calc(100svh-114px)]"
+              "lg:min-h-[calc(100svh-114px)]",
             )}
           >
             <div className={cn("w-full max-w-[520px]")}>
               {step === "form" && (
                 <>
                   <h1 className="cg-heading">Create an Account</h1>
-                  <p className="mt-m cg-description">Share a few basic details so we can set up your workspace.</p>
+                  <p className="mt-m cg-description">
+                    Share a few basic details so we can set up your workspace.
+                  </p>
 
-                  <form onSubmit={handleContinueFromForm} className="mt-2xl space-y-m">
+                  <form
+                    onSubmit={handleContinueFromForm}
+                    className="mt-2xl space-y-m"
+                  >
                     <FloatingInput
                       label="Brand Name"
                       required
@@ -702,7 +602,14 @@ function BrandSignupInner() {
                       errorText={brandNameError || undefined}
                     />
 
-                    <FloatingInput label="Name" type="text" value={pocName} onValueChange={(v) => setPocName(v)} icon={false} size="small" />
+                    <FloatingInput
+                      label="Name"
+                      type="text"
+                      value={pocName}
+                      onValueChange={(v) => setPocName(v)}
+                      icon={false}
+                      size="small"
+                    />
 
                     <FloatingInput
                       label="Work Email"
@@ -720,7 +627,13 @@ function BrandSignupInner() {
                     />
 
                     <div className="grid grid-cols-1 gap-m md:grid-cols-2">
-                      <FloatingSelect label="Company Size" size="small" value={companySize} onValueChange={(v) => setCompanySize(v)} icon>
+                      <FloatingSelect
+                        label="Company Size"
+                        size="small"
+                        value={companySize}
+                        onValueChange={(v) => setCompanySize(v)}
+                        icon
+                      >
                         {COMPANY_SIZE_OPTIONS.map((opt) => (
                           <SelectItem key={opt} value={opt}>
                             {opt}
@@ -773,7 +686,9 @@ function BrandSignupInner() {
                       <label
                         className={cn(
                           "flex items-center gap-[10px] text-center text-[12px] leading-[16px]",
-                          agreedInvalid ? "text-[color:var(--Errors-500,#E35141)]" : "text-[#7A7A7A]"
+                          agreedInvalid
+                            ? "text-[color:var(--Errors-500,#E35141)]"
+                            : "text-[#7A7A7A]",
                         )}
                       >
                         <Checkbox
@@ -790,17 +705,23 @@ function BrandSignupInner() {
                             "bg-background border rounded-[4px] w-[20px] h-[20px] p-[4px]",
                             agreedInvalid
                               ? "border-[color:var(--Errors-500,#E35141)]"
-                              : "border-[color:var(--Border-Primary,#B3B3B3)]"
+                              : "border-[color:var(--Border-Primary,#B3B3B3)]",
                           )}
                         />
 
                         <span>
                           By continuing, you agree to our{" "}
-                          <Link href="/terms" className="font-semibold hover:underline text-current">
+                          <Link
+                            href="/terms"
+                            className="font-semibold hover:underline text-current"
+                          >
                             Terms of Service
                           </Link>{" "}
                           and{" "}
-                          <Link href="/privacy-policy" className="font-semibold hover:underline text-current">
+                          <Link
+                            href="/privacy-policy"
+                            className="font-semibold hover:underline text-current"
+                          >
                             Privacy Policy
                           </Link>
                         </span>
@@ -811,18 +732,26 @@ function BrandSignupInner() {
                       type="submit"
                       variant="solid"
                       size="lg"
-                      className={cn("w-full rounded-m mt-2xl", isSendingOtp && "opacity-60")}
-                      disabled={isSendingOtp || (captchaRequired && !captchaVerified)}
+                      className={cn(
+                        "w-full rounded-m mt-2xl",
+                        isSendingOtp && "opacity-60",
+                      )}
+                      disabled={isSendingOtp}
                     >
                       {isSendingOtp ? "Sending OTP..." : "Continue"}
                     </Button>
 
                     <p className="cg-auth-helper">
                       Already Have an Account?{" "}
-                      <Link href="/brand/login" className="cg-auth-link hover:underline">
+                      <Link
+                        href="/brand/login"
+                        className="cg-auth-link hover:underline"
+                      >
                         Login
                       </Link>
                     </p>
+
+                    <RecaptchaDisclosure />
                   </form>
                 </>
               )}
@@ -836,12 +765,19 @@ function BrandSignupInner() {
                       className="inline-flex items-center justify-center rounded-full p-2 hover:bg-neutral-100 active:bg-neutral-200"
                       aria-label="Back"
                     >
-                      <CaretLeft size={18} weight="bold" style={{ color: "var(--Light-Icon-Primary, #1A1A1A)" }} />
+                      <CaretLeft
+                        size={18}
+                        weight="bold"
+                        style={{ color: "var(--Light-Icon-Primary, #1A1A1A)" }}
+                      />
                     </button>
 
                     <h1 className="cg-heading m-0">Enter OTP</h1>
                   </div>
-                  <p className="mt-s cg-description">Enter the 6-digit code sent to your email to activate your account.</p>
+                  <p className="mt-s cg-description">
+                    Enter the 6-digit code sent to your email to activate your
+                    account.
+                  </p>
 
                   <div className="space-y-[14px] mt-[12px]">
                     <div className="flex justify-center">
@@ -856,7 +792,15 @@ function BrandSignupInner() {
                       >
                         <InputOTPGroup>
                           {Array.from({ length: 6 }).map((_, i) => (
-                            <InputOTPSlot key={i} index={i} className={cn(otpError ? "border-error-500" : "border-neutral-300")} />
+                            <InputOTPSlot
+                              key={i}
+                              index={i}
+                              className={cn(
+                                otpError
+                                  ? "border-error-500"
+                                  : "border-neutral-300",
+                              )}
+                            />
                           ))}
                         </InputOTPGroup>
                       </InputOTP>
@@ -865,32 +809,54 @@ function BrandSignupInner() {
                     <div className="space-y-[20px]">
                       <Button
                         variant="solid"
-                        className={cn("w-full h-[72px] rounded-[12px]", (isVerifyingOtp || isSendingOtp) && "opacity-60")}
+                        className={cn(
+                          "w-full h-[72px] rounded-[12px]",
+                          (isVerifyingOtp || isSendingOtp) && "opacity-60",
+                        )}
                         onClick={handleVerifyOtp}
-                        disabled={isVerifyingOtp || isSendingOtp || (captchaRequired && !captchaVerified)}
+                        disabled={isVerifyingOtp || isSendingOtp}
                       >
                         {isVerifyingOtp ? "Verifying..." : "Continue"}
                       </Button>
 
-                      <div className={cn(SUBTITLE_CLASS, " mt-[12px] flex items-center justify-center gap-1")}>
-                        <span className="leading-[20px]">Didn&apos;t Received an OTP?</span>
+                      <div
+                        className={cn(
+                          SUBTITLE_CLASS,
+                          " mt-[12px] flex items-center justify-center gap-1",
+                        )}
+                      >
+                        <span className="leading-[20px]">
+                          Didn&apos;t Received an OTP?
+                        </span>
                         <button
                           type="button"
                           onClick={handleResendOtp}
-                          disabled={secondsLeft > 0 || isSendingOtp || (captchaRequired && !captchaVerified)}
+                          disabled={secondsLeft > 0 || isSendingOtp}
                           className={cn(
                             "font-semibold text-[color:var(--Text-Primary,#1A1A1A)]",
                             "inline-flex items-center justify-center",
                             "leading-[20px]",
                             "cursor-pointer",
-                            (secondsLeft > 0 || isSendingOtp || (captchaRequired && !captchaVerified)) && "cursor-not-allowed opacity-60"
+                            (secondsLeft > 0 || isSendingOtp) &&
+                              "cursor-not-allowed opacity-60",
                           )}
                         >
-                          {isSendingOtp ? "Sending..." : secondsLeft > 0 ? <CountdownTicker seconds={secondsLeft} className="leading-none -translate-y-[-2px]" /> : "Resend"}
+                          {isSendingOtp ? (
+                            "Sending..."
+                          ) : secondsLeft > 0 ? (
+                            <CountdownTicker
+                              seconds={secondsLeft}
+                              className="leading-none -translate-y-[-2px]"
+                            />
+                          ) : (
+                            "Resend"
+                          )}
                         </button>
                       </div>
                     </div>
                   </div>
+
+                  <RecaptchaDisclosure />
                 </>
               )}
             </div>

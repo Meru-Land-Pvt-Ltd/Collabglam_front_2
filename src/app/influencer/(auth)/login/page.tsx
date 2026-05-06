@@ -35,12 +35,7 @@ type ApiErrDetails = {
   status?: number;
 };
 
-type OnboardingRoute =
-  | "page1"
-  | "page2"
-  | "page3"
-  | "campaign"
-  | "homepage";
+type OnboardingRoute = "page1" | "page2" | "page3" | "campaign" | "homepage";
 
 type SignInResponse = {
   token?: unknown;
@@ -130,7 +125,7 @@ function extractTokenFromSignInResponse(res?: SignInResponse): string | null {
 }
 
 function extractInfluencerIdFromSignInResponse(
-  res?: SignInResponse
+  res?: SignInResponse,
 ): string | null {
   return (
     normalizeStoredString(res?.influencerId) ||
@@ -161,7 +156,7 @@ function extractInfluencerIdFromSignInResponse(
 }
 
 function extractRouteFromSignInResponse(
-  res?: SignInResponse
+  res?: SignInResponse,
 ): OnboardingRoute | undefined {
   if (isOnboardingRoute(res?.route)) return res.route;
   if (isOnboardingRoute(res?.data?.route)) return res.data.route;
@@ -187,9 +182,10 @@ function getStoredInfluencerResumeRoute(): OnboardingRoute | undefined {
 
 function getApiErrorDetails(
   err: any,
-  fallbackMsg = "Login failed"
+  fallbackMsg = "Login failed",
 ): ApiErrDetails {
-  const data = err?.response?.data ?? err?.data ?? err?.cause?.data ?? undefined;
+  const data =
+    err?.response?.data ?? err?.data ?? err?.cause?.data ?? undefined;
 
   const status =
     err?.response?.status ??
@@ -217,10 +213,9 @@ function setCookie(name: string, value: string, opts: CookieOptions = {}) {
     days = 30,
     path = "/",
     sameSite = "Lax",
-    secure =
-      typeof window !== "undefined"
-        ? window.location.protocol === "https:"
-        : false,
+    secure = typeof window !== "undefined"
+      ? window.location.protocol === "https:"
+      : false,
   } = opts;
 
   const maxAge = days * 24 * 60 * 60;
@@ -255,7 +250,7 @@ function prettifyRateLimitMessage(msg: string) {
   }
 
   const match = m.match(
-    /try again in\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)/i
+    /try again in\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)/i,
   );
 
   if (match) {
@@ -401,7 +396,7 @@ function normalizeReturnUrl(value?: string | null) {
 
 function mapDisputeReturnUrlForRole(
   returnUrl: string,
-  role: "brand" | "influencer"
+  role: "brand" | "influencer",
 ) {
   if (!returnUrl) return "";
 
@@ -431,7 +426,7 @@ function buildHrefWithReturnUrl(basePath: string, returnUrl: string) {
 
 async function runRecaptchaCheck(
   executeRecaptcha: ((action: string) => Promise<string>) | undefined,
-  action: string
+  action: string,
 ) {
   if (!executeRecaptcha) {
     throw new Error("Security check is still loading. Please try again.");
@@ -444,6 +439,32 @@ async function runRecaptchaCheck(
   }
 
   return token;
+}
+
+function RecaptchaDisclosure() {
+  return (
+    <p className="mt-3 text-center text-xs leading-5 text-[#969696]">
+      This site is protected by reCAPTCHA and the Google{" "}
+      <a
+        href="https://policies.google.com/privacy"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Privacy Policy
+      </a>{" "}
+      and{" "}
+      <a
+        href="https://policies.google.com/terms"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Terms of Service
+      </a>{" "}
+      apply.
+    </p>
+  );
 }
 
 function InfluencerLoginContent() {
@@ -473,11 +494,12 @@ function InfluencerLoginContent() {
 
     try {
       const token = normalizeStoredString(
-        localStorage.getItem("token") || localStorage.getItem("influencerToken")
+        localStorage.getItem("token") ||
+          localStorage.getItem("influencerToken"),
       );
 
       const influencerId = normalizeStoredString(
-        localStorage.getItem("influencerId")
+        localStorage.getItem("influencerId"),
       );
 
       return Boolean(token && influencerId);
@@ -525,7 +547,8 @@ function InfluencerLoginContent() {
     let nextPasswordError = "";
 
     if (!e) nextEmailError = "Email is required.";
-    else if (!emailOk(e)) nextEmailError = "Please enter a valid email address.";
+    else if (!emailOk(e))
+      nextEmailError = "Please enter a valid email address.";
 
     if (!p) nextPasswordError = "Password is required.";
 
@@ -550,7 +573,7 @@ function InfluencerLoginContent() {
 
       const res = (await apiSignInInfluencer(
         emailTrimmed,
-        password
+        password,
       )) as SignInResponse;
 
       const token = extractTokenFromSignInResponse(res);
@@ -561,7 +584,7 @@ function InfluencerLoginContent() {
         console.error("Influencer login response missing data:", res);
 
         throw new Error(
-          "Login succeeded, but influencer session data was missing. Please check the login API response."
+          "Login succeeded, but influencer session data was missing. Please check the login API response.",
         );
       }
 
@@ -610,7 +633,7 @@ function InfluencerLoginContent() {
   const brandLoginHref = buildHrefWithReturnUrl("/brand/login", brandReturnUrl);
   const influencerSignupHref = buildHrefWithReturnUrl(
     "/influencer/signup",
-    safeReturnUrl
+    safeReturnUrl,
   );
 
   return (
@@ -650,7 +673,7 @@ function InfluencerLoginContent() {
             href={brandLoginHref}
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none",
             )}
           >
             Join as a Brand
@@ -708,7 +731,8 @@ function InfluencerLoginContent() {
               <h1 className="cg-heading">Welcome Back</h1>
 
               <p className="mt-m cg-description">
-                Enter your email and password so we can take you back to your dashboard and ongoing work.
+                Enter your email and password so we can take you back to your
+                dashboard and ongoing work.
               </p>
 
               <form onSubmit={onSubmit} className="space-y-m mt-2xl">
@@ -775,6 +799,8 @@ function InfluencerLoginContent() {
                     Signup
                   </Link>
                 </p>
+
+                <RecaptchaDisclosure />
               </form>
             </div>
           </section>
@@ -795,7 +821,9 @@ export default function InfluencerLoginPage() {
       }}
     >
       <React.Suspense
-        fallback={<div className="min-h-screen bg-background text-foreground" />}
+        fallback={
+          <div className="min-h-screen bg-background text-foreground" />
+        }
       >
         <InfluencerLoginContent />
       </React.Suspense>

@@ -12,7 +12,7 @@ import { FloatingInput } from "@/components/ui/floatingInput";
 import {
   FloatingMultiSelect,
   FloatingSelect,
-  SelectItem
+  SelectItem,
 } from "@/components/ui/selectComp";
 import { PasswordInput } from "@/components/ui/password";
 import { Button, buttonVariants } from "@/components/ui/buttonComp";
@@ -69,12 +69,12 @@ const emojiToCodePoint = (emoji: string) =>
 
 const twemojiSvgUrl = (emoji: string) =>
   `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/${emojiToCodePoint(
-    emoji
+    emoji,
   )}.svg`;
 
 async function runRecaptchaCheck(
   executeRecaptcha: ((action: string) => Promise<string>) | undefined,
-  action: string
+  action: string,
 ) {
   if (!executeRecaptcha) {
     throw new Error("Security check is still loading. Please try again.");
@@ -87,6 +87,32 @@ async function runRecaptchaCheck(
   }
 
   return token;
+}
+
+function RecaptchaDisclosure() {
+  return (
+    <p className="mt-3 text-center text-xs leading-5 text-[#969696]">
+      This site is protected by reCAPTCHA and the Google{" "}
+      <a
+        href="https://policies.google.com/privacy"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Privacy Policy
+      </a>{" "}
+      and{" "}
+      <a
+        href="https://policies.google.com/terms"
+        target="_blank"
+        rel="noreferrer"
+        className="font-medium text-black hover:underline"
+      >
+        Terms of Service
+      </a>{" "}
+      apply.
+    </p>
+  );
 }
 
 function InfluencerSignupContent() {
@@ -162,9 +188,7 @@ function InfluencerSignupContent() {
   const [step, setStep] = React.useState<Step>("form");
 
   const [otp, setOtp] = React.useState("");
-  const [otpError, setOtpError] = React.useState<string | undefined>(
-    undefined
-  );
+  const [otpError, setOtpError] = React.useState<string | undefined>(undefined);
   const [secondsLeft, setSecondsLeft] = React.useState(0);
 
   const [isSendingOtp, setIsSendingOtp] = React.useState(false);
@@ -213,8 +237,7 @@ function InfluencerSignupContent() {
   const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
   const sanitizeCreatorName = (v: string) => v.replace(/[^\p{L}\s.'-]/gu, "");
-  const creatorNameOk = (v: string) =>
-    /^[\p{L}][\p{L}\s.'-]*$/u.test(v.trim());
+  const creatorNameOk = (v: string) => /^[\p{L}][\p{L}\s.'-]*$/u.test(v.trim());
 
   const pwOk = (p: string) => {
     const s = (p ?? "").trim();
@@ -306,18 +329,18 @@ function InfluencerSignupContent() {
     }
 
     const country = countries.find(
-      (x) => String(x._id ?? x.id) === String(countryId)
+      (x) => String(x._id ?? x.id) === String(countryId),
     );
 
     const langs = languagesList.filter((x) =>
-      languageIds.includes(String(x._id ?? x.id))
+      languageIds.includes(String(x._id ?? x.id)),
     );
     const languageNames = langs
       .map((l) => l.name ?? l.code ?? null)
       .filter(Boolean);
 
     const cats = categoriesList.filter((x) =>
-      categoryIds.includes(String(x.id))
+      categoryIds.includes(String(x.id)),
     );
     const categoryNames = cats.map((c) => c.name).filter(Boolean);
 
@@ -334,7 +357,7 @@ function InfluencerSignupContent() {
         languageNames,
         categoryIds,
         categoryNames,
-      })
+      }),
     );
 
     return res;
@@ -456,7 +479,7 @@ function InfluencerSignupContent() {
             "mx-auto flex flex-wrap items-center justify-between content-center",
             "gap-m py-[16px]",
             "px-[20px] md:px-[48px] xl:px-[120px] 2xl:px-[160px]",
-            "max-w-full"
+            "max-w-full",
           )}
         >
           <Link href="/" className="flex items-center gap-s">
@@ -482,7 +505,7 @@ function InfluencerSignupContent() {
             href="/brand/login"
             className={cn(
               buttonVariants({ variant: "outline", size: "sm" }),
-              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none"
+              "!my-0 rounded-m px-l border border-bd-primary text-tx-primary !shadow-none",
             )}
           >
             Join as a Brand
@@ -491,15 +514,12 @@ function InfluencerSignupContent() {
       </header>
 
       <main
-        className={cn(
-          "max-w-full flex-1 min-h-0 overflow-y-auto",
-          "py-[20px]"
-        )}
+        className={cn("max-w-full flex-1 min-h-0 overflow-y-auto", "py-[20px]")}
       >
         <div
           className={cn(
             "grid min-h-0 items-stretch",
-            "lg:grid-cols-2 lg:min-h-[calc(100svh-114px)]"
+            "lg:grid-cols-2 lg:min-h-[calc(100svh-114px)]",
           )}
         >
           <section className="order-1 lg:h-full">
@@ -508,7 +528,7 @@ function InfluencerSignupContent() {
                 className={cn(
                   "relative w-full overflow-hidden",
                   "rounded-tr-[32px] rounded-br-[32px]",
-                  "h-[420px] sm:h-[520px] md:h-[640px] lg:h-full"
+                  "h-[420px] sm:h-[520px] md:h-[640px] lg:h-full",
                 )}
               >
                 <InfluencerHero className="h-full" />
@@ -520,7 +540,7 @@ function InfluencerSignupContent() {
             className={cn(
               "order-2 flex px-[20px] justify-center w-full items-start",
               step === "form" || step === "otp" ? "pt-[10px]" : "",
-              "lg:min-h-[calc(100svh-114px)]"
+              "lg:min-h-[calc(100svh-114px)]",
             )}
           >
             <div className={cn("w-full max-w-[520px]")}>
@@ -580,7 +600,9 @@ function InfluencerSignupContent() {
 
                     <div>
                       <FloatingSelect
-                        label={listsLoading ? "Location (loading...)" : "Location"}
+                        label={
+                          listsLoading ? "Location (loading...)" : "Location"
+                        }
                         size="small"
                         required
                         value={countryId}
@@ -602,9 +624,7 @@ function InfluencerSignupContent() {
                           .map((c) => {
                             const id = String(c._id ?? c.id);
                             const name =
-                              (c as any)?.countryName ??
-                              c.countryNameEn ??
-                              "";
+                              (c as any)?.countryName ?? c.countryNameEn ?? "";
                             const flagEmoji = c.flag ?? "";
 
                             return (
@@ -621,7 +641,9 @@ function InfluencerSignupContent() {
                                       className="w-4 h-4"
                                       loading="lazy"
                                       onError={(e) => {
-                                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                                        (
+                                          e.currentTarget as HTMLImageElement
+                                        ).style.display = "none";
                                       }}
                                     />
                                   ) : null}
@@ -631,7 +653,11 @@ function InfluencerSignupContent() {
                             );
                           })}
 
-                        <SelectItem value="__no_results__" disabled textValue="No results">
+                        <SelectItem
+                          value="__no_results__"
+                          disabled
+                          textValue="No results"
+                        >
                           No results
                         </SelectItem>
                       </FloatingSelect>
@@ -644,9 +670,7 @@ function InfluencerSignupContent() {
                     <div className="grid grid-cols-1 gap-[16px] md:grid-cols-2">
                       <FloatingMultiSelect
                         label={
-                          listsLoading
-                            ? "Languages (loading...)"
-                            : "Languages"
+                          listsLoading ? "Languages (loading...)" : "Languages"
                         }
                         size="small"
                         options={languageOptions}
@@ -673,8 +697,7 @@ function InfluencerSignupContent() {
                           value={categoryIds}
                           onValueChange={(v) => {
                             setCategoryIds(v);
-                            if (categoryError)
-                              clearFieldOnFocus("categoryIds");
+                            if (categoryError) clearFieldOnFocus("categoryIds");
                           }}
                           icon
                           includeAll={false}
@@ -716,9 +739,7 @@ function InfluencerSignupContent() {
                         was the redundant "additional error message" described in the bug.
                         No separate <p> error text is rendered below the checkbox.
                       */}
-                      <label
-                        className="flex items-center gap-[10px] text-center text-[12px] leading-[16px] text-[#7A7A7A]"
-                      >
+                      <label className="flex items-center gap-[10px] text-center text-[12px] leading-[16px] text-[#7A7A7A]">
                         <Checkbox
                           checked={agreed}
                           onCheckedChange={(v) => {
@@ -733,7 +754,7 @@ function InfluencerSignupContent() {
                             "bg-background border rounded-[4px] w-[20px] h-[20px] p-[4px]",
                             agreedError
                               ? "border-[color:var(--Errors-500,#E35141)]"
-                              : "border-[color:var(--Border-Primary,#B3B3B3)]"
+                              : "border-[color:var(--Border-Primary,#B3B3B3)]",
                           )}
                         />
 
@@ -763,7 +784,7 @@ function InfluencerSignupContent() {
                       size="lg"
                       className={cn(
                         "w-full rounded-m mt-2xl",
-                        isSendingOtp && "opacity-60"
+                        isSendingOtp && "opacity-60",
                       )}
                       disabled={isSendingOtp}
                     >
@@ -779,6 +800,8 @@ function InfluencerSignupContent() {
                         Login
                       </Link>
                     </p>
+
+                    <RecaptchaDisclosure />
                   </form>
                 </>
               )}
@@ -807,8 +830,7 @@ function InfluencerSignupContent() {
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ")
-                          goBackToForm();
+                        if (e.key === "Enter" || e.key === " ") goBackToForm();
                       }}
                     >
                       Back
@@ -841,7 +863,7 @@ function InfluencerSignupContent() {
                               className={cn(
                                 otpError
                                   ? "border-error-500"
-                                  : "border-neutral-300"
+                                  : "border-neutral-300",
                               )}
                             />
                           ))}
@@ -860,7 +882,7 @@ function InfluencerSignupContent() {
                         variant="solid"
                         className={cn(
                           "w-full h-[72px] rounded-[12px]",
-                          (isVerifyingOtp || isSendingOtp) && "opacity-60"
+                          (isVerifyingOtp || isSendingOtp) && "opacity-60",
                         )}
                         onClick={handleVerifyOtp}
                         disabled={isVerifyingOtp || isSendingOtp}
@@ -871,7 +893,7 @@ function InfluencerSignupContent() {
                       <div
                         className={cn(
                           SUBTITLE_CLASS,
-                          " mt-[12px] flex items-center justify-center gap-1"
+                          " mt-[12px] flex items-center justify-center gap-1",
                         )}
                       >
                         <span className="leading-[20px]">
@@ -887,7 +909,7 @@ function InfluencerSignupContent() {
                             "leading-[20px]",
                             "cursor-pointer",
                             (secondsLeft > 0 || isSendingOtp) &&
-                            "cursor-not-allowed opacity-60"
+                              "cursor-not-allowed opacity-60",
                           )}
                         >
                           {isSendingOtp ? (
@@ -904,6 +926,8 @@ function InfluencerSignupContent() {
                       </div>
                     </div>
                   </div>
+
+                  <RecaptchaDisclosure />
                 </>
               )}
             </div>
