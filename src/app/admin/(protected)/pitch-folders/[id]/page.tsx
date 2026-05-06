@@ -28,6 +28,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Sparkles,
   Settings2,
   Trash2,
   UploadCloud,
@@ -686,6 +687,73 @@ function buildPayloadFromDraft(draft: DraftState) {
     ourFeePct: toNullableNumber(draft.ourFeePct),
     shippingAddress: asText(draft.shippingAddress),
   };
+}
+
+function buildSelectionReasonPayloadFromRow(
+  row: FolderItem,
+  folder?: FolderResponse | null,
+  currentSelectionReason = ''
+) {
+  const assignedCampaign = folder?.assignedCampaign || null;
+  const assignedCampaignId = getAssignedCampaignId(assignedCampaign);
+
+  return {
+    folderId: folder?._id || '',
+    itemId: row._id,
+    folderTitle: folder?.title || '',
+    folderDescription: folder?.description || '',
+    assignedCampaign,
+
+    provider: asText(row.provider).toLowerCase(),
+    name: asText(row.name),
+    handle: normalizeHandle(asText(row.handle)),
+    followers: toNullableNumber(row.followers),
+    niche: Array.isArray(row.niche) ? row.niche : [],
+    email: asText(row.email),
+    country: asText(row.country),
+    profileLink: getProfileUrl(row),
+    primaryLink: asText(row.primaryLink),
+    links: Array.isArray(row.links) ? row.links : [],
+
+    currentSelectionReason: asText(currentSelectionReason || row.selectionReason),
+    selectionReason: asText(currentSelectionReason || row.selectionReason),
+    goodFit: !!row.goodFit,
+
+    influencerRateCard: asText(row.influencerRateCard),
+    platformRateCard: asText(row.platformRateCard),
+    rateCardCurrency: asText(row.rateCardCurrency || 'USD').toUpperCase(),
+    ourFeePct: toNullableNumber(row.ourFeePct),
+    shippingAddress: getShippingAddress(row),
+
+    mediaKitAccess: row.mediaKitAccess || null,
+    hasMediaKit: !!row.mediaKitAccess?.hasAdded || !!row.mediaKit?.s3Key || !!row.mediaKitLink?.url,
+    mediaKitStatus: asText(row.mediaKitAccess?.requestStatus),
+    mediaKitVisibleSource: asText(row.mediaKitAccess?.visibleSource),
+
+    influencerSource: getRowInfluencerSource(row),
+    createdInfluencerId: getRowInfluencerId(row),
+    campaignActivation: row.campaignActivation || null,
+    campaignInvitationStatus: getCampaignInvitationStatus(row, assignedCampaignId),
+  };
+}
+
+function hasUsefulSelectionReasonPayload(payload: ReturnType<typeof buildSelectionReasonPayloadFromRow>) {
+  return !!(
+    payload.name ||
+    payload.handle ||
+    payload.profileLink ||
+    payload.followers ||
+    payload.country ||
+    (Array.isArray(payload.niche) && payload.niche.length > 0) ||
+    payload.influencerRateCard ||
+    payload.platformRateCard ||
+    payload.shippingAddress ||
+    payload.folderTitle ||
+    payload.folderDescription ||
+    payload.assignedCampaign?.campaignTitle ||
+    payload.assignedCampaign?.brandName ||
+    payload.assignedCampaign?.productOrServiceName
+  );
 }
 
 function buildDraftFromRow(row: FolderItem): DraftState {
@@ -1349,7 +1417,10 @@ const DrawerForm = memo(function DrawerForm({
               </Field>
             </div>
 
-            <Field label="Selection Reason">
+            <Field
+              label="Selection Reason"
+              hint="Use the table row AI button after adding, or write/edit the reason manually here."
+            >
               <Textarea
                 value={draft.selectionReason}
                 onChange={(e) =>
@@ -2038,12 +2109,16 @@ type InfluencerTableRowProps = {
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onActivateOnCampaign: (row: FolderItem) => Promise<void>;
   onSendCampaignInvitation: (row: FolderItem) => Promise<void>;
+  onGenerateSelectionReason: (row: FolderItem, currentReason: string) => Promise<string>;
+  onSaveSelectionReason: (row: FolderItem, selectionReason: string) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   assignedCampaign?: AssignedCampaign | null;
   isCreateInfluencerLoading: boolean;
   isActivateCampaignLoading: boolean;
   isCampaignInvitationLoading: boolean;
+  isSelectionReasonGenerating: boolean;
+  isSelectionReasonSaving: boolean;
 };
 
 const InfluencerTableRowMemo = memo(function InfluencerTableRow({
@@ -2059,12 +2134,16 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   onCreateInfluencer,
   onActivateOnCampaign,
   onSendCampaignInvitation,
+  onGenerateSelectionReason,
+  onSaveSelectionReason,
   onEdit,
   onDelete,
   assignedCampaign,
   isCreateInfluencerLoading,
   isActivateCampaignLoading,
   isCampaignInvitationLoading,
+  isSelectionReasonGenerating,
+  isSelectionReasonSaving,
 }: InfluencerTableRowProps) {
   const hasLink = !!asText(row.mediaKitLink?.url);
   const hasPdf = !!asText(row.mediaKit?.s3Key);
@@ -2084,6 +2163,14 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
   const canActivateOnCampaign = isGoodFit && hasAssignedCampaign && influencerLinked && !isActiveOnCampaign;
   const canSendCampaignInvitation =
     isGoodFit && hasAssignedCampaign && influencerLinked && isSelfCreatedInfluencer && !campaignInvitationSent;
+  const [selectionReasonDraft, setSelectionReasonDraft] = useState(asText(row.selectionReason));
+
+  useEffect(() => {
+    setSelectionReasonDraft(asText(row.selectionReason));
+  }, [row._id, row.selectionReason]);
+
+  const selectionReasonChanged =
+    selectionReasonDraft.trim() !== asText(row.selectionReason).trim();
 
   const visibleSource =
     access?.visibleSource === 'pdf'
@@ -2149,8 +2236,63 @@ const InfluencerTableRowMemo = memo(function InfluencerTableRow({
       </TableCell>
 
       <TableCell className="align-top text-sm text-slate-700">
-        <div className="max-w-[300px] whitespace-pre-wrap break-words leading-6">
-          {row.selectionReason || DASH}
+        <div className="min-w-[360px] max-w-[460px] space-y-2">
+          <Textarea
+            value={selectionReasonDraft}
+            onChange={(e) => setSelectionReasonDraft(e.target.value)}
+            rows={7}
+            placeholder="Add or generate a detailed selection reason"
+            className="max-h-[250px] resize-y rounded-2xl bg-white text-sm leading-6"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => {
+                  void (async () => {
+                    const generated = await onGenerateSelectionReason(
+                      row,
+                      selectionReasonDraft
+                    );
+                    if (asText(generated)) {
+                      setSelectionReasonDraft(generated);
+                    }
+                  })();
+                }}
+                disabled={isSelectionReasonGenerating || isSelectionReasonSaving}
+              >
+                {isSelectionReasonGenerating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                AI Reason
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => {
+                  void onSaveSelectionReason(row, selectionReasonDraft);
+                }}
+                disabled={
+                  isSelectionReasonGenerating ||
+                  isSelectionReasonSaving ||
+                  !selectionReasonChanged
+                }
+              >
+                {isSelectionReasonSaving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Save
+              </Button>
+            </div>
+          </div>
         </div>
       </TableCell>
 
@@ -2427,6 +2569,8 @@ type InfluencerTableProps = {
   onCreateInfluencer: (row: FolderItem) => Promise<void>;
   onActivateOnCampaign: (row: FolderItem) => Promise<void>;
   onSendCampaignInvitation: (row: FolderItem) => Promise<void>;
+  onGenerateSelectionReason: (row: FolderItem, currentReason: string) => Promise<string>;
+  onSaveSelectionReason: (row: FolderItem, selectionReason: string) => Promise<void>;
   onEdit: (row: FolderItem) => void;
   onDelete: (itemId: string) => Promise<void>;
   onGoToYoutube: () => void;
@@ -2436,6 +2580,7 @@ type InfluencerTableProps = {
   creatingInfluencerItemId: string;
   activatingCampaignItemId: string;
   campaignInvitationItemId: string;
+  actionLoadingKey: string;
 };
 
 const InfluencerTableSection = memo(function InfluencerTableSection({
@@ -2457,6 +2602,8 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   onCreateInfluencer,
   onActivateOnCampaign,
   onSendCampaignInvitation,
+  onGenerateSelectionReason,
+  onSaveSelectionReason,
   onEdit,
   onDelete,
   onGoToYoutube,
@@ -2466,6 +2613,7 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
   creatingInfluencerItemId,
   activatingCampaignItemId,
   campaignInvitationItemId,
+  actionLoadingKey,
 }: InfluencerTableProps) {
   return (
     <Card className="rounded-2xl border border-slate-200 shadow-none">
@@ -2572,7 +2720,7 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
           </div>
         ) : (
           <div className="w-full overflow-x-auto">
-            <div className="min-w-[1760px]">
+            <div className="min-w-[2040px]">
               <Table>
                 <TableHeader>
                   <TableRow className="border-slate-200">
@@ -2616,12 +2764,16 @@ const InfluencerTableSection = memo(function InfluencerTableSection({
                       onCreateInfluencer={onCreateInfluencer}
                       onActivateOnCampaign={onActivateOnCampaign}
                       onSendCampaignInvitation={onSendCampaignInvitation}
+                      onGenerateSelectionReason={onGenerateSelectionReason}
+                      onSaveSelectionReason={onSaveSelectionReason}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       assignedCampaign={assignedCampaign}
                       isCreateInfluencerLoading={creatingInfluencerItemId === row._id}
                       isActivateCampaignLoading={activatingCampaignItemId === row._id}
                       isCampaignInvitationLoading={campaignInvitationItemId === row._id}
+                      isSelectionReasonGenerating={actionLoadingKey === `selection-generate:${row._id}`}
+                      isSelectionReasonSaving={actionLoadingKey === `selection-save:${row._id}`}
                     />
                   ))}
                 </TableBody>
@@ -2985,6 +3137,81 @@ export default function PitchFolderDetailPage() {
     setMediaKitItemId('');
     void loadFolder();
   }, [folderId, closeDrawer, loadFolder]);
+
+  const generateSelectionReasonForRow = useCallback(
+    async (row: FolderItem, currentReason: string) => {
+      const payload = buildSelectionReasonPayloadFromRow(
+        row,
+        folder,
+        currentReason
+      );
+
+      if (!hasUsefulSelectionReasonPayload(payload)) {
+        await showErr('Add creator, campaign, or rate-card details first, then generate a selection reason.');
+        return '';
+      }
+
+      try {
+        setActionLoadingKey(`selection-generate:${row._id}`);
+
+        const resp = await post<{
+          success?: boolean;
+          message?: string;
+          error?: string;
+          selectionReason?: string;
+          data?: {
+            selectionReason?: string;
+            source?: string;
+          };
+        }>('/pitch-folders/selection-reason/generate', payload);
+
+        if (resp?.success === false) {
+          throw new Error(resp?.message || resp?.error || 'Failed to generate selection reason.');
+        }
+
+        const selectionReason = asText(
+          resp?.selectionReason || resp?.data?.selectionReason
+        );
+
+        if (!selectionReason) {
+          throw new Error('Selection reason was not returned.');
+        }
+        return selectionReason;
+      } catch (e: any) {
+        await showErr(
+          getApiErrorMessage(e, 'Failed to generate selection reason.')
+        );
+        return '';
+      } finally {
+        setActionLoadingKey('');
+      }
+    },
+    [folder]
+  );
+
+  const saveSelectionReasonForRow = useCallback(
+    async (row: FolderItem, selectionReason: string) => {
+      try {
+        setActionLoadingKey(`selection-save:${row._id}`);
+
+        await post('/pitch-folders/item/update', {
+          folderId,
+          itemId: row._id,
+          selectionReason: asText(selectionReason),
+        });
+
+        await loadFolder();
+        await showSuccess('Selection reason saved successfully.');
+      } catch (e: any) {
+        await showErr(
+          getApiErrorMessage(e, 'Failed to save selection reason.')
+        );
+      } finally {
+        setActionLoadingKey('');
+      }
+    },
+    [folderId, loadFolder]
+  );
 
   const saveDrawer = useCallback(async () => {
     try {
@@ -3988,6 +4215,8 @@ export default function PitchFolderDetailPage() {
           onCreateInfluencer={createInfluencerFromRow}
           onActivateOnCampaign={activateRowOnCampaign}
           onSendCampaignInvitation={sendCampaignInvitationForRow}
+          onGenerateSelectionReason={generateSelectionReasonForRow}
+          onSaveSelectionReason={saveSelectionReasonForRow}
           onEdit={openEditDrawer}
           onDelete={deleteRow}
           onGoToYoutube={goToYoutube}
@@ -3997,6 +4226,7 @@ export default function PitchFolderDetailPage() {
           creatingInfluencerItemId={creatingInfluencerItemId}
           activatingCampaignItemId={activatingCampaignItemId}
           campaignInvitationItemId={campaignInvitationItemId}
+          actionLoadingKey={actionLoadingKey}
         />
       </div>
     </div>

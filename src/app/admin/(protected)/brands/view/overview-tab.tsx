@@ -125,8 +125,8 @@ function BrandProfileListRow({
 }
 
 function BrandProfileList({ rows }: { rows: BrandInfoRow[] }) {
-  const leftRows = rows.slice(0, 5);
-  const rightRows = rows.slice(5, 11);
+  const leftRows = rows.slice(0, 4);
+  const rightRows = rows.slice(4, 10);
 
   return (
     <div className="rounded-[28px] border border-black/10 bg-white px-5 py-4 shadow-sm">
@@ -280,13 +280,6 @@ export function BrandOverviewTab({
           : formatPlanDisplayName(brand.subscription?.status || "Active"),
       },
       {
-        id: "assignmentStatus",
-        field: "Assignment Status",
-        value:
-          brand.assignmentStatus ||
-          (brand.subscriptionExpired ? "Expired" : "Active"),
-      },
-      {
         id: "billingCycle",
         field: "Billing Cycle",
         value: formatPlanDisplayName(brand.subscription?.billingCycle || "—"),
@@ -295,11 +288,6 @@ export function BrandOverviewTab({
         id: "subscriptionStarted",
         field: "Subscription Started",
         value: formatDate(brand.subscription?.startedAt),
-      },
-      {
-        id: "subscriptionExpires",
-        field: "Subscription Expires",
-        value: formatDate(brand.subscription?.expiresAt || brand.expiresAt),
       },
     ],
     [brand, currentPlanName]

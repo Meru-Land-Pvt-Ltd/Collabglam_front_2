@@ -505,22 +505,6 @@ export function BrandCampaignsTab({
       description="Manage campaigns created for this brand."
     >
       <div className="space-y-5 p-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <CampaignSummaryCard
-            title="Fully Managed Campaigns"
-            value={fullyManagedCount}
-            description="Campaigns created or managed by admin users."
-            tone="managed"
-          />
-
-          <CampaignSummaryCard
-            title="Standard Campaigns"
-            value={standardCampaignCount}
-            description="Campaigns created through the standard brand flow."
-            tone="standard"
-          />
-        </div>
-
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 px-5 py-5">
             <h3 className="text-2xl font-black tracking-[-0.03em] text-slate-900">

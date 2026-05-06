@@ -201,13 +201,18 @@ export const ADMIN_MODULES: AdminModule[] = [
     label: "Documents",
     href: "/admin/documents",
     icon: Files,
+    aliases: ["document", "docs", "policies", "legal"],
     children: [
       {
         key: "contact-us-page-email",
-        label: "Contact US",
+        label: "Contact US Page Email",
         href: "/admin/documents/contact-us",
       },
-      { key: "faqs", label: "FAQs", href: "/admin/documents/faqs" },
+      {
+        key: "faqs",
+        label: "FAQs",
+        href: "/admin/documents/faqs",
+      },
       {
         key: "privacy-policy",
         label: "Privacy Policy",
@@ -225,13 +230,28 @@ export const ADMIN_MODULES: AdminModule[] = [
       },
       {
         key: "shipping-delivery-policy",
-        label: "Shipping & Delivery",
+        label: "Shipping & Delivery Policy",
         href: "/admin/documents/shipping-delivery",
       },
       {
         key: "returns-policy",
         label: "Returns Policy",
         href: "/admin/documents/return-policy",
+      },
+      {
+        key: "acceptable-use-communication-policy",
+        label: "Acceptable Use & Communication Policy",
+        href: "/admin/documents/acceptable-use",
+      },
+      {
+        key: "data-processing-addendum",
+        label: "Data Processing Addendum",
+        href: "/admin/documents/data-processing-addendum",
+      },
+      {
+        key: "subprocessor-list",
+        label: "Subprocessor List",
+        href: "/admin/documents/subprocessor-list",
       },
     ],
   },

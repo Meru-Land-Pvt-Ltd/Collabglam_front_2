@@ -32,6 +32,8 @@ type BrandStatus = "active" | "expired" | "archived";
 type BillingCycle = "monthly" | "annual";
 type AssignRole = "RH" | "BME";
 type BrandAssignmentScope = "all" | "my_assigned";
+type BrandSignupFilter = "all" | "fully_signedup" | "not_signedup";
+type BrandPlanFilter = "all" | "fully_managed" | "standard";
 
 type SortField =
   | "name"
@@ -79,6 +81,8 @@ interface ApiBrand {
   proxyEmail?: string;
   subscription?: ApiSubscription;
   subscriptionExpired?: boolean;
+  planName?: string;
+  expiresAt?: string | null;
 
   isAdminCreated?: boolean;
   signupCompleted?: boolean;
@@ -199,6 +203,7 @@ interface StoredAdmin {
 
 const DEFAULT_PAGE_SIZE = 10;
 const DEFAULT_ROW_OPTIONS = [10, 20, 50, 100] as const;
+const BRAND_FETCH_PAGE_SIZE = 100;
 
 const tableButtonBaseClass =
   "h-9 rounded-[10px] border px-3 text-sm font-medium shadow-sm transition focus-visible:!ring-0 focus-visible:!ring-offset-0";
@@ -268,6 +273,52 @@ function formatPlanLabel(value?: string) {
   return label === "—" ? label : label.replace(/_/g, " ").toUpperCase();
 }
 
+function normalizePlanName(value?: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isFullyManagedBrand(brand: Pick<BrandRow, "planName">) {
+  return normalizePlanName(brand.planName) === "fully_managed";
+}
+
+function isStandardBrand(brand: Pick<BrandRow, "planName">) {
+  return !isFullyManagedBrand(brand);
+}
+
+function isNotSignedUpBrand(
+  brand: Pick<BrandRow, "currentStatus" | "signupCompleted">
+) {
+  return brand.currentStatus === "pending_signup" || brand.signupCompleted === false;
+}
+
+function isFullySignedUpBrand(
+  brand: Pick<BrandRow, "currentStatus" | "signupCompleted">
+) {
+  return !isNotSignedUpBrand(brand);
+}
+
+function isDateInCurrentMonth(value?: string) {
+  if (!value) return false;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = new Date();
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth()
+  );
+}
+
+function isSignedUpThisMonth(brand: BrandRow) {
+  if (!isFullySignedUpBrand(brand)) return false;
+
+  return isDateInCurrentMonth(brand.signupCompletedAt || brand.createdAt);
+}
+
 function formatRoleLabel(role?: string) {
   const normalized = normalizeRole(role);
 
@@ -281,10 +332,7 @@ function formatRoleLabel(role?: string) {
 }
 
 function canManageCampaigns(brand: BrandRow) {
-  const normalizedPlan = brand.planName
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
+  const normalizedPlan = normalizePlanName(brand.planName);
 
   return normalizedPlan === "fully_paid" || normalizedPlan === "fully_managed";
 }
@@ -354,11 +402,11 @@ function mapBrand(brand: ApiBrand): BrandRow {
     proxyEmail: brand.proxyEmail || "",
     createdAt: brand.createdAt,
     updatedAt: brand.updatedAt || brand.createdAt,
-    planName: subscription.planName || "—",
+    planName: subscription.planName || brand.planName || "—",
     billingCycle,
     amountPaid,
     startedAt: subscription.startedAt || brand.createdAt,
-    expiresAt: subscription.expiresAt || "",
+    expiresAt: subscription.expiresAt || brand.expiresAt || "",
     autoRenew: subscription.autoRenew ?? false,
     status: getStatusFromApi(brand),
     companySize: brand.companySize || "—",
@@ -607,6 +655,28 @@ const PlanCell = React.memo(function PlanCell({ brand }: { brand: BrandRow }) {
     <div className="w-full min-w-[180px] p-3 text-left ">
       <span className="inline-flex max-w-full rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.04em] text-slate-900">
         <span className="truncate">{formatPlanLabel(brand.planName)}</span>
+      </span>
+    </div>
+  );
+});
+
+const CurrentStatusCell = React.memo(function CurrentStatusCell({
+  brand,
+}: {
+  brand: BrandRow;
+}) {
+  const status = getBrandCurrentStatus(brand);
+  const isPending = isNotSignedUpBrand(brand);
+
+  return (
+    <div className="flex justify-center">
+      <span
+        className={`inline-flex rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] ${isPending
+            ? "border-amber-200 bg-amber-50 text-amber-700"
+            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}
+      >
+        {isPending ? status.label || "Pending Signup" : "Active"}
       </span>
     </div>
   );
@@ -1023,11 +1093,11 @@ const AdminBrandPage: NextPage = () => {
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 400);
+  const [signupFilter, setSignupFilter] = useState<BrandSignupFilter>("all");
+  const [brandPlanFilter, setBrandPlanFilter] = useState<BrandPlanFilter>("all");
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
 
   const [sortBy, setSortBy] = useState<SortField>("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -1094,7 +1164,7 @@ const AdminBrandPage: NextPage = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, assignmentScope]);
+  }, [debouncedSearch, assignmentScope, signupFilter, brandPlanFilter]);
 
   const fetchBrands = useCallback(async () => {
     const requestId = ++requestIdRef.current;
@@ -1102,29 +1172,50 @@ const AdminBrandPage: NextPage = () => {
     try {
       setLoading(true);
 
-      const response = await adminPost<BrandListResponse>("/admin/brand/getlist", {
-        page,
-        limit: pageSize,
+      const basePayload = {
+        limit: BRAND_FETCH_PAGE_SIZE,
         search: debouncedSearch,
         sortBy,
         sortOrder,
         assignmentScope,
-      });
+      };
+
+      const firstResponse = await adminPost<BrandListResponse>(
+        "/admin/brand/getlist",
+        {
+          ...basePayload,
+          page: 1,
+        }
+      );
+
+      const firstRawBrands = firstResponse.brands || firstResponse.data || [];
+      const responseTotal = firstResponse.total ?? firstRawBrands.length;
+      const responseTotalPages =
+        firstResponse.totalPages ??
+        Math.max(1, Math.ceil(responseTotal / BRAND_FETCH_PAGE_SIZE));
+
+      let allRawBrands = [...firstRawBrands];
+
+      if (responseTotalPages > 1) {
+        const remainingResponses = await Promise.all(
+          Array.from({ length: responseTotalPages - 1 }, (_, index) =>
+            adminPost<BrandListResponse>("/admin/brand/getlist", {
+              ...basePayload,
+              page: index + 2,
+            })
+          )
+        );
+
+        remainingResponses.forEach((item) => {
+          allRawBrands.push(...(item.brands || item.data || []));
+        });
+      }
 
       if (requestId !== requestIdRef.current) return;
 
-      const rawBrands = response.brands || response.data || [];
-      const mapped = rawBrands.map(mapBrand);
-      const nextTotal = response.total ?? mapped.length;
-      const nextLimit = response.limit ?? pageSize;
+      const mapped = allRawBrands.map(mapBrand);
 
       setBrands(mapped);
-      setTotal(nextTotal);
-      setPage(response.page ?? page);
-      setPageSize(nextLimit);
-      setTotalPages(
-        response.totalPages ?? Math.max(1, Math.ceil(nextTotal / nextLimit))
-      );
       setError(null);
     } catch (err: any) {
       if (requestId !== requestIdRef.current) return;
@@ -1135,7 +1226,7 @@ const AdminBrandPage: NextPage = () => {
         setLoading(false);
       }
     }
-  }, [page, pageSize, debouncedSearch, sortBy, sortOrder, assignmentScope]);
+  }, [debouncedSearch, sortBy, sortOrder, assignmentScope]);
 
   const handleCreateBrand = useCallback(async () => {
     const brandName = createBrandName.trim();
@@ -1169,18 +1260,14 @@ const AdminBrandPage: NextPage = () => {
       setCreateOpen(false);
       setCreateBrandName("");
       setCreateEmail("");
-
-      if (page !== 1) {
-        setPage(1);
-      } else {
-        await fetchBrands();
-      }
+      setPage(1);
+      await fetchBrands();
     } catch (err: any) {
       setCreateError(err?.message || "Failed to create brand.");
     } finally {
       setCreatingBrand(false);
     }
-  }, [canCreateBrand, createBrandName, createEmail, fetchBrands, page]);
+  }, [canCreateBrand, createBrandName, createEmail, fetchBrands]);
 
   const fetchAssignees = useCallback(async () => {
     try {
@@ -1287,12 +1374,15 @@ const AdminBrandPage: NextPage = () => {
     setPageSize(limit);
   }, []);
 
-  const statusCounts = useMemo(
+  const summaryCounts = useMemo(
     () => ({
+      signedUpThisMonth: brands.filter(isSignedUpThisMonth).length,
+      fullyManaged: brands.filter(isFullyManagedBrand).length,
+      standard: brands.filter(isStandardBrand).length,
       active: brands.filter((item) => item.status === "active").length,
       expired: brands.filter((item) => item.status === "expired").length,
       archived: brands.filter((item) => item.status === "archived").length,
-      pendingSignup: brands.filter((item) => item.currentStatus === "pending_signup").length,
+      pendingSignup: brands.filter(isNotSignedUpBrand).length,
       adminCreated: brands.filter(
         (item) => item.createdBySource === "admin" || item.isAdminCreated
       ).length,
@@ -1302,6 +1392,42 @@ const AdminBrandPage: NextPage = () => {
     }),
     [brands]
   );
+
+  const filteredBrands = useMemo(
+    () =>
+      brands.filter((brand) => {
+        const matchesSignup =
+          signupFilter === "all" ||
+          (signupFilter === "fully_signedup" && isFullySignedUpBrand(brand)) ||
+          (signupFilter === "not_signedup" && isNotSignedUpBrand(brand));
+
+        const matchesPlan =
+          brandPlanFilter === "all" ||
+          (brandPlanFilter === "fully_managed" && isFullyManagedBrand(brand)) ||
+          (brandPlanFilter === "standard" && isStandardBrand(brand));
+
+        return matchesSignup && matchesPlan;
+      }),
+    [brands, signupFilter, brandPlanFilter]
+  );
+
+  const filteredTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredBrands.length / pageSize)),
+    [filteredBrands.length, pageSize]
+  );
+
+  const paginatedBrands = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredBrands.slice(start, start + pageSize);
+  }, [filteredBrands, page, pageSize]);
+
+  const hasBrandFilters = signupFilter !== "all" || brandPlanFilter !== "all";
+
+  useEffect(() => {
+    if (page > filteredTotalPages) {
+      setPage(filteredTotalPages);
+    }
+  }, [page, filteredTotalPages]);
 
   const assignedCounts = useMemo(
     () => ({
@@ -1327,8 +1453,6 @@ const AdminBrandPage: NextPage = () => {
     if (isBme) {
       return "Showing brands assigned to your BME account.";
     }
-
-    return "Showing brands based on your admin access.";
   }, [isRevenueHead, isBme, currentAdminName]);
 
   const columns = useMemo<AdminTableColumn<BrandRow>[]>(
@@ -1365,6 +1489,13 @@ const AdminBrandPage: NextPage = () => {
         align: "center",
         widthClassName: "min-w-[220px]",
         render: (brand) => <PlanCell brand={brand} />,
+      },
+      {
+        id: "currentStatus",
+        header: "CURRENT STATUS",
+        align: "center",
+        widthClassName: "min-w-[190px]",
+        render: (brand) => <CurrentStatusCell brand={brand} />,
       },
       {
         id: "createdBy",
@@ -1455,22 +1586,6 @@ const AdminBrandPage: NextPage = () => {
               <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
                 BRAND MANAGEMENT
               </h1>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
-                  ROLE: {formatRoleLabel(adminRole).toUpperCase()}
-                </span>
-                {currentAdminName ? (
-                  <span className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600">
-                    {currentAdminName}
-                  </span>
-                ) : null}
-                {isRevenueHead ? (
-                  <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                    RH BRAND VIEW ENABLED
-                  </span>
-                ) : null}
-              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -1506,6 +1621,121 @@ const AdminBrandPage: NextPage = () => {
           </div>
         </div>
 
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+              Signed Up This Month
+            </p>
+            <p className="mt-3 text-3xl font-black text-slate-950">
+              {summaryCounts.signedUpThisMonth > 0
+                ? `+${summaryCounts.signedUpThisMonth}`
+                : summaryCounts.signedUpThisMonth}
+            </p>
+          </div>
+
+          <div className="rounded-[22px] p-5 border border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-sm ring-1 ring-amber-200/70">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+              Fully Managed Brands
+            </p>
+            <p className="mt-3 text-3xl font-black text-slate-950">
+              {summaryCounts.fullyManaged}
+            </p>
+          </div>
+
+          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+              Standard Brands
+            </p>
+            <p className="mt-3 text-3xl font-black text-slate-950">
+              {summaryCounts.standard}
+            </p>
+          </div>
+        </div>
+
+        <Card className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-slate-500" />
+                  <p className="text-sm font-black text-slate-900">FILTER BRANDS</p>
+                </div>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  Signed up filter and brand status filter work together with AND logic.
+                </p>
+              </div>
+
+              {hasBrandFilters ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSignupFilter("all");
+                      setBrandPlanFilter("all");
+                    }}
+                    className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-black"
+                  >
+                    CLEAR FILTERS
+                  </button>
+                </div>
+              ) : null}
+
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+                  Signed Up
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ["all", "All"],
+                    ["fully_signedup", "Fully Signup"],
+                    ["not_signedup", "Not Signed Up"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSignupFilter(value)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${signupFilter === value
+                        ? "border-black bg-black text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+                  Brand Status
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    ["all", "All"],
+                    ["fully_managed", "Fully Managed"],
+                    ["standard", "Standard Brand"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setBrandPlanFilter(value)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${brandPlanFilter === value
+                        ? "border-black bg-black text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Card>
+
         <Card className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-4 md:p-5">
             <div className="flex flex-col gap-4">
@@ -1530,20 +1760,11 @@ const AdminBrandPage: NextPage = () => {
                   />
                 </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                  {statusCounts.active} ACTIVE
-                </span>
-                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                  {statusCounts.expired} EXPIRED
-                </span>
-              </div>
             </div>
           </div>
 
           <AdminTable<BrandRow>
-            data={brands}
+            data={paginatedBrands}
             columns={columns}
             rowKey={(row) => row._id}
             loading={loading}
@@ -1558,8 +1779,8 @@ const AdminBrandPage: NextPage = () => {
             actions={actions}
             pagination={{
               page,
-              totalPages,
-              totalItems: total,
+              totalPages: filteredTotalPages,
+              totalItems: filteredBrands.length,
               limit: pageSize,
               onPageChange: setPage,
               onLimitChange: handleLimitChange,
