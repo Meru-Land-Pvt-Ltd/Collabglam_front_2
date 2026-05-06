@@ -2315,17 +2315,6 @@ export default function ViewCampaignPage() {
                       {c.description}
                     </p>
                   )}
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {heroTags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex rounded-full border border-white/12 bg-white/10 px-3 py-1 text-sm font-medium text-white/85"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -2395,8 +2384,6 @@ export default function ViewCampaignPage() {
                   <dl>
                     <Def label="Type" value={prettify(c.campaignType)} />
                     <Def label="Payment" value={prettify(c.paymentType)} />
-                    <Def label="Approval" value={prettify(c.approvalMode)} />
-                    <Def label="Applicants" value={c.applicantCount ?? applicantCount ?? 0} />
                     <Def label="Timezone" value={c.campaignTimezone || "—"} />
                     <Def label="Start" value={formatDateShort(c.startAt)} />
                     <Def label="End" value={formatDateShort(c.endAt)} />
@@ -2408,14 +2395,9 @@ export default function ViewCampaignPage() {
                       value={`$${formatMoney(c.campaignBudget ?? c.budget)}`}
                     />
                     <Def
-                      label="Influencer Budget"
-                      value={`$${formatMoney(c.influencerBudget)}`}
-                    />
-                    <Def
                       label="Follower Range"
                       value={`${formatCompactNumber(c.minFollowers)} – ${formatCompactNumber(c.maxFollowers)}`}
                     />
-                    <Def label="Publish Status" value={prettify(c.publishStatus)} />
                     <Def label="Status" value={isDraft ? "Draft" : prettify(c.status)} />
                     <Def label="Scheduled At" value={formatDateShort(c.scheduledAt)} />
                     <Def label="Published At" value={formatDateShort(c.publishedAt)} />

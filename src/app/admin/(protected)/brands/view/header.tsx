@@ -13,6 +13,9 @@ type CampaignEligibleBrand = BrandDetail & {
   adminCreatedRole?: string | null;
   fullyManagedSubscription?: boolean;
   planName?: string | null;
+  signupCompleted?: boolean;
+  currentStatus?: string | null;
+  currentStatusLabel?: string | null;
   subscription?: BrandDetail["subscription"] & {
     planName?: string | null;
     planKey?: string | null;
@@ -145,6 +148,12 @@ export function BrandViewHeader({
     (!isFreePlan &&
       (isFullyManagedPlan || campaignBrand.fullyManagedSubscription === true));
 
+
+  const isPendingSignup =
+    campaignBrand.signupCompleted === false ||
+    campaignBrand.currentStatus === "pending_signup";
+
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-500">
@@ -180,12 +189,12 @@ export function BrandViewHeader({
                     {campaignBrand.brandName}
                   </h1>
 
-                  {campaignBrand.subscriptionExpired ? (
-                    <span className="inline-flex rounded-full border border-rose-200 bg-rose-500 px-3 py-1 text-xs font-black text-white">
-                      Expired
+                  {isPendingSignup ? (
+                    <span className="inline-flex rounded-full border border-amber-200 bg-amber-100 px-3 py-1 text-xs font-black text-amber-700">
+                      Pending Signup
                     </span>
                   ) : (
-                    <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-500 px-3 py-1 text-xs font-black text-white">
+                    <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">
                       Active
                     </span>
                   )}
