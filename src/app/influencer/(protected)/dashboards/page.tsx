@@ -76,6 +76,49 @@ function readStoredUser() {
   }
 }
 
+function getLocalStorageValue(key: string) {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function decodeJwtPayload(token?: string) {
+  if (!token || typeof window === "undefined" || !token.includes(".")) {
+    return {};
+  }
+
+  try {
+    const payloadPart = token.split(".")[1];
+    const normalized = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - (normalized.length % 4)) % 4),
+      "="
+    );
+    const json = decodeURIComponent(
+      atob(padded)
+        .split("")
+        .map((char) => `%${(`00${char.charCodeAt(0).toString(16)}`).slice(-2)}`)
+        .join("")
+    );
+
+    return JSON.parse(json);
+  } catch {
+    return {};
+  }
+}
+
+function firstNonEmpty(...values: any[]) {
+  const match = values.find((value) => {
+    if (value === null || value === undefined) return false;
+    return String(value).trim().length > 0;
+  });
+
+  return match === undefined || match === null ? "" : String(match).trim();
+}
+
 function getStoredInfluencerName() {
   if (typeof window === "undefined") return "Influencer";
 
@@ -107,12 +150,20 @@ function getStoredToken() {
   const parsedUser: any = readStoredUser();
 
   return (
-    localStorage.getItem("token") ||
-    parsedUser?.token ||
-    parsedUser?.accessToken ||
-    parsedUser?.authToken ||
-    parsedUser?.jwt ||
-    undefined
+    firstNonEmpty(
+      getLocalStorageValue("influencerToken"),
+      getLocalStorageValue("token"),
+      parsedUser?.influencerToken,
+      parsedUser?.token,
+      parsedUser?.accessToken,
+      parsedUser?.authToken,
+      parsedUser?.jwt,
+      parsedUser?.data?.influencerToken,
+      parsedUser?.data?.token,
+      parsedUser?.data?.accessToken,
+      parsedUser?.user?.token,
+      parsedUser?.user?.accessToken
+    ) || undefined
   );
 }
 
@@ -120,12 +171,44 @@ function getStoredInfluencerId() {
   if (typeof window === "undefined") return "";
 
   const parsedUser: any = readStoredUser();
+  const token = getStoredToken();
+  const jwtPayload: any = decodeJwtPayload(token);
 
-  return (
-    localStorage.getItem("influencerId") ||
-    parsedUser?.influencerId ||
-    parsedUser?._id ||
-    ""
+  return firstNonEmpty(
+    getLocalStorageValue("influencerId"),
+    getLocalStorageValue("creatorId"),
+
+    parsedUser?.influencerId,
+    parsedUser?.creatorId,
+    parsedUser?.influencer?._id,
+    parsedUser?.influencer?.id,
+
+    parsedUser?.data?.influencerId,
+    parsedUser?.data?.creatorId,
+    parsedUser?.data?.influencer?._id,
+    parsedUser?.data?.influencer?.id,
+
+    parsedUser?.user?.influencerId,
+    parsedUser?.user?.creatorId,
+    parsedUser?.user?.influencer?._id,
+    parsedUser?.user?.influencer?.id,
+
+    jwtPayload?.influencerId,
+    jwtPayload?.creatorId,
+    jwtPayload?.influencer?._id,
+    jwtPayload?.influencer?.id,
+
+    // Last-resort fallbacks for apps where the influencer account itself is the user.
+    parsedUser?._id,
+    parsedUser?.id,
+    parsedUser?.data?._id,
+    parsedUser?.data?.id,
+    parsedUser?.user?._id,
+    parsedUser?.user?.id,
+    jwtPayload?._id,
+    jwtPayload?.id,
+    jwtPayload?.userId,
+    jwtPayload?.sub
   );
 }
 
@@ -389,11 +472,29 @@ export default function Dashboard() {
   const [influencerName, setInfluencerName] = useState("Influencer");
 
   useEffect(() => {
+    const storedToken = getStoredToken();
     const storedInfluencerId = getStoredInfluencerId();
 
-    if (!storedInfluencerId) {
+    if (!storedToken && !storedInfluencerId) {
       router.replace("/influencer/login");
       return;
+    }
+
+    if (!storedInfluencerId) {
+      setLoading(false);
+      setInfluencerName(getStoredInfluencerName());
+      return;
+    }
+
+    try {
+      localStorage.setItem("influencerId", storedInfluencerId);
+
+      if (storedToken) {
+        localStorage.setItem("influencerToken", storedToken);
+        localStorage.setItem("token", storedToken);
+      }
+    } catch {
+      // ignore
     }
 
     setInfluencerId(storedInfluencerId);
@@ -505,6 +606,41 @@ export default function Dashboard() {
           </div>
           <div className="h-72 bg-gray-200 rounded-2xl" />
           <div className="h-48 bg-gray-200 rounded-2xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!influencerId) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FC] flex items-center justify-center px-4 font-sans">
+        <div className="w-full max-w-md bg-white border border-gray-100 rounded-3xl shadow-sm p-6 text-center">
+          <div className="mx-auto mb-4 w-14 h-14 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center">
+            <Megaphone className="w-6 h-6 text-amber-500" />
+          </div>
+          <h1 className="text-xl font-black text-gray-900">
+            Influencer profile not found
+          </h1>
+          <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+            You are signed in, but we could not find your influencer profile ID
+            in local storage. Complete onboarding once more or sign in again.
+          </p>
+          <div className="mt-6 flex flex-col gap-3">
+            <button
+              type="button"
+              onClick={() => router.replace("/influencer/onboarding?step=page1")}
+              className="w-full bg-gray-900 hover:bg-black text-white font-semibold text-sm px-5 py-3 rounded-xl transition-all duration-200"
+            >
+              Go to onboarding
+            </button>
+            <button
+              type="button"
+              onClick={() => router.replace("/influencer/login")}
+              className="w-full bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 font-semibold text-sm px-5 py-3 rounded-xl transition-all duration-200"
+            >
+              Sign in again
+            </button>
+          </div>
         </div>
       </div>
     );

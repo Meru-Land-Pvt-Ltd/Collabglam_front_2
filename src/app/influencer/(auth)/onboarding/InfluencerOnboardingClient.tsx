@@ -68,6 +68,7 @@ type OnboardingStepParam = "page1" | "page2" | "page3";
 const TOTAL_STEPS = 3;
 const REDIRECT_TOAST_KEY = "cg_redirect_toast_v1";
 const ONBOARDING_RESUME_KEY = "cg_influencer_onboarding_resume_step";
+const FINAL_INFLUENCER_DASHBOARD_ROUTE = "/influencer/dashboards";
 
 type RedirectToastPayload = {
   icon?: "success" | "error" | "info" | "warning";
@@ -104,9 +105,33 @@ function getBackendMessage(resp: any) {
   const payload = normalizeApiPayload(resp);
   const message =
     payload?.data?.message || payload?.message || "Saved successfully";
-  const influencerId = payload?.data?.influencerId;
+  const influencerId = getBackendInfluencerId(resp);
 
   return influencerId ? `${message} (ID: ${influencerId})` : message;
+}
+
+function getBackendInfluencerId(resp: any): string {
+  const payload = normalizeApiPayload(resp);
+
+  const candidates = [
+    payload?.data?.influencerId,
+    payload?.influencerId,
+    payload?.data?.influencer?._id,
+    payload?.data?.influencer?.id,
+    payload?.influencer?._id,
+    payload?.influencer?.id,
+    payload?.data?._id,
+    payload?.data?.id,
+    resp?.data?.influencerId,
+    resp?.data?.data?.influencerId,
+    resp?.influencerId,
+  ];
+
+  const match = candidates.find((value) =>
+    value !== undefined && value !== null && String(value).trim()
+  );
+
+  return match ? String(match).trim() : "";
 }
 
 function getBackendRoute(resp: any): string | undefined {
@@ -722,6 +747,37 @@ export default function InfluencerOnboardingPage() {
     );
   }, []);
 
+  const completeInfluencerOnboardingAndRedirect = React.useCallback(
+    (payload?: RedirectToastPayload, resp?: any) => {
+      if (payload) {
+        setRedirectToast(payload);
+      }
+
+      clearStoredOnboardingStep();
+
+      try {
+        const token = getToken();
+        const influencerId = getBackendInfluencerId(resp);
+
+        if (token) {
+          localStorage.setItem("influencerToken", token);
+          localStorage.setItem("token", token);
+        }
+
+        if (influencerId) {
+          localStorage.setItem("influencerId", influencerId);
+        }
+
+        localStorage.setItem("cg_influencer_onboarding_completed", "true");
+      } catch {
+        // ignore
+      }
+
+      window.location.replace(FINAL_INFLUENCER_DASHBOARD_ROUTE);
+    },
+    [getToken]
+  );
+
   const [onboardStep, setOnboardStep] = React.useState(0);
   const [isLoading, setIsLoading] = React.useState(false);
   const [formError, setFormError] = React.useState<string | undefined>(
@@ -1197,11 +1253,18 @@ export default function InfluencerOnboardingPage() {
         return;
       }
 
-      clearStoredOnboardingStep();
-
       const msg = getBackendMessage(resp);
-      setRedirectToast({ icon: "success", title: "Success", text: msg });
-      router.replace("/influencer/dashboards");
+
+      completeInfluencerOnboardingAndRedirect(
+        {
+          icon: "success",
+          title: "Success",
+          text: msg,
+        },
+        resp
+      );
+
+      return;
     } catch (e) {
       const msg = getApiErrorMessage(e, "Failed to save onboarding step");
       setFormError(msg);
@@ -1243,11 +1306,18 @@ export default function InfluencerOnboardingPage() {
         return;
       }
 
-      clearStoredOnboardingStep();
-
       const msg = resp ? getBackendMessage(resp) : "Onboarding skipped";
-      setRedirectToast({ icon: "success", title: "Done", text: msg });
-      router.push("/influencer/dashboards");
+
+      completeInfluencerOnboardingAndRedirect(
+        {
+          icon: "success",
+          title: "Done",
+          text: msg,
+        },
+        resp
+      );
+
+      return;
     } catch (e) {
       const msg = getApiErrorMessage(e, "Failed to skip step");
       setFormError(msg);
