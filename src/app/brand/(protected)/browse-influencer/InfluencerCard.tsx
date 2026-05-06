@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { Platform } from "./filters";
 import Swal from "sweetalert2";
 import {
-  BookmarkSimple,
+  Heart,
   SealCheckIcon,
   GlobeHemisphereWest,
   InstagramLogo,
@@ -13,7 +13,7 @@ import {
   CopyIcon,
   Info,
 } from "@phosphor-icons/react";
-import { post } from "@/lib/api";
+import api, { post } from "@/lib/api";
 
 interface InfluencerCardProps {
   platform: Platform;
@@ -94,12 +94,235 @@ async function copyWithFallback(text: string) {
   }
 }
 
+function getInfluencerId(influencer: any) {
+  return String(
+    influencer?.influencerId ||
+      influencer?.creatorId ||
+      influencer?.userId ||
+      influencer?.modashId ||
+      influencer?.id ||
+      influencer?._id ||
+      ""
+  ).trim();
+}
+
+function getInfluencerCategories(influencer: any) {
+  if (Array.isArray(influencer?.categories)) {
+    return influencer.categories
+      .map((item: any) =>
+        typeof item === "string"
+          ? item
+          : item?.categoryName ||
+            item?.subcategoryName ||
+            item?.name ||
+            item?.subcategory ||
+            ""
+      )
+      .filter(Boolean);
+  }
+
+  if (Array.isArray(influencer?.niche)) {
+    return influencer.niche.map((item: any) => String(item)).filter(Boolean);
+  }
+
+  if (influencer?.category) return [String(influencer.category)];
+  if (influencer?.niche) return [String(influencer.niche)];
+
+  return [];
+}
+
+function normalizeBookmarkLink(value: any) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\/+$/, "");
+}
+
+function getBookmarkProfileKey(influencer: any, platform?: Platform) {
+  const influencerId = getInfluencerId(influencer);
+  if (influencerId) return `id:${influencerId}`;
+
+  const email = String(influencer?.email || "")
+    .trim()
+    .toLowerCase();
+  if (email) return `email:${email}`;
+
+  const link = normalizeBookmarkLink(
+    influencer?.primaryLink ||
+      influencer?.profileUrl ||
+      influencer?.url ||
+      influencer?.links?.[0]
+  );
+  if (link) return `link:${link}`;
+
+  const selectedPlatform = normalizePlatform(influencer?.platform || platform);
+  const handle = String(
+    influencer?.handle || influencer?.username || influencer?.userName || ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "");
+
+  if (selectedPlatform || handle) return `handle:${selectedPlatform}:${handle}`;
+
+  const name = String(
+    influencer?.fullname || influencer?.fullName || influencer?.name || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return name ? `name:${name}:${selectedPlatform}` : "";
+}
+
+type BookmarkFolderResponse = {
+  success?: boolean;
+  data?: {
+    savedKeys?: string[];
+    items?: any[];
+  };
+};
+
+let bookmarkKeysCache: Set<string> | null = null;
+let bookmarkKeysPromise: Promise<Set<string>> | null = null;
+
+async function getBookmarkedProfileKeys() {
+  if (bookmarkKeysCache) return bookmarkKeysCache;
+
+  if (!bookmarkKeysPromise) {
+    bookmarkKeysPromise = api
+      .get<BookmarkFolderResponse>("/brand/bookmark/profile")
+      .then((response) => {
+        const savedKeys = Array.isArray(response.data?.data?.savedKeys)
+          ? response.data.data.savedKeys
+          : [];
+
+        const items = Array.isArray(response.data?.data?.items)
+          ? response.data.data.items
+          : [];
+
+        const keys = new Set<string>([
+          ...savedKeys,
+          ...items.map((item) => getBookmarkProfileKey(item)).filter(Boolean),
+        ]);
+
+        bookmarkKeysCache = keys;
+        return keys;
+      })
+      .catch((error) => {
+        bookmarkKeysPromise = null;
+        throw error;
+      });
+  }
+
+  return bookmarkKeysPromise;
+}
+
+function buildBookmarkPayload(influencer: any, platform: Platform) {
+  const selectedPlatform = normalizePlatform(influencer?.platform || platform);
+  const influencerId = getInfluencerId(influencer);
+
+  const profileUrl = String(
+    influencer?.primaryLink || influencer?.url || influencer?.profileUrl || ""
+  ).trim();
+
+  const avatar =
+    influencer?.picture ||
+    influencer?.avatar ||
+    influencer?.profilePicUrl ||
+    influencer?.thumbnail ||
+    influencer?.profilePicture ||
+    influencer?.profileImage ||
+    "";
+
+  const handle =
+    influencer?.handle || influencer?.username || influencer?.userName || "";
+
+  return {
+    profile: {
+      influencerId,
+      creatorId: String(influencer?.creatorId || influencerId || "").trim(),
+      userId: String(influencer?.userId || influencerId || "").trim(),
+      modashId: String(influencer?.modashId || "").trim(),
+      name:
+        influencer?.fullname ||
+        influencer?.fullName ||
+        influencer?.name ||
+        influencer?.username ||
+        "",
+      fullname:
+        influencer?.fullname ||
+        influencer?.fullName ||
+        influencer?.name ||
+        "",
+      username: influencer?.username || handle || "",
+      handle,
+      provider: selectedPlatform,
+      platform: selectedPlatform,
+      email: influencer?.email || "",
+      country:
+        influencer?.country ||
+        influencer?.location?.country ||
+        influencer?.location ||
+        "",
+      location:
+        influencer?.location ||
+        influencer?.country ||
+        influencer?.location?.country ||
+        "",
+      followers: Number(
+        influencer?.followers ??
+          influencer?.followerCount ??
+          influencer?.stats?.followers ??
+          0
+      ),
+      engagementRate: Number(
+        influencer?.engagementRate ?? influencer?.stats?.engagementRate ?? 0
+      ),
+      engagements: Number(
+        influencer?.engagements ?? influencer?.stats?.engagements ?? 0
+      ),
+      averageViews: Number(
+        influencer?.averageViews ??
+          influencer?.stats?.avgViews ??
+          influencer?.stats?.views ??
+          0
+      ),
+      primaryLink: profileUrl,
+      profileUrl,
+      url: profileUrl,
+      links: profileUrl ? [profileUrl] : [],
+      picture: avatar,
+      avatarUrl: avatar,
+      profileImage: avatar,
+      bio: influencer?.bio || influencer?.description || "",
+      description: influencer?.description || influencer?.bio || "",
+      isVerified: Boolean(influencer?.isVerified || influencer?.verified),
+      verified: Boolean(influencer?.isVerified || influencer?.verified),
+      isPrivate: Boolean(influencer?.isPrivate),
+      categories: getInfluencerCategories(influencer),
+      niche: getInfluencerCategories(influencer),
+      searchType: influencer?.searchType || "standard",
+      source: influencer?.source || "standard",
+      profileKey: getBookmarkProfileKey(influencer, platform),
+    },
+  };
+}
+
 export function InfluencerCard({
   platform,
   influencer,
   onViewProfile,
 }: InfluencerCardProps) {
   const [bgFailed, setBgFailed] = useState(false);
+  const [isSaved, setIsSaved] = useState(
+    Boolean(influencer?.isSaved || influencer?.bookmarked)
+  );
+  const [saving, setSaving] = useState(false);
+
+  const bookmarkProfileKey = useMemo(
+    () => getBookmarkProfileKey(influencer, platform),
+    [influencer, platform]
+  );
 
   const username =
     influencer?.username || influencer?.handle || influencer?.name || "unknown";
@@ -132,8 +355,6 @@ export function InfluencerCard({
     influencer?.stats?.views ??
     0;
 
-  const bio = influencer?.bio || influencer?.description || "";
-
   const avatar =
     influencer?.picture ||
     influencer?.avatar ||
@@ -143,29 +364,36 @@ export function InfluencerCard({
     "";
 
   const isVerified = Boolean(influencer?.isVerified || influencer?.verified);
-  const profileUrl = influencer?.url || "#";
+  const profileUrl = influencer?.primaryLink || influencer?.url || influencer?.profileUrl || "#";
 
-  const categories = useMemo(() => {
-    const raw = influencer?.categories;
+  useEffect(() => {
+    let mounted = true;
+    const initialSaved = Boolean(influencer?.isSaved || influencer?.bookmarked);
 
-    if (!Array.isArray(raw)) {
-      return influencer?.category ? [String(influencer.category)] : [];
+    setIsSaved(initialSaved);
+
+    if (initialSaved || !bookmarkProfileKey) {
+      return () => {
+        mounted = false;
+      };
     }
 
-    const names = raw.flatMap((item: any) => {
-      if (!item) return [];
-      if (typeof item === "string") return [item];
-      return [
-        item.categoryName,
-        item.subcategoryName,
-        item.name,
-        item.subcategory,
-      ].filter(Boolean);
-    });
+    getBookmarkedProfileKeys()
+      .then((keys) => {
+        if (!mounted) return;
+        setIsSaved(keys.has(bookmarkProfileKey));
+      })
+      .catch((error) => {
+        console.error("Failed to load bookmarked profiles:", error);
+      });
 
-    return Array.from(
-      new Set(names.map((x: any) => String(x).trim()).filter(Boolean))
-    ).slice(0, 2);
+    return () => {
+      mounted = false;
+    };
+  }, [bookmarkProfileKey, influencer?.isSaved, influencer?.bookmarked]);
+
+  const categories = useMemo(() => {
+    return getInfluencerCategories(influencer).slice(0, 2);
   }, [influencer]);
 
   const formatNumber = (num?: number | null) => {
@@ -203,21 +431,52 @@ export function InfluencerCard({
     openExternalProfile();
   };
 
+  const handleBookmarkProfile = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    if (saving || isSaved) return;
+
+    try {
+      setSaving(true);
+
+      await post("/brand/bookmark/profile", buildBookmarkPayload(influencer, platform));
+
+      setIsSaved(true);
+
+      if (bookmarkProfileKey) {
+        if (!bookmarkKeysCache) bookmarkKeysCache = new Set<string>();
+        bookmarkKeysCache.add(bookmarkProfileKey);
+      }
+
+      await Swal.fire({
+        icon: "success",
+        title: "Saved",
+        text: "Influencer saved to your bookmarked folder.",
+        timer: 1400,
+        showConfirmButton: false,
+      });
+    } catch (error: any) {
+      console.error("Failed to bookmark influencer:", error);
+
+      await Swal.fire({
+        icon: "error",
+        title: "Save failed",
+        text:
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          "Unable to save this influencer right now.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleCopyMediaKit = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
     try {
-      const userId = String(
-        influencer?.userId ||
-          influencer?.modashId ||
-          influencer?.id ||
-          influencer?._id ||
-          ""
-      ).trim();
-
-      const selectedPlatform = normalizePlatform(
-        influencer?.platform || platform
-      );
+      const userId = getInfluencerId(influencer);
+      const selectedPlatform = normalizePlatform(influencer?.platform || platform);
 
       if (!userId) {
         await Swal.fire({
@@ -296,21 +555,7 @@ export function InfluencerCard({
             influencer?.country ||
             influencer?.location?.country ||
             "",
-          categories: Array.isArray(influencer?.categories)
-            ? influencer.categories
-                .map((item: any) =>
-                  typeof item === "string"
-                    ? item
-                    : item?.categoryName ||
-                      item?.subcategoryName ||
-                      item?.name ||
-                      item?.subcategory ||
-                      ""
-                )
-                .filter(Boolean)
-            : influencer?.category
-            ? [String(influencer.category)]
-            : [],
+          categories: getInfluencerCategories(influencer),
           searchType: influencer?.searchType || "standard",
           source: influencer?.source || "standard",
         });
@@ -364,7 +609,6 @@ export function InfluencerCard({
             className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-700 group-hover:scale-[1.03]"
           />
 
-          {/* blurred bottom clone of the same image */}
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0 h-[58%] overflow-hidden"
             style={{
@@ -438,13 +682,6 @@ export function InfluencerCard({
                 </span>
               )}
             </div>
-
-            {/* <p
-              title={bio}
-              className="mt-5 line-clamp-3 text-left text-[13px] leading-6 text-white/88 sm:text-[14px]"
-            >
-              {bio}
-            </p> */}
           </div>
 
           <div className="mt-8 grid grid-cols-4 items-end gap-3 text-white">
@@ -502,11 +739,18 @@ export function InfluencerCard({
 
             <button
               type="button"
-              aria-label="Save influencer"
-              onClick={(e) => e.stopPropagation()}
-              className="inline-flex h-14 w-14 items-center justify-center rounded-full border border-white/55 bg-white/18 text-white backdrop-blur-md transition hover:bg-white/28"
+              aria-label={isSaved ? "Influencer saved" : "Save influencer"}
+              disabled={saving || isSaved}
+              onClick={handleBookmarkProfile}
+              className={[
+                "inline-flex h-14 w-14 items-center justify-center rounded-full border backdrop-blur-md transition",
+                isSaved
+                  ? "border-rose-300 bg-rose-500 text-white"
+                  : "border-white/55 bg-white/18 text-white hover:bg-white/28",
+                saving ? "cursor-wait opacity-70" : "",
+              ].join(" ")}
             >
-              <BookmarkSimple size={20} weight="regular" />
+              <Heart size={22} weight={isSaved ? "fill" : "regular"} />
             </button>
           </div>
         </div>

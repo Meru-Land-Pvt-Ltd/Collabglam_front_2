@@ -45,6 +45,7 @@ import {
   UserPlus,
   Wallet,
   X,
+  FolderSimpleStarIcon,
 } from "@phosphor-icons/react";
 
 /* -------------------------------- routing -------------------------------- */
@@ -59,6 +60,7 @@ const ROUTES: Record<string, string> = {
   campaigns_active: "/brand/campaign/active",
   campaigns_draft: "/brand/campaign/draft",
   campaigns_scheduled: "/brand/campaign/scheduled-campaign",
+  hub:"/brand/creator-hub",
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
   wallet: "",
@@ -368,9 +370,9 @@ const RowButton = React.memo(function RowButton({
         collapsed
           ? cn("mx-auto justify-center", tight ? "h-11 w-11" : "h-12 w-12")
           : cn(
-              "w-full justify-start",
-              tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
-            )
+            "w-full justify-start",
+            tight ? "h-9 gap-2 px-2.5 py-2" : "h-10 gap-2 px-3 py-2"
+          )
       )}
       style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
     >
@@ -557,6 +559,12 @@ export default function BrandSidebar({
         ],
       },
       {
+        key: "hub",
+        label: "Hub",
+        icon: FolderSimpleStarIcon,
+        section: "overview",
+      },
+      {
         key: "browse",
         label: "Browse Creators",
         icon: MagnifyingGlassIcon,
@@ -699,7 +707,7 @@ export default function BrandSidebar({
       if (storedBrandId) setBrandId(storedBrandId);
       if (cachedPlanId) setPlanId(cachedPlanId);
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => {
@@ -752,7 +760,7 @@ export default function BrandSidebar({
 
           if (latestName) window.localStorage.setItem("brandPlanName", latestName);
           else window.localStorage.removeItem("brandPlanName");
-        } catch {}
+        } catch { }
       } catch {
         // keep cached values on failure
       }
@@ -778,7 +786,7 @@ export default function BrandSidebar({
 
       try {
         window.localStorage.setItem("sidebar-collapsed", "false");
-      } catch {}
+      } catch { }
     } else {
       setCollapsed(false);
       setIsClosing(false);
@@ -817,7 +825,7 @@ export default function BrandSidebar({
     const nextKey =
       match?.key ??
       (currentPath === CAMPAIGN_PREFIX ||
-      currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
+        currentPath.startsWith(`${CAMPAIGN_PREFIX}/`)
         ? "campaigns"
         : null);
 
@@ -1024,7 +1032,7 @@ export default function BrandSidebar({
     setWidthCollapsed(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "false");
-    } catch {}
+    } catch { }
   }, []);
 
   const beginCloseDesktop = useCallback(() => {
@@ -1037,7 +1045,7 @@ export default function BrandSidebar({
     setHelpDialogOpen(false);
     try {
       window.localStorage.setItem("sidebar-collapsed", "true");
-    } catch {}
+    } catch { }
   }, []);
 
   const handleProfileMenuAction = useCallback(
@@ -1061,7 +1069,7 @@ export default function BrandSidebar({
         "brandPlanName",
         "sidebar-collapsed",
       ].forEach((key) => window.localStorage.removeItem(key));
-    } catch {}
+    } catch { }
 
     setProfileMenuOpen(false);
     router.replace("/brand/login");
