@@ -477,17 +477,27 @@ export default function AdminCampaignsPage() {
   const [sortAsc, setSortAsc] = useState(true);
 
   const currentRole = String(currentAdmin?.role || "").toLowerCase();
+  const isSuperAdmin = currentRole === "super_admin";
+  const canUseCampaignTypeStatusFilters = isSuperAdmin;
   const canAssignIme =
     currentRole === "super_admin" || currentRole === "revenue_head";
 
-  const apiPage = quickFilter === "all" ? page : 1;
-  const apiLimit = quickFilter === "all" ? rowsPerPage : FILTER_FETCH_LIMIT;
+  const effectiveQuickFilter = canUseCampaignTypeStatusFilters
+    ? quickFilter
+    : "all";
+  const effectiveStatusFilter = canUseCampaignTypeStatusFilters
+    ? statusFilter
+    : 0;
+
+  const apiPage = effectiveQuickFilter === "all" ? page : 1;
+  const apiLimit =
+    effectiveQuickFilter === "all" ? rowsPerPage : FILTER_FETCH_LIMIT;
 
   const forcedControlClass =
-    "border-slate-200 bg-white text-slate-700 hover:!bg-slate-50 hover:!text-slate-900 active:!bg-slate-50 data-[state=open]:!bg-slate-50 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
+    "border-slate-200 bg-white text-slate-700 shadow-sm hover:!bg-slate-50 hover:!text-slate-900 active:!bg-slate-50 data-[state=open]:!bg-slate-50 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
 
   const inputControlClass =
-    "border-slate-200 bg-white text-slate-700 focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
+    "border-slate-200 bg-white text-slate-700 shadow-sm focus-visible:!ring-0 focus-visible:!ring-offset-0 focus-visible:!border-slate-300";
 
   const filterLabelClass =
     "text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400";
@@ -526,7 +536,7 @@ export default function AdminCampaignsPage() {
         search,
         sortBy: sortKey,
         sortOrder: sortAsc ? "asc" : "desc",
-        type: statusFilter,
+        type: effectiveStatusFilter,
         dateFilter: datePreset !== "all_time" ? datePreset : undefined,
       };
 
@@ -541,7 +551,15 @@ export default function AdminCampaignsPage() {
     } finally {
       setLoading(false);
     }
-  }, [apiPage, apiLimit, search, sortKey, sortAsc, statusFilter, datePreset]);
+  }, [
+    apiPage,
+    apiLimit,
+    search,
+    sortKey,
+    sortAsc,
+    effectiveStatusFilter,
+    datePreset,
+  ]);
 
   const fetchImeOptions = useCallback(async () => {
     if (!canAssignIme) return;
@@ -616,6 +634,14 @@ export default function AdminCampaignsPage() {
     setQuickFilter((current) => (current === nextFilter ? current : nextFilter));
     setPage(1);
   }, [quickFilterParam]);
+
+  useEffect(() => {
+    if (!currentRole || canUseCampaignTypeStatusFilters) return;
+
+    setQuickFilter("all");
+    setStatusFilter(0);
+    setPage(1);
+  }, [canUseCampaignTypeStatusFilters, currentRole]);
 
   useEffect(() => {
     fetchCurrentAdmin();
@@ -788,9 +814,9 @@ export default function AdminCampaignsPage() {
 
   const hasActiveFilters =
     search.trim() !== "" ||
-    statusFilter !== 0 ||
-    quickFilter !== "all" ||
-    datePreset !== "all_time";
+    datePreset !== "all_time" ||
+    (canUseCampaignTypeStatusFilters &&
+      (statusFilter !== 0 || quickFilter !== "all"));
 
   const resetFilters = () => {
     setSearch("");
@@ -801,33 +827,33 @@ export default function AdminCampaignsPage() {
   };
 
   const filteredCampaigns = useMemo(() => {
-    if (quickFilter === "fully_managed") {
+    if (effectiveQuickFilter === "fully_managed") {
       return campaigns.filter(isFullyManagedCampaign);
     }
 
-    if (quickFilter === "standard_campaign") {
+    if (effectiveQuickFilter === "standard_campaign") {
       return campaigns.filter(isStandardCampaign);
     }
 
     return campaigns;
-  }, [campaigns, quickFilter]);
+  }, [campaigns, effectiveQuickFilter]);
 
   const totalVisibleItems =
-    quickFilter === "all" ? total : filteredCampaigns.length;
+    effectiveQuickFilter === "all" ? total : filteredCampaigns.length;
 
   const tableTotalPages =
-    quickFilter === "all"
+    effectiveQuickFilter === "all"
       ? Math.max(1, totalPages)
       : Math.max(1, Math.ceil(filteredCampaigns.length / rowsPerPage));
 
   const tableCampaigns = useMemo(() => {
-    if (quickFilter === "all") {
+    if (effectiveQuickFilter === "all") {
       return filteredCampaigns;
     }
 
     const startIndex = (page - 1) * rowsPerPage;
     return filteredCampaigns.slice(startIndex, startIndex + rowsPerPage);
-  }, [filteredCampaigns, page, quickFilter, rowsPerPage]);
+  }, [filteredCampaigns, page, effectiveQuickFilter, rowsPerPage]);
 
   useEffect(() => {
     if (page > tableTotalPages) {
@@ -1171,28 +1197,16 @@ export default function AdminCampaignsPage() {
   return (
     <div className="min-h-screen">
       <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 lg:px-8">
-        <div className="mb-6">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900">
-              Admin Campaign Management
-            </h1>
-
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Review campaigns and assign campaign IME only for Fully Managed
-              campaigns from the Actions column.
-            </p>
-
-            {currentRole ? (
-              <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                Logged in as {currentRole.replace(/_/g, " ").toUpperCase()}
-                {canAssignIme
-                  ? " · Fully Managed campaign assignment enabled"
-                  : ""}
-              </div>
-            ) : null}
+        <div className="mb-6 overflow-hidden rounded-[32px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950 md:text-4xl">
+                Admin Campaign Management
+              </h1>
+            </div>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {summaryCards.map((card) => {
               const Icon = card.icon;
 
@@ -1249,18 +1263,26 @@ export default function AdminCampaignsPage() {
         ) : null}
 
         <div className="mb-4 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-5">
-            <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">
-              Filters
-            </h2>
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-[26px] font-semibold tracking-[-0.03em] text-slate-950">
+                Search & Filters
+              </h2>
+            </div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Affects the campaign table below only
-            </p>
+            <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+              {totalVisibleItems} visible campaigns
+            </div>
           </div>
 
           <div className="px-5 py-6">
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,1.5fr)_520px_220px_220px_auto] xl:items-end">
+            <div
+              className={`grid grid-cols-1 gap-4 xl:items-end ${
+                canUseCampaignTypeStatusFilters
+                  ? "xl:grid-cols-[minmax(320px,1.5fr)_520px_220px_220px_auto]"
+                  : "xl:grid-cols-[minmax(320px,1.5fr)_240px_auto]"
+              }`}
+            >
               <div className="space-y-2">
                 <p className={filterLabelClass}>Search</p>
 
@@ -1279,33 +1301,36 @@ export default function AdminCampaignsPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className={filterLabelClass}>Campaign Type</p>
+              {canUseCampaignTypeStatusFilters ? (
+                <div className="space-y-2">
+                  <p className={filterLabelClass}>Campaign Type</p>
 
-                <div className="flex flex-wrap gap-2">
-                  {quickFilterOptions.map((option) => {
-                    const active = quickFilter === option.value;
+                  <div className="flex flex-wrap gap-2">
+                    {quickFilterOptions.map((option) => {
+                      const active = quickFilter === option.value;
 
-                    return (
-                      <Button
-                        key={option.value}
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setQuickFilter(option.value);
-                          setPage(1);
-                        }}
-                        className={`${filterButtonBaseClass} ${active
-                          ? filterButtonActiveClass
-                          : filterButtonInactiveClass
+                      return (
+                        <Button
+                          key={option.value}
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setQuickFilter(option.value);
+                            setPage(1);
+                          }}
+                          className={`${filterButtonBaseClass} ${
+                            active
+                              ? filterButtonActiveClass
+                              : filterButtonInactiveClass
                           }`}
-                      >
-                        {option.label}
-                      </Button>
-                    );
-                  })}
+                        >
+                          {option.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div className="space-y-2">
                 <p className={filterLabelClass}>Date Range</p>
@@ -1337,35 +1362,37 @@ export default function AdminCampaignsPage() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <p className={filterLabelClass}>Status</p>
+              {canUseCampaignTypeStatusFilters ? (
+                <div className="space-y-2">
+                  <p className={filterLabelClass}>Status</p>
 
-                <Select
-                  value={statusFilter.toString()}
-                  onValueChange={(val) => {
-                    setStatusFilter(Number(val) as StatusFilter);
-                    setPage(1);
-                  }}
-                >
-                  <SelectTrigger
-                    className={`h-11 w-full rounded-[10px] ${forcedControlClass}`}
+                  <Select
+                    value={statusFilter.toString()}
+                    onValueChange={(val) => {
+                      setStatusFilter(Number(val) as StatusFilter);
+                      setPage(1);
+                    }}
                   >
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
+                    <SelectTrigger
+                      className={`h-11 w-full rounded-[10px] ${forcedControlClass}`}
+                    >
+                      <SelectValue placeholder="All Status" />
+                    </SelectTrigger>
 
-                  <SelectContent className="bg-white">
-                    {statusOptions.map((opt) => (
-                      <SelectItem
-                        key={opt.value}
-                        value={opt.value.toString()}
-                        className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
-                      >
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                    <SelectContent className="bg-white">
+                      {statusOptions.map((opt) => (
+                        <SelectItem
+                          key={opt.value}
+                          value={opt.value.toString()}
+                          className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
+                        >
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
               <div className="flex xl:justify-end">
                 <Button
@@ -1383,24 +1410,34 @@ export default function AdminCampaignsPage() {
         </div>
 
         <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-4 py-4 md:px-5">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-white via-slate-50 to-white px-4 py-4 md:px-5">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-900">
                   Campaign Table
                 </p>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  Assignment badges show RH, BME, and IME mapping. Campaign IME
-                  can be assigned from the Actions column.
-                </p>
               </div>
 
-              <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-sm font-medium text-slate-600">
-                Showing:
-                <span className="ml-2 font-semibold text-slate-900">
-                  {totalVisibleItems}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm">
+                  Showing:
+                  <span className="ml-2 font-semibold text-slate-900">
+                    {totalVisibleItems}
+                  </span>
                 </span>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fetchCampaigns}
+                  disabled={loading}
+                  className="h-9 rounded-[10px] border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm hover:!bg-slate-50 hover:!text-slate-900 focus-visible:!ring-0 focus-visible:!ring-offset-0"
+                >
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </Button>
               </div>
             </div>
           </div>

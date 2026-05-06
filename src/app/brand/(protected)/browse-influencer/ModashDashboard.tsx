@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ResultsGrid } from "./ResultsGrid";
 import { useInfluencerSearch } from "./useInfluencerSearch";
 import type { FilterState, Platform } from "./filters";
@@ -12,6 +12,7 @@ import { useEmailStatus } from "./useEmailStatus";
 
 const DETAIL_PANEL_STORAGE_KEY = "brand_modash_detail_panel_state";
 const SEARCH_UI_STORAGE_KEY = "brand_modash_search_ui_state";
+const SEARCH_UI_RESTORE_KEY = "brand_modash_restore_search_after_reload";
 
 type SavedDetailPanelState = {
   open: boolean;
@@ -260,10 +261,12 @@ export default function ModashDashboard() {
 
   const [restoredSearch, setRestoredSearch] =
     useState<SavedSearchUiState | null>(null);
-  const [pendingInitialSearch, setPendingInitialSearch] = useState<
-    string | null
-  >(null);
-  const [searchStateRestored, setSearchStateRestored] = useState(false);
+
+  const latestSearchPayloadRef = useRef<SavedSearchUiState>({
+    queryText: "",
+    platforms: [DEFAULT_PLATFORM],
+    results: [],
+  });
 
   useEffect(() => {
     const id = localStorage.getItem("brandId") || "";
@@ -323,12 +326,20 @@ export default function ModashDashboard() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const rawSaved = window.sessionStorage.getItem(SEARCH_UI_STORAGE_KEY);
+    const shouldRestore =
+      window.sessionStorage.getItem(SEARCH_UI_RESTORE_KEY) === "1";
 
-    if (!rawSaved) {
-      setSearchStateRestored(true);
+    if (!shouldRestore) {
+      window.sessionStorage.removeItem(SEARCH_UI_STORAGE_KEY);
+      window.sessionStorage.removeItem(SEARCH_UI_RESTORE_KEY);
       return;
     }
+
+    const rawSaved = window.sessionStorage.getItem(SEARCH_UI_STORAGE_KEY);
+
+    window.sessionStorage.removeItem(SEARCH_UI_RESTORE_KEY);
+
+    if (!rawSaved) return;
 
     try {
       const saved: SavedSearchUiState = JSON.parse(rawSaved);
@@ -342,49 +353,66 @@ export default function ModashDashboard() {
       }
 
       setRestoredSearch(saved);
-
-      if (saved?.queryText?.trim()) {
-        setPendingInitialSearch(saved.queryText);
-      }
+      latestSearchPayloadRef.current = saved;
     } catch {
       window.sessionStorage.removeItem(SEARCH_UI_STORAGE_KEY);
-    } finally {
-      setSearchStateRestored(true);
+      window.sessionStorage.removeItem(SEARCH_UI_RESTORE_KEY);
     }
   }, []);
 
-  useEffect(() => {
-    if (!searchStateRestored) return;
-    if (!pendingInitialSearch?.trim()) return;
+  const visibleResults = useMemo(() => {
+    if (Array.isArray(searchState.results) && searchState.results.length > 0) {
+      return searchState.results;
+    }
 
-    runSearch({ queryText: pendingInitialSearch });
-    setPendingInitialSearch(null);
-  }, [pendingInitialSearch, runSearch, searchStateRestored]);
+    return restoredSearch?.results ?? [];
+  }, [searchState.results, restoredSearch]);
+
+  const visibleTotal =
+    searchState.total != null ? searchState.total : restoredSearch?.total;
+
+  const visibleHasMore =
+    typeof searchState.hasMore === "boolean"
+      ? searchState.hasMore
+      : restoredSearch?.hasMore;
+
+  useEffect(() => {
+    latestSearchPayloadRef.current = {
+      queryText,
+      platforms,
+      results: visibleResults,
+      total: visibleTotal,
+      hasMore: visibleHasMore,
+    };
+  }, [queryText, platforms, visibleResults, visibleTotal, visibleHasMore]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!searchStateRestored) return;
 
-    const payload: SavedSearchUiState = {
-      queryText,
-      platforms,
-      results: Array.isArray(searchState.results) ? searchState.results : [],
-      total: searchState.total,
-      hasMore: searchState.hasMore,
+    let isBrowserLeaving = false;
+
+    const saveSearchForRefresh = () => {
+      isBrowserLeaving = true;
+
+      window.sessionStorage.setItem(
+        SEARCH_UI_STORAGE_KEY,
+        JSON.stringify(latestSearchPayloadRef.current)
+      );
+
+      window.sessionStorage.setItem(SEARCH_UI_RESTORE_KEY, "1");
     };
 
-    window.sessionStorage.setItem(
-      SEARCH_UI_STORAGE_KEY,
-      JSON.stringify(payload)
-    );
-  }, [
-    queryText,
-    platforms,
-    searchState.results,
-    searchState.total,
-    searchState.hasMore,
-    searchStateRestored,
-  ]);
+    window.addEventListener("beforeunload", saveSearchForRefresh);
+
+    return () => {
+      window.removeEventListener("beforeunload", saveSearchForRefresh);
+
+      if (!isBrowserLeaving) {
+        window.sessionStorage.removeItem(SEARCH_UI_STORAGE_KEY);
+        window.sessionStorage.removeItem(SEARCH_UI_RESTORE_KEY);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -409,22 +437,6 @@ export default function ModashDashboard() {
       window.sessionStorage.removeItem(DETAIL_PANEL_STORAGE_KEY);
     }
   }, [fetchReport, calculationMethod]);
-
-  const visibleResults = useMemo(() => {
-    if (Array.isArray(searchState.results) && searchState.results.length > 0) {
-      return searchState.results;
-    }
-
-    return restoredSearch?.results ?? [];
-  }, [searchState.results, restoredSearch]);
-
-  const visibleTotal =
-    searchState.total != null ? searchState.total : restoredSearch?.total;
-
-  const visibleHasMore =
-    typeof searchState.hasMore === "boolean"
-      ? searchState.hasMore
-      : restoredSearch?.hasMore;
 
   useEffect(() => {
     if (selectedInfluencer || !selectedId) return;
@@ -560,10 +572,17 @@ export default function ModashDashboard() {
         <div className="space-y-5">
           <SearchHeader
             queryText={queryText}
-            setQueryText={setQueryText}
+            setQueryText={(text) => {
+              setQueryText(text);
+
+              if (restoredSearch) {
+                setRestoredSearch(null);
+              }
+            }}
             loading={searchState.loading}
             onSearch={(q) => {
               setQueryText(q);
+              setRestoredSearch(null);
               runSearch({ queryText: q });
             }}
             platforms={platforms}
@@ -577,6 +596,7 @@ export default function ModashDashboard() {
 
               if (typeof window !== "undefined") {
                 window.sessionStorage.removeItem(SEARCH_UI_STORAGE_KEY);
+                window.sessionStorage.removeItem(SEARCH_UI_RESTORE_KEY);
               }
             }}
             onApplyFilters={onApplyFilters}

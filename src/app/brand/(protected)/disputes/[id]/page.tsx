@@ -100,6 +100,7 @@ interface DisputeParty {
   handle?: string | null;
   provider?: string | null;
   profilePic?: string | null;
+  logoUrl?: string | null;
 }
 
 interface AssignedAdmin {
@@ -118,6 +119,7 @@ interface Dispute {
   brandId: string;
   influencerId: string;
   issueType?: string[];
+  otherIssueDescription?: string | null;
   assignedTo?: AssignedAdmin | null;
   comments: Comment[];
   attachments?: Attachment[];
@@ -143,6 +145,9 @@ interface MetaItem {
   label: string;
   value: string;
   sub?: string;
+  tooltip?: string;
+  issueTypes?: string[];
+  otherIssueDescription?: string | null;
 }
 
 interface FaqItem {
@@ -263,6 +268,32 @@ function formatIssueTypeLabel(value?: string | null): string {
   );
 }
 
+
+function getIssueTypeMeta(dispute: Dispute): {
+  value: string;
+  sub?: string;
+  tooltip?: string;
+  issueTypes: string[];
+  otherIssueDescription?: string | null;
+} {
+  const issueTypes = Array.isArray(dispute.issueType) ? dispute.issueType : [];
+
+  const labels = issueTypes.length
+    ? issueTypes.map(formatIssueTypeLabel).join(", ")
+    : "—";
+
+  const otherReason = String(dispute.otherIssueDescription || "").trim();
+
+  return {
+    value: labels,
+    tooltip: issueTypes.includes("other")
+      ? otherReason || "No other issue reason provided."
+      : undefined,
+    issueTypes,
+    otherIssueDescription: dispute.otherIssueDescription ?? "",
+  };
+}
+
 function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000);
 }
@@ -281,6 +312,10 @@ function formatDaysLeft(days: number): string {
 function formatHandle(handle?: string | null): string | null {
   if (!handle) return null;
   return handle.startsWith("@") ? handle : `@${handle}`;
+}
+
+function getPartyImage(party?: DisputeParty | null): string | null {
+  return party?.profilePic || party?.logoUrl || null;
 }
 
 function isImageAttachment(attachment: Attachment): boolean {
@@ -362,9 +397,70 @@ function getDisputeNarrative(dispute: Dispute): string {
     } raised this dispute against you`;
 }
 
+function sameId(a?: string | null, b?: string | null): boolean {
+  return String(a || "").trim() === String(b || "").trim();
+}
+
+function getPartyForAuthor(
+  dispute: Dispute,
+  authorRole?: string | null,
+  authorId?: string | null
+): DisputeParty | null {
+  const parties = [dispute.raisedBy, dispute.raisedAgainst].filter(
+    Boolean
+  ) as DisputeParty[];
+
+  const exactMatch = parties.find(
+    (party) =>
+      String(party.role) === String(authorRole) &&
+      sameId(party.id, authorId)
+  );
+
+  if (exactMatch) return exactMatch;
+
+  return (
+    parties.find((party) => String(party.role) === String(authorRole)) || null
+  );
+}
+
+function getViewerParty(
+  dispute: Dispute,
+  viewerRole: "Brand" | "Influencer",
+  viewerId?: string | null
+): DisputeParty | null {
+  const parties = [dispute.raisedBy, dispute.raisedAgainst].filter(
+    Boolean
+  ) as DisputeParty[];
+
+  if (viewerId) {
+    const exactMatch = parties.find(
+      (party) => party.role === viewerRole && sameId(party.id, viewerId)
+    );
+
+    if (exactMatch) return exactMatch;
+  }
+
+  return parties.find((party) => party.role === viewerRole) || null;
+}
+
 function getCommentAuthorLabel(comment: Comment, dispute: Dispute): string {
-  if (comment.authorRole === "Brand" && dispute.viewerIsRaiser) return "You";
-  return comment.authorRole;
+  if (comment.authorRole === "Admin") return "Collabglam";
+
+  const ownerRole = dispute.raisedByRole ?? dispute.raisedBy?.role ?? null;
+  const ownerId = dispute.raisedById ?? dispute.raisedBy?.id ?? null;
+
+  if (
+    dispute.viewerIsRaiser &&
+    comment.authorRole === "Brand" &&
+    String(comment.authorRole) === String(ownerRole ?? "") &&
+    sameId(comment.authorId, ownerId)
+  ) {
+    return "You";
+  }
+
+  const party = getPartyForAuthor(dispute, comment.authorRole, comment.authorId);
+
+  return party?.name || (comment.authorRole === "Influencer" ? "Creator" : "Brand");
 }
 
 /** Returns true when the logged-in brand user authored this comment. */
@@ -557,29 +653,153 @@ function LightboxModal({
   );
 }
 
+function IssueTypeChipSummary({
+  issueTypes,
+  otherIssueDescription,
+}: {
+  issueTypes?: string[];
+  otherIssueDescription?: string | null;
+}) {
+  const safeIssueTypes = Array.isArray(issueTypes) ? issueTypes.filter(Boolean) : [];
+
+  if (!safeIssueTypes.length) {
+    return <span className="text-sm font-medium leading-5 text-[#999]">—</span>;
+  }
+
+  const labels = safeIssueTypes.map(formatIssueTypeLabel);
+  const [firstLabel, ...restLabels] = labels;
+  const hasOther = safeIssueTypes.includes("other");
+  const otherReason = String(otherIssueDescription || "").trim();
+
+  const chipClass =
+    "inline-flex max-w-[170px] items-center rounded-full border border-[#e8e8e8] bg-white px-2.5 py-1 text-[11px] font-medium leading-none text-[#444]";
+
+  if (safeIssueTypes.length === 1 && hasOther) {
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="group relative inline-flex shrink-0">
+          <button
+            type="button"
+            aria-label="View other issue reason"
+            className={`${chipClass} cursor-default gap-1.5 pr-2 outline-none`}
+          >
+            <span className="truncate">Other</span>
+            <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border border-[#d9d9d9] bg-[#fafafa] text-[9px] font-semibold leading-none text-[#777]">
+              i
+            </span>
+          </button>
+
+          <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden min-w-[260px] max-w-[320px] rounded-lg border border-[#e8e8e8] bg-white p-3 text-xs leading-5 text-[#333] shadow-[0_12px_32px_rgba(0,0,0,0.10)] group-hover:block group-focus-within:block">
+            <div className="rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+                Other Issue Reason
+              </p>
+
+              <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[#333] [overflow-wrap:anywhere]">
+                {otherReason || "No other issue reason provided."}
+              </p>
+            </div>
+          </div>
+        </span>
+      </div>
+    );
+  }
+
+  const tooltip = (
+    <div className="pointer-events-none absolute left-0 top-full z-50 mt-2 hidden min-w-[260px] max-w-[320px] rounded-lg border border-[#e8e8e8] bg-white p-3 text-xs leading-5 text-[#333] shadow-[0_12px_32px_rgba(0,0,0,0.10)] group-hover:block group-focus-within:block">
+      {restLabels.length > 0 ? (
+        <>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+            Other Issue Types
+          </p>
+
+          <div className="flex flex-wrap gap-1.5">
+            {restLabels.map((label, index) => (
+              <span key={`${label}-${index}`} className={chipClass}>
+                {label}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {hasOther ? (
+        <div className={restLabels.length > 0 ? "mt-3 rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2" : "rounded-lg border border-[#eeeeee] bg-[#fafafa] px-3 py-2"}>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[#999]">
+            Other Issue Reason
+          </p>
+
+          <p className="mt-1 whitespace-pre-wrap break-words text-[12px] leading-5 text-[#333] [overflow-wrap:anywhere]">
+            {otherReason || "No other issue reason provided."}
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className={chipClass}>
+        <span className="truncate">{firstLabel}</span>
+      </span>
+
+      {restLabels.length > 0 ? (
+        <span className="group relative inline-flex shrink-0">
+          <button
+            type="button"
+            aria-label={`${restLabels.length} more issue types`}
+            className="inline-flex cursor-default items-center rounded-full border border-[#1a1a1a] bg-[#1a1a1a] px-2.5 py-1 text-[11px] font-semibold leading-none text-white outline-none"
+          >
+            +{restLabels.length}
+          </button>
+          {tooltip}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function MetaGrid({ items }: { items: MetaItem[] }) {
   return (
     <div className="mt-5 pt-5">
       <div
         className={`grid gap-3 rounded-[12px] px-4 py-5 ${MUTED_BG} [grid-template-columns:repeat(auto-fit,minmax(140px,1fr))]`}
       >
-        {items.map((item) => (
-          <div key={item.label} className="min-w-0">
-            <p className="mb-1 text-[11px] leading-4 text-[#999]">
-              {item.label}
-            </p>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
-                {item.value}
-              </p>
-              {item.sub && (
-                <p className="mt-0.5 truncate text-xs leading-4 text-[#888]">
-                  {item.sub}
+        {items.map((item) => {
+          const isDisputeType =
+            item.label === "Dispute Type" && Array.isArray(item.issueTypes);
+
+          return (
+            <div key={item.label} className="relative min-w-0">
+              <div className="mb-1 flex min-w-0 items-center gap-1.5">
+                <p className="min-w-0 truncate text-[11px] leading-4 text-[#999]">
+                  {item.label}
                 </p>
-              )}
+              </div>
+
+              <div className="min-w-0">
+                {isDisputeType ? (
+                  <IssueTypeChipSummary
+                    issueTypes={item.issueTypes}
+                    otherIssueDescription={item.otherIssueDescription}
+                  />
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium leading-5 text-[#1a1a1a]">
+                      {item.value}
+                    </p>
+
+                    {item.sub ? (
+                      <p className="mt-0.5 max-w-[220px] truncate text-xs leading-4 text-[#777]">
+                        {item.sub}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -658,23 +878,38 @@ function ProgressTracker({
 }) {
   const activeStepIndex = STATUS_STEP_INDEX[status] ?? 0;
 
+  const isFinalStatus =
+    status === "resolved" || status === "rejected" || status === "revoked";
+
+  const finalStepLabel =
+    status === "rejected"
+      ? "Rejected"
+      : status === "revoked"
+        ? "Revoked"
+        : "Resolved";
+
+  const displaySteps = STATUS_STEPS.map((step, index) =>
+    index === STATUS_STEPS.length - 1
+      ? { ...step, label: finalStepLabel }
+      : step
+  );
+
   return (
-    <div
-      className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}
-    >
+    <div className={`border-y ${SURFACE_BORDER_COLOR} bg-white py-5`}>
       <div className="mb-4 flex items-center gap-2">
         <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#e8f5e9] p-1">
           <CheckIcon color="#2d7a3a" />
         </div>
+
         <p className="text-sm font-medium text-[#444]">{title}</p>
       </div>
 
       <div className="space-y-2">
-        {/* Segmented progress bar */}
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
+
             return (
               <div
                 key={step.key}
@@ -683,19 +918,21 @@ function ProgressTracker({
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${isDone || isActive ? "bg-[#2fb344]" : "bg-transparent"
                     }`}
-                  style={{ width: isDone ? "100%" : isActive ? "50%" : "0%" }}
+                  style={{
+                    width: isDone ? "100%" : isActive ? "50%" : "0%",
+                  }}
                 />
               </div>
             );
           })}
         </div>
 
-        {/* Step labels */}
         <div className="grid grid-cols-4 gap-3">
-          {STATUS_STEPS.map((step, index) => {
-            const isDone = index < activeStepIndex;
-            const isActive = index === activeStepIndex;
+          {displaySteps.map((step, index) => {
+            const isDone = isFinalStatus || index < activeStepIndex;
+            const isActive = !isFinalStatus && index === activeStepIndex;
             const isPending = !isDone && !isActive;
+
             return (
               <div
                 key={step.key}
@@ -712,6 +949,7 @@ function ProgressTracker({
                       }`}
                   />
                 )}
+
                 <span
                   className={`whitespace-nowrap font-medium ${isPending ? "text-[#9b9b9b]" : "text-[#1a1a1a]"
                     }`}
@@ -820,6 +1058,39 @@ function SystemLogActionsMenu({ onRaiseFlag }: { onRaiseFlag?: () => void }) {
   );
 }
 
+
+function getCommentProfileImage({
+  comment,
+  dispute,
+  currentUserImageUrl,
+}: {
+  comment: Comment;
+  dispute: Dispute;
+  currentUserImageUrl?: string | null;
+}) {
+  if (comment.authorRole === "Brand" && currentUserImageUrl) {
+    return currentUserImageUrl;
+  }
+
+  if (
+    dispute.raisedBy &&
+    String(comment.authorRole) === String(dispute.raisedBy.role) &&
+    String(comment.authorId) === String(dispute.raisedBy.id)
+  ) {
+    return getPartyImage(dispute.raisedBy);
+  }
+
+  if (
+    dispute.raisedAgainst &&
+    String(comment.authorRole) === String(dispute.raisedAgainst.role) &&
+    String(comment.authorId) === String(dispute.raisedAgainst.id)
+  ) {
+    return getPartyImage(dispute.raisedAgainst);
+  }
+
+  return null;
+}
+
 function ProfileAvatar({
   name,
   role,
@@ -911,8 +1182,8 @@ function ActivityFeed({
               role={dispute.raisedBy?.role}
               imageUrl={
                 dispute.viewerIsRaiser
-                  ? brandProfilePic
-                  : dispute.raisedBy?.profilePic
+                  ? brandProfilePic || getPartyImage(dispute.raisedBy)
+                  : getPartyImage(dispute.raisedBy)
               }
               size="sm"
             />
@@ -947,7 +1218,6 @@ function ActivityFeed({
         {/* User comments */}
         {rootComments.map((comment) => {
           const commentImages = getImageAttachments(comment.attachments);
-          const isBrandComment = comment.authorRole === "Brand";
           const commentName = getCommentAuthorLabel(comment, dispute);
           const showActions = canManageComment(comment, dispute);
 
@@ -960,11 +1230,11 @@ function ActivityFeed({
                 <ProfileAvatar
                   name={commentName}
                   role={comment.authorRole}
-                  imageUrl={
-                    isBrandComment && dispute.viewerIsRaiser
-                      ? brandProfilePic
-                      : undefined
-                  }
+                  imageUrl={getCommentProfileImage({
+                    comment,
+                    dispute,
+                    currentUserImageUrl: brandProfilePic,
+                  })}
                   size="sm"
                 />
                 <div className="min-w-0 flex-1">
@@ -1067,7 +1337,6 @@ function ActivityFeed({
                         {(repliesByParent[comment.commentId] ?? []).map((reply) => {
                           const replyImages = getImageAttachments(reply.attachments);
                           const replyName = getCommentAuthorLabel(reply, dispute);
-                          const isReplyBrand = reply.authorRole === "Brand";
 
                           return (
                             <div
@@ -1078,11 +1347,11 @@ function ActivityFeed({
                                 <ProfileAvatar
                                   name={replyName}
                                   role={reply.authorRole}
-                                  imageUrl={
-                                    isReplyBrand && dispute.viewerIsRaiser
-                                      ? brandProfilePic
-                                      : undefined
-                                  }
+                                  imageUrl={getCommentProfileImage({
+                                    comment: reply,
+                                    dispute,
+                                    currentUserImageUrl: brandProfilePic,
+                                  })}
                                   size="sm"
                                 />
                                 <div className="min-w-0 flex-1">
@@ -1304,13 +1573,13 @@ function CommentComposer({
               type="button"
               onClick={() => void onSubmit()}
               disabled={posting || !canSubmit}
-              className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#1a1a1a] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-[12px] bg-[#1a1a1a] px-5 py-2  text-sm font-medium text-white transition-colors hover:bg-[#333] disabled:opacity-40"
             >
               {posting ? (
                 <span className="text-xs">Posting…</span>
               ) : (
                 <>
-                  <Send className="size-3.5" />
+                  <Send className="size-3.5 mr-2" />
                   Submit
                 </>
               )}
@@ -1334,6 +1603,7 @@ interface EditableDisputeSeed {
   subject: string;
   description?: string | null;
   issueType?: string[];
+  otherIssueDescription?: string | null;
   /** Server-persisted attachments to display inside the edit dialog. */
   existingAttachments?: ExistingAttachment[];
 }
@@ -1365,6 +1635,7 @@ function EditDisputeDialog({
         subject: dispute.subject,
         description: dispute.description ?? "",
         issueType: dispute.issueType?.length ? dispute.issueType : ["other"],
+        otherIssueDescription: dispute.otherIssueDescription ?? "",
       }}
       influencerDisplayName={dispute.influencerName ?? undefined}
       existingAttachments={dispute.existingAttachments}
@@ -1379,6 +1650,7 @@ function EditDisputeDialog({
           subject: values.subject,
           description: values.description,
           issueType: values.issueType,
+          otherIssueDescription: values.otherIssueDescription,
           attachments: values.attachments,
           removedAttachmentUrls: removedExistingUrls,
         });
@@ -1689,6 +1961,7 @@ export default function BrandDisputeDetailPage() {
     const daysOpen = daysSince(dispute.createdAt);
     const imageAttachments = getImageAttachments(dispute.attachments);
     const fileAttachments = getFileAttachments(dispute.attachments);
+    const issueTypeMeta = getIssueTypeMeta(dispute);
 
     const metaItems: MetaItem[] = [
       {
@@ -1706,7 +1979,11 @@ export default function BrandDisputeDetailPage() {
       },
       {
         label: "Dispute Type",
-        value: formatIssueTypeLabel(dispute.issueType?.[0]),
+        value: issueTypeMeta.value,
+        sub: issueTypeMeta.sub,
+        tooltip: issueTypeMeta.tooltip,
+        issueTypes: issueTypeMeta.issueTypes,
+        otherIssueDescription: issueTypeMeta.otherIssueDescription,
       },
       {
         label: "Dispute ID",
@@ -1745,6 +2022,17 @@ export default function BrandDisputeDetailPage() {
       />
     );
   }
+
+  const currentBrandProfilePic =
+    brandLite?.profilePic ||
+    (dispute.raisedBy?.role === "Brand" &&
+    String(dispute.raisedBy.id) === String(brandId)
+      ? getPartyImage(dispute.raisedBy)
+      : null) ||
+    (dispute.raisedAgainst?.role === "Brand" &&
+    String(dispute.raisedAgainst.id) === String(brandId)
+      ? getPartyImage(dispute.raisedAgainst)
+      : null);
 
   return (
     <>
@@ -1811,24 +2099,29 @@ export default function BrandDisputeDetailPage() {
           </SectionCard>
 
           {/* Summary card */}
-          <SectionCard className={`${SURFACE_BORDER} px-6 py-5`}>
+          <SectionCard className={`${SURFACE_BORDER} min-w-0 overflow-hidden px-6 py-5`}>
             <div
-              className={`mb-3 flex items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
+              className={`mb-3 flex min-w-0 items-center gap-1 border-b ${SUBTLE_BORDER} pb-3`}
             >
-              <NoteIcon className="size-4" />
-              <h2 className="text-sm font-semibold text-[#1a1a1a]">
+              <NoteIcon className="size-4 shrink-0" />
+              <h2 className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">
                 Dispute Summary
               </h2>
             </div>
 
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-[#555]">
+            <p
+              title={dispute.description || "No description provided."}
+              className="min-w-0 max-w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-[#555] [overflow-wrap:anywhere]"
+            >
               {dispute.description || "No description provided."}
             </p>
-
             {dispute.campaignName && (
-              <p className="mt-3 text-xs text-[#888]">
+              <p className="mt-3 min-w-0 text-xs text-[#888]">
                 Campaign:{" "}
-                <span className="font-medium text-[#555]">
+                <span
+                  title={dispute.campaignName}
+                  className="font-medium text-[#555] break-words [overflow-wrap:anywhere]"
+                >
                   {dispute.campaignName}
                 </span>
               </p>
@@ -1863,7 +2156,7 @@ export default function BrandDisputeDetailPage() {
               }}
               onOpenLightbox={handleOpenLightbox}
               brandLogoUrl="/logo.png"
-              brandProfilePic={brandLite?.profilePic}
+              brandProfilePic={currentBrandProfilePic}
               onEditComment={handleEditComment}
               onDeleteComment={handleDeleteComment}
               onRaiseSystemFlag={handleRaiseSystemFlag}
@@ -1892,8 +2185,8 @@ export default function BrandDisputeDetailPage() {
               )}
 
               <CommentComposer
-                currentUserName={brandLite?.name ?? dispute.raisedBy?.name ?? "Brand"}
-                currentUserImageUrl={brandLite?.profilePic ?? null}
+                currentUserName={brandLite?.name ?? getViewerParty(dispute, "Brand")?.name ?? "Brand"}
+                currentUserImageUrl={currentBrandProfilePic}
                 isFinalized={derived.isFinalized}
                 comment={comment}
                 setComment={setComment}
@@ -1920,7 +2213,8 @@ export default function BrandDisputeDetailPage() {
           subject: dispute.subject,
           description: dispute.description,
           issueType: dispute.issueType,
-          existingAttachments: dispute.attachments ?? [],   // ← ADD THIS
+          otherIssueDescription: dispute.otherIssueDescription ?? "",
+          existingAttachments: dispute.attachments ?? [],
         }}
       />
 

@@ -1,6 +1,7 @@
 "use client";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { get, post } from "@/lib/api";
+import api, { post } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { FloatingInput } from "@/components/ui/floatingInput";
@@ -19,6 +20,7 @@ import {
 
 export type Campaign = {
   _id?: string;
+  campaignId?: string;
   campaignsId?: string;
   campaignTitle?: string;
   productOrServiceName?: string;
@@ -27,13 +29,16 @@ export type Campaign = {
 };
 
 export type Applicant = {
+  _id?: string;
   influencerId: string;
   name?: string;
+  fullName?: string;
+  email?: string;
   handle?: string | null;
 };
 
 export function getCampaignId(c: Campaign): string {
-  return c.campaignsId || c._id || "";
+  return c.campaignId || c.campaignsId || c._id || "";
 }
 
 export function getCampaignLabel(c: Campaign): string {
@@ -53,15 +58,22 @@ export type DisputeFormValues = {
   subject: string;
   description: string;
   issueType: string[];
+  otherIssueDescription: string;
   attachments: File[];
 };
 
 type ViewerMode = "brand" | "influencer";
 
-type InfluencerCampaignListResponse = {
+type CampaignListResponse = {
   success?: boolean;
   data?: {
     items?: Campaign[];
+    meta?: {
+      total?: number;
+      page?: number;
+      limit?: number;
+      totalPages?: number;
+    };
     pagination?: {
       total?: number;
       page?: number;
@@ -69,10 +81,13 @@ type InfluencerCampaignListResponse = {
       totalPages?: number;
     };
   };
+  items?: Campaign[];
+  campaigns?: Campaign[];
   requestId?: string;
 };
 
 type CampaignBrandResponse = {
+  success?: boolean;
   message?: string;
   brand?: {
     _id?: string;
@@ -122,6 +137,7 @@ const DEFAULT_DISPUTE_FORM_VALUES: DisputeFormValues = {
   subject: "",
   description: "",
   issueType: [],
+  otherIssueDescription: "",
   attachments: [],
 };
 
@@ -151,12 +167,14 @@ function buildDisputeFormValues(
       initialValues?.issueType && initialValues.issueType.length > 0
         ? initialValues.issueType
         : [],
+    otherIssueDescription: initialValues?.otherIssueDescription || "",
     attachments: initialValues?.attachments || [],
   };
 }
 
 function isImageUrl(attachment: ExistingAttachment): boolean {
   if (attachment.mimeType?.startsWith("image/")) return true;
+
   return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(
     attachment.url.split("?")[0] ?? ""
   );
@@ -166,11 +184,12 @@ function formatBytes(bytes?: number | null): string {
   if (!bytes) return "";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function normalizeInfluencerCampaignsResponse(
-  response: InfluencerCampaignListResponse | Campaign[] | undefined | null
+function normalizeCampaignsResponse(
+  response: CampaignListResponse | Campaign[] | undefined | null
 ): Campaign[] {
   if (!response) return [];
 
@@ -178,8 +197,47 @@ function normalizeInfluencerCampaignsResponse(
     return response.filter((item) => Boolean(getCampaignId(item)));
   }
 
-  const items = Array.isArray(response.data?.items) ? response.data.items : [];
-  return items.filter((item) => Boolean(getCampaignId(item)));
+  const raw = response as any;
+
+  const items = Array.isArray(raw?.data?.items)
+    ? raw.data.items
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(raw?.campaigns)
+        ? raw.campaigns
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : [];
+
+  return items.filter((item: Campaign) => Boolean(getCampaignId(item)));
+}
+
+function getBearerHeaders(token?: string | null): Record<string, string> {
+  const cleanedToken = String(token || "").trim();
+
+  if (!cleanedToken) return {};
+
+  return {
+    Authorization: `Bearer ${cleanedToken}`,
+  };
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error == null || typeof error !== "object") return fallback;
+
+  const maybeAxios = error as Record<string, unknown>;
+  const response = maybeAxios.response as Record<string, unknown> | undefined;
+  const data = response?.data as Record<string, unknown> | undefined;
+
+  if (data && typeof data.message === "string") {
+    return data.message;
+  }
+
+  if (typeof maybeAxios.message === "string") {
+    return maybeAxios.message;
+  }
+
+  return fallback;
 }
 
 function ExistingAttachmentsList({
@@ -258,9 +316,11 @@ function ExistingAttachmentsList({
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <FileIcon className="size-3.5 shrink-0 text-[#aaa]" />
+
                   <span className="truncate text-xs text-[#555]">
                     {file.originalName ?? "File"}
                   </span>
+
                   {file.size ? (
                     <span className="shrink-0 text-[10px] text-[#bbb]">
                       {formatBytes(file.size)}
@@ -305,9 +365,12 @@ export function DisputeFormDialog({
   const [viewerInfluencerId, setViewerInfluencerId] = useState<string | null>(
     null
   );
+  const [influencerToken, setInfluencerToken] = useState<string | null>(null);
+
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [selectedBrand, setSelectedBrand] = useState<SelectedBrand | null>(null);
+
   const [loadingCampaigns, setLoadingCampaigns] = useState(false);
   const [loadingApplicants, setLoadingApplicants] = useState(false);
   const [loadingBrandDetails, setLoadingBrandDetails] = useState(false);
@@ -329,6 +392,7 @@ export function DisputeFormDialog({
 
   const isCampaignLocked = Boolean(lockedCampaignId) || disableCampaign;
   const isInfluencerMode = mode === "influencer";
+  const showOtherIssueDescription = values.issueType.includes("other");
 
   const readStoredInfluencerId = useCallback(() => {
     if (typeof window === "undefined") return "";
@@ -338,6 +402,18 @@ export function DisputeFormDialog({
         localStorage.getItem("influencer_id") ||
         localStorage.getItem("userId") ||
         localStorage.getItem("user_id") ||
+        ""
+    ).trim();
+  }, []);
+
+  const readStoredInfluencerToken = useCallback(() => {
+    if (typeof window === "undefined") return "";
+
+    return String(
+      localStorage.getItem("influencerToken") ||
+        localStorage.getItem("influencer_token") ||
+        localStorage.getItem("token") ||
+        localStorage.getItem("accessToken") ||
         ""
     ).trim();
   }, []);
@@ -357,12 +433,17 @@ export function DisputeFormDialog({
     readStoredInfluencerId,
   ]);
 
+  const getActiveInfluencerToken = useCallback(() => {
+    return String(influencerToken || readStoredInfluencerToken() || "").trim();
+  }, [influencerToken, readStoredInfluencerToken]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     setBrandId(localStorage.getItem("brandId"));
     setViewerInfluencerId(readStoredInfluencerId());
-  }, [readStoredInfluencerId]);
+    setInfluencerToken(readStoredInfluencerToken());
+  }, [readStoredInfluencerId, readStoredInfluencerToken]);
 
   useEffect(() => {
     if (!open) return;
@@ -383,6 +464,11 @@ export function DisputeFormDialog({
     setApplicants([]);
     setSelectedBrand(null);
     setError(null);
+
+    if (isInfluencerMode) {
+      setInfluencerToken(readStoredInfluencerToken());
+      setViewerInfluencerId(readStoredInfluencerId());
+    }
   }, [
     open,
     initialValues,
@@ -390,6 +476,7 @@ export function DisputeFormDialog({
     isInfluencerMode,
     viewerInfluencerId,
     readStoredInfluencerId,
+    readStoredInfluencerToken,
   ]);
 
   useEffect(() => {
@@ -399,30 +486,48 @@ export function DisputeFormDialog({
 
     const loadCampaigns = async () => {
       setLoadingCampaigns(true);
+      setError(null);
 
       try {
         if (isInfluencerMode) {
           const activeInfluencerId = getActiveInfluencerId();
+          const activeInfluencerToken = getActiveInfluencerToken();
 
           if (!activeInfluencerId) {
             if (!cancelled) {
               setCampaigns([]);
               setError("Missing influencer ID. Please log in again.");
             }
+
             return;
           }
 
-          const res = await post<InfluencerCampaignListResponse>(
-            "/campaign/influencer/get-all-active",
+          if (!activeInfluencerToken) {
+            if (!cancelled) {
+              setCampaigns([]);
+              setError("Missing influencer session. Please log in again.");
+            }
+
+            return;
+          }
+
+          const response = await api.post(
+            "/campaign/get-by-influencer",
             {
               influencerId: activeInfluencerId,
               page: 1,
               limit: 1000,
+              status: "active",
+            },
+            {
+              headers: getBearerHeaders(activeInfluencerToken),
             }
           );
 
+          const res = ((response as any)?.data ?? response) as CampaignListResponse;
+
           if (!cancelled) {
-            setCampaigns(normalizeInfluencerCampaignsResponse(res));
+            setCampaigns(normalizeCampaignsResponse(res));
           }
 
           return;
@@ -433,17 +538,21 @@ export function DisputeFormDialog({
           return;
         }
 
-        const res = await get<{ data: Campaign[] }>("/campaign/active", {
+        const res = await post<CampaignListResponse>("/campaign/get-by-brand", {
           brandId,
           page: 1,
           limit: 1000,
+          status: "active",
         });
 
         if (!cancelled) {
-          setCampaigns(Array.isArray(res?.data) ? res.data : []);
+          setCampaigns(normalizeCampaignsResponse(res));
         }
-      } catch {
-        if (!cancelled) setCampaigns([]);
+      } catch (err) {
+        if (!cancelled) {
+          setCampaigns([]);
+          setError(getErrorMessage(err, "Failed to load campaigns."));
+        }
       } finally {
         if (!cancelled) setLoadingCampaigns(false);
       }
@@ -454,7 +563,13 @@ export function DisputeFormDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, isInfluencerMode, brandId, getActiveInfluencerId]);
+  }, [
+    open,
+    isInfluencerMode,
+    brandId,
+    getActiveInfluencerId,
+    getActiveInfluencerToken,
+  ]);
 
   useEffect(() => {
     if (isInfluencerMode) {
@@ -468,10 +583,12 @@ export function DisputeFormDialog({
     }
 
     let cancelled = false;
+
     setLoadingApplicants(true);
 
-    post<{ influencers: Applicant[] }>("/apply/list", {
+    post<{ influencers: Applicant[] }>("/campaign/influencer-list", {
       campaignId: values.campaignId,
+      brandId,
       page: 1,
       limit: 1000,
     })
@@ -488,7 +605,7 @@ export function DisputeFormDialog({
     return () => {
       cancelled = true;
     };
-  }, [values.campaignId, isInfluencerMode]);
+  }, [values.campaignId, isInfluencerMode, brandId]);
 
   useEffect(() => {
     if (!open || !isInfluencerMode) {
@@ -497,6 +614,7 @@ export function DisputeFormDialog({
     }
 
     const activeInfluencerId = getActiveInfluencerId();
+    const activeInfluencerToken = getActiveInfluencerToken();
 
     if (!values.campaignId || !activeInfluencerId) {
       setSelectedBrand(null);
@@ -504,16 +622,25 @@ export function DisputeFormDialog({
     }
 
     let cancelled = false;
+
     setLoadingBrandDetails(true);
 
     const loadBrandDetails = async () => {
       try {
-        const res = await get<CampaignBrandResponse>("/campaign/brand-list", {
-          campaignId: values.campaignId,
-          influencerId: activeInfluencerId,
-        });
+        const response = await api.post(
+          "/campaign/brand-list",
+          {
+            campaignId: values.campaignId,
+            influencerId: activeInfluencerId,
+          },
+          {
+            headers: getBearerHeaders(activeInfluencerToken),
+          }
+        );
 
         if (cancelled) return;
+
+        const res = ((response as any)?.data ?? response) as CampaignBrandResponse;
 
         const nextBrandId = res?.brand?.brandId || res?.brand?._id || "";
         const nextBrandName = res?.brand?.brandName || res?.brand?.name || "";
@@ -542,7 +669,13 @@ export function DisputeFormDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, isInfluencerMode, values.campaignId, getActiveInfluencerId]);
+  }, [
+    open,
+    isInfluencerMode,
+    values.campaignId,
+    getActiveInfluencerId,
+    getActiveInfluencerToken,
+  ]);
 
   const campaignOptions = useMemo(
     () => campaigns.filter((c) => Boolean(getCampaignId(c))),
@@ -570,6 +703,14 @@ export function DisputeFormDialog({
           next.influencerId = "";
         }
 
+        if (
+          key === "campaignId" &&
+          prev.campaignId !== value &&
+          isInfluencerMode
+        ) {
+          setSelectedBrand(null);
+        }
+
         return next;
       });
     },
@@ -579,8 +720,10 @@ export function DisputeFormDialog({
   const handleToggleRemoveExisting = useCallback((url: string) => {
     setRemovedExistingUrls((prev) => {
       const next = new Set(prev);
+
       if (next.has(url)) next.delete(url);
       else next.add(url);
+
       return next;
     });
   }, []);
@@ -617,6 +760,14 @@ export function DisputeFormDialog({
       if (!getActiveInfluencerId()) {
         return "Missing influencer ID — please log in again.";
       }
+
+      if (!getActiveInfluencerToken()) {
+        return "Missing influencer session — please log in again.";
+      }
+
+      if (!selectedBrand?.brandId) {
+        return "Brand name is required for the selected campaign.";
+      }
     } else {
       if (!brandId) return "Missing brand ID — please log in again.";
     }
@@ -625,15 +776,30 @@ export function DisputeFormDialog({
     if (!values.campaignId) return "Campaign name is required.";
     if (!values.issueType.length) return "Issue type is required.";
 
+    if (
+      values.issueType.includes("other") &&
+      !values.otherIssueDescription.trim()
+    ) {
+      return "Other issue description is required.";
+    }
+
     if (!isInfluencerMode && !values.influencerId) {
       return "Influencer name is required.";
     }
 
     return null;
-  }, [brandId, values, isInfluencerMode, getActiveInfluencerId]);
+  }, [
+    brandId,
+    values,
+    isInfluencerMode,
+    selectedBrand,
+    getActiveInfluencerId,
+    getActiveInfluencerToken,
+  ]);
 
   const handleSubmit = useCallback(async () => {
     const validationError = validate();
+
     if (validationError) {
       setError(validationError);
       return;
@@ -646,6 +812,9 @@ export function DisputeFormDialog({
         : values.influencerId,
       subject: values.subject.trim(),
       description: values.description.trim(),
+      otherIssueDescription: values.issueType.includes("other")
+        ? values.otherIssueDescription.trim()
+        : "",
     };
 
     setSubmitting(true);
@@ -806,7 +975,9 @@ export function DisputeFormDialog({
                 required
                 value={values.influencerId}
                 onValueChange={(v) => updateField("influencerId", v)}
-                disabled={!values.campaignId || loadingApplicants || disableInfluencer}
+                disabled={
+                  !values.campaignId || loadingApplicants || disableInfluencer
+                }
                 searchable={applicants.length > 5}
                 searchPlaceholder="Search influencers…"
                 safeBottom={80}
@@ -821,7 +992,7 @@ export function DisputeFormDialog({
                 {applicants.length > 0 ? (
                   applicants.map((a) => (
                     <SelectItem key={a.influencerId} value={a.influencerId}>
-                      {a.name ?? a.influencerId}
+                      {a.name ?? a.fullName ?? a.email ?? a.influencerId}
                       {a.handle ? ` (${a.handle})` : ""}
                     </SelectItem>
                   ))
@@ -837,16 +1008,30 @@ export function DisputeFormDialog({
               label="Description"
               value={values.description}
               onChange={(e) => updateField("description", e.target.value)}
-              placeholder="Describe the issue in detail…"
+              placeholder="Describe the dispute clearly..."
               maxLength={500}
               rows={4}
-              className="min-h-28!"
+              className="min-h-28! w-full"
             />
 
             <IssueTypeSelect
               value={values.issueType}
               onChange={(v) => updateField("issueType", v)}
             />
+
+            {showOtherIssueDescription ? (
+              <LabeledTextarea
+                label="Other Issue Description"
+                value={values.otherIssueDescription}
+                onChange={(e) =>
+                  updateField("otherIssueDescription", e.target.value)
+                }
+                placeholder="Please describe the other issue..."
+                maxLength={300}
+                rows={3}
+                className="min-h-24! w-full"
+              />
+            ) : null}
 
             <ProductCardUpload
               showLabel={false}
@@ -913,11 +1098,14 @@ function IssueTypeSelect({
     };
 
     document.addEventListener("mousedown", handler);
+
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
   const toggle = (val: string) => {
-    onChange(value.includes(val) ? value.filter((v) => v !== val) : [...value, val]);
+    onChange(
+      value.includes(val) ? value.filter((v) => v !== val) : [...value, val]
+    );
   };
 
   const filtered = DISPUTE_CATEGORIES.filter((c) =>
@@ -971,6 +1159,7 @@ function IssueTypeSelect({
         >
           <div className="flex items-center gap-2 border-b border-[#f1f1f1] px-4 py-3">
             <SearchIcon className="size-4 shrink-0 text-[#9ca3af]" />
+
             <input
               type="text"
               placeholder="Search issue types..."
@@ -979,6 +1168,7 @@ function IssueTypeSelect({
               onClick={(e) => e.stopPropagation()}
               className="flex-1 bg-transparent text-sm text-[#1a1a1a] outline-none placeholder:text-[#9ca3af]"
             />
+
             {search ? (
               <button
                 type="button"

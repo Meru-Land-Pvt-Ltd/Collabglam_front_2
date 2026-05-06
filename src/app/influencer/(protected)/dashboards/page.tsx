@@ -381,49 +381,29 @@ function CampaignFlagBadge({
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const router = useRouter();
-
+  const [influencerId, setInfluencerId] = useState("");
   const [campaigns, setCampaigns] = useState<MyCampaignItem[]>([]);
   const [invitations, setInvitations] = useState<CampaignInvitationItem[]>([]);
   const [walletBalance, setWalletBalance] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [influencerName, setInfluencerName] = useState("Influencer");
 
-  const influencerId = getStoredInfluencerId();
-
   useEffect(() => {
-    setInfluencerName(getStoredInfluencerName());
-  }, []);
+    const storedInfluencerId = getStoredInfluencerId();
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const keepOnDashboard = () => {
-      window.history.pushState(
-        { dashboardLock: true, path: "/influencer/dashboards" },
-        "",
-        "/influencer/dashboards"
-      );
-    };
-
-    keepOnDashboard();
-
-    const handlePopState = () => {
-      keepOnDashboard();
-      router.replace("/influencer/dashboards");
-    };
-
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [router]);
-
-  useEffect(() => {
-    if (!influencerId) {
+    if (!storedInfluencerId) {
       router.replace("/influencer/login");
       return;
     }
+
+    setInfluencerId(storedInfluencerId);
+    setInfluencerName(getStoredInfluencerName());
+  }, [router]);
+
+  useEffect(() => {
+    if (!influencerId) return;
+
+    let cancelled = false;
 
     const fetchDashboardData = async () => {
       try {
@@ -438,6 +418,8 @@ export default function Dashboard() {
             apiGetAllInvitationsByInfluencer({ influencerId }),
             apiGetLiteInfluencerById(influencerId, token).catch(() => null),
           ]);
+
+        if (cancelled) return;
 
         setCampaigns(
           Array.isArray(campaignRes?.campaigns) ? campaignRes.campaigns : []
@@ -459,18 +441,26 @@ export default function Dashboard() {
         const apiName = extractInfluencerName(liteInfluencerRes);
         setInfluencerName(apiName || getStoredInfluencerName());
       } catch (error) {
+        if (cancelled) return;
+
         console.error("Dashboard API error:", error);
         setCampaigns([]);
         setInvitations([]);
         setWalletBalance(0);
         setInfluencerName(getStoredInfluencerName());
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     fetchDashboardData();
-  }, [influencerId, router]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [influencerId]);
 
   const activeCampaigns = useMemo(
     () =>

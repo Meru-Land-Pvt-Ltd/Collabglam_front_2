@@ -15,6 +15,7 @@ import { apiGetBrandLite } from "@/app/brand/services/brandApi";
 import {
   BellIcon,
   BookOpenIcon,
+  CaretDownIcon,
   CaretRightIcon,
   Coins,
   ListDashes,
@@ -556,7 +557,8 @@ export default function BrandTopbar({
             >
               <button
                 type="button"
-                aria-label="Credits"
+                aria-label={showCredits ? "Close credits dropdown" : "Open credits dropdown"}
+                aria-expanded={showCredits}
                 title="Credits"
                 onClick={() => {
                   if (showCredits) {
@@ -571,6 +573,14 @@ export default function BrandTopbar({
                 <span className="text-[13px] sm:text-[14px] font-semibold text-[#1A1A1A]">
                   {totalCredits}
                 </span>
+                <CaretDownIcon
+                  size={14}
+                  weight="bold"
+                  className={[
+                    "shrink-0 text-[#1A1A1A] transition-transform duration-200",
+                    showCredits ? "rotate-180" : "rotate-0",
+                  ].join(" ")}
+                />
               </button>
             </div>
 

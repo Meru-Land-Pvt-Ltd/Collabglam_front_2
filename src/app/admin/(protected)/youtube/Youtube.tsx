@@ -2019,6 +2019,11 @@ export default function YoutubePage() {
     return '';
   }, [folderId, selectedFolderId, folders]);
 
+  const pitchSheetHref = useMemo(() => {
+    if (!hasFolderId) return '';
+    return `/admin/pitch-folders/${encodeURIComponent(folderId)}`;
+  }, [hasFolderId, folderId]);
+
   const primaryActionLabel = useMemo(() => {
     if (folderId) return `Add on ${activeFolderName || 'Folder'}`;
     if (selectedFolderId) return `Add on ${activeFolderName || 'Folder'}`;
@@ -2028,7 +2033,6 @@ export default function YoutubePage() {
 
   useEffect(() => {
     loadSaved(1, filtersActive, '');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -2177,11 +2181,22 @@ export default function YoutubePage() {
   return (
     <div className="min-h-screen ">
       <div className="mx-auto max-w-full px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="mb-2 text-3xl font-bold text-slate-900">YouTube Influencer Profiles</h1>
-          <p className="text-slate-600">
-            Search YouTube globally, preview full creator data, save the creators you want, and add selected creators to outreach when a campaign is active.
-          </p>
+        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="mb-2 text-3xl font-bold text-slate-900">YouTube Influencer Profiles</h1>
+            <p className="text-slate-600">
+              Search YouTube globally, preview full creator data, save the creators you want, and add selected creators to outreach when a campaign is active.
+            </p>
+          </div>
+
+          {pitchSheetHref ? (
+            <Link
+              href={pitchSheetHref}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+            >
+              <span>Go to {activeFolderName || 'Folder'}</span>
+            </Link>
+          ) : null}
         </div>
 
         <div className="mb-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">

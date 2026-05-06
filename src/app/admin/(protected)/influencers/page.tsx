@@ -180,6 +180,21 @@ function formatRoleLabel(role?: string) {
   if (r === "sdr") return "SDR";
   return r ? r.replace(/_/g, " ").toUpperCase() : "Admin";
 }
+
+function normalizeAdminRoleForCreateAccess(value?: unknown) {
+  const role = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (role === "superadmin" || role === "super") return "super_admin";
+  if (role === "revenuehead" || role === "rh") return "revenue_head";
+  if (role === "bme") return "bme";
+  if (role === "ime") return "ime";
+  if (role === "sdr") return "sdr";
+
+  return role;
+}
 function getCreatedByInfo(inf: Influencer) {
   const isAdmin = inf.createdBySource === "admin" || inf.isAdminCreated === true;
   const roleLabel = formatRoleLabel(inf.adminCreatedRole);
@@ -831,14 +846,23 @@ const AdminInfluencersPage = () => {
   React.useEffect(() => {
     try {
       const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
-      setAdminRole(String(storedAdmin?.role || "").toLowerCase());
+      setAdminRole(
+        normalizeAdminRoleForCreateAccess(
+          storedAdmin?.role ||
+            storedAdmin?.adminRole ||
+            storedAdmin?.admin?.role ||
+            storedAdmin?.admin?.adminRole ||
+            storedAdmin?.data?.role ||
+            storedAdmin?.data?.adminRole
+        )
+      );
     } catch {
       setAdminRole("");
     }
   }, []);
 
   const canCreateInfluencer = React.useMemo(
-    () => ["super_admin", "revenue_head", "ime"].includes(adminRole),
+    () => adminRole === "super_admin",
     [adminRole]
   );
 
@@ -867,7 +891,7 @@ const AdminInfluencersPage = () => {
     const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!canCreateInfluencer) {
-      setCreateError("Only Super Admin, RH, or IME can create influencers.");
+      setCreateError("Only Super Admin can create influencers.");
       return;
     }
 
@@ -1037,23 +1061,20 @@ const AdminInfluencersPage = () => {
               {(Object.keys(PLATFORM_META) as PlatformKey[]).map(p => <PlatformIconBadge key={p} platform={p} size="sm" />)}
               <div className="mx-2 h-5 w-px bg-slate-200" />
 
-              <Button
-                size="sm"
-                onClick={() => {
-                  setCreateOpen(true);
-                  setCreateError(null);
-                }}
-                disabled={!canCreateInfluencer}
-                className="h-9 rounded-lg bg-slate-900 text-sm font-medium text-white hover:bg-slate-800"
-                title={
-                  canCreateInfluencer
-                    ? "Create influencer"
-                    : "Only Super Admin, RH, or IME can create influencers"
-                }
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Create Influencer
-              </Button>
+              {canCreateInfluencer ? (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setCreateOpen(true);
+                    setCreateError(null);
+                  }}
+                  className="h-9 rounded-lg bg-slate-900 text-sm font-medium text-white hover:bg-slate-800"
+                  title="Create influencer"
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
+                  Create Influencer
+                </Button>
+              ) : null}
 
               <Button variant="outline" size="sm" onClick={() => fetchAllData(false)} disabled={refreshing} className="h-9 rounded-lg border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50">
                 <HiOutlineRefresh className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")} />Refresh

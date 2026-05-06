@@ -43,9 +43,34 @@ type OnboardingRoute =
   | "homepage";
 
 type SignInResponse = {
-  token: string;
-  influencerId: string;
-  route?: OnboardingRoute;
+  token?: unknown;
+  influencerToken?: unknown;
+  accessToken?: unknown;
+  jwt?: unknown;
+
+  influencerId?: unknown;
+  influencer_id?: unknown;
+  id?: unknown;
+  _id?: unknown;
+
+  route?: unknown;
+
+  influencer?: {
+    _id?: unknown;
+    id?: unknown;
+    influencerId?: unknown;
+    influencer_id?: unknown;
+  };
+
+  user?: {
+    _id?: unknown;
+    id?: unknown;
+    influencerId?: unknown;
+    influencer_id?: unknown;
+  };
+
+  data?: SignInResponse;
+
   onboarding?: {
     page1Done?: boolean;
     page2Done?: boolean;
@@ -62,15 +87,86 @@ type CookieOptions = {
 
 const ONBOARDING_RESUME_KEY = "cg_influencer_onboarding_resume_step";
 const Login_S3_Image =
-  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image5.png";
+  "https://collaglam-campaign.s3.us-east-1.amazonaws.com/image7.webp";
 
-function hasCookie(name: string) {
-  if (typeof document === "undefined") return false;
+function normalizeStoredString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
 
-  return document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .some((part) => part.startsWith(`${encodeURIComponent(name)}=`));
+  const cleanValue = value.trim();
+
+  if (
+    !cleanValue ||
+    cleanValue === "undefined" ||
+    cleanValue === "null" ||
+    cleanValue === "[object Object]"
+  ) {
+    return null;
+  }
+
+  return cleanValue;
+}
+
+function isOnboardingRoute(value: unknown): value is OnboardingRoute {
+  return (
+    value === "page1" ||
+    value === "page2" ||
+    value === "page3" ||
+    value === "campaign" ||
+    value === "homepage"
+  );
+}
+
+function extractTokenFromSignInResponse(res?: SignInResponse): string | null {
+  return (
+    normalizeStoredString(res?.token) ||
+    normalizeStoredString(res?.influencerToken) ||
+    normalizeStoredString(res?.accessToken) ||
+    normalizeStoredString(res?.jwt) ||
+    normalizeStoredString(res?.data?.token) ||
+    normalizeStoredString(res?.data?.influencerToken) ||
+    normalizeStoredString(res?.data?.accessToken) ||
+    normalizeStoredString(res?.data?.jwt)
+  );
+}
+
+function extractInfluencerIdFromSignInResponse(
+  res?: SignInResponse
+): string | null {
+  return (
+    normalizeStoredString(res?.influencerId) ||
+    normalizeStoredString(res?.influencer_id) ||
+    normalizeStoredString(res?.influencer?._id) ||
+    normalizeStoredString(res?.influencer?.id) ||
+    normalizeStoredString(res?.influencer?.influencerId) ||
+    normalizeStoredString(res?.influencer?.influencer_id) ||
+    normalizeStoredString(res?.user?.influencerId) ||
+    normalizeStoredString(res?.user?.influencer_id) ||
+    normalizeStoredString(res?.user?._id) ||
+    normalizeStoredString(res?.user?.id) ||
+    normalizeStoredString(res?.data?.influencerId) ||
+    normalizeStoredString(res?.data?.influencer_id) ||
+    normalizeStoredString(res?.data?.influencer?._id) ||
+    normalizeStoredString(res?.data?.influencer?.id) ||
+    normalizeStoredString(res?.data?.influencer?.influencerId) ||
+    normalizeStoredString(res?.data?.influencer?.influencer_id) ||
+    normalizeStoredString(res?.data?.user?.influencerId) ||
+    normalizeStoredString(res?.data?.user?.influencer_id) ||
+    normalizeStoredString(res?.data?.user?._id) ||
+    normalizeStoredString(res?.data?.user?.id) ||
+    normalizeStoredString(res?.id) ||
+    normalizeStoredString(res?._id) ||
+    normalizeStoredString(res?.data?.id) ||
+    normalizeStoredString(res?.data?._id)
+  );
+}
+
+function extractRouteFromSignInResponse(
+  res?: SignInResponse
+): OnboardingRoute | undefined {
+  if (isOnboardingRoute(res?.route)) return res.route;
+  if (isOnboardingRoute(res?.data?.route)) return res.data.route;
+
+  return undefined;
 }
 
 function getStoredInfluencerResumeRoute(): OnboardingRoute | undefined {
@@ -269,9 +365,7 @@ function routeToPath(route?: OnboardingRoute) {
   }
 }
 
-function getPostLoginRedirect(res?: SignInResponse) {
-  const route = res?.route;
-
+function getPostLoginRedirect(route?: OnboardingRoute) {
   if (route === "page1" || route === "page2" || route === "page3") {
     return routeToPath(route);
   }
@@ -378,14 +472,17 @@ function InfluencerLoginContent() {
     if (typeof window === "undefined") return false;
 
     try {
-      const token =
-        localStorage.getItem("token") || localStorage.getItem("influencerToken");
-      const influencerId = localStorage.getItem("influencerId");
-      const hasCookieSession = hasCookie("token") && hasCookie("influencerId");
+      const token = normalizeStoredString(
+        localStorage.getItem("token") || localStorage.getItem("influencerToken")
+      );
 
-      return Boolean((token && influencerId) || hasCookieSession);
+      const influencerId = normalizeStoredString(
+        localStorage.getItem("influencerId")
+      );
+
+      return Boolean(token && influencerId);
     } catch {
-      return hasCookie("token") && hasCookie("influencerId");
+      return false;
     }
   }, []);
 
@@ -405,33 +502,11 @@ function InfluencerLoginContent() {
   }, [getSafeReturnUrl, hasActiveInfluencerSession, router]);
 
   React.useEffect(() => {
-    const enforceGuestOnlyAccess = () => {
-      const redirected = redirectAuthenticatedInfluencerUser();
+    const redirected = redirectAuthenticatedInfluencerUser();
 
-      if (!redirected) {
-        setAuthGuardReady(true);
-      }
-    };
-
-    enforceGuestOnlyAccess();
-
-    const handlePageShow = () => {
-      enforceGuestOnlyAccess();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        enforceGuestOnlyAccess();
-      }
-    };
-
-    window.addEventListener("pageshow", handlePageShow);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener("pageshow", handlePageShow);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+    if (!redirected) {
+      setAuthGuardReady(true);
+    }
   }, [redirectAuthenticatedInfluencerUser]);
 
   const clearEmailOnFocus = () => {
@@ -478,24 +553,36 @@ function InfluencerLoginContent() {
         password
       )) as SignInResponse;
 
-      setCookie("token", res.token, { days: 30 });
-      setCookie("influencerId", res.influencerId, { days: 30 });
+      const token = extractTokenFromSignInResponse(res);
+      const influencerId = extractInfluencerIdFromSignInResponse(res);
+      const route = extractRouteFromSignInResponse(res);
 
-      localStorage.setItem("token", res.token);
-      localStorage.setItem("influencerToken", res.token);
-      localStorage.setItem("influencerId", res.influencerId);
+      if (!token || !influencerId) {
+        console.error("Influencer login response missing data:", res);
 
-      persistOnboardingRoute(res.route);
+        throw new Error(
+          "Login succeeded, but influencer session data was missing. Please check the login API response."
+        );
+      }
+
+      setCookie("token", token, { days: 30 });
+      setCookie("influencerId", influencerId, { days: 30 });
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("influencerToken", token);
+      localStorage.setItem("influencerId", influencerId);
+
+      persistOnboardingRoute(route);
 
       await fetch("/api-1/influencer-auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ token: res.token }),
+        body: JSON.stringify({ token }),
       });
 
       const safeReturnUrl = getSafeReturnUrl();
-      const redirectPath = safeReturnUrl || getPostLoginRedirect(res);
+      const redirectPath = safeReturnUrl || getPostLoginRedirect(route);
 
       router.replace(redirectPath);
     } catch (err) {

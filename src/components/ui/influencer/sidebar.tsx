@@ -25,6 +25,7 @@ import {
   DotsThree,
   EnvelopeSimpleIcon,
   ImageIcon,
+  Lightning,
   PaperPlaneTilt,
   Question,
   SignOut,
@@ -79,6 +80,27 @@ const ACTIVE_NAV = "bg-[#1a1a1a] text-white";
 const HOVER_NAV = "hover:bg-[#1a1a1a]/10 hover:text-[#1a1a1a]";
 const REST_NAV = "text-[#1a1a1a]";
 
+const UPGRADE_REST =
+  "radial-gradient(140% 140% at 0% 20%, rgba(255, 140, 1, 0.80) 5%, rgba(255, 191, 0, 0.30) 31%, rgba(255, 255, 255, 0.50) 100%)";
+
+const UPGRADE_HOVER =
+  "radial-gradient(140% 140% at 0% 20%, rgba(255, 140, 1, 0.80) 8%, rgba(255, 191, 0, 0.40) 51%, rgba(255, 255, 255, 0.50) 100%)";
+
+const UPGRADE_COLLAPSED =
+  "radial-gradient(140% 140% at 0% 20%, rgba(255, 140, 1, 0.80) 5%, rgba(255, 191, 0, 0.40) 31%, rgba(255, 255, 255, 0.50) 80%)";
+
+const upgradeSpring: Transition = {
+  type: "spring",
+  mass: 1,
+  stiffness: 100,
+  damping: 15,
+};
+
+const upgradeShellStyle: React.CSSProperties = {
+  borderRadius: "var(--Spacing-8, 8px)",
+  border: "1.5px solid var(--Neutrals-75, #F5F5F5)",
+};
+
 const SUPPORT_NAV_PATHS = [
   "/influencer/support-centre",
   "/influencer/disputes",
@@ -91,6 +113,11 @@ function isSupportPath(pathname?: string | null) {
   return SUPPORT_NAV_PATHS.some(
     (path) => p === path || p.startsWith(`${path}/`)
   );
+}
+
+function titleCasePlan(value: string | null) {
+  if (!value) return "Free";
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 /* -------------------------------- types -------------------------------- */
@@ -115,6 +142,9 @@ type InfluencerProfile = {
   name?: string;
   email?: string;
   profileImage?: string;
+  planId?: string | null;
+  planName?: string | null;
+  expiresAt?: string | null;
 };
 
 export type InfluencerSidebarProps = {
@@ -130,44 +160,266 @@ export type InfluencerSidebarProps = {
 
 /* ------------------------------ api helper ------------------------------ */
 
-async function apiGetInfluencerPayoutSummary(
-  influencerId: string,
-  token?: string
-): Promise<PayoutSummary> {
-  const res = await fetch("/api/influencer-payout-summary", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ influencerId }),
-  });
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:8000"
+).replace(/\/+$/, "");
 
-  if (!res.ok) {
-    throw new Error("Failed to fetch influencer payout summary");
-  }
-
-  return res.json();
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
-async function apiGetInfluencerProfile(
-  influencerId: string,
+function pickString(
+  source: Record<string, unknown> | null | undefined,
+  keys: string[]
+) {
+  if (!source) return "";
+
+  for (const key of keys) {
+    const value = source[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+  }
+
+  return "";
+}
+
+function getCookieValue(name: string) {
+  if (typeof document === "undefined") return "";
+
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = document.cookie.match(
+    new RegExp(`(?:^|; )${escaped}=([^;]*)`)
+  );
+
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+function getLocalValue(keys: string[]) {
+  if (typeof window === "undefined") return "";
+
+  for (const key of keys) {
+    try {
+      const value =
+        window.localStorage.getItem(key) ||
+        window.sessionStorage.getItem(key);
+
+      if (value && value.trim()) return value.trim();
+    } catch {
+      // ignore storage access errors
+    }
+  }
+
+  return "";
+}
+
+function decodeJwtPayload(tokenValue?: string) {
+  if (!tokenValue || typeof window === "undefined") return null;
+
+  try {
+    const payload = tokenValue.split(".")[1];
+    if (!payload) return null;
+
+    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+      "="
+    );
+
+    return JSON.parse(window.atob(paddedPayload)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function resolveInfluencerAuth(
+  influencerIdProp?: string,
+  tokenProp?: string
+) {
+  const tokenValue =
+    tokenProp?.trim() ||
+    getLocalValue([
+      "influencer_token",
+      "influencerToken",
+      "token",
+      "accessToken",
+    ]) ||
+    getCookieValue("influencer_token") ||
+    getCookieValue("token") ||
+    getCookieValue("brand_token");
+
+  const decodedToken = decodeJwtPayload(tokenValue);
+
+  const influencerIdValue =
+    influencerIdProp?.trim() ||
+    getLocalValue([
+      "influencerId",
+      "currentInfluencerId",
+      "influencer_id",
+      "userId",
+      "_id",
+    ]) ||
+    getCookieValue("influencerId") ||
+    getCookieValue("influencer_id") ||
+    pickString(decodedToken, [
+      "influencerId",
+      "influencer_id",
+      "_id",
+      "id",
+      "userId",
+      "sub",
+    ]);
+
+  return {
+    influencerId: influencerIdValue,
+    token: tokenValue,
+  };
+}
+
+function normalizeProfileImageSrc(value: string) {
+  const src = String(value || "").trim();
+
+  if (!src) return "";
+  if (/^(https?:|data:|blob:)/i.test(src)) return src;
+  if (src.startsWith("//")) return `https:${src}`;
+
+  return `${API_BASE_URL}/${src.replace(/^\/+/, "")}`;
+}
+
+function pickProfileImage(source: unknown): string {
+  const record = asRecord(source);
+  if (!record) return "";
+
+  const directImage = pickString(record, [
+    "profileImage",
+    "profilePic",
+    "profilePicture",
+    "profilePictureUrl",
+    "profile_image",
+    "profile_image_url",
+    "profile_pic",
+    "profile_pic_url",
+    "avatar",
+    "avatarUrl",
+    "image",
+    "imageUrl",
+    "photo",
+    "photoUrl",
+    "picture",
+    "pictureUrl",
+    "thumbnail",
+    "thumbnailUrl",
+    "url",
+  ]);
+
+  if (directImage) return directImage;
+
+  for (const nestedKey of ["profile", "user", "owner", "account"]) {
+    const nestedImage = pickProfileImage(record[nestedKey]);
+    if (nestedImage) return nestedImage;
+  }
+
+  return "";
+}
+
+function normalizeInfluencerLite(raw: unknown): InfluencerProfile {
+  const root = asRecord(raw) ?? {};
+  const data =
+    asRecord(root.data) ||
+    asRecord(root.influencer) ||
+    asRecord(root.user) ||
+    root;
+
+  const primaryProfile = asRecord(data.primaryProfile);
+
+  const socialProfiles = Array.isArray(data.socialProfiles)
+    ? data.socialProfiles
+    : [];
+
+  const image =
+    pickProfileImage(data) ||
+    pickProfileImage(primaryProfile) ||
+    socialProfiles.map(pickProfileImage).find(Boolean) ||
+    "";
+
+  const name =
+    pickString(data, ["name", "fullName", "displayName", "username"]) ||
+    pickString(primaryProfile, [
+      "name",
+      "fullName",
+      "displayName",
+      "username",
+      "handle",
+    ]) ||
+    "Profile";
+
+  const email = pickString(data, ["email", "proxyEmail", "contactEmail"]);
+
+  const subscription = asRecord(data.subscription) || asRecord(data.subscriptionDetails);
+
+  const planName =
+    pickString(data, ["planName", "brandPlanName", "influencerPlanName", "plan"]) ||
+    pickString(subscription, ["planName", "brandPlanName", "influencerPlanName", "plan"]);
+
+  const planId =
+    pickString(data, ["planId", "brandPlanId", "influencerPlanId"]) ||
+    pickString(subscription, ["planId", "brandPlanId", "influencerPlanId"]);
+
+  const expiresAt =
+    pickString(data, ["expiresAt", "subscriptionExpiresAt"]) ||
+    pickString(subscription, ["expiresAt", "subscriptionExpiresAt"]);
+
+  return {
+    name,
+    email,
+    profileImage: normalizeProfileImageSrc(image),
+    planId: planId || null,
+    planName: planName || null,
+    expiresAt: expiresAt || null,
+  };
+}
+
+async function apiGetInfluencerLite(
+  influencerId?: string,
   token?: string
 ): Promise<InfluencerProfile> {
-  const res = await fetch("/api/get-influencer-profile", {
-    method: "POST",
+  const trimmedInfluencerId = influencerId?.trim() || "";
+  const query = trimmedInfluencerId
+    ? `?influencerId=${encodeURIComponent(trimmedInfluencerId)}`
+    : "";
+
+  const res = await fetch(`${API_BASE_URL}/influencer/lite${query}`, {
+    method: "GET",
+    credentials: "include",
     headers: {
-      "Content-Type": "application/json",
+      Accept: "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ influencerId }),
   });
 
   if (!res.ok) {
-    throw new Error("Failed to fetch influencer profile");
+    let message = "Failed to fetch influencer lite profile";
+
+    try {
+      const errorData = await res.json();
+      message = String(errorData?.message || message);
+    } catch {
+      // ignore invalid json
+    }
+
+    throw new Error(message);
   }
 
-  return res.json();
+  return normalizeInfluencerLite(await res.json());
 }
 
 /* ------------------------------ small components ------------------------------ */
@@ -460,12 +712,16 @@ export default function Sidebar({
   const isShort = useMediaQuery("(max-height: 800px)");
   const vw = useViewportWidth();
 
-  const [payoutSummary, setPayoutSummary] = useState<PayoutSummary | null>(null);
+  const payoutSummary = null as PayoutSummary | null;
   const [profileData, setProfileData] = useState<InfluencerProfile | null>(null);
+  const [authContext, setAuthContext] = useState(() =>
+    resolveInfluencerAuth(influencerId, token)
+  );
+  const [profileImageError, setProfileImageError] = useState(false);
 
   const [active, setActive] = useState<string>("");
-  const [collapsed, setCollapsed] = useState(true);
-  const [widthCollapsed, setWidthCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
+  const [widthCollapsed, setWidthCollapsed] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [drawerOpenInternal, setDrawerOpenInternal] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -482,9 +738,30 @@ export default function Sidebar({
 
   const drawerOpen = drawerOpenProp ?? drawerOpenInternal;
 
-  const profileName = profileData?.name || "Profile";
-  const profileEmail = profileData?.email || "";
-  const profileImage = profileData?.profileImage || "";
+  const profileName = profileData?.name?.trim() || "Profile";
+  const profileEmail = profileData?.email?.trim() || "";
+  const profileImage = profileData?.profileImage?.trim() || "";
+  const showProfileImage = Boolean(profileImage) && !profileImageError;
+
+  const normalizedPlanName = useMemo(
+    () => (profileData?.planName ? profileData.planName.trim().toLowerCase() : null),
+    [profileData?.planName]
+  );
+
+  const isPaidPlan = useMemo(() => {
+    if (!normalizedPlanName) return false;
+    return !["free", "basic", "trial"].includes(normalizedPlanName);
+  }, [normalizedPlanName]);
+
+  const planLabel = useMemo(
+    () => titleCasePlan(normalizedPlanName),
+    [normalizedPlanName]
+  );
+
+  const upgradeCardTitle = isPaidPlan ? "Manage Plan" : "Upgrade to PRO";
+  const upgradeCardDesc = isPaidPlan
+    ? `You are currently on the ${planLabel} plan`
+    : "Upgrade anytime. No long-term commitment";
 
   const setDrawerOpen = useCallback(
     (open: boolean) => {
@@ -512,32 +789,36 @@ export default function Sidebar({
   }, [profileMenuOpen]);
 
   useEffect(() => {
-    const loadPayoutSummary = async () => {
-      try {
-        if (!influencerId?.trim()) return;
-        const res = await apiGetInfluencerPayoutSummary(influencerId, token);
-        setPayoutSummary(res);
-      } catch (error) {
-        console.error("Failed to load payout summary:", error);
-      }
-    };
-
-    loadPayoutSummary();
+    setAuthContext(resolveInfluencerAuth(influencerId, token));
   }, [influencerId, token]);
 
   useEffect(() => {
+    setProfileImageError(false);
+  }, [profileImage]);
+
+  useEffect(() => {
+    let cancelled = false;
+
     const loadProfile = async () => {
       try {
-        if (!influencerId?.trim()) return;
-        const res = await apiGetInfluencerProfile(influencerId, token);
-        setProfileData(res);
+        const res = await apiGetInfluencerLite(
+          authContext.influencerId,
+          authContext.token
+        );
+
+        if (!cancelled) setProfileData(res);
       } catch (error) {
-        console.error("Failed to load influencer profile:", error);
+        console.error("Failed to load influencer lite profile:", error);
+        if (!cancelled) setProfileData(null);
       }
     };
 
     loadProfile();
-  }, [influencerId, token]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authContext.influencerId, authContext.token]);
 
   useEffect(() => {
     if (!helpDialogOpen) return;
@@ -675,9 +956,11 @@ export default function Sidebar({
   useEffect(() => {
     if (isDesktop) {
       setDrawerOpen(false);
-      setCollapsed(true);
+      setCollapsed(false);
       setIsClosing(false);
-      setWidthCollapsed(true);
+      setWidthCollapsed(false);
+      setProfileMenuOpen(false);
+      setHelpDialogOpen(false);
     } else {
       setCollapsed(false);
       setIsClosing(false);
@@ -724,6 +1007,11 @@ export default function Sidebar({
     },
     [items, router, isDesktop, setDrawerOpen]
   );
+
+  const handlePlanClick = useCallback(() => {
+    router.push("/influencer/subscriptions");
+    if (!isDesktop) setDrawerOpen(false);
+  }, [router, isDesktop, setDrawerOpen]);
 
   const openHelpDialog = useCallback(() => {
     setActive("support");
@@ -930,25 +1218,54 @@ export default function Sidebar({
 
   const BottomProfileSection = (
     <div className="relative mt-auto pt-4" ref={profileMenuRef}>
-      <div className="mb-3 h-px w-full bg-neutral-200" />
-
       {isDesktop && compactUI ? (
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4">
+          <SidebarTooltip
+            content={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
+          >
+            <m.button
+              type="button"
+              aria-label={isPaidPlan ? `Manage ${planLabel} plan` : "Upgrade to PRO"}
+              onClick={handlePlanClick}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.98 }}
+              transition={upgradeSpring}
+              className={cn(
+                "relative grid place-items-center overflow-hidden",
+                tight ? "h-12 w-12" : "h-14 w-14",
+                FOCUS_RING
+              )}
+              style={{
+                borderRadius: "var(--Spacing-8, 8px)",
+                background: UPGRADE_COLLAPSED,
+                willChange: "transform",
+              }}
+            >
+              <Lightning size={24} className="text-[#1a1a1a]" />
+              {isPaidPlan && (
+                <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-[#1a1a1a]" />
+              )}
+            </m.button>
+          </SidebarTooltip>
+
+          <div className="h-px w-full bg-neutral-200" />
+
           <SidebarTooltip content="Profile">
             <button
               type="button"
               onClick={() => router.push("/influencer/profile")}
               className={cn(
-                "grid h-12 w-12 place-items-center rounded-full border border-neutral-200 bg-white transition hover:bg-neutral-50",
+                "grid h-12 w-12 place-items-center overflow-hidden rounded-full border border-neutral-200 bg-white transition hover:bg-neutral-50",
                 FOCUS_RING
               )}
               aria-label="Profile"
             >
-              {profileImage ? (
+              {showProfileImage ? (
                 <img
                   src={profileImage}
                   alt={profileName}
                   className="h-12 w-12 rounded-full object-cover"
+                  onError={() => setProfileImageError(true)}
                 />
               ) : (
                 <UserIcon size={22} weight="regular" />
@@ -958,6 +1275,89 @@ export default function Sidebar({
         </div>
       ) : (
         <>
+          <m.div
+            initial="rest"
+            animate="rest"
+            whileHover="hover"
+            transition={upgradeSpring}
+            className={cn(
+              "relative flex w-full cursor-pointer flex-col items-start gap-2.5 overflow-hidden p-2",
+              FOCUS_RING
+            )}
+            style={upgradeShellStyle}
+            tabIndex={0}
+            role="button"
+            onClick={handlePlanClick}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handlePlanClick();
+              }
+            }}
+          >
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: UPGRADE_REST,
+                borderRadius: "inherit",
+              }}
+            />
+
+            <m.div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background: UPGRADE_HOVER,
+                borderRadius: "inherit",
+              }}
+              variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+              transition={upgradeSpring}
+            />
+
+            <div className="relative z-10 flex w-full flex-col items-start gap-2.5">
+              <div className="flex w-full items-start justify-between gap-3">
+                <div className="relative h-6 w-6">
+                  <m.span
+                    className="absolute inset-0 grid place-items-center"
+                    variants={{ rest: { opacity: 1 }, hover: { opacity: 0 } }}
+                    transition={upgradeSpring}
+                  >
+                    <Lightning
+                      size={24}
+                      weight="regular"
+                      className="text-[#1a1a1a]"
+                    />
+                  </m.span>
+
+                  <m.span
+                    className="absolute inset-0 grid place-items-center"
+                    variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+                    transition={upgradeSpring}
+                  >
+                    <Lightning
+                      size={24}
+                      weight="fill"
+                      className="text-[#1a1a1a]"
+                    />
+                  </m.span>
+                </div>
+
+                <span className="inline-flex items-center rounded-full border border-white/70 bg-white/80 px-2.5 py-1 text-[11px] font-semibold text-[#1a1a1a]">
+                  {planLabel}
+                </span>
+              </div>
+
+              <div className="text-[18px] font-semibold leading-[24px] text-[#1a1a1a]">
+                {upgradeCardTitle}
+              </div>
+
+              <div className="font-[Inter] text-[14px] font-normal leading-[18px] text-[#1a1a1a]">
+                {upgradeCardDesc}
+              </div>
+            </div>
+          </m.div>
+
+          <div className="my-5 h-px w-full bg-neutral-200" />
+
           <div className="flex items-center gap-3 rounded-2xl px-2 py-2">
             <button
               type="button"
@@ -965,11 +1365,12 @@ export default function Sidebar({
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
             >
               <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-full bg-neutral-100">
-                {profileImage ? (
+                {showProfileImage ? (
                   <img
                     src={profileImage}
                     alt={profileName}
                     className="h-full w-full object-cover"
+                    onError={() => setProfileImageError(true)}
                   />
                 ) : (
                   <div className="grid h-full w-full place-items-center">

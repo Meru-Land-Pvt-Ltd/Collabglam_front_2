@@ -20,13 +20,17 @@ import {
   AlignLeft,
   ArrowUpRight,
   CheckCircle2,
+  ExternalLink,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
   Download,
+  FileText,
+  Heart,
   Image as ImageIcon,
   Layers3,
   Link2,
+  Mail,
   Pencil,
   Plus,
   Search,
@@ -330,12 +334,52 @@ type MilestonesByInfluencerResponse = {
   milestones?: MilestoneRow[];
 };
 
+type PitchFolderMediaKit = {
+  s3Key?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number | null;
+  uploadedAt?: string | null;
+  showToBrand?: boolean;
+  requestStatus?: "none" | "requested" | "approved" | "rejected";
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+};
+
+type PitchFolderMediaKitLink = {
+  url?: string;
+  generatedAt?: string | null;
+  showToBrand?: boolean;
+  requestStatus?: "none" | "requested" | "approved" | "rejected";
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+};
+
+type PitchFolderMediaKitAccess = {
+  hasAdded?: boolean;
+  allowed?: boolean;
+  visibleSource?: "pdf" | "link" | null;
+  requestStatus?: "none" | "requested" | "approved" | "rejected";
+  requestedAt?: string | null;
+  availableOnRequest?: boolean;
+  buttonLabel?: string;
+  url?: string;
+};
+
 type PitchFolderCampaignActivation = {
   active?: boolean;
   campaignId?: string;
   campaignsId?: string;
   influencerId?: string | null;
   activeAt?: string | null;
+};
+
+type PitchFolderCampaignInvitation = {
+  invitationId?: string | null;
+  campaignId?: string | null;
+  status?: string | null;
+  sentAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type PitchFolderRateCardHistoryEntry = {
@@ -366,9 +410,14 @@ type PitchFolderItem = {
   rateCardHistory?: PitchFolderRateCardHistoryEntry[];
   shippingAddress?: string;
   comments?: string;
+  mediaKit?: PitchFolderMediaKit | null;
+  mediaKitLink?: PitchFolderMediaKitLink | null;
+  mediaKitAccess?: PitchFolderMediaKitAccess | null;
   createdInfluencerId?: string | null;
+  influencerCreatedAt?: string | null;
   linkedInfluencer?: { influencerId?: string | null } | null;
   campaignActivation?: PitchFolderCampaignActivation | null;
+  campaignInvitation?: PitchFolderCampaignInvitation | null;
 };
 
 type AssignedPitchFolder = {
@@ -379,6 +428,7 @@ type AssignedPitchFolder = {
     campaignId?: string;
     campaignsId?: string;
     campaignTitle?: string;
+    brandId?: string | null;
     brandName?: string;
     assignedAt?: string | null;
   } | null;
@@ -402,6 +452,7 @@ const PRIMARY_BUTTON =
 const SECONDARY_BUTTON =
   "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50";
 
+const DASH = "—";
 const DELIVERABLES_PER_PAGE = 10;
 
 function showErr(message: string) {
@@ -421,9 +472,9 @@ function showSuccess(message: string) {
 }
 
 const formatDate = (iso?: string | null) => {
-  if (!iso) return "—";
+  if (!iso) return DASH;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return DASH;
   return d.toLocaleString("en-IN", {
     month: "short",
     day: "2-digit",
@@ -434,9 +485,9 @@ const formatDate = (iso?: string | null) => {
 };
 
 const formatDateShort = (iso?: string | null) => {
-  if (!iso) return "—";
+  if (!iso) return DASH;
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return DASH;
   return d.toLocaleString("en-IN", {
     month: "short",
     day: "2-digit",
@@ -444,10 +495,31 @@ const formatDateShort = (iso?: string | null) => {
   });
 };
 
+const formatDateTime = (iso?: string | null) => {
+  if (!iso) return DASH;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return DASH;
+
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+};
+
 const formatMoney = (v?: number | string | null) => {
   const a = Number(v ?? 0);
   if (!Number.isFinite(a)) return "0";
   return a.toLocaleString("en-US", { maximumFractionDigits: 2 });
+};
+
+const formatNumber = (v?: number | string | null) => {
+  const a = Number(v ?? 0);
+  if (v === null || v === undefined || !Number.isFinite(a)) return DASH;
+  return new Intl.NumberFormat("en-IN").format(a);
 };
 
 const formatCompactNumber = (v?: number | string | null) => {
@@ -494,6 +566,32 @@ function normalizePlatform(p?: string | null) {
   if (n.includes("you")) return "youtube";
   if (n.includes("tik")) return "tiktok";
   return n;
+}
+
+function normalizeAdminRoleForUi(value?: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  if (!normalized) return "";
+  if (["superadmin", "super"].includes(normalized)) return "superadmin";
+  if (["revenuehead", "rh"].includes(normalized)) return "rh";
+  if (normalized === "bme") return "bme";
+  if (normalized === "ime") return "ime";
+
+  return normalized;
+}
+
+function getStoredAdminRoleForUi(storedAdmin: any) {
+  return normalizeAdminRoleForUi(
+    storedAdmin?.role ||
+    storedAdmin?.adminRole ||
+    storedAdmin?.admin?.role ||
+    storedAdmin?.admin?.adminRole ||
+    storedAdmin?.data?.role ||
+    storedAdmin?.data?.adminRole
+  );
 }
 
 function getPlatformIcon(p?: string | null) {
@@ -850,6 +948,10 @@ function buildPitchFolderItemSearchText(item: PitchFolderItem) {
     item.selectionReason,
     item.shippingAddress,
     item.comments,
+    item.mediaKitLink?.url,
+    item.mediaKit?.fileName,
+    item.mediaKitAccess?.requestStatus,
+    item.mediaKitAccess?.visibleSource,
     item.influencerRateCard,
     item.platformRateCard,
     Array.isArray(item.rateCardHistory)
@@ -1197,6 +1299,67 @@ const Pill = ({
   </span>
 );
 
+const MediaAssetPill = ({ label, ok }: { label: string; ok: boolean }) => (
+  <Pill
+    className={
+      ok
+        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+        : "bg-rose-50 text-rose-700 ring-rose-200"
+    }
+  >
+    {ok ? (
+      <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+    ) : (
+      <X className="mr-1 h-3.5 w-3.5" />
+    )}
+    {label}
+  </Pill>
+);
+
+const MediaAccessBadge = ({
+  access,
+}: {
+  access?: PitchFolderMediaKitAccess | null;
+}) => {
+  if (!access?.hasAdded) {
+    return <Pill className="bg-stone-100 text-stone-700 ring-stone-200">Not Added</Pill>;
+  }
+
+  if (access.allowed) {
+    return <Pill className="bg-emerald-50 text-emerald-700 ring-emerald-200">Allowed</Pill>;
+  }
+
+  if (access.requestStatus === "requested") {
+    return <Pill className="bg-amber-50 text-amber-700 ring-amber-200">Requested</Pill>;
+  }
+
+  if (access.requestStatus === "rejected") {
+    return <Pill className="bg-rose-50 text-rose-700 ring-rose-200">Rejected</Pill>;
+  }
+
+  return <Pill className="bg-sky-50 text-sky-700 ring-sky-200">Available on Request</Pill>;
+};
+
+const MediaRequestStatusBadge = ({
+  value,
+}: {
+  value?: "none" | "requested" | "approved" | "rejected";
+}) => {
+  if (value === "approved") {
+    return <Pill className="bg-emerald-50 text-emerald-700 ring-emerald-200">Approved</Pill>;
+  }
+
+  if (value === "requested") {
+    return <Pill className="bg-amber-50 text-amber-700 ring-amber-200">Requested</Pill>;
+  }
+
+  if (value === "rejected") {
+    return <Pill className="bg-rose-50 text-rose-700 ring-rose-200">Rejected</Pill>;
+  }
+
+  return <Pill className="bg-stone-100 text-stone-700 ring-stone-200">No Request</Pill>;
+};
+
 const TagCloud = ({ items }: { items: string[] }) => {
   if (!items.length) {
     return <p className="text-xs text-stone-400">None specified.</p>;
@@ -1260,6 +1423,7 @@ export default function ViewCampaignPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [canEditCampaigns, setCanEditCampaigns] = useState(false);
+  const [currentAdminRole, setCurrentAdminRole] = useState("");
   const [activeTab, setActiveTab] = useState<TabKey>("details");
   const [isFundsModalOpen, setIsFundsModalOpen] = useState(false);
 
@@ -1334,6 +1498,8 @@ export default function ViewCampaignPage() {
     try {
       const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
       const permissions = storedAdmin?.permissions ?? storedAdmin?.access ?? [];
+
+      setCurrentAdminRole(getStoredAdminRoleForUi(storedAdmin));
       setCanEditCampaigns(
         Array.isArray(permissions)
           ? permissions.some(
@@ -1346,6 +1512,7 @@ export default function ViewCampaignPage() {
           : false
       );
     } catch {
+      setCurrentAdminRole("");
       setCanEditCampaigns(false);
     }
   }, []);
@@ -1410,6 +1577,8 @@ export default function ViewCampaignPage() {
   const isAdminCreatedCampaign =
     String(campaign?.createdBy?.role || "").toLowerCase() === "admin";
   const isBudgetLocked = false;
+  const canShowAddMilestone = currentAdminRole !== "ime";
+  const canShowAddDeliverable = currentAdminRole !== "bme";
 
   const fetchAdminCreatedCampaignApplicants = useCallback(async () => {
     const response: any = await post("/campaign-invitation/get-by-campaign", {
@@ -1483,8 +1652,6 @@ export default function ViewCampaignPage() {
         sortField,
         sortOrder,
         filterStatus: applicantStatusFilter === "all" ? "" : applicantStatusFilter,
-        // Pitch folder assignment is for fully-managed/admin campaigns, so
-        // old ApplyCampaign rows without isActive flags must still display as Active.
         forceActiveForManaged: true,
       });
 
@@ -1496,9 +1663,6 @@ export default function ViewCampaignPage() {
         applyResponse?.applicantCount || counts.total || list.length || 0
       );
 
-      // Pitch-folder assignment stores influencers in ApplyCampaign, even for
-      // admin-created / fully-managed campaigns. Only fall back to invitations
-      // when there is no ApplyCampaign record for this campaign yet.
       if (applyTotal > 0 || list.length > 0 || !isAdminCreatedCampaign) {
         setApplicantMeta(applyResponse?.meta || null);
         setApplicants(list);
@@ -2818,22 +2982,27 @@ export default function ViewCampaignPage() {
                                   <div className="flex flex-wrap items-center gap-2">
                                     {isAdminCreatedCampaign ? (
                                       <>
-                                        <button
-                                          type="button"
-                                          className="rounded-full border-black bg-white px-4 text-black hover:bg-gray-100 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
-                                          onClick={() => handleAddMilestone(inf)}
-                                          disabled={!inf.influencerId || isBudgetLocked || !brandId}
-                                        >
-                                          Add Milestone
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="rounded-full border-black bg-black px-4 text-white hover:bg-gray-800 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
-                                          onClick={() => handleOpenDeliverableModal(inf)}
-                                          disabled={!inf.influencerId || !brandId || !campaignId}
-                                        >
-                                          Add Deliverable
-                                        </button>
+                                        {canShowAddMilestone ? (
+                                          <button
+                                            type="button"
+                                            className="rounded-full border-black bg-white px-4 text-black hover:bg-gray-100 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
+                                            onClick={() => handleAddMilestone(inf)}
+                                            disabled={!inf.influencerId || isBudgetLocked || !brandId}
+                                          >
+                                            Add Milestone
+                                          </button>
+                                        ) : null}
+
+                                        {canShowAddDeliverable ? (
+                                          <button
+                                            type="button"
+                                            className="rounded-full border-black bg-black px-4 text-white hover:bg-gray-800 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
+                                            onClick={() => handleOpenDeliverableModal(inf)}
+                                            disabled={!inf.influencerId || !brandId || !campaignId}
+                                          >
+                                            Add Deliverable
+                                          </button>
+                                        ) : null}
                                       </>
                                     ) : rowContractId ? (
                                       <button
@@ -3036,29 +3205,42 @@ export default function ViewCampaignPage() {
                 ) : null}
 
                 <div className="overflow-x-auto">
-                  <Table className="min-w-[1500px]">
+                  <Table className="min-w-[1760px]">
                     <TableHeader>
                       <TableRow className="border-stone-100 bg-stone-50/70 hover:bg-stone-50">
-                        {[
-                          "Influencer",
-                          "Platform",
-                          "Niche",
-                          "Country",
-                          "Followers",
-                          "Selection Reason",
-                          "Shipping Address",
-                          "Rate Card",
-                          "Fit",
-                          "Campaign",
-                          "Profile",
-                        ].map((h) => (
-                          <TableHead
-                            key={h}
-                            className="h-9 px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400"
-                          >
-                            {h}
-                          </TableHead>
-                        ))}
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Influencer
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Profile
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Niche
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Country
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Selection Reason
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Shipping Address
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Followers
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Rate Cards
+                        </TableHead>
+                        <TableHead className="px-4 text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Media Kit Access
+                        </TableHead>
+                        <TableHead className="px-4 text-center text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Fit
+                        </TableHead>
+                        <TableHead className="px-4 text-right text-[10px] font-bold uppercase tracking-[0.12em] text-stone-400">
+                          Actions
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
 
@@ -3084,80 +3266,98 @@ export default function ViewCampaignPage() {
                       ) : (
                         filteredPitchFolderItems.map((item) => {
                           const profileUrl = getPitchFolderItemProfileUrl(item);
-                          const platformIcon = getPlatformIcon(item.provider);
                           const isActive = getPitchFolderItemActive(item);
                           const shippingAddress = getPitchFolderShippingAddress(item);
                           const latestRateCard = getLatestPitchFolderRateCard(item);
+                          const hasLink = !!normalizeUrl(item.mediaKitLink?.url);
+                          const hasPdf = !!String(item.mediaKit?.s3Key || '').trim();
+                          const visibleSource =
+                            item.mediaKitAccess?.visibleSource === "pdf"
+                              ? "PDF"
+                              : item.mediaKitAccess?.visibleSource === "link"
+                                ? "Link"
+                                : DASH;
+                          const influencerLinked = Boolean(
+                            item.createdInfluencerId || item.linkedInfluencer?.influencerId
+                          );
+                          const invitationStatus = String(item.campaignInvitation?.status || '').toLowerCase();
 
                           return (
                             <TableRow key={item._id} className="border-stone-100 hover:bg-stone-50/60">
-                              <TableCell className="px-4 py-3">
-                                <div className="min-w-0">
-                                  <p className="truncate text-xs font-semibold text-stone-900">
-                                    {item.name || "—"}
-                                  </p>
-                                  <p className="truncate text-[11px] text-stone-400">
-                                    {item.handle || "—"}
-                                  </p>
-                                  <p className="mt-1 truncate text-[11px] text-stone-400">
-                                    {item.email || "—"}
-                                  </p>
+                              <TableCell className="align-top px-4 py-3">
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-semibold text-stone-950">{item.name || DASH}</p>
+                                    <Pill className="bg-stone-100 text-stone-700 ring-stone-200">
+                                      {prettify(item.provider)}
+                                    </Pill>
+                                  </div>
+                                  <p className="text-sm text-stone-500">{item.handle || DASH}</p>
+                                  <div className="inline-flex items-center gap-2 text-xs text-stone-500">
+                                    <Mail className="h-3.5 w-3.5" />
+                                    <span>{item.email || DASH}</span>
+                                  </div>
                                 </div>
                               </TableCell>
 
-                              <TableCell className="px-4 py-3">
-                                <div className="flex items-center justify-center">
-                                  {platformIcon ? (
-                                    <img
-                                      src={platformIcon}
-                                      alt={prettify(item.provider)}
-                                      title={prettify(item.provider)}
-                                      className="h-4 w-4 object-contain"
-                                    />
-                                  ) : (
-                                    <span className="text-xs text-stone-300">—</span>
-                                  )}
+                              <TableCell className="align-top px-4 py-3">
+                                {profileUrl ? (
+                                  <a
+                                    href={profileUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    title={profileUrl}
+                                    className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 transition-colors hover:bg-stone-50 hover:text-black"
+                                  >
+                                    <ExternalLink className="h-4 w-4 shrink-0" />
+                                    <span>Profile Link</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-sm text-stone-400">{DASH}</span>
+                                )}
+                              </TableCell>
+
+                              <TableCell className="align-top px-4 py-3 text-sm text-stone-700">
+                                <div className="max-w-[220px] whitespace-pre-wrap break-words">
+                                  {Array.isArray(item.niche) && item.niche.length
+                                    ? item.niche.join(', ')
+                                    : DASH}
                                 </div>
                               </TableCell>
 
-                              <TableCell className="max-w-[180px] px-4 py-3 text-xs text-stone-600">
-                                <span className="line-clamp-2">
-                                  {Array.isArray(item.niche) && item.niche.length ? item.niche.join(", ") : "—"}
-                                </span>
+                              <TableCell className="align-top px-4 py-3 text-sm text-stone-700">
+                                {item.country || DASH}
                               </TableCell>
 
-                              <TableCell className="px-4 py-3 text-xs text-stone-600">
-                                {item.country || "—"}
+                              <TableCell className="align-top px-4 py-3 text-sm text-stone-700">
+                                <div className="max-w-[300px] whitespace-pre-wrap break-words leading-6">
+                                  {item.selectionReason || DASH}
+                                </div>
                               </TableCell>
 
-                              <TableCell className="px-4 py-3 text-xs font-semibold tabular-nums text-stone-800">
-                                {formatCompactNumber(item.followers)}
+                              <TableCell className="align-top px-4 py-3 text-sm text-stone-700">
+                                <div className="max-w-[260px] whitespace-pre-wrap break-words leading-6">
+                                  {shippingAddress || DASH}
+                                </div>
                               </TableCell>
 
-                              <TableCell className="max-w-[260px] px-4 py-3 text-xs text-stone-600">
-                                <span className="line-clamp-2">
-                                  {item.selectionReason || "—"}
-                                </span>
+                              <TableCell className="align-top px-4 py-3 text-sm font-medium text-stone-800">
+                                {formatNumber(item.followers)}
                               </TableCell>
 
-                              <TableCell className="max-w-[260px] px-4 py-3 text-xs text-stone-600">
-                                <span className="line-clamp-3 whitespace-pre-wrap">
-                                  {shippingAddress || "—"}
-                                </span>
-                              </TableCell>
-
-                              <TableCell className="max-w-[300px] px-4 py-3 text-xs text-stone-600">
+                              <TableCell className="align-top px-4 py-3">
                                 {latestRateCard ? (
-                                  <div className="space-y-1">
+                                  <div className="max-w-[280px] space-y-2">
                                     <div className="flex flex-wrap items-center gap-1.5">
                                       <Pill className="bg-stone-900 text-white ring-stone-900">
+                                        <FileText className="mr-1 h-3.5 w-3.5" />
                                         {latestRateCard.label}
                                       </Pill>
                                       <Pill className="bg-stone-100 text-stone-600 ring-stone-200">
                                         {latestRateCard.currency}
                                       </Pill>
                                     </div>
-                                    <p className="line-clamp-3 whitespace-pre-wrap leading-5 text-stone-600">
+                                    <p className="line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-stone-600">
                                       {latestRateCard.value}
                                     </p>
                                     {latestRateCard.changedAt ? (
@@ -3167,40 +3367,106 @@ export default function ViewCampaignPage() {
                                     ) : null}
                                   </div>
                                 ) : (
-                                  <span className="text-xs text-stone-300">—</span>
+                                  <span className="text-sm text-stone-400">{DASH}</span>
                                 )}
                               </TableCell>
 
-                              <TableCell className="px-4 py-3">
-                                {item.goodFit ? (
-                                  <Pill className="bg-rose-600 text-white ring-rose-600">Good Fit</Pill>
-                                ) : (
-                                  <Pill className="bg-stone-100 text-stone-600 ring-stone-200">Not Marked</Pill>
-                                )}
+                              <TableCell className="align-top px-4 py-3">
+                                <div className="min-w-[320px] rounded-2xl border border-stone-200 bg-stone-50 p-3">
+                                  <div className="mb-3 flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className="text-sm font-semibold text-stone-950">Media Kit Access</p>
+                                      <p className="mt-1 text-[11px] text-stone-500">Source: {visibleSource}</p>
+                                    </div>
+                                    <MediaAccessBadge access={item.mediaKitAccess} />
+                                  </div>
+
+                                  <div className="mb-3 grid gap-2 rounded-xl bg-white p-3 text-xs text-stone-600">
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span>Requested At</span>
+                                      <span className="font-medium text-stone-900">
+                                        {formatDateTime(item.mediaKitAccess?.requestedAt)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-3">
+                                      <span>Request Status</span>
+                                      <MediaRequestStatusBadge value={item.mediaKitAccess?.requestStatus} />
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    <MediaAssetPill label="Link" ok={hasLink} />
+                                    <MediaAssetPill label="PDF" ok={hasPdf} />
+                                  </div>
+
+                                  {hasLink ? (
+                                    <a
+                                      href={normalizeUrl(item.mediaKitLink?.url)}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 underline underline-offset-2 hover:text-black"
+                                    >
+                                      Open Media Kit Link
+                                      <ArrowUpRight className="h-2.5 w-2.5" />
+                                    </a>
+                                  ) : null}
+                                </div>
                               </TableCell>
 
-                              <TableCell className="px-4 py-3">
-                                {isActive ? (
-                                  <Pill className="bg-emerald-600 text-white ring-emerald-600">Already Active</Pill>
-                                ) : (
-                                  <Pill className="bg-stone-100 text-stone-600 ring-stone-200">Not Active</Pill>
-                                )}
-                              </TableCell>
-
-                              <TableCell className="px-4 py-3">
-                                {profileUrl ? (
-                                  <a
-                                    href={profileUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-stone-700 underline underline-offset-2 transition-colors hover:text-black"
+                              <TableCell className="align-top px-4 py-3 text-center">
+                                <div className="flex justify-center">
+                                  <div
+                                    className={`inline-flex h-9 w-9 items-center justify-center rounded-full border ${item.goodFit
+                                      ? "border-rose-200 bg-rose-50"
+                                      : "border-stone-200 bg-stone-50"
+                                      }`}
+                                    title={item.goodFit ? "Good Fit" : "Not Marked"}
                                   >
-                                    Open
-                                    <ArrowUpRight className="h-2.5 w-2.5" />
-                                  </a>
-                                ) : (
-                                  <span className="text-xs text-stone-300">—</span>
-                                )}
+                                    <Heart
+                                      className={`h-5 w-5 ${item.goodFit
+                                        ? "fill-rose-500 text-rose-500"
+                                        : "text-stone-300"
+                                        }`}
+                                    />
+                                  </div>
+                                </div>
+                              </TableCell>
+
+                              <TableCell className="align-top px-4 py-3 text-right">
+                                <div className="flex flex-col items-end gap-2">
+                                  {influencerLinked ? (
+                                    <Pill className="bg-emerald-50 text-emerald-700 ring-emerald-200">
+                                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                                      Already Created
+                                    </Pill>
+                                  ) : (
+                                    <Pill className="bg-stone-100 text-stone-700 ring-stone-200">
+                                      Not Created
+                                    </Pill>
+                                  )}
+
+                                  {isActive ? (
+                                    <Pill className="bg-stone-900 text-white ring-stone-900">
+                                      <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+                                      Already Active
+                                    </Pill>
+                                  ) : invitationStatus ? (
+                                    <Pill className="bg-blue-50 text-blue-700 ring-blue-200">
+                                      <Mail className="mr-1.5 h-3.5 w-3.5" />
+                                      {invitationStatus === "accepted"
+                                        ? "Invitation Accepted"
+                                        : invitationStatus === "reject"
+                                          ? "Invitation Rejected"
+                                          : invitationStatus === "failed"
+                                            ? "Invitation Failed"
+                                            : "Invitation Sent"}
+                                    </Pill>
+                                  ) : (
+                                    <Pill className="bg-stone-100 text-stone-700 ring-stone-200">
+                                      Not Active
+                                    </Pill>
+                                  )}
+                                </div>
                               </TableCell>
                             </TableRow>
                           );

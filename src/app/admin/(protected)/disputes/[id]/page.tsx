@@ -104,6 +104,7 @@ type Dispute = {
   disputeId: string;
   subject: string;
   description?: string;
+  otherIssueDescription?: string | null;
   issueType?: string[];
   status: DisputeStatus;
   priority?: DisputePriority;
@@ -279,8 +280,11 @@ const PRIORITY_MAP: Record<string, { label: string; bg: string; text: string }> 
 const ISSUE_TYPE_MAP: Record<string, string> = {
   content_not_as_expected: "Content Not as Expected",
   delay_or_missed_deadline: "Delay / Missed Deadline",
-  payment_dispute: "Payment Dispute",
-  fraud: "Fraud",
+  payment_issue: "Payment Issue",
+  revision_issue: "Revision Issue",
+  agreement_issue: "Agreement Issue",
+  scope_change: "Scope Change",
+  no_response: "No Response",
   other: "Other",
 };
 
@@ -403,40 +407,78 @@ const AttachmentUploaderBadge: React.FC<{ role?: string | null }> = ({ role }) =
   );
 };
 
-const IssueTypeSummary: React.FC<{ issueTypes?: string[]; compact?: boolean }> = ({
-  issueTypes,
-  compact = false,
-}) => {
+const IssueTypeSummary: React.FC<{
+  issueTypes?: string[];
+  otherIssueDescription?: string | null;
+  compact?: boolean;
+}> = ({ issueTypes, otherIssueDescription, compact = false }) => {
   if (!issueTypes?.length) return <span className="text-gray-400">—</span>;
 
-  const labels = issueTypes.map(getIssueTypeLabel);
-  const [first, ...rest] = labels;
+  const firstType = issueTypes[0];
+  const firstLabel = getIssueTypeLabel(firstType);
+  const restTypes = issueTypes.slice(1);
+  const restLabels = restTypes.map(getIssueTypeLabel);
+  const hasOther = issueTypes.includes("other");
+  const otherReason = String(otherIssueDescription || "").trim();
+
   const chipClass = compact
     ? "inline-flex items-center rounded-full border border-black/5 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700"
     : "inline-flex items-center rounded-full border border-black/5 bg-white px-2 py-0.5 text-[11px] font-medium text-gray-700";
 
+  const OtherIssueReasonTooltip = () => (
+    <div className="mt-3 rounded-lg border border-black/5 bg-[#fafafa] px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        Other Issue Reason
+      </p>
+
+      <p className="mt-1 text-[12px] leading-relaxed text-gray-700 whitespace-pre-wrap">
+        {otherReason || "No other issue reason provided."}
+      </p>
+    </div>
+  );
+
   return (
     <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-      <span className={chipClass}>{first}</span>
-      {rest.length > 0 && (
+      {firstType === "other" && restTypes.length === 0 ? (
+        <div className="relative group inline-flex">
+          <span className={`${chipClass} gap-1.5 cursor-default`}>
+            <span>{firstLabel}</span>
+            <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-black/10 bg-white text-[9px] font-bold leading-none text-gray-500">
+              i
+            </span>
+          </span>
+
+          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[260px] rounded-lg border border-black/10 bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.08)] group-hover:block">
+            <OtherIssueReasonTooltip />
+          </div>
+        </div>
+      ) : (
+        <span className={chipClass}>{firstLabel}</span>
+      )}
+
+      {restTypes.length > 0 && (
         <div className="relative group">
           <span
             className="inline-flex cursor-default items-center rounded-full border border-black/10 bg-black px-2 py-0.5 text-[11px] font-semibold text-white"
-            aria-label={`${rest.length} more issue types`}
+            aria-label={`${restTypes.length} more issue types`}
           >
-            +{rest.length}
+            +{restTypes.length}
           </span>
-          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[220px] rounded-lg border border-black/10 bg-white p-2 shadow-[0_12px_32px_rgba(0,0,0,0.08)] group-hover:block">
+
+          <div className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden min-w-[260px] rounded-lg border border-black/10 bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.08)] group-hover:block">
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              Other issue types
+              Other Issue Types
             </p>
+
             <div className="flex flex-wrap gap-1.5">
-              {rest.map((label, index) => (
+              {restLabels.map((label, index) => (
                 <span key={`${label}-${index}`} className={chipClass}>
                   {label}
                 </span>
               ))}
             </div>
+
+            {hasOther ? <OtherIssueReasonTooltip /> : null}
           </div>
         </div>
       )}
@@ -626,7 +668,7 @@ export default function AdminDisputeDetailPage() {
   const [pendingPriority, setPendingPriority] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [updating, setUpdating] = useState(false);
-  const [quickAction, setQuickAction] = useState<"accept" | "rejected" | null>(null);
+  const [quickAction, setQuickAction] = useState<"accept" | "not_interested" | null>(null);
   const [riskTab, setRiskTab] = useState<"brand" | "influencer">("influencer");
   const [previewState, setPreviewState] = useState<ImagePreviewState>(null);
   const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
@@ -774,20 +816,44 @@ export default function AdminDisputeDetailPage() {
     }
   };
 
-  const handleRejectDispute = async () => {
+  const getAdminId = () => {
+    if (typeof window === "undefined") return "";
+
+    return String(
+      localStorage.getItem("adminId") ||
+        localStorage.getItem("admin_id") ||
+        localStorage.getItem("userId") ||
+        localStorage.getItem("user_id") ||
+        ""
+    ).trim();
+  };
+
+  const handleNotInterested = async () => {
     if (!id || !d || isFinalized) return;
-    setQuickAction("rejected");
+
+    const adminId = getAdminId();
+
+    if (!adminId) {
+      setError("Missing admin ID. Please log in again.");
+      return;
+    }
+
+    setQuickAction("not_interested");
     setError(null);
+
     try {
-      await post("/dispute/admin/update-status", {
+      await post("/dispute/admin/not-interested", {
         disputeId: id,
-        status: "rejected",
-        resolution: resolutionNote || undefined,
+        adminId,
       });
-      setPendingStatus("");
-      await load();
+
+      router.push("/admin/disputes");
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || "Failed to reject dispute");
+      setError(
+        e?.response?.data?.message ||
+          e?.message ||
+          "Failed to mark dispute as not interested"
+      );
     } finally {
       setQuickAction(null);
     }
@@ -963,35 +1029,41 @@ export default function AdminDisputeDetailPage() {
                   {pri.label}
                 </span> */}
               </div>
-              <p className="text-[11px] text-gray-400 mt-0.5">Admin Resolution Panel · {d.disputeId}</p>
+              {/* <p className="text-[11px] text-gray-400 mt-0.5">Admin Resolution Panel · {d.disputeId}</p> */}
             </div>
           </div>
 
           {/* Right: action buttons */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-            <button
-              onClick={handleAcceptDispute}
-              disabled={quickAction !== null || updating || d.status !== "open"}
-              className={`inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed ${hasAdminAccepted
-                ? "text-white bg-black"
-                : "text-white bg-black hover:bg-black/80"
-                }`}
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {quickAction === "accept"
-                ? "Accepting..."
-                : hasAdminAccepted
-                  ? "Accepted"
-                  : "Accept"}
-            </button>
-            {d.status === "open" && (
+            {d.status === "open" && !isFinalized && (
+              <>
+                <button
+                  onClick={handleAcceptDispute}
+                  disabled={quickAction !== null || updating}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg text-white bg-black hover:bg-black/80 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {quickAction === "accept" ? "Accepting..." : "Accept"}
+                </button>
+
+                <button
+                  onClick={handleNotInterested}
+                  disabled={quickAction !== null || updating}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border border-black/10 bg-white text-gray-900 hover:bg-black/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <XCircle className="h-3.5 w-3.5" />
+                  {quickAction === "not_interested" ? "Removing..." : "Not Interested"}
+                </button>
+              </>
+            )}
+
+            {hasAdminAccepted && !isFinalized && (
               <button
-                onClick={handleRejectDispute}
-                disabled={quickAction !== null || updating}
-                className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg border border-black/10 bg-white text-gray-900 hover:bg-black/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+                className="inline-flex items-center gap-1.5 h-8 px-3 text-[12px] font-medium rounded-lg text-white bg-black disabled:opacity-100 disabled:cursor-default"
               >
-                <XCircle className="h-3.5 w-3.5" />
-                {quickAction === "rejected" ? "Rejecting..." : "Reject"}
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Accepted
               </button>
             )}
           </div>
@@ -1051,7 +1123,13 @@ export default function AdminDisputeDetailPage() {
                     <MetaChip
                       icon={<Tag className="h-3.5 w-3.5" />}
                       label="Issue Types"
-                      value={<IssueTypeSummary issueTypes={d.issueType} compact />}
+                      value={
+                        <IssueTypeSummary
+                          issueTypes={d.issueType}
+                          otherIssueDescription={d.otherIssueDescription}
+                          compact
+                        />
+                      }
                     />
                     <MetaChip
                       icon={<Shield className="h-3.5 w-3.5" />}
@@ -1067,7 +1145,7 @@ export default function AdminDisputeDetailPage() {
 
                   {d.description ? (
                     <div className="bg-white rounded-lg border border-black/5 px-4 py-3 mb-4">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Dispute Reason</p>
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">Dispute Description</p>
                       <p className="text-[13px] text-gray-700 leading-relaxed">{d.description}</p>
                     </div>
                   ) : (
@@ -1101,8 +1179,8 @@ export default function AdminDisputeDetailPage() {
                         imageUrl={brandLogoUrl}
                       />
                       <div className="min-w-0">
-                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.brandName || "Unknown Brand"}</p>
-                        <p className="text-[11px] text-gray-400 font-mono">{d.brandId.slice(-10)}</p>
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.brandName || "-"}</p>
+                        {/* <p className="text-[11px] text-gray-400 font-mono">{d.brandId.slice(-10)}</p> */}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-3 gap-x-3 text-[12px]">
@@ -1152,8 +1230,8 @@ export default function AdminDisputeDetailPage() {
                         fallbackClassName="bg-white text-gray-900"
                       />
                       <div className="min-w-0">
-                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.influencerName || "Unknown Influencer"}</p>
-                        <p className="text-[11px] text-gray-400 font-mono">{d.influencerId.slice(-10)}</p>
+                        <p className="text-[14px] font-bold text-gray-900 truncate">{d.influencerName || "-"}</p>
+                        {/* <p className="text-[11px] text-gray-400 font-mono">{d.influencerId.slice(-10)}</p> */}
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-y-3 gap-x-3 text-[12px]">
@@ -1196,8 +1274,8 @@ export default function AdminDisputeDetailPage() {
                         className="w-full flex items-center justify-between border border-black/5 rounded-lg px-3 py-2.5 hover:bg-black/5 transition mb-3 group bg-white"
                       >
                         <div className="text-left min-w-0">
-                          <p className="text-[12px] font-semibold text-gray-800 truncate">{d.campaignName || "Linked Campaign"}</p>
-                          <p className="text-[11px] text-gray-400 font-mono mt-0.5">{d.campaignId.slice(-12)}</p>
+                          <p className="text-[12px] font-semibold text-gray-800 truncate">{d.campaignName || "-"}</p>
+                          {/* <p className="text-[11px] text-gray-400 font-mono mt-0.5">{d.campaignId.slice(-12)}</p> */}
                         </div>
                         <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-gray-700 transition flex-shrink-0" />
                       </button>

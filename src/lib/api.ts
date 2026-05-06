@@ -21,6 +21,7 @@ const isFormData = (data: any): boolean =>
 
 const stripContentType = (headers: any) => {
   if (!headers) return headers;
+
   try {
     if (typeof headers.delete === "function") {
       headers.delete("Content-Type");
@@ -40,6 +41,7 @@ const attachBearer = (
   token: string
 ): InternalAxiosRequestConfig => {
   const hdrs = config.headers as AxiosHeaders | AxiosRequestHeaders | undefined;
+
   if (hdrs && typeof (hdrs as any).set === "function") {
     (hdrs as AxiosHeaders).set("Authorization", `Bearer ${token}`);
   } else {
@@ -48,6 +50,7 @@ const attachBearer = (
       Authorization: `Bearer ${token}`,
     } as AxiosRequestHeaders;
   }
+
   return config;
 };
 
@@ -63,6 +66,13 @@ const hasAuthHeader = (headers: any) => {
   return !!headers.Authorization || !!headers.authorization;
 };
 
+/**
+ * Only force logout on 401.
+ *
+ * 403 usually means the logged-in user is not allowed to access one endpoint,
+ * not that the whole session is invalid. Logging out on 403 caused influencer
+ * users to bounce back to /influencer/login after dashboard API calls.
+ */
 const shouldForceLogout = (status?: number) => status === 401;
 
 function firstMeaningfulString(...values: any[]): string {
@@ -71,6 +81,7 @@ function firstMeaningfulString(...values: any[]): string {
       return value.trim();
     }
   }
+
   return "";
 }
 
@@ -86,6 +97,7 @@ function readMessageFromPayload(payload: any): string {
       const nested = readMessageFromPayload(item);
       if (nested) return nested;
     }
+
     return "";
   }
 
@@ -97,6 +109,7 @@ function readMessageFromPayload(payload: any): string {
       payload.title,
       payload.reason
     );
+
     if (direct) return direct;
 
     const nested = firstMeaningfulString(
@@ -104,6 +117,7 @@ function readMessageFromPayload(payload: any): string {
       readMessageFromPayload(payload.data),
       readMessageFromPayload(payload.errors)
     );
+
     if (nested) return nested;
   }
 
@@ -155,26 +169,65 @@ export async function getApiErrorMessage(
   return fallback;
 }
 
+function getLoginPathForCurrentRoute() {
+  if (typeof window === "undefined") return "/admin/login";
+
+  const pathname = window.location.pathname;
+
+  if (pathname.startsWith("/influencer")) return "/influencer/login";
+  if (pathname.startsWith("/brand")) return "/brand/login";
+  if (pathname.startsWith("/admin")) return "/admin/login";
+
+  return "/admin/login";
+}
+
+function isAuthRoute() {
+  if (typeof window === "undefined") return false;
+
+  const pathname = window.location.pathname;
+
+  return (
+    pathname === "/admin/login" ||
+    pathname === "/brand/login" ||
+    pathname === "/brand/signup" ||
+    pathname === "/brand/forgot-password" ||
+    pathname.startsWith("/brand/onboarding") ||
+    pathname === "/influencer/login" ||
+    pathname === "/influencer/signup" ||
+    pathname === "/influencer/forgot-password" ||
+    pathname.startsWith("/influencer/onboarding")
+  );
+}
+
 export const forceLogout = () => {
   if (typeof window === "undefined") return;
 
-  try {
-    localStorage.clear();
-  } catch { }
+  if (isAuthRoute()) return;
 
-  try {
-    sessionStorage.clear();
-  } catch { }
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const loginPath = getLoginPathForCurrentRoute();
+  const paramName = loginPath === "/admin/login" ? "next" : "returnUrl";
+
+  /**
+   * Important:
+   * Do not clear localStorage here.
+   *
+   * The redirect loop happened because a dashboard request failed and this
+   * interceptor cleared token/influencerId before redirecting. Keeping storage
+   * intact lets us verify whether the API request is actually unauthorized
+   * without creating a login/dashboard bounce.
+   *
+   * Clear storage explicitly from the logout button instead.
+   */
 
   try {
     window.dispatchEvent(new CustomEvent("auth:logout"));
-  } catch { }
-
-  const loginPath = "/admin/login";
-  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  } catch {}
 
   if (window.location.pathname !== loginPath) {
-    window.location.replace(`${loginPath}?next=${encodeURIComponent(currentPath)}`);
+    window.location.replace(
+      `${loginPath}?${paramName}=${encodeURIComponent(currentPath)}`
+    );
   }
 };
 
@@ -243,9 +296,11 @@ adminApi.interceptors.request.use(attachAuthPrimary);
 
 const onResponseErrorPrimary = (err: any) => {
   const status = err?.response?.status;
-  if (shouldForceLogout(status)) {
+
+  if (shouldForceLogout(status) && !isAuthRoute()) {
     forceLogout();
   }
+
   return Promise.reject(err);
 };
 
@@ -253,9 +308,11 @@ const onResponseErrorSecondary = (err: any) => Promise.reject(err);
 
 const onResponseErrorAdmin = (err: any) => {
   const status = err?.response?.status;
-  if (shouldForceLogout(status)) {
+
+  if (shouldForceLogout(status) && !isAuthRoute()) {
     forceLogout();
   }
+
   return Promise.reject(err);
 };
 
@@ -266,6 +323,7 @@ adminApi.interceptors.response.use((r) => r, onResponseErrorAdmin);
 if (typeof window !== "undefined") {
   try {
     const pageIsHTTPS = window.location.protocol === "https:";
+
     if (pageIsHTTPS && /^http:\/\//i.test(API_BASE_URL)) {
       console.warn(
         "[api] Page is HTTPS but NEXT_PUBLIC_API_URL is HTTP. This causes mixed-content blocking (Network Error). Use an HTTPS API endpoint or a same-origin relative path."
@@ -289,6 +347,7 @@ export const getBlob = async (
     params,
     responseType: "blob",
   });
+
   return res.data as Blob;
 };
 
@@ -307,7 +366,6 @@ export const post = async <T = any>(
   return res.data;
 };
 
-
 export const patch = async <T = any>(
   url: string,
   data?: any,
@@ -321,7 +379,7 @@ export const patch = async <T = any>(
 
   const res = await api.patch<T>(url, data, finalConfig);
   return res.data;
-}
+};
 
 export const postFormData = async <T = any>(
   url: string,
@@ -331,6 +389,7 @@ export const postFormData = async <T = any>(
   const res = await api.post<T>(url, formData, {
     signal: opts?.signal,
   });
+
   return res.data;
 };
 
@@ -349,6 +408,7 @@ export const getBlob2 = async (
     params,
     responseType: "blob",
   });
+
   return res.data as Blob;
 };
 
@@ -375,10 +435,14 @@ export const postFormData2 = async <T = any>(
   const res = await api2.post<T>(url, formData, {
     signal: opts?.signal,
   });
+
   return res.data;
 };
 
-export const adminGet = async <T = any>(url: string, params?: any): Promise<T> => {
+export const adminGet = async <T = any>(
+  url: string,
+  params?: any
+): Promise<T> => {
   const res = await adminApi.get<T>(url, { params });
   return res.data;
 };
@@ -393,6 +457,7 @@ export const adminGetBlob = async (
     params,
     responseType: "blob",
   });
+
   return res.data as Blob;
 };
 
@@ -464,6 +529,7 @@ export const adminPostFormData = async <T = any>(
   const res = await adminApi.post<T>(url, formData, {
     signal: opts?.signal,
   });
+
   return res.data;
 };
 
@@ -517,6 +583,7 @@ export const adminDownloadBlob = async (
 
 export const setToken = (token: string) => {
   if (typeof window === "undefined") return;
+
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch { }
@@ -524,6 +591,7 @@ export const setToken = (token: string) => {
 
 export const getToken = (): string | null => {
   if (typeof window === "undefined") return null;
+
   try {
     return localStorage.getItem(TOKEN_KEY);
   } catch {
@@ -533,6 +601,7 @@ export const getToken = (): string | null => {
 
 export const clearToken = () => {
   if (typeof window === "undefined") return;
+
   try {
     localStorage.removeItem(TOKEN_KEY);
   } catch { }

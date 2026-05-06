@@ -92,16 +92,17 @@ export function InfluencerHero({
     >
       {/* ✅ Grayscale image */}
       <Image
-        width={5000}
-        height={5000}
         src={item.src}
         alt="Influencer hero"
+        fill
+        sizes="100vw"
+        unoptimized
+        priority
         className={cn(
-          "absolute inset-0 h-full w-full object-cover object-center z-0",
+          "object-cover object-center z-0",
           "grayscale",
           imageClassName
         )}
-        loading="eager"
       />
 
       {/* ✅ Updated overlay (more effective with grayscale)
@@ -127,8 +128,8 @@ export function InfluencerHero({
           <div
             className="absolute inset-0"
             style={{
-              backdropFilter: "blur(12px)",
-              WebkitBackdropFilter: "blur(12px)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
               maskImage: "linear-gradient(to top, black 0%, transparent 100%)",
               WebkitMaskImage:
                 "linear-gradient(to top, black 0%, transparent 100%)",

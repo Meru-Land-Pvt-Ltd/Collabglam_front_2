@@ -155,6 +155,18 @@ const formatDateTime = (value?: string) => {
   });
 };
 
+const getStoredAdminId = () => {
+  if (typeof window === "undefined") return "";
+
+  return String(
+    localStorage.getItem("adminId") ||
+      localStorage.getItem("admin_id") ||
+      localStorage.getItem("userId") ||
+      localStorage.getItem("user_id") ||
+      ""
+  ).trim();
+};
+
 const pageSize = 10;
 
 export default function AdminDisputesPage() {
@@ -182,13 +194,23 @@ export default function AdminDisputesPage() {
     setError(null);
 
     try {
-      const body: Record<string, unknown> = { page, limit: pageSize };
+      const body: Record<string, unknown> = {
+        page,
+        limit: pageSize,
+      };
+
+      const adminId = getStoredAdminId();
+
+      if (adminId) {
+        body.adminId = adminId;
+      }
 
       if (status && status !== "all") body.status = status;
       if (debouncedSearch.trim()) body.search = debouncedSearch.trim();
       if (appliedBy && appliedBy !== "all") body.appliedBy = appliedBy;
 
       const data = await post<ListResp>("/dispute/admin/list", body);
+
       setRows(data.disputes || []);
       setTotalPages(data.totalPages || 1);
       setTotal(data.total || 0);
@@ -236,21 +258,21 @@ export default function AdminDisputesPage() {
   const to = Math.min(page * pageSize, total);
 
   const col = {
-    checkbox: "w-[2.75rem]",
-    title: "min-w-[12rem]",
-    image: "w-[7rem] flex-[0_0_7rem]",
-    campaign: "min-w-[11rem] flex-[1.35_1_0%]",
-    appliedBy: "min-w-[7.5rem] flex-[0.8_1_0%]",
-    status: "min-w-[7.5rem] flex-[0.8_1_0%]",
-    updated: "min-w-[8.5rem] flex-[0.9_1_0%]",
-    action: "min-w-[7rem] flex-[0.75_1_0%]",
+    checkbox: "w-[2.75rem] shrink-0",
+    title: "min-w-0 flex-[2.1_1_0%]",
+    image: "w-[7rem] flex-[0_0_7rem] shrink-0",
+    campaign: "min-w-0 flex-[1.2_1_0%]",
+    appliedBy: "min-w-[7.5rem] flex-[0_0_7.5rem] shrink-0",
+    status: "min-w-[7.5rem] flex-[0_0_7.5rem] shrink-0",
+    updated: "min-w-[8.5rem] flex-[0_0_8.5rem] shrink-0",
+    action: "min-w-[7rem] flex-[0_0_7rem] shrink-0",
   };
 
   const headerCell =
-    "flex w-full items-center justify-between text-sm font-semibold text-[#1A1A1A]";
+    "flex min-w-0 w-full items-center justify-between gap-2 text-sm font-semibold text-[#1A1A1A]";
 
   return (
-    <div className="mx-auto max-w-[100rem] p-6">
+    <div className="mx-auto max-w-[100rem] min-w-0 overflow-hidden p-6">
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-[#1A1A1A]">All Disputes</h1>
       </div>
@@ -267,6 +289,7 @@ export default function AdminDisputesPage() {
             <SelectTrigger className="!h-[2.75rem] !rounded-[0.75rem] !border-[#E5E5E5] !bg-white">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
+
             <SelectContent className="!rounded-[0.9rem] !border-[#E5E5E5] !bg-white">
               {statusOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
@@ -285,12 +308,15 @@ export default function AdminDisputesPage() {
             const influencerChecked =
               appliedBy === "Influencer" || appliedBy === "all";
 
-            const nextFrom = (brand: boolean, influencer: boolean): typeof appliedBy =>
+            const nextFrom = (
+              brand: boolean,
+              influencer: boolean
+            ): typeof appliedBy =>
               (brand && influencer) || (!brand && !influencer)
                 ? "all"
                 : brand
-                  ? "Brand"
-                  : "Influencer";
+                ? "Brand"
+                : "Influencer";
 
             return (
               <>
@@ -344,8 +370,8 @@ export default function AdminDisputesPage() {
         </div>
       </div>
 
-      <div className="w-full overflow-x-auto">
-        <div className="mt-[1.5rem] min-w-full w-max pb-[2rem]">
+      <div className="w-full overflow-x-auto overflow-y-visible">
+        <div className="mt-[1.5rem] min-w-[72rem] w-full pb-[2rem]">
           <div className="flex h-12 items-center rounded-lg bg-[#E6E6E6] px-3">
             <div className={col.checkbox}>
               <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
@@ -353,7 +379,7 @@ export default function AdminDisputesPage() {
 
             <div className={`${col.title} pl-2 pr-3`}>
               <div className={headerCell}>
-                <span>Dispute Title &amp; ID</span>
+                <span className="min-w-0 truncate">Dispute Title &amp; ID</span>
                 <HeaderCarets />
               </div>
             </div>
@@ -367,7 +393,7 @@ export default function AdminDisputesPage() {
 
             <div className={`${col.campaign} pl-6 pr-2`}>
               <div className={headerCell}>
-                <span>Campaign Name</span>
+                <span className="min-w-0 truncate">Campaign Name</span>
                 <HeaderCarets />
               </div>
             </div>
@@ -394,7 +420,9 @@ export default function AdminDisputesPage() {
             </div>
 
             <div className={`${col.action} pl-1.5 pr-0`}>
-              <span className="text-sm font-semibold text-[#1A1A1A]">Action</span>
+              <span className="text-sm font-semibold text-[#1A1A1A]">
+                Action
+              </span>
             </div>
           </div>
 
@@ -444,6 +472,7 @@ export default function AdminDisputesPage() {
               <div className="flex flex-col items-center justify-center gap-3 py-20 text-red-500">
                 <AlertCircle className="size-8" />
                 <p className="text-sm font-medium">{error}</p>
+
                 <button
                   onClick={load}
                   className="text-xs text-[#1A1A1A] underline hover:opacity-70"
@@ -477,11 +506,17 @@ export default function AdminDisputesPage() {
                     />
                   </div>
 
-                  <div className={`${col.title} pl-2 pr-1`}>
-                    <div className="truncate font-medium text-[#1A1A1A]">
+                  <div className={`${col.title} min-w-0 overflow-hidden pl-2 pr-1`}>
+                    <div
+                      title={row.subject}
+                      className="max-w-full truncate font-medium text-[#1A1A1A]"
+                    >
                       {row.subject}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-gray-400">
+                    <div
+                      title={`#${row.disputeId}`}
+                      className="mt-0.5 max-w-full truncate text-xs text-gray-400"
+                    >
                       #{row.disputeId}
                     </div>
                   </div>
@@ -490,13 +525,19 @@ export default function AdminDisputesPage() {
                     <DisputeImage src={getDisputeImageUrl(row)} />
                   </div>
 
-                  <div className={`${col.campaign} pl-6 pr-1.5`}>
+                  <div className={`${col.campaign} min-w-0 overflow-hidden pl-6 pr-1.5`}>
                     {row.campaignName ? (
-                      <div className="truncate text-sm text-gray-700">
+                      <div
+                        title={row.campaignName}
+                        className="max-w-full truncate text-sm text-gray-700"
+                      >
                         {row.campaignName}
                       </div>
                     ) : row.campaignId ? (
-                      <div className="truncate font-mono text-xs text-gray-500">
+                      <div
+                        title={row.campaignId}
+                        className="max-w-full truncate font-mono text-xs text-gray-500"
+                      >
                         {row.campaignId}
                       </div>
                     ) : (
@@ -518,8 +559,9 @@ export default function AdminDisputesPage() {
 
                   <div className={`${col.status} px-1.5`}>
                     <span
-                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_COLORS[row.status] || "bg-gray-100 text-gray-600"
-                        }`}
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${
+                        STATUS_COLORS[row.status] || "bg-gray-100 text-gray-600"
+                      }`}
                     >
                       {STATUS_LABEL[row.status] || row.status}
                     </span>
@@ -567,10 +609,11 @@ export default function AdminDisputesPage() {
                   <button
                     key={pageNumber}
                     onClick={() => setPage(pageNumber)}
-                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors ${pageNumber === page
-                      ? "bg-[#1A1A1A] font-semibold text-white"
-                      : "border border-[#E2E2E2] text-[#1A1A1A] hover:bg-[#F5F5F5]"
-                      }`}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors ${
+                      pageNumber === page
+                        ? "bg-[#1A1A1A] font-semibold text-white"
+                        : "border border-[#E2E2E2] text-[#1A1A1A] hover:bg-[#F5F5F5]"
+                    }`}
                   >
                     {pageNumber}
                   </button>

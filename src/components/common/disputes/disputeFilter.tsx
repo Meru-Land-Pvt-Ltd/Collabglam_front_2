@@ -11,13 +11,14 @@ import { DisputeFormDialog } from "./DisputeFormDialog";
 
 export type Campaign = {
   _id?: string;
+  campaignId?: string;
   campaignsId?: string;
   campaignTitle?: string;
   productOrServiceName?: string;
 };
 
 export function getCampaignId(c: Campaign): string {
-  return c.campaignsId || c._id || "";
+  return c.campaignId || c.campaignsId || c._id || "";
 }
 
 export function getCampaignLabel(c: Campaign): string {
@@ -46,6 +47,52 @@ const DIRECTION_OPTIONS = [
   { value: "raised_by_you", label: "Raised by you" },
   { value: "against_you", label: "Raised against you" },
 ];
+
+type DisputeFormPayloadValues = {
+  campaignId: string;
+  influencerId: string;
+  subject: string;
+  description: string;
+  issueType: string[];
+  otherIssueDescription: string;
+  attachments: File[];
+};
+
+function buildCreateDisputeFormData({
+  brandId,
+  influencerId,
+  values,
+}: {
+  brandId: string;
+  influencerId: string;
+  values: DisputeFormPayloadValues;
+}) {
+  const form = new FormData();
+
+  const issueType = Array.isArray(values.issueType)
+    ? values.issueType.filter(Boolean)
+    : [];
+
+  form.append("brandId", String(brandId));
+  form.append("influencerId", String(influencerId));
+  form.append("campaignId", String(values.campaignId || ""));
+  form.append("subject", String(values.subject || "").trim());
+  form.append("description", String(values.description || "").trim());
+  form.append("issueType", JSON.stringify(issueType));
+
+  form.append(
+    "otherIssueDescription",
+    issueType.includes("other")
+      ? String(values.otherIssueDescription || "").trim()
+      : ""
+  );
+
+  values.attachments.forEach((file) => {
+    form.append("attachments", file);
+  });
+
+  return form;
+}
 
 function ComboboxFilter({
   label,
@@ -149,22 +196,19 @@ export function RaiseDisputeDialog({
       disableInfluencer={mode === "influencer"}
       influencerDisplayName={mode === "influencer" ? "You" : undefined}
       onSubmit={async ({ brandId, influencerId, values }) => {
-        const form = new FormData();
-
         if (mode === "brand") {
           if (!brandId) {
             throw new Error("Missing brand ID — please log in again.");
           }
 
-          form.append("brandId", brandId);
-          form.append("influencerId", values.influencerId);
-          form.append("campaignId", values.campaignId);
-          form.append("subject", values.subject);
-          form.append("description", values.description);
-          form.append("issueType", JSON.stringify(values.issueType));
+          if (!values.influencerId) {
+            throw new Error("Missing influencer ID for the selected campaign.");
+          }
 
-          values.attachments.forEach((file) => {
-            form.append("attachments", file);
+          const form = buildCreateDisputeFormData({
+            brandId,
+            influencerId: values.influencerId,
+            values,
           });
 
           await postFormData("/dispute/brand/create", form);
@@ -179,15 +223,10 @@ export function RaiseDisputeDialog({
           throw new Error("Missing brand ID for the selected campaign.");
         }
 
-        form.append("brandId", brandId);
-        form.append("influencerId", influencerId);
-        form.append("campaignId", values.campaignId);
-        form.append("subject", values.subject);
-        form.append("description", values.description);
-        form.append("issueType", JSON.stringify(values.issueType));
-
-        values.attachments.forEach((file) => {
-          form.append("attachments", file);
+        const form = buildCreateDisputeFormData({
+          brandId,
+          influencerId,
+          values,
         });
 
         await postFormData("/dispute/influencer/create", form);

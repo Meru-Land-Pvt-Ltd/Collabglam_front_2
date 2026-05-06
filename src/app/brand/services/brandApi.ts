@@ -2061,9 +2061,46 @@ export async function apiDisputeCreate(payload: {
   brandId: string;
   campaignId: string;
   influencerId: string;
-  reason: string;
+  reason?: string;
+  subject?: string;
+  description?: string;
+  issueType?: string[];
+  otherIssueDescription?: string;
+  attachments?: File[];
 }) {
-  return apiPost<any>(`${DISPUTE_BASE}/brand/create`, payload);
+  const {
+    brandId,
+    campaignId,
+    influencerId,
+    reason = "",
+    subject,
+    description,
+    issueType = ["other"],
+    otherIssueDescription = "",
+    attachments = [],
+  } = payload;
+
+  const form = new FormData();
+
+  form.append("brandId", brandId);
+  form.append("campaignId", campaignId);
+  form.append("influencerId", influencerId);
+  form.append("subject", String(subject || reason || "Dispute").trim());
+  form.append("description", String(description || reason || "").trim());
+  form.append(
+    "issueType",
+    JSON.stringify(issueType.length > 0 ? issueType : ["other"])
+  );
+  form.append(
+    "otherIssueDescription",
+    issueType.includes("other") ? String(otherIssueDescription || "").trim() : ""
+  );
+
+  attachments.forEach((file) => {
+    form.append("attachments", file);
+  });
+
+  return apiPost<any>(`${DISPUTE_BASE}/brand/create`, form);
 }
 
 export async function apiRevokeDispute(payload: {
@@ -2083,6 +2120,7 @@ export async function apiEditDispute(payload: {
   subject: string;
   description: string;
   issueType: string[];
+  otherIssueDescription?: string;
   attachments?: File[];
   removedAttachmentUrls?: string[];
 }) {
@@ -2092,6 +2130,7 @@ export async function apiEditDispute(payload: {
     subject,
     description,
     issueType,
+    otherIssueDescription = "",
     attachments = [],
     removedAttachmentUrls = [],
   } = payload;
@@ -2102,14 +2141,19 @@ export async function apiEditDispute(payload: {
     throw new Error("Missing brand ID. Please log in again to edit this dispute.");
   }
 
+  const normalizedIssueType = issueType.length > 0 ? issueType : ["other"];
+
   const form = new FormData();
 
   form.append("brandId", resolvedBrandId);
   form.append("subject", subject.trim());
   form.append("description", description.trim());
+  form.append("issueType", JSON.stringify(normalizedIssueType));
   form.append(
-    "issueType",
-    JSON.stringify(issueType.length > 0 ? issueType : ["other"])
+    "otherIssueDescription",
+    normalizedIssueType.includes("other")
+      ? String(otherIssueDescription || "").trim()
+      : ""
   );
 
   attachments.forEach((file) => {
@@ -2117,10 +2161,7 @@ export async function apiEditDispute(payload: {
   });
 
   if (removedAttachmentUrls.length > 0) {
-    form.append(
-      "removedAttachmentUrls",
-      JSON.stringify(removedAttachmentUrls)
-    );
+    form.append("removedAttachmentUrls", JSON.stringify(removedAttachmentUrls));
   }
 
   return apiPatch(`${DISPUTE_BASE}/brand/disputes/${disputeId}/edit`, form);
