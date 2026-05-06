@@ -335,7 +335,7 @@ export default function AdminFAQPage() {
   }
 
   return (
-    <div className="max-w-full p-6 space-y-8">
+    <div className="max-w-6xl mx-auto p-6 space-y-8">
       <div className="bg-white shadow-md rounded-lg p-6">
         <h1 className="text-3xl font-semibold mb-6">Manage FAQs</h1>
 
@@ -347,7 +347,7 @@ export default function AdminFAQPage() {
               value={faqPage.title}
               onChange={(e) => setFaqPage((prev) => ({ ...prev, title: e.target.value }))}
               disabled={pageSaving}
-              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
             />
           </div>
 
@@ -381,7 +381,7 @@ export default function AdminFAQPage() {
                   setFaqPage((prev) => ({ ...prev, contactHeading: e.target.value }))
                 }
                 disabled={pageSaving}
-                className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
               />
             </div>
 
@@ -394,7 +394,7 @@ export default function AdminFAQPage() {
                   setFaqPage((prev) => ({ ...prev, effectiveDate: e.target.value }))
                 }
                 disabled={pageSaving}
-                className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
               />
             </div>
           </div>
@@ -425,7 +425,7 @@ export default function AdminFAQPage() {
             <button
               onClick={handleSavePage}
               disabled={pageSaving}
-              className="px-6 py-2 bg-[#1A1A1A] text-white rounded hover:bg-[#1A1A1A]/80 disabled:opacity-50 transition"
+              className="px-6 py-2 bg-[#ef2f5b] text-white rounded hover:bg-[#ef2f5b]/80 disabled:opacity-50 transition"
             >
               {pageSaving ? 'Saving Page...' : 'Save FAQ Page'}
             </button>
@@ -443,7 +443,7 @@ export default function AdminFAQPage() {
               value={selectedId}
               onChange={(e) => handleSelect(e.target.value)}
               disabled={itemSaving}
-              className="flex-1 border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="flex-1 border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
             >
               <option value="">-- New FAQ Item --</option>
               {sortedItems.map((item) => (
@@ -456,7 +456,7 @@ export default function AdminFAQPage() {
             <button
               onClick={handleNew}
               disabled={itemSaving}
-              className="px-4 py-2 bg-[#1A1A1A] text-white rounded hover:bg-[#1A1A1A]/80 disabled:opacity-50"
+              className="px-4 py-2 bg-[#ef2f5b] text-white rounded hover:bg-[#ef2f5b]/80 disabled:opacity-50"
             >
               New
             </button>
@@ -470,7 +470,7 @@ export default function AdminFAQPage() {
               value={itemForm.sectionKey}
               onChange={(e) => handleSectionChange(e.target.value)}
               disabled={itemSaving}
-              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
             >
               {SECTION_OPTIONS.map((section) => (
                 <option key={section.key} value={section.key}>
@@ -489,7 +489,7 @@ export default function AdminFAQPage() {
                 setItemForm((prev) => ({ ...prev, sectionTitle: e.target.value }))
               }
               disabled={itemSaving}
-              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
             />
           </div>
 
@@ -506,7 +506,7 @@ export default function AdminFAQPage() {
                 }))
               }
               disabled={itemSaving}
-              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
             />
           </div>
         </div>
@@ -520,7 +520,7 @@ export default function AdminFAQPage() {
               setItemForm((prev) => ({ ...prev, question: e.target.value }))
             }
             disabled={itemSaving}
-            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-gray-900"
+            className="w-full border rounded p-2 focus:outline-none focus:ring-2 focus:ring-pink-400"
           />
         </div>
 
@@ -552,7 +552,7 @@ export default function AdminFAQPage() {
           <button
             onClick={handleSaveItem}
             disabled={itemSaving}
-            className="px-6 py-2 bg-[#1A1A1A] text-white rounded hover:bg-[#1A1A1A]/80 disabled:opacity-50 transition"
+            className="px-6 py-2 bg-[#ef2f5b] text-white rounded hover:bg-[#ef2f5b]/80 disabled:opacity-50 transition"
           >
             {itemSaving ? 'Saving...' : selectedId ? 'Update FAQ Item' : 'Create FAQ Item'}
           </button>
