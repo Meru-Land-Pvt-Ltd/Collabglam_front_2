@@ -3,18 +3,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { get, post } from "@/lib/api";
+import swal from "sweetalert";
 import {
   ExternalLink,
   Loader2,
-  AlertCircle,
   Users,
   Heart,
   Globe,
-  RefreshCw,
   Sparkles,
   Eye,
   X,
-  Clock3,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -88,6 +86,66 @@ function cleanText(value?: string | null) {
   return String(value || "").trim();
 }
 
+function getApiErrorMessage(error: any, fallback = "Something went wrong.") {
+  const possibleMessage =
+    error?.response?.data?.message ||
+    error?.response?.data?.error ||
+    error?.data?.message ||
+    error?.data?.error ||
+    error?.message ||
+    "";
+
+  if (typeof possibleMessage !== "string") return fallback;
+
+  const trimmed = possibleMessage.trim();
+  if (!trimmed) return fallback;
+
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return parsed?.message || parsed?.error || fallback;
+    } catch {
+      return trimmed;
+    }
+  }
+
+  return trimmed;
+}
+
+function normalizeSharedActionError(message?: string | null) {
+  const text = cleanText(message);
+  const normalized = text.toLowerCase();
+
+  if (
+    normalized.includes("campaign is assigned") ||
+    normalized.includes("assigned campaign") ||
+    normalized.includes("already active") ||
+    normalized.includes("active on this campaign") ||
+    normalized.includes("working on this campaign") ||
+    (normalized.includes("campaign") &&
+      (normalized.includes("unfit") ||
+        normalized.includes("good fit") ||
+        normalized.includes("cannot") ||
+        normalized.includes("not allowed")))
+  ) {
+    return "This influencer is already active or working on this campaign.";
+  }
+
+  return text || "Something went wrong.";
+}
+
+async function showActionAlert(
+  message: string,
+  title = "Action not allowed",
+  icon: "error" | "warning" | "success" = "warning"
+) {
+  await swal({
+    title,
+    text: message,
+    icon,
+  });
+}
+
 function getNicheText(niche?: string[]) {
   return Array.isArray(niche) && niche.length ? niche.join(", ") : DASH;
 }
@@ -116,6 +174,12 @@ function getProfileUrl(row: SharedRow) {
     buildFallbackProfileUrl(row.provider, row.handle)
   );
 }
+
+function getCompactReasonTitle(row?: SharedRow | null) {
+  if (!row) return "Selection Reason";
+  return `${row.name || row.handle || "Influencer"} - Selection Reason`;
+}
+
 
 const CHIP_STYLES: Record<string, string> = {
   instagram: "bg-pink-50 text-pink-600 ring-pink-200",
@@ -271,8 +335,8 @@ export default function SharedPitchFolderPage() {
   const [rows, setRows] = useState<SharedRow[]>([]);
   const [title, setTitle] = useState("Shared Pitch Folder");
   const [description, setDescription] = useState("");
-  const [error, setError] = useState("");
   const [rateCardItemId, setRateCardItemId] = useState("");
+  const [selectionReasonItemId, setSelectionReasonItemId] = useState("");
 
   const reloadSheet = useCallback(async () => {
     const resp = await get<SharedFolderResponse>(`/pitch-folders/shared/${token}`);
@@ -287,11 +351,12 @@ export default function SharedPitchFolderPage() {
 
       try {
         setLoading(true);
-        setError("");
         await reloadSheet();
       } catch (e: any) {
-        setError(
-          e?.response?.data?.error || e?.message || "Failed to load shared folder"
+        await showActionAlert(
+          normalizeSharedActionError(getApiErrorMessage(e, "Failed to load shared folder")),
+          "Unable to load shared folder",
+          "error"
         );
       } finally {
         setLoading(false);
@@ -304,8 +369,6 @@ export default function SharedPitchFolderPage() {
   async function saveGoodFit(id: string, goodFit: boolean) {
     try {
       setSavingId(id);
-      setError("");
-
       const resp = await post(`/pitch-folders/shared/${token}/good-fit/${id}`, {
         goodFit,
       });
@@ -317,9 +380,12 @@ export default function SharedPitchFolderPage() {
         )
       );
     } catch (e: any) {
-      setError(
-        e?.response?.data?.error || e?.message || "Failed to update good fit"
+      await showActionAlert(
+        normalizeSharedActionError(getApiErrorMessage(e, "Failed to update good fit")),
+        "Unable to update fit",
+        "warning"
       );
+      await reloadSheet().catch(() => undefined);
     } finally {
       setSavingId("");
     }
@@ -328,13 +394,13 @@ export default function SharedPitchFolderPage() {
   async function requestMediaKit(id: string) {
     try {
       setSavingId(`media-kit-${id}`);
-      setError("");
-
       await post(`/pitch-folders/shared/${token}/media-kit-request/${id}`, {});
       await reloadSheet();
     } catch (e: any) {
-      setError(
-        e?.response?.data?.error || e?.message || "Failed to request demographics"
+      await showActionAlert(
+        normalizeSharedActionError(getApiErrorMessage(e, "Failed to request demographics")),
+        "Unable to request demographics",
+        "warning"
       );
     } finally {
       setSavingId("");
@@ -363,6 +429,11 @@ export default function SharedPitchFolderPage() {
   const rateCardRow = useMemo(
     () => rows.find((row) => row._id === rateCardItemId) || null,
     [rows, rateCardItemId]
+  );
+
+  const selectionReasonRow = useMemo(
+    () => rows.find((row) => row._id === selectionReasonItemId) || null,
+    [rows, selectionReasonItemId]
   );
 
   const stats = useMemo(
@@ -406,30 +477,6 @@ export default function SharedPitchFolderPage() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50/50 p-6">
-        <div className="flex flex-col items-center gap-4 rounded-2xl border border-red-200 bg-white p-10 text-center shadow-sm">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-500">
-            <AlertCircle className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-base font-semibold text-slate-900">
-              Something went wrong
-            </p>
-            <p className="mt-1 text-sm text-slate-500">{error}</p>
-          </div>
-          <button
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            <RefreshCw className="h-4 w-4" /> Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const statCards = [
     {
       icon: Users,
@@ -460,6 +507,13 @@ export default function SharedPitchFolderPage() {
         .pitch-sheet-root ::-webkit-scrollbar-track { background: transparent; }
         .pitch-sheet-root ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
         .pitch-sheet-root ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .selection-reason-preview {
+          display: -webkit-box;
+          -webkit-line-clamp: 4;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
       `}</style>
 
       <ModalShell
@@ -482,6 +536,36 @@ export default function SharedPitchFolderPage() {
 
             <div className="min-h-[320px] rounded-2xl border bg-white p-4 text-sm leading-7 whitespace-pre-wrap text-slate-700">
               {rateCardRow.platformRateCard || DASH}
+            </div>
+          </div>
+        ) : null}
+      </ModalShell>
+
+      <ModalShell
+        open={!!selectionReasonRow}
+        title={getCompactReasonTitle(selectionReasonRow)}
+        description="Full selection rationale for this creator."
+        onClose={() => setSelectionReasonItemId("")}
+        maxWidthClass="max-w-3xl"
+      >
+        {selectionReasonRow ? (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <ProviderBadge provider={selectionReasonRow.provider} />
+              {selectionReasonRow.handle ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  {selectionReasonRow.handle}
+                </span>
+              ) : null}
+              {selectionReasonRow.followers ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                  {fmtFollowers(selectionReasonRow.followers)} followers
+                </span>
+              ) : null}
+            </div>
+
+            <div className="max-h-[68vh] overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-7 whitespace-pre-wrap text-slate-700">
+              {cleanText(selectionReasonRow.selectionReason) || DASH}
             </div>
           </div>
         ) : null}
@@ -553,7 +637,7 @@ export default function SharedPitchFolderPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1500px] border-collapse text-sm bg-white">
+                <table className="w-full min-w-[1320px] border-collapse text-sm bg-white">
                   <thead>
                     <tr className="border-b border-slate-200">
                       <th className="px-6 py-3.5 text-left text-[11px] font-bold uppercase tracking-widest text-slate-500">
@@ -687,9 +771,24 @@ export default function SharedPitchFolderPage() {
                           </td>
 
                           <td className="px-4 py-4 text-slate-700 align-top">
-                            <div className="max-w-[320px] whitespace-pre-wrap break-words leading-6">
-                              {cleanText(row.selectionReason) || DASH}
-                            </div>
+                            {cleanText(row.selectionReason) ? (
+                              <div className="w-[340px] space-y-2">
+                                <div className="selection-reason-preview whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+                                  {cleanText(row.selectionReason)}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectionReasonItemId(row._id)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                  View full reason
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">{DASH}</span>
+                            )}
                           </td>
 
                           <td className="px-4 py-4 align-top">
