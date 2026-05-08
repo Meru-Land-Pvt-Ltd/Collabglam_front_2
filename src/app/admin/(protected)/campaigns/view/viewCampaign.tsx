@@ -1,13 +1,19 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
-import swal from "sweetalert";
 import { useRouter, useSearchParams } from "next/navigation";
 import { get, post } from "@/lib/api";
 import { resolveFileList } from "@/lib/files";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import {
   Table,
   TableBody,
@@ -455,19 +461,99 @@ const SECONDARY_BUTTON =
 const DASH = "—";
 const DELIVERABLES_PER_PAGE = 10;
 
-function showErr(message: string) {
-  return swal({
-    title: "Error",
-    text: message || "Something went wrong.",
+function getBackendErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong."
+): string {
+  if (!error) return fallback;
+
+  if (typeof error === "string") {
+    const message = error.trim();
+
+    if (!message) return fallback;
+
+    try {
+      const parsed = JSON.parse(message);
+      return getBackendErrorMessage(parsed, fallback);
+    } catch {
+      return message;
+    }
+  }
+
+  if (Array.isArray(error)) {
+    const messages = error
+      .map((item) => getBackendErrorMessage(item, ""))
+      .filter(Boolean);
+
+    return messages.join(", ") || fallback;
+  }
+
+  if (typeof error === "object") {
+    const objectError = error as Record<string, unknown>;
+
+    const responseData = (objectError as any)?.response?.data;
+    if (responseData) {
+      return getBackendErrorMessage(responseData, fallback);
+    }
+
+    const directMessage =
+      objectError.message ||
+      objectError.error ||
+      objectError.detail ||
+      objectError.msg;
+
+    if (directMessage) {
+      return getBackendErrorMessage(directMessage, fallback);
+    }
+
+    if (objectError.errors) {
+      return getBackendErrorMessage(objectError.errors, fallback);
+    }
+
+    const nestedMessages = Object.values(objectError)
+      .map((item) => getBackendErrorMessage(item, ""))
+      .filter(Boolean);
+
+    return nestedMessages.join(", ") || fallback;
+  }
+
+  return String(error);
+}
+
+async function getFetchErrorMessage(
+  response: Response,
+  fallback = "Request failed."
+) {
+  try {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      return getBackendErrorMessage(data, fallback);
+    }
+
+    const text = await response.text();
+    return getBackendErrorMessage(text, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function showErr(message: unknown, fallback = "Something went wrong.") {
+  return toast({
     icon: "error",
+    title: "Error",
+    text: getBackendErrorMessage(message, fallback),
+    timer: 5000,
   });
 }
 
 function showSuccess(message: string) {
-  return swal({
+  return toast({
+    icon: "success",
     title: "Success",
     text: message,
-    icon: "success",
+    timer: 3000,
   });
 }
 
@@ -1433,7 +1519,7 @@ export default function ViewCampaignPage() {
   const [fundingSummary, setFundingSummary] = useState<AddFundsResponse | null>(null);
 
   const [applicantsLoading, setApplicantsLoading] = useState(false);
-  const [applicantError, setApplicantError] = useState<string | null>(null);
+  const [, setApplicantError] = useState<string | null>(null);
   const [applicantMeta, setApplicantMeta] = useState<Meta | null>(null);
   const [applicantCount, setApplicantCount] = useState(0);
   const [statusCounts, setStatusCounts] = useState<ApplicantStatusCounts>({});
@@ -1452,7 +1538,7 @@ export default function ViewCampaignPage() {
   const [applicantStatusFilter, setApplicantStatusFilter] = useState("active");
 
   const [deliverablesLoading, setDeliverablesLoading] = useState(false);
-  const [deliverablesError, setDeliverablesError] = useState<string | null>(null);
+  const [, setDeliverablesError] = useState<string | null>(null);
   const [deliverables, setDeliverables] = useState<DeliverableRow[]>([]);
   const [deliverableSearch, setDeliverableSearch] = useState("");
   const [deliverableStatusFilter, setDeliverableStatusFilter] = useState<"all" | ReviewStatus>("all");
@@ -1490,9 +1576,15 @@ export default function ViewCampaignPage() {
   });
 
   const [pitchFolderLoading, setPitchFolderLoading] = useState(false);
-  const [pitchFolderError, setPitchFolderError] = useState<string | null>(null);
+  const [, setPitchFolderError] = useState<string | null>(null);
   const [assignedPitchFolder, setAssignedPitchFolder] = useState<AssignedPitchFolder | null>(null);
   const [pitchFolderSearch, setPitchFolderSearch] = useState("");
+
+  const lastCampaignErrorRef = useRef("");
+  const lastApplicantErrorRef = useRef("");
+  const lastDeliverablesErrorRef = useRef("");
+  const lastPitchFolderErrorRef = useRef("");
+  const lastMilestoneErrorRef = useRef("");
 
   useEffect(() => {
     try {
@@ -1518,13 +1610,13 @@ export default function ViewCampaignPage() {
   }, []);
 
   useEffect(() => {
-    if (!isFundsModalOpen && !showMilestoneModal) return;
+    if (!isFundsModalOpen && !showMilestoneModal && !showDeliverableModal) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isFundsModalOpen, showMilestoneModal]);
+  }, [isFundsModalOpen, showMilestoneModal, showDeliverableModal]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -1545,8 +1637,16 @@ export default function ViewCampaignPage() {
 
   const loadCampaign = useCallback(async () => {
     if (!id) {
-      setError("No campaign ID provided.");
+      const message = "No campaign ID provided.";
+
+      setError(message);
       setLoading(false);
+
+      if (lastCampaignErrorRef.current !== message) {
+        lastCampaignErrorRef.current = message;
+        showErr(message);
+      }
+
       return;
     }
 
@@ -1557,10 +1657,28 @@ export default function ViewCampaignPage() {
       const response = await get<ApiResponse | CampaignData>(
         `/admin/campaign/getById?id=${id}`
       );
-      setCampaign((response as ApiResponse)?.data ?? (response as CampaignData));
-    } catch {
-      setError("Failed to load campaign details.");
+
+      const campaignData =
+        (response as ApiResponse)?.data ?? (response as CampaignData);
+
+      if (!campaignData) {
+        throw new Error("Campaign not found.");
+      }
+
+      setCampaign(campaignData);
+    } catch (err: unknown) {
+      const message = getBackendErrorMessage(
+        err,
+        "Failed to load campaign details."
+      );
+
+      setError(message);
       setCampaign(null);
+
+      if (lastCampaignErrorRef.current !== message) {
+        lastCampaignErrorRef.current = message;
+        showErr(err, "Failed to load campaign details.");
+      }
     } finally {
       setLoading(false);
     }
@@ -1674,14 +1792,21 @@ export default function ViewCampaignPage() {
       }
 
       await fetchAdminCreatedCampaignApplicants();
-    } catch (err: any) {
-      setApplicantError(err?.message || "Failed to load applicants.");
+    } catch (err: unknown) {
+      const message = getBackendErrorMessage(err, "Failed to load applicants.");
+
+      setApplicantError(message);
       setApplicants([]);
       setApplicantMeta(null);
       setStatusCounts({});
       setApplicantCount(0);
       setIsContracted(0);
       setTopLevelContractId("");
+
+      if (lastApplicantErrorRef.current !== message) {
+        lastApplicantErrorRef.current = message;
+        showErr(err, "Failed to load applicants.");
+      }
     } finally {
       setApplicantsLoading(false);
     }
@@ -1713,9 +1838,16 @@ export default function ViewCampaignPage() {
         [];
 
       setDeliverables(mapDeliverables(arr));
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = getBackendErrorMessage(err, "Failed to load deliverables.");
+
       setDeliverables([]);
-      setDeliverablesError(err?.message || "Failed to load deliverables.");
+      setDeliverablesError(message);
+
+      if (lastDeliverablesErrorRef.current !== message) {
+        lastDeliverablesErrorRef.current = message;
+        showErr(err, "Failed to load deliverables.");
+      }
     } finally {
       setDeliverablesLoading(false);
     }
@@ -1737,10 +1869,19 @@ export default function ViewCampaignPage() {
         (response as AssignedPitchFolder);
 
       setAssignedPitchFolder(data?._id ? data : null);
-    } catch (err: any) {
-      const message = err?.response?.data?.error || err?.message || "Failed to load assigned pitch folder.";
+    } catch (err: unknown) {
+      const message = getBackendErrorMessage(
+        err,
+        "Failed to load assigned pitch folder."
+      );
+
       setAssignedPitchFolder(null);
       setPitchFolderError(message);
+
+      if (lastPitchFolderErrorRef.current !== message) {
+        lastPitchFolderErrorRef.current = message;
+        showErr(err, "Failed to load assigned pitch folder.");
+      }
     } finally {
       setPitchFolderLoading(false);
     }
@@ -1760,7 +1901,10 @@ export default function ViewCampaignPage() {
   }, [activeTab, fetchAssignedPitchFolder]);
 
   const handleDownloadContract = async (contractId?: string) => {
-    if (!contractId) return;
+    if (!contractId) {
+      await showErr("Contract ID is missing.");
+      return;
+    }
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") || "";
@@ -1770,7 +1914,13 @@ export default function ViewCampaignPage() {
         body: JSON.stringify({ contractId }),
       });
 
-      if (!res.ok) throw new Error("Could not download contract.");
+      if (!res.ok) {
+        const message = await getFetchErrorMessage(
+          res,
+          "Could not download contract."
+        );
+        throw new Error(message);
+      }
 
       const blob = await res.blob();
       const objectUrl = window.URL.createObjectURL(blob);
@@ -1782,8 +1932,8 @@ export default function ViewCampaignPage() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(objectUrl);
-    } catch (err: any) {
-      await showErr(err?.message || "Failed to download contract.");
+    } catch (err: unknown) {
+      await showErr(err, "Failed to download contract.");
     }
   };
 
@@ -1818,8 +1968,8 @@ export default function ViewCampaignPage() {
       setIsFundsModalOpen(false);
       await loadCampaign();
       await showSuccess("Funds added successfully.");
-    } catch (err: any) {
-      await showErr(err?.message || "Failed to add campaign funds.");
+    } catch (err: unknown) {
+      await showErr(err, "Failed to add campaign funds.");
     } finally {
       setAddingFunds(false);
     }
@@ -1834,6 +1984,10 @@ export default function ViewCampaignPage() {
       const rowKey = getApplicantRowKey(applicant);
 
       if (!influencerId || !rowKey || !effectiveCampaignId) {
+        await showErr(
+          "Influencer or campaign information is missing.",
+          "Unable to load milestones."
+        );
         return;
       }
 
@@ -1863,11 +2017,18 @@ export default function ViewCampaignPage() {
           ...prev,
           [rowKey]: filtered,
         }));
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = getBackendErrorMessage(err, "Failed to load milestones.");
+
         setMilestoneErrorByApplicant((prev) => ({
           ...prev,
-          [rowKey]: err?.message || "Failed to load milestones.",
+          [rowKey]: message,
         }));
+
+        if (lastMilestoneErrorRef.current !== message) {
+          lastMilestoneErrorRef.current = message;
+          showErr(err, "Failed to load milestones.");
+        }
       } finally {
         setMilestoneLoadingKey(null);
       }
@@ -1956,13 +2117,9 @@ export default function ViewCampaignPage() {
       });
 
       await showSuccess("Milestone added successfully.");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      await showErr(
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to create milestone."
-      );
+      await showErr(err, "Failed to create milestone.");
     } finally {
       setIsSavingMilestone(false);
     }
@@ -2014,8 +2171,8 @@ export default function ViewCampaignPage() {
           title: getMilestoneDisplayTitle(only),
         }));
       }
-    } catch (err: any) {
-      await showErr(err?.message || "Failed to load milestones.");
+    } catch (err: unknown) {
+      await showErr(err, "Failed to load milestones.");
     } finally {
       setDeliverableMilestonesLoading(false);
     }
@@ -2107,13 +2264,9 @@ export default function ViewCampaignPage() {
 
       setActiveTab("deliverables");
       await showSuccess("Deliverable added on behalf of influencer.");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      await showErr(
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to create deliverable."
-      );
+      await showErr(err, "Failed to create deliverable.");
     } finally {
       setIsSavingDeliverable(false);
     }
@@ -2354,29 +2507,121 @@ export default function ViewCampaignPage() {
     return Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
   }, [campaign?.startAt, campaign?.endAt]);
 
+  const handlePlatformFilterChange = (value: string) => {
+    const allowedValues = ["all", ...applicantPlatformOptions];
+
+    if (!allowedValues.includes(value)) {
+      showErr("Please select a valid platform.");
+      return;
+    }
+
+    setPlatformFilter(value);
+  };
+
+  const handleAudienceRangeFilterChange = (value: string) => {
+    const allowedValues = [
+      "all",
+      "0_10k",
+      "10k_50k",
+      "50k_100k",
+      "100k_500k",
+      "500k_plus",
+    ];
+
+    if (!allowedValues.includes(value)) {
+      showErr("Please select a valid audience range.");
+      return;
+    }
+
+    setAudienceRangeFilter(value);
+  };
+
+  const handleSortFieldChange = (value: string) => {
+    const allowedValues = ["createdAt", "audienceSize", "engagementRate", "name"];
+
+    if (!allowedValues.includes(value)) {
+      showErr("Please select a valid sort field.");
+      return;
+    }
+
+    setSortField(value);
+  };
+
+  const handleApplicantPageChange = (page: number) => {
+    const safeTotalPages = Math.max(1, applicantTotalPages || 1);
+
+    if (!Number.isFinite(page) || page < 1 || page > safeTotalPages) {
+      showErr(`Please select a page between 1 and ${safeTotalPages}.`);
+      return;
+    }
+
+    setApplicantPage(page);
+  };
+
+  const handleDeliverableStatusFilterChange = (value: string) => {
+    const allowedValues = ["all", "pending", "approved", "revision"];
+
+    if (!allowedValues.includes(value)) {
+      showErr("Please select a valid deliverable status.");
+      return;
+    }
+
+    setDeliverableStatusFilter(value as "all" | ReviewStatus);
+  };
+
+  const handleDeliverableInfluencerFilterChange = (value: string) => {
+    const allowedValues = ["all", ...deliverableInfluencers];
+
+    if (!allowedValues.includes(value)) {
+      showErr("Please select a valid influencer.");
+      return;
+    }
+
+    setDeliverableInfluencerFilter(value);
+  };
+
+  const handleDeliverablePageChange = (page: number) => {
+    const safeTotalPages = Math.max(1, deliverableTotalPages || 1);
+
+    if (!Number.isFinite(page) || page < 1 || page > safeTotalPages) {
+      showErr(`Please select a page between 1 and ${safeTotalPages}.`);
+      return;
+    }
+
+    setDeliverablePage(page);
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-stone-50 p-4">
-        <div className="w-full space-y-4">
-          <Skeleton className="h-5 w-32 rounded-lg" />
-          <Skeleton className="h-28 w-full rounded-2xl" />
-          <Skeleton className="h-10 w-full rounded-2xl" />
-          <Skeleton className="h-64 w-full rounded-2xl" />
+      <>
+        <ToastStyles />
+
+        <div className="min-h-screen bg-stone-50 p-4">
+          <div className="w-full space-y-4">
+            <Skeleton className="h-5 w-32 rounded-lg" />
+            <Skeleton className="h-28 w-full rounded-2xl" />
+            <Skeleton className="h-10 w-full rounded-2xl" />
+            <Skeleton className="h-64 w-full rounded-2xl" />
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (error || !campaign) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-stone-50">
-        <div className="max-w-sm rounded-2xl border border-rose-200 bg-rose-50 px-8 py-6 text-center">
-          <X className="mx-auto mb-3 h-5 w-5 text-rose-500" />
-          <p className="text-sm font-semibold text-rose-700">
-            {error || "Campaign not found."}
-          </p>
+      <>
+        <ToastStyles />
+
+        <div className="flex min-h-screen items-center justify-center bg-stone-50">
+          <div className="max-w-sm rounded-2xl border border-rose-200 bg-rose-50 px-8 py-6 text-center">
+            <X className="mx-auto mb-3 h-5 w-5 text-rose-500" />
+            <p className="text-sm font-semibold text-rose-700">
+              {error || "Campaign not found."}
+            </p>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -2401,7 +2646,10 @@ export default function ViewCampaignPage() {
   );
 
   return (
-    <div className="min-h-screen pb-16">
+    <>
+      <ToastStyles />
+
+      <div className="min-h-screen pb-16">
       <div className="w-full px-2 pt-4 sm:px-4 lg:px-5">
         <div
           className={`z-20 w-full overflow-hidden rounded-[1rem] border border-[#202124] shadow-lg ${DARK_GRADIENT}`}
@@ -2778,7 +3026,7 @@ export default function ViewCampaignPage() {
                         </p>
                         <select
                           value={platformFilter}
-                          onChange={(e) => setPlatformFilter(e.target.value)}
+                          onChange={(e) => handlePlatformFilterChange(e.target.value)}
                           className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                         >
                           <option value="all">All Platforms</option>
@@ -2796,7 +3044,7 @@ export default function ViewCampaignPage() {
                         </p>
                         <select
                           value={audienceRangeFilter}
-                          onChange={(e) => setAudienceRangeFilter(e.target.value)}
+                          onChange={(e) => handleAudienceRangeFilterChange(e.target.value)}
                           className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                         >
                           <option value="all">All Range</option>
@@ -2814,7 +3062,7 @@ export default function ViewCampaignPage() {
                         </p>
                         <select
                           value={sortField}
-                          onChange={(e) => setSortField(e.target.value)}
+                          onChange={(e) => handleSortFieldChange(e.target.value)}
                           className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                         >
                           <option value="createdAt">Date Applied</option>
@@ -2860,12 +3108,6 @@ export default function ViewCampaignPage() {
                     </p>
                   </div>
                 </div>
-
-                {applicantError ? (
-                  <div className="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
-                    {applicantError}
-                  </div>
-                ) : null}
 
                 <div className="overflow-x-auto">
                   <Table className="min-w-[1180px]">
@@ -3052,9 +3294,9 @@ export default function ViewCampaignPage() {
                                           Loading milestones…
                                         </p>
                                       ) : milestoneError ? (
-                                        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
-                                          {milestoneError}
-                                        </div>
+                                        <p className="py-4 text-xs text-stone-400">
+                                          Unable to load milestones. Error is shown in the toast.
+                                        </p>
                                       ) : milestoneItems.length === 0 ? (
                                         <p className="py-4 text-xs text-stone-400">
                                           No milestones found for this campaign and influencer.
@@ -3124,7 +3366,7 @@ export default function ViewCampaignPage() {
                 <PaginationBar
                   currentPage={applicantCurrentPage}
                   totalPages={applicantTotalPages}
-                  onPageChange={setApplicantPage}
+                  onPageChange={handleApplicantPageChange}
                   showingFrom={applicantShowingFrom}
                   showingTo={applicantShowingTo}
                   totalItems={applicantTotalItems}
@@ -3197,12 +3439,6 @@ export default function ViewCampaignPage() {
                     </p>
                   </div>
                 </div>
-
-                {pitchFolderError ? (
-                  <div className="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
-                    {pitchFolderError}
-                  </div>
-                ) : null}
 
                 <div className="overflow-x-auto">
                   <Table className="min-w-[1760px]">
@@ -3514,9 +3750,7 @@ export default function ViewCampaignPage() {
                       </p>
                       <select
                         value={deliverableStatusFilter}
-                        onChange={(e) =>
-                          setDeliverableStatusFilter(e.target.value as "all" | ReviewStatus)
-                        }
+                        onChange={(e) => handleDeliverableStatusFilterChange(e.target.value)}
                         className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                       >
                         <option value="all">All Status</option>
@@ -3532,7 +3766,7 @@ export default function ViewCampaignPage() {
                       </p>
                       <select
                         value={deliverableInfluencerFilter}
-                        onChange={(e) => setDeliverableInfluencerFilter(e.target.value)}
+                        onChange={(e) => handleDeliverableInfluencerFilterChange(e.target.value)}
                         className="h-11 w-full rounded-[10px] border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none focus:ring-1 focus:ring-[#1a1a1a]/20"
                       >
                         <option value="all">All Influencers</option>
@@ -3573,12 +3807,6 @@ export default function ViewCampaignPage() {
                     </p>
                   </div>
                 </div>
-
-                {deliverablesError ? (
-                  <div className="mx-5 mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
-                    {deliverablesError}
-                  </div>
-                ) : null}
 
                 <div className="overflow-x-auto">
                   <Table className="min-w-[780px]">
@@ -3680,7 +3908,7 @@ export default function ViewCampaignPage() {
                 <PaginationBar
                   currentPage={safeDeliverablePage}
                   totalPages={deliverableTotalPages}
-                  onPageChange={setDeliverablePage}
+                  onPageChange={handleDeliverablePageChange}
                   showingFrom={deliverableShowingFrom}
                   showingTo={deliverableShowingTo}
                   totalItems={deliverableTotalItems}
@@ -4179,6 +4407,7 @@ export default function ViewCampaignPage() {
           </div>
         </div>
       ) : null}
-    </div>
+      </div>
+    </>
   );
 }

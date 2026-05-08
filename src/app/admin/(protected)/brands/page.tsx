@@ -21,6 +21,7 @@ import { adminGet, adminPost } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import AdminTable, { type AdminTableColumn } from "../../components/table";
 
 const outfit = Outfit({
@@ -128,6 +129,7 @@ interface Employee {
 
 interface BrandListResponse {
   success?: boolean;
+  message?: string;
   page?: number;
   limit?: number;
   total?: number;
@@ -138,6 +140,7 @@ interface BrandListResponse {
 
 interface EmployeeListResponse {
   success: boolean;
+  message?: string;
   data: Employee[];
 }
 
@@ -230,6 +233,66 @@ const FEATURE_LABELS: Record<string, string> = {
   shortlist_delivered: "Shortlists",
   negotiation_and_followups: "Negotiation",
 };
+
+function readErrorValue(value: any): string {
+  if (!value) return "";
+
+  if (typeof value === "string") return value;
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => readErrorValue(item))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (typeof value === "object") {
+    const directMessage =
+      value.message ||
+      value.error ||
+      value.detail ||
+      value.msg ||
+      value.description;
+
+    if (directMessage && directMessage !== value) {
+      return readErrorValue(directMessage);
+    }
+
+    return Object.values(value)
+      .map((item) => readErrorValue(item))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  return String(value);
+}
+
+function getErrorMessage(error: any, fallback = "Something went wrong. Please try again.") {
+  const responseData =
+    error?.response?.data ||
+    error?.data ||
+    error?.payload ||
+    error?.body ||
+    error;
+
+  return (
+    readErrorValue(responseData?.message) ||
+    readErrorValue(responseData?.error) ||
+    readErrorValue(responseData?.errors) ||
+    readErrorValue(responseData) ||
+    readErrorValue(error?.message) ||
+    fallback
+  );
+}
+
+function showErrorToast(title: string, message: string) {
+  toast({
+    icon: "error",
+    title,
+    text: message,
+    timer: 3500,
+  });
+}
 
 function useDebouncedValue<T>(value: T, delay = 400) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -782,7 +845,6 @@ const AssigneeCell = React.memo(function AssigneeCell({
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -792,7 +854,6 @@ const AssigneeCell = React.memo(function AssigneeCell({
       if (ref.current && !ref.current.contains(event.target as Node)) {
         setOpen(false);
         setSelected("");
-        setError(null);
       }
     };
 
@@ -807,12 +868,14 @@ const AssigneeCell = React.memo(function AssigneeCell({
 
     try {
       setSaving(true);
-      setError(null);
       await onSave(brandId, role, selected);
       setOpen(false);
       setSelected("");
     } catch (err: any) {
-      setError(err?.message || `Failed to assign ${meta.label}.`);
+      showErrorToast(
+        `Failed to assign ${meta.label}`,
+        getErrorMessage(err, `Failed to assign ${meta.label}.`)
+      );
     } finally {
       setSaving(false);
     }
@@ -859,10 +922,7 @@ const AssigneeCell = React.memo(function AssigneeCell({
       <select
         autoFocus
         value={selected}
-        onChange={(event) => {
-          setSelected(event.target.value);
-          setError(null);
-        }}
+        onChange={(event) => setSelected(event.target.value)}
         className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-slate-400"
       >
         <option value="">Choose {meta.label}</option>
@@ -873,9 +933,6 @@ const AssigneeCell = React.memo(function AssigneeCell({
         ))}
       </select>
 
-      {error ? (
-        <p className="mt-2 text-[11px] font-semibold text-rose-600">{error}</p>
-      ) : null}
 
       <div className="mt-3 flex gap-2">
         <Button
@@ -895,7 +952,6 @@ const AssigneeCell = React.memo(function AssigneeCell({
             event.stopPropagation();
             setOpen(false);
             setSelected("");
-            setError(null);
           }}
           className="h-9 rounded-[10px] border-slate-200 px-3 text-sm font-medium"
         >
@@ -1089,7 +1145,6 @@ const BrandActionButtons = React.memo(function BrandActionButtons({
 const AdminBrandPage: NextPage = () => {
   const [brands, setBrands] = useState<BrandRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search, 400);
@@ -1115,7 +1170,6 @@ const AdminBrandPage: NextPage = () => {
   const [createBrandName, setCreateBrandName] = useState("");
   const [createEmail, setCreateEmail] = useState("");
   const [creatingBrand, setCreatingBrand] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
 
   const requestIdRef = useRef(0);
 
@@ -1188,6 +1242,10 @@ const AdminBrandPage: NextPage = () => {
         }
       );
 
+      if (firstResponse.success === false) {
+        throw new Error(firstResponse.message || "Failed to load brands.");
+      }
+
       const firstRawBrands = firstResponse.brands || firstResponse.data || [];
       const responseTotal = firstResponse.total ?? firstRawBrands.length;
       const responseTotalPages =
@@ -1207,6 +1265,10 @@ const AdminBrandPage: NextPage = () => {
         );
 
         remainingResponses.forEach((item) => {
+          if (item.success === false) {
+            throw new Error(item.message || "Failed to load brands.");
+          }
+
           allRawBrands.push(...(item.brands || item.data || []));
         });
       }
@@ -1216,11 +1278,10 @@ const AdminBrandPage: NextPage = () => {
       const mapped = allRawBrands.map(mapBrand);
 
       setBrands(mapped);
-      setError(null);
     } catch (err: any) {
       if (requestId !== requestIdRef.current) return;
       console.error(err);
-      setError(err?.message || "Failed to load brands.");
+      showErrorToast("Failed to load brands", getErrorMessage(err, "Failed to load brands."));
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false);
@@ -1234,27 +1295,44 @@ const AdminBrandPage: NextPage = () => {
     const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!canCreateBrand) {
-      setCreateError("Only Super Admin, RH, or BME can create brands.");
+      showErrorToast(
+        "Permission denied",
+        "Only Super Admin, RH, or BME can create brands."
+      );
       return;
     }
 
     if (!brandName) {
-      setCreateError("Brand name is required.");
+      showErrorToast("Brand name required", "Please enter a brand name.");
+      return;
+    }
+
+    if (!email) {
+      showErrorToast("Email required", "Please enter the brand email address.");
       return;
     }
 
     if (!emailRx.test(email)) {
-      setCreateError("Valid email is required.");
+      showErrorToast("Invalid email", "Please enter a valid brand email address.");
       return;
     }
 
     try {
       setCreatingBrand(true);
-      setCreateError(null);
 
-      await adminPost<CreateBrandResponse>("/admin/brand/create", {
+      const response = await adminPost<CreateBrandResponse>("/admin/brand/create", {
         brandName,
         email,
+      });
+
+      if (response.success === false) {
+        throw new Error(response.message || "Failed to create brand.");
+      }
+
+      toast({
+        icon: "success",
+        title: "Brand created",
+        text: response.message || "Brand has been created successfully.",
       });
 
       setCreateOpen(false);
@@ -1263,7 +1341,7 @@ const AdminBrandPage: NextPage = () => {
       setPage(1);
       await fetchBrands();
     } catch (err: any) {
-      setCreateError(err?.message || "Failed to create brand.");
+      showErrorToast("Failed to create brand", getErrorMessage(err, "Failed to create brand."));
     } finally {
       setCreatingBrand(false);
     }
@@ -1276,10 +1354,22 @@ const AdminBrandPage: NextPage = () => {
         adminGet<EmployeeListResponse>("/admins/get-executive-list?role=bme"),
       ]);
 
-      if (rhResponse.success) setRhOptions(rhResponse.data ?? []);
-      if (bmeResponse.success) setBmeOptions(bmeResponse.data ?? []);
+      if (rhResponse.success === false) {
+        throw new Error(rhResponse.message || "Failed to load RH list.");
+      }
+
+      if (bmeResponse.success === false) {
+        throw new Error(bmeResponse.message || "Failed to load BME list.");
+      }
+
+      setRhOptions(rhResponse.data ?? []);
+      setBmeOptions(bmeResponse.data ?? []);
     } catch (err) {
       console.error("Failed to fetch assignees", err);
+      showErrorToast(
+        "Failed to load assignees",
+        getErrorMessage(err, "Failed to load assignees.")
+      );
     }
   }, []);
 
@@ -1335,10 +1425,17 @@ const AdminBrandPage: NextPage = () => {
     async (brandId: string, role: AssignRole, employeeId: string) => {
       const meta = roleMeta(role);
 
-      await adminPost("/admins/assign-brand", {
-        brandId,
-        [meta.payloadKey]: employeeId,
-      });
+      const response = await adminPost<{ success?: boolean; message?: string }>(
+        "/admins/assign-brand",
+        {
+          brandId,
+          [meta.payloadKey]: employeeId,
+        }
+      );
+
+      if (response?.success === false) {
+        throw new Error(response.message || `Failed to assign ${meta.label}.`);
+      }
 
       setBrands((prev) =>
         prev.map((brand) => {
@@ -1574,6 +1671,7 @@ const AdminBrandPage: NextPage = () => {
 
   return (
     <div className={`${outfit.className} min-h-screen w-full`}>
+      <ToastStyles />
       <div className="flex w-full max-w-none flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
         <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1591,10 +1689,7 @@ const AdminBrandPage: NextPage = () => {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 className="rounded-2xl"
-                onClick={() => {
-                  setCreateOpen(true);
-                  setCreateError(null);
-                }}
+                onClick={() => setCreateOpen(true)}
                 disabled={!canCreateBrand}
                 title={
                   canCreateBrand
@@ -1769,7 +1864,7 @@ const AdminBrandPage: NextPage = () => {
             rowKey={(row) => row._id}
             loading={loading}
             loadingRows={Math.min(pageSize, 8)}
-            error={error}
+            error={null}
             emptyTitle="No brands found"
             emptyDescription="Try adjusting the search, brand view, or refresh the data."
             sortBy={sortBy}
@@ -1814,7 +1909,6 @@ const AdminBrandPage: NextPage = () => {
                 type="button"
                 onClick={() => {
                   setCreateOpen(false);
-                  setCreateError(null);
                 }}
                 className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               >
@@ -1831,7 +1925,6 @@ const AdminBrandPage: NextPage = () => {
                   value={createBrandName}
                   onChange={(event) => {
                     setCreateBrandName(event.target.value);
-                    setCreateError(null);
                   }}
                   placeholder="Enter brand name"
                   className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
@@ -1846,18 +1939,12 @@ const AdminBrandPage: NextPage = () => {
                   value={createEmail}
                   onChange={(event) => {
                     setCreateEmail(event.target.value);
-                    setCreateError(null);
                   }}
                   placeholder="brand@example.com"
                   className="mt-2 h-11 rounded-2xl border-slate-200 bg-slate-50"
                 />
               </div>
 
-              {createError ? (
-                <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                  {createError}
-                </p>
-              ) : null}
 
               <div className="flex justify-end gap-2 pt-2">
                 <Button
@@ -1866,7 +1953,6 @@ const AdminBrandPage: NextPage = () => {
                   className="rounded-2xl"
                   onClick={() => {
                     setCreateOpen(false);
-                    setCreateError(null);
                   }}
                   disabled={creatingBrand}
                 >

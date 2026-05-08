@@ -2,12 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   CalendarClock,
   CheckCircle2,
-  CreditCard,
   Download,
-  History,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -15,8 +12,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { adminPost, adminDownloadBlob } from "@/lib/api";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import AdminTable, { type AdminTableColumn } from "../../../components/table";
-import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -31,6 +28,8 @@ import type {
 } from "./types";
 import { formatCurrency, formatDate } from "./utils";
 import { SectionCard, StatusPill } from "./shared";
+
+type MaybePromise<T = void> = T | Promise<T>;
 
 type SubscriptionTabProps = {
   brand: BrandDetail;
@@ -57,7 +56,7 @@ type SubscriptionTabProps = {
   assignMsg: string | null;
   selectedPlan: PlanListItem | null;
   expiryPreview: Date | null;
-  onUpdatePlan: () => void;
+  onUpdatePlan: () => MaybePromise<void>;
 };
 
 type ColorTone =
@@ -90,6 +89,91 @@ type ApiFeature = {
   note?: string | null;
   resetsEvery?: string | null;
   resetsAt?: string | null;
+};
+
+type PaymentHistoryItem = {
+  paymentType: "plan" | "milestone";
+  orderId?: string;
+  paymentId?: string;
+  userId?: string;
+  role?: string;
+  planId?: string;
+  planName?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  receipt?: string;
+  invoiceNumber?: string;
+  invoiceIssuedAt?: string | null;
+  invoiceFilePath?: string;
+  paidAt?: string | null;
+  createdAt?: string | null;
+  subtotalCents?: number;
+  discountCents?: number;
+  taxCents?: number;
+  totalCents?: number;
+};
+
+type PaymentHistoryResponse = {
+  success: boolean;
+  message?: string;
+  userId?: string;
+  role?: string;
+  counts?: {
+    plans: number;
+    milestones: number;
+    total: number;
+  };
+  history?: PaymentHistoryItem[];
+};
+
+type AdminAssignedPlanHistoryItem = {
+  _id?: string;
+  brandId?: string;
+  planId?: string;
+  oldPlanName?: string;
+  newPlanName?: string;
+  billingCycle?: string;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  durationDays?: number | null;
+  assignedByAdminId?:
+    | string
+    | {
+        _id?: string;
+        name?: string;
+        email?: string;
+        role?: string;
+      }
+    | null;
+  assignedByAdminEmail?: string;
+  source?: string;
+  status?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+type AdminAssignedPlanHistoryResponse = {
+  success: boolean;
+  message?: string;
+  histories?: AdminAssignedPlanHistoryItem[];
+  history?: AdminAssignedPlanHistoryItem[];
+  data?: AdminAssignedPlanHistoryItem[];
+  total?: number;
+  totalPages?: number;
+};
+
+type ApiErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
 };
 
 const SUBSCRIPTION_DETAIL_FEATURE_KEYS = [
@@ -198,6 +282,97 @@ const toneClasses: Record<
     glow: "bg-slate-200/40",
   },
 };
+
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const err = error as ApiErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function showErrorToast(title: string, error: unknown, fallback: string) {
+  toast({
+    icon: "error",
+    title,
+    text: getErrorMessage(error, fallback),
+    timer: 4000,
+  });
+}
+
+function showValidationToast(title: string, message: string) {
+  toast({
+    icon: "error",
+    title,
+    text: message,
+    timer: 4000,
+  });
+}
+
+function showSuccessToast(title: string, message?: string) {
+  toast({
+    icon: "success",
+    title,
+    text: message,
+    timer: 2500,
+  });
+}
 
 function formatPlanName(value?: string | null) {
   const raw = String(value || "").trim();
@@ -383,92 +558,6 @@ function toNumber(value: unknown, fallback = 0) {
   return fallback;
 }
 
-function normalizeFeatureKey(value: unknown) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-}
-
-function toFeatureArray(source: unknown) {
-  if (Array.isArray(source)) return source;
-
-  if (source && typeof source === "object") {
-    return Object.entries(source as Record<string, unknown>).map(([key, value]) => {
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        return {
-          key,
-          ...(value as Record<string, unknown>),
-        };
-      }
-
-      return {
-        key,
-        limit: value,
-      };
-    });
-  }
-
-  return [];
-}
-
-function getFirstDefined(...values: unknown[]) {
-  return values.find(
-    (value) => value !== undefined && value !== null && value !== ""
-  );
-}
-
-function findFeatureUsage(featureKey: string, sources: unknown[]) {
-  const normalizedFeatureKey = normalizeFeatureKey(featureKey);
-
-  for (const source of sources) {
-    if (!source) continue;
-
-    if (Array.isArray(source)) {
-      const match = source.find((item: any) => {
-        const itemKey = normalizeFeatureKey(
-          item?.key ||
-          item?.featureKey ||
-          item?.feature_key ||
-          item?.name ||
-          item?.label
-        );
-
-        return itemKey === normalizedFeatureKey;
-      });
-
-      if (match) return match;
-      continue;
-    }
-
-    if (typeof source === "object") {
-      const sourceRecord = source as Record<string, any>;
-
-      const directValue = sourceRecord[featureKey];
-
-      if (directValue !== undefined) {
-        return directValue && typeof directValue === "object"
-          ? { key: featureKey, ...directValue }
-          : { key: featureKey, used: directValue };
-      }
-
-      const matchingEntry = Object.entries(sourceRecord).find(
-        ([key]) => normalizeFeatureKey(key) === normalizedFeatureKey
-      );
-
-      if (matchingEntry) {
-        const [key, value] = matchingEntry;
-
-        return value && typeof value === "object"
-          ? { key, ...(value as Record<string, unknown>) }
-          : { key, used: value };
-      }
-    }
-  }
-
-  return null;
-}
-
 function buildUsageFeatures(brand: BrandDetail): ApiFeature[] {
   const subscriptionAny = brand.subscription as any;
   const features = Array.isArray(subscriptionAny?.features)
@@ -492,224 +581,17 @@ function buildUsageFeatures(brand: BrandDetail): ApiFeature[] {
   }).filter(Boolean) as ApiFeature[];
 }
 
-function OverviewMetric({
-  title,
-  value,
-  hint,
-  icon: Icon,
-  tone = "indigo",
-}: {
-  title: string;
-  value: React.ReactNode;
-  hint: string;
-  icon: React.ComponentType<{ className?: string }>;
-  tone?: ColorTone;
-}) {
-  const color = toneClasses[tone];
-
-  return (
-    <div
-      className={`group relative overflow-hidden rounded-[28px] border p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-xl ${color.card}`}
-    >
-      <div
-        className={`pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full blur-2xl ${color.glow}`}
-      />
-
-      <div className="relative flex items-start justify-between gap-4">
-        <div>
-          <p className={`text-[11px] font-black uppercase tracking-[0.18em] ${color.text}`}>
-            {title}
-          </p>
-          <div className="mt-3 text-[24px] font-black leading-none text-[#1a1a1a]">
-            {value}
-          </div>
-          <p className="mt-2 text-xs font-semibold text-black/45">{hint}</p>
-        </div>
-
-        <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition ${color.icon} ${color.iconHover}`}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DetailTile({
-  label,
-  value,
-  tone = "slate",
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: ColorTone;
-}) {
-  const color = toneClasses[tone];
-
-  return (
-    <div
-      className={`group rounded-[22px] border bg-white px-5 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${color.border}`}
-    >
-      <div className="flex items-center gap-2">
-        <span className={`h-2 w-2 rounded-full ${color.dot}`} />
-        <p className="text-[11px] font-black uppercase tracking-[0.16em] text-black/40">
-          {label}
-        </p>
-      </div>
-
-      <div className="mt-3 text-sm font-black text-[#1a1a1a]">{value}</div>
-    </div>
-  );
-}
-
-const FeatureUsage = React.memo(function FeatureUsage({
-  feature,
-}: {
-  feature: ApiFeature;
-}) {
-  const isUnlimited =
-    feature.limit === -1 ||
-    Boolean(
-      feature.value &&
-      typeof feature.value === "object" &&
-      (feature.value as any).unlimited
-    );
-
-  const isManagedCapacity = feature.limit === 0;
-
-  const percent =
-    isUnlimited || isManagedCapacity
-      ? 100
-      : Math.min(100, Math.round((feature.used / feature.limit) * 100));
-
-  const tone =
-    isUnlimited || isManagedCapacity
-      ? "bg-emerald-500"
-      : percent >= 90
-        ? "bg-rose-500"
-        : percent >= 70
-          ? "bg-amber-500"
-          : "bg-emerald-500";
-
-  const limitLabel = isUnlimited
-    ? "Unlimited"
-    : isManagedCapacity
-      ? feature.note || "As needed"
-      : feature.limit;
-
-  return (
-    <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold text-slate-600">
-          {FEATURE_LABELS[feature.key] || feature.key.replace(/_/g, " ")}
-        </p>
-
-        <p className="text-[11px] font-extrabold text-slate-900">
-          {feature.used}/{limitLabel}
-        </p>
-      </div>
-
-      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div
-          className={`h-full rounded-full ${tone}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-
-      {feature.note ? (
-        <p className="text-[10px] font-semibold text-slate-500">
-          {feature.note}
-        </p>
-      ) : null}
-    </div>
-  );
-});
-
-
-type PaymentHistoryItem = {
-  paymentType: "plan" | "milestone";
-  orderId?: string;
-  paymentId?: string;
-  userId?: string;
-  role?: string;
-  planId?: string;
-  planName?: string;
-  amount?: number;
-  currency?: string;
-  status?: string;
-  receipt?: string;
-  invoiceNumber?: string;
-  invoiceIssuedAt?: string | null;
-  invoiceFilePath?: string;
-  paidAt?: string | null;
-  createdAt?: string | null;
-  subtotalCents?: number;
-  discountCents?: number;
-  taxCents?: number;
-  totalCents?: number;
-};
-
-type PaymentHistoryResponse = {
-  success: boolean;
-  message?: string;
-  userId?: string;
-  role?: string;
-  counts?: {
-    plans: number;
-    milestones: number;
-    total: number;
-  };
-  history?: PaymentHistoryItem[];
-};
-
-type AdminAssignedPlanHistoryItem = {
-  _id?: string;
-  brandId?: string;
-  planId?: string;
-  oldPlanName?: string;
-  newPlanName?: string;
-  billingCycle?: string;
-  startedAt?: string | null;
-  expiresAt?: string | null;
-  durationDays?: number | null;
-  assignedByAdminId?:
-  | string
-  | {
-    _id?: string;
-    name?: string;
-    email?: string;
-    role?: string;
-  }
-  | null;
-  assignedByAdminEmail?: string;
-  source?: string;
-  status?: string;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-};
-
-type AdminAssignedPlanHistoryResponse = {
-  success: boolean;
-  message?: string;
-  histories?: AdminAssignedPlanHistoryItem[];
-  history?: AdminAssignedPlanHistoryItem[];
-  data?: AdminAssignedPlanHistoryItem[];
-  total?: number;
-  totalPages?: number;
-};
-
 function getBrandPaymentHistoryUserId(brand: BrandDetail) {
   const brandAny = brand as any;
 
   return String(
     brandAny?._id ||
-    brandAny?.id ||
-    brandAny?.userId ||
-    brandAny?.brandId ||
-    brandAny?.brand?._id ||
-    brandAny?.brand?.id ||
-    ""
+      brandAny?.id ||
+      brandAny?.userId ||
+      brandAny?.brandId ||
+      brandAny?.brand?._id ||
+      brandAny?.brand?.id ||
+      ""
   );
 }
 
@@ -791,6 +673,136 @@ function getAdminAssignedStatusTone(status?: string) {
   return "neutral" as const;
 }
 
+function getTodayDateInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isPastDateInputValue(dateValue: string) {
+  if (!dateValue) return false;
+
+  const selected = new Date(`${dateValue}T00:00:00`);
+  const today = new Date();
+
+  selected.setHours(0, 0, 0, 0);
+  today.setHours(0, 0, 0, 0);
+
+  return selected.getTime() < today.getTime();
+}
+
+function isPositiveIntegerString(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0;
+}
+
+function OverviewMetric({
+  title,
+  value,
+  hint,
+  icon: Icon,
+  tone = "indigo",
+}: {
+  title: string;
+  value: React.ReactNode;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: ColorTone;
+}) {
+  const color = toneClasses[tone];
+
+  return (
+    <div
+      className={`group relative overflow-hidden rounded-[28px] border p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-xl ${color.card}`}
+    >
+      <div
+        className={`pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full blur-2xl ${color.glow}`}
+      />
+
+      <div className="relative flex items-start justify-between gap-4">
+        <div>
+          <p className={`text-[11px] font-black uppercase tracking-[0.18em] ${color.text}`}>
+            {title}
+          </p>
+          <div className="mt-3 text-[24px] font-black leading-none text-[#1a1a1a]">
+            {value}
+          </div>
+          <p className="mt-2 text-xs font-semibold text-black/45">{hint}</p>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border transition ${color.icon} ${color.iconHover}`}
+        >
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FeatureUsage = React.memo(function FeatureUsage({
+  feature,
+}: {
+  feature: ApiFeature;
+}) {
+  const isUnlimited =
+    feature.limit === -1 ||
+    Boolean(
+      feature.value &&
+        typeof feature.value === "object" &&
+        (feature.value as any).unlimited
+    );
+
+  const isManagedCapacity = feature.limit === 0;
+
+  const percent =
+    isUnlimited || isManagedCapacity
+      ? 100
+      : Math.min(100, Math.round((feature.used / feature.limit) * 100));
+
+  const tone =
+    isUnlimited || isManagedCapacity
+      ? "bg-emerald-500"
+      : percent >= 90
+        ? "bg-rose-500"
+        : percent >= 70
+          ? "bg-amber-500"
+          : "bg-emerald-500";
+
+  const limitLabel = isUnlimited
+    ? "Unlimited"
+    : isManagedCapacity
+      ? feature.note || "As needed"
+      : feature.limit;
+
+  return (
+    <div className="space-y-1.5 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold text-slate-600">
+          {FEATURE_LABELS[feature.key] || feature.key.replace(/_/g, " ")}
+        </p>
+
+        <p className="text-[11px] font-extrabold text-slate-900">
+          {feature.used}/{limitLabel}
+        </p>
+      </div>
+
+      <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div
+          className={`h-full rounded-full ${tone}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      {feature.note ? (
+        <p className="text-[10px] font-semibold text-slate-500">
+          {feature.note}
+        </p>
+      ) : null}
+    </div>
+  );
+});
 
 export function BrandSubscriptionTab(props: SubscriptionTabProps) {
   const {
@@ -832,9 +844,6 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
   >([]);
   const [adminAssignedHistoryLoading, setAdminAssignedHistoryLoading] =
     useState(false);
-  const [adminAssignedHistoryError, setAdminAssignedHistoryError] = useState<
-    string | null
-  >(null);
 
   const [adminAssignedSortBy, setAdminAssignedSortBy] = useState("createdAt");
   const [adminAssignedSortAsc, setAdminAssignedSortAsc] = useState(false);
@@ -844,7 +853,6 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
 
   const [subscriptionHistory, setSubscriptionHistory] = useState<PaymentHistoryItem[]>([]);
   const [subscriptionHistoryLoading, setSubscriptionHistoryLoading] = useState(false);
-  const [subscriptionHistoryError, setSubscriptionHistoryError] = useState<string | null>(null);
   const [downloadingInvoiceNumber, setDownloadingInvoiceNumber] = useState<string | null>(null);
 
   const [subscriptionSortBy, setSubscriptionSortBy] = useState("date");
@@ -853,18 +861,49 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
   const [subscriptionPage, setSubscriptionPage] = useState(1);
   const [subscriptionLimit, setSubscriptionLimit] = useState(5);
 
+  useEffect(() => {
+    if (!planError) return;
+
+    showErrorToast(
+      "Plans loading failed",
+      planError,
+      "Failed to load subscription plans."
+    );
+  }, [planError]);
+
+  useEffect(() => {
+    if (!assignMsg) return;
+
+    const normalized = assignMsg.toLowerCase();
+    const isError =
+      normalized.includes("fail") ||
+      normalized.includes("error") ||
+      normalized.includes("invalid") ||
+      normalized.includes("not found") ||
+      normalized.includes("unable");
+
+    toast({
+      icon: isError ? "error" : "success",
+      title: isError ? "Plan update failed" : "Plan updated",
+      text: assignMsg,
+      timer: isError ? 4000 : 2500,
+    });
+  }, [assignMsg]);
 
   const fetchAdminAssignedHistory = useCallback(async () => {
     const brandId = getBrandPaymentHistoryUserId(brand);
 
     if (!brandId) {
       setAdminAssignedHistory([]);
-      setAdminAssignedHistoryError("Brand id not found.");
+
+      showValidationToast(
+        "Brand ID missing",
+        "Brand id not found. Please refresh the page and try again."
+      );
       return;
     }
 
     setAdminAssignedHistoryLoading(true);
-    setAdminAssignedHistoryError(null);
 
     try {
       const response = await adminPost<AdminAssignedPlanHistoryResponse>(
@@ -888,9 +927,13 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
 
       setAdminAssignedHistory(histories);
       setAdminAssignedPage(1);
-    } catch (error: any) {
-      setAdminAssignedHistoryError(
-        error?.message || "Failed to load admin assigned history."
+    } catch (error) {
+      setAdminAssignedHistory([]);
+
+      showErrorToast(
+        "Admin assigned history failed",
+        error,
+        "Failed to load admin assigned history."
       );
     } finally {
       setAdminAssignedHistoryLoading(false);
@@ -902,12 +945,15 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
 
     if (!userId) {
       setSubscriptionHistory([]);
-      setSubscriptionHistoryError("Brand user id not found.");
+
+      showValidationToast(
+        "Brand user ID missing",
+        "Brand user id not found. Please refresh the page and try again."
+      );
       return;
     }
 
     setSubscriptionHistoryLoading(true);
-    setSubscriptionHistoryError(null);
 
     try {
       const response = await adminPost<PaymentHistoryResponse>("/payment/history", {
@@ -915,45 +961,48 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
         role: "Brand",
       });
 
-      // Only plan history should show here. Milestone history is removed here.
       const onlyPlanHistory = (response.history || []).filter(
         (item) => item.paymentType === "plan"
       );
 
       setSubscriptionHistory(onlyPlanHistory);
       setSubscriptionPage(1);
-    } catch (error: any) {
-      setSubscriptionHistoryError(
-        error?.message || "Failed to load subscription history."
+    } catch (error) {
+      setSubscriptionHistory([]);
+
+      showErrorToast(
+        "Subscription history failed",
+        error,
+        "Failed to load subscription history."
       );
     } finally {
       setSubscriptionHistoryLoading(false);
     }
   }, [brand]);
 
-
   useEffect(() => {
     fetchAdminAssignedHistory();
   }, [fetchAdminAssignedHistory]);
-
 
   useEffect(() => {
     fetchSubscriptionHistory();
   }, [fetchSubscriptionHistory]);
 
+  const handleAdminAssignedSort = useCallback(
+    (field: string) => {
+      setAdminAssignedPage(1);
 
-  const handleAdminAssignedSort = (field: string) => {
-    setAdminAssignedPage(1);
-
-    if (adminAssignedSortBy === field) {
-      setAdminAssignedSortAsc((prev) => !prev);
-    } else {
-      setAdminAssignedSortBy(field);
-      setAdminAssignedSortAsc(
-        !["createdAt", "startedAt", "expiresAt", "durationDays"].includes(field)
-      );
-    }
-  };
+      if (adminAssignedSortBy === field) {
+        setAdminAssignedSortAsc((prev) => !prev);
+      } else {
+        setAdminAssignedSortBy(field);
+        setAdminAssignedSortAsc(
+          !["createdAt", "startedAt", "expiresAt", "durationDays"].includes(field)
+        );
+      }
+    },
+    [adminAssignedSortBy]
+  );
 
   const sortedAdminAssignedHistory = useMemo(() => {
     return [...adminAssignedHistory].sort((a, b) => {
@@ -1013,18 +1062,19 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
     return sortedAdminAssignedHistory.slice(start, start + adminAssignedLimit);
   }, [sortedAdminAssignedHistory, adminAssignedLimit, adminAssignedPage]);
 
+  const handleSubscriptionSort = useCallback(
+    (field: string) => {
+      setSubscriptionPage(1);
 
-
-  const handleSubscriptionSort = (field: string) => {
-    setSubscriptionPage(1);
-
-    if (subscriptionSortBy === field) {
-      setSubscriptionSortAsc((prev) => !prev);
-    } else {
-      setSubscriptionSortBy(field);
-      setSubscriptionSortAsc(field !== "date");
-    }
-  };
+      if (subscriptionSortBy === field) {
+        setSubscriptionSortAsc((prev) => !prev);
+      } else {
+        setSubscriptionSortBy(field);
+        setSubscriptionSortAsc(field !== "date");
+      }
+    },
+    [subscriptionSortBy]
+  );
 
   const sortedSubscriptionHistory = useMemo(() => {
     return [...subscriptionHistory].sort((a, b) => {
@@ -1070,12 +1120,14 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
 
   const handleDownloadInvoice = useCallback(async (invoiceNumber?: string) => {
     if (!invoiceNumber) {
-      setSubscriptionHistoryError("Invoice number is not available for this payment.");
+      showValidationToast(
+        "Invoice unavailable",
+        "Invoice number is not available for this payment."
+      );
       return;
     }
 
     setDownloadingInvoiceNumber(invoiceNumber);
-    setSubscriptionHistoryError(null);
 
     try {
       const blob = await adminDownloadBlob("/payment/generate-invoice", {
@@ -1092,12 +1144,96 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
       link.remove();
 
       window.URL.revokeObjectURL(url);
-    } catch (error: any) {
-      setSubscriptionHistoryError(error?.message || "Failed to download invoice.");
+
+      showSuccessToast(
+        "Invoice downloaded",
+        "The invoice PDF has been downloaded successfully."
+      );
+    } catch (error) {
+      showErrorToast(
+        "Invoice download failed",
+        error,
+        "Failed to download invoice."
+      );
     } finally {
       setDownloadingInvoiceNumber(null);
     }
   }, []);
+
+  const validatePlanUpdate = useCallback(() => {
+    if (loadingPlans) {
+      showValidationToast(
+        "Plans are loading",
+        "Please wait until subscription plans are loaded."
+      );
+      return false;
+    }
+
+    if (!plans.length) {
+      showValidationToast(
+        "No plans found",
+        "No subscription plans are available. Please refresh and try again."
+      );
+      return false;
+    }
+
+    if (!selectedPlanId) {
+      showValidationToast(
+        "Plan required",
+        "Please select a plan before updating."
+      );
+      return false;
+    }
+
+    if (validityMode === "custom_days" && !isPositiveIntegerString(customDays)) {
+      showValidationToast(
+        "Invalid validity days",
+        "Please enter valid custom days greater than 0."
+      );
+      return false;
+    }
+
+    if (validityMode === "exact_date") {
+      if (!customExpiryDate) {
+        showValidationToast(
+          "Expiry date required",
+          "Please select an exact expiry date."
+        );
+        return false;
+      }
+
+      if (isPastDateInputValue(customExpiryDate)) {
+        showValidationToast(
+          "Invalid expiry date",
+          "Exact expiry date cannot be in the past."
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }, [
+    customDays,
+    customExpiryDate,
+    loadingPlans,
+    plans.length,
+    selectedPlanId,
+    validityMode,
+  ]);
+
+  const handleUpdatePlan = useCallback(async () => {
+    if (!validatePlanUpdate()) return;
+
+    try {
+      await onUpdatePlan();
+    } catch (error) {
+      showErrorToast(
+        "Plan update failed",
+        error,
+        "Failed to update subscription plan."
+      );
+    }
+  }, [onUpdatePlan, validatePlanUpdate]);
 
   const adminAssignedHistoryColumns = useMemo<
     AdminTableColumn<AdminAssignedPlanHistoryItem>[]
@@ -1297,353 +1433,347 @@ export function BrandSubscriptionTab(props: SubscriptionTabProps) {
   );
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-[32px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50/50 p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <OverviewMetric
-            title="Billing Cycle"
-            value={currentSubscription.billingCycle || "—"}
-            hint="Current billing frequency"
-            icon={RefreshCw}
-            tone="sky"
-          />
+    <>
+      <ToastStyles />
 
-          <OverviewMetric
-            title="Expiry Date"
-            value={formatDate(currentSubscription.expiresAt)}
-            hint="Current subscription validity"
-            icon={CalendarClock}
-            tone="amber"
-          />
+      <div className="space-y-6">
+        <div className="rounded-[32px] border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-emerald-50/50 p-5 shadow-sm">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <OverviewMetric
+              title="Billing Cycle"
+              value={currentSubscription.billingCycle || "—"}
+              hint="Current billing frequency"
+              icon={RefreshCw}
+              tone="sky"
+            />
 
-          <OverviewMetric
-            title="Plan Status"
-            value={
+            <OverviewMetric
+              title="Expiry Date"
+              value={formatDate(currentSubscription.expiresAt)}
+              hint="Current subscription validity"
+              icon={CalendarClock}
+              tone="amber"
+            />
+
+            <OverviewMetric
+              title="Plan Status"
+              value={
+                <StatusPill
+                  label={currentSubscription.status}
+                  tone={getStatusTone(currentSubscription.status)}
+                />
+              }
+              hint="Live subscription status"
+              icon={ShieldCheck}
+              tone={statusColorTone}
+            />
+          </div>
+        </div>
+
+        <SectionCard
+          title="Subscription Usage"
+          description="Current subscription metered usage summary."
+        >
+          <div className="p-4">
+            {usageFeatures.length > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {usageFeatures.map((feature) => (
+                  <FeatureUsage key={feature.key} feature={feature} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-slate-500">
+                No metered features found.
+              </p>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Update Plan"
+          description="Choose a new plan, billing cycle, and validity handling."
+          action={
+            checking ? (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
+                Checking...
+              </span>
+            ) : checkInfo ? (
               <StatusPill
-                label={currentSubscription.status}
-                tone={getStatusTone(currentSubscription.status)}
+                label={checkInfo.message}
+                tone={checkInfo.canProceed ? "success" : "danger"}
               />
-            }
-            hint="Live subscription status"
-            icon={ShieldCheck}
-            tone={statusColorTone}
-          />
-        </div>
-      </div>
+            ) : null
+          }
+        >
+          <div className="space-y-5 p-5">
+            <div className="rounded-[28px] border border-violet-100 bg-white/90 p-5 shadow-sm">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#1a1a1a]">
+                    Plan Configuration
+                  </h3>
+                  <p className="text-xs font-semibold text-black/45">
+                    Select plan, billing cycle, and validity rules.
+                  </p>
+                </div>
+              </div>
 
-      <SectionCard
-        title="Subscription Usage"
-        description="Current subscription metered usage summary."
-      >
-        <div className="p-4">
-          {usageFeatures.length > 0 ? (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {usageFeatures.map((feature) => (
-                <FeatureUsage key={feature.key} feature={feature} />
-              ))}
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-indigo-700">
+                    New Plan
+                  </label>
+                  <Select
+                    value={selectedPlanId}
+                    onValueChange={setSelectedPlanId}
+                    disabled={loadingPlans}
+                  >
+                    <SelectTrigger className="h-11 rounded-2xl border-indigo-100 bg-indigo-50/40 text-sm font-semibold shadow-sm">
+                      <SelectValue placeholder={loadingPlans ? "Loading..." : "Select plan"} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      {plans.map((plan) => (
+                        <SelectItem key={plan.planId} value={plan.planId}>
+                          {formatPlanName(plan.displayName || plan.name)}{" "}
+                          {plan.monthlyCost > 0
+                            ? `- ${formatCurrency(plan.monthlyCost)}/mo`
+                            : "- Free"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-sky-700">
+                    Billing Cycle
+                  </label>
+                  <Select
+                    value={billingCycle}
+                    onValueChange={(value) => setBillingCycle(value as "monthly" | "annual")}
+                  >
+                    <SelectTrigger className="h-11 rounded-2xl border-sky-100 bg-sky-50/50 text-sm font-semibold shadow-sm">
+                      <SelectValue placeholder="Select cycle" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="annual">Annual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                    Start Counting From
+                  </label>
+                  <Select
+                    value={applyFrom}
+                    onValueChange={(value) =>
+                      setApplyFrom(value as "now" | "current_expiry")
+                    }
+                  >
+                    <SelectTrigger className="h-11 rounded-2xl border-emerald-100 bg-emerald-50/50 text-sm font-semibold shadow-sm">
+                      <SelectValue placeholder="Select" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="now">Now</SelectItem>
+                      <SelectItem value="current_expiry">Current expiry</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-amber-700">
+                    Validity
+                  </label>
+                  <Select
+                    value={validityMode}
+                    onValueChange={(value) =>
+                      setValidityMode(
+                        value as "plan_default" | "custom_days" | "exact_date"
+                      )
+                    }
+                  >
+                    <SelectTrigger className="h-11 rounded-2xl border-amber-100 bg-amber-50/50 text-sm font-semibold shadow-sm">
+                      <SelectValue placeholder="Select validity" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      <SelectItem value="plan_default">Use plan default</SelectItem>
+                      <SelectItem value="custom_days">Custom days</SelectItem>
+                      <SelectItem value="exact_date">Exact expiry date</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-rose-700">
+                    Days
+                  </label>
+                  <Input
+                    placeholder="e.g. 30"
+                    value={customDays}
+                    onChange={(e) => setCustomDays(e.target.value)}
+                    disabled={validityMode !== "custom_days"}
+                    className="h-11 rounded-2xl border-rose-100 bg-rose-50/40 text-sm font-semibold shadow-sm"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-black uppercase tracking-[0.14em] text-violet-700">
+                    Exact Expiry Date
+                  </label>
+                  <Input
+                    type="date"
+                    value={customExpiryDate}
+                    min={getTodayDateInputValue()}
+                    onChange={(e) => setCustomExpiryDate(e.target.value)}
+                    disabled={validityMode !== "exact_date"}
+                    className="h-11 rounded-2xl border-violet-100 bg-violet-50/40 text-sm font-semibold shadow-sm"
+                  />
+                </div>
+              </div>
             </div>
-          ) : (
-            <p className="text-sm font-medium text-slate-500">
-              No metered features found.
-            </p>
-          )}
-        </div>
 
-      </SectionCard>
-
-      <SectionCard
-        title="Update Plan"
-        description="Choose a new plan, billing cycle, and validity handling."
-        action={
-          checking ? (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">
-              Checking...
-            </span>
-          ) : checkInfo ? (
-            <StatusPill
-              label={checkInfo.message}
-              tone={checkInfo.canProceed ? "success" : "danger"}
-            />
-          ) : null
-        }
-      >
-        <div className="space-y-5 p-5">
-          {planError ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-              {planError}
-            </div>
-          ) : null}
-
-          <div className="rounded-[28px] border border-violet-100 bg-white/90 p-5 shadow-sm">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
-                <Sparkles className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-[#1a1a1a]">
-                  Plan Configuration
-                </h3>
-                <p className="text-xs font-semibold text-black/45">
-                  Select plan, billing cycle, and validity rules.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-indigo-700">
-                  New Plan
-                </label>
-                <Select
-                  value={selectedPlanId}
-                  onValueChange={setSelectedPlanId}
-                  disabled={loadingPlans}
-                >
-                  <SelectTrigger className="h-11 rounded-2xl border-indigo-100 bg-indigo-50/40 text-sm font-semibold shadow-sm">
-                    <SelectValue placeholder={loadingPlans ? "Loading..." : "Select plan"} />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    {plans.map((plan) => (
-                      <SelectItem key={plan.planId} value={plan.planId}>
-                        {formatPlanName(plan.displayName || plan.name)}{" "}
-                        {plan.monthlyCost > 0
-                          ? `- ${formatCurrency(plan.monthlyCost)}/mo`
-                          : "- Free"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-sky-700">
-                  Billing Cycle
-                </label>
-                <Select
-                  value={billingCycle}
-                  onValueChange={(value) => setBillingCycle(value as "monthly" | "annual")}
-                >
-                  <SelectTrigger className="h-11 rounded-2xl border-sky-100 bg-sky-50/50 text-sm font-semibold shadow-sm">
-                    <SelectValue placeholder="Select cycle" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="annual">Annual</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-                  Start Counting From
-                </label>
-                <Select
-                  value={applyFrom}
-                  onValueChange={(value) =>
-                    setApplyFrom(value as "now" | "current_expiry")
-                  }
-                >
-                  <SelectTrigger className="h-11 rounded-2xl border-emerald-100 bg-emerald-50/50 text-sm font-semibold shadow-sm">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="now">Now</SelectItem>
-                    <SelectItem value="current_expiry">Current expiry</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-amber-700">
-                  Validity
-                </label>
-                <Select
-                  value={validityMode}
-                  onValueChange={(value) =>
-                    setValidityMode(
-                      value as "plan_default" | "custom_days" | "exact_date"
-                    )
-                  }
-                >
-                  <SelectTrigger className="h-11 rounded-2xl border-amber-100 bg-amber-50/50 text-sm font-semibold shadow-sm">
-                    <SelectValue placeholder="Select validity" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="plan_default">Use plan default</SelectItem>
-                    <SelectItem value="custom_days">Custom days</SelectItem>
-                    <SelectItem value="exact_date">Exact expiry date</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-rose-700">
-                  Days
-                </label>
-                <Input
-                  placeholder="e.g. 30"
-                  value={customDays}
-                  onChange={(e) => setCustomDays(e.target.value)}
-                  disabled={validityMode !== "custom_days"}
-                  className="h-11 rounded-2xl border-rose-100 bg-rose-50/40 text-sm font-semibold shadow-sm"
+            <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/60 p-4">
+              <label className="inline-flex items-center gap-3 text-sm font-bold text-emerald-800">
+                <input
+                  type="checkbox"
+                  checked={forceAssign}
+                  onChange={(e) => setForceAssign(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-600"
                 />
-              </div>
+                Force assign this plan
+              </label>
+            </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase tracking-[0.14em] text-violet-700">
-                  Exact Expiry Date
-                </label>
-                <Input
-                  type="date"
-                  value={customExpiryDate}
-                  onChange={(e) => setCustomExpiryDate(e.target.value)}
-                  disabled={validityMode !== "exact_date"}
-                  className="h-11 rounded-2xl border-violet-100 bg-violet-50/40 text-sm font-semibold shadow-sm"
-                />
-              </div>
+            <div className="flex justify-end">
+              <Button
+                onClick={handleUpdatePlan}
+                disabled={!selectedPlanId || assigning}
+                className="h-11 rounded-[10px] bg-black px-6 text-sm font-extrabold text-white shadow-sm hover:bg-black/90"
+              >
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                {assigning ? "Updating..." : "Update Plan"}
+              </Button>
             </div>
           </div>
+        </SectionCard>
 
-          <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/60 p-4">
-            <label className="inline-flex items-center gap-3 text-sm font-bold text-emerald-800">
-              <input
-                type="checkbox"
-                checked={forceAssign}
-                onChange={(e) => setForceAssign(e.target.checked)}
-                className="h-4 w-4 accent-emerald-600"
-              />
-              Force assign this plan
-            </label>
-          </div>
-
-          <div className="flex justify-end">
+        <SectionCard
+          title="Admin Assigned History"
+          description="Plan assignment history manually updated by admins."
+          action={
             <Button
-              onClick={onUpdatePlan}
-              disabled={!selectedPlanId || assigning}
-              className="h-11 rounded-[10px] bg-black px-6 text-sm font-extrabold text-white shadow-sm hover:bg-black/90"
+              type="button"
+              onClick={fetchAdminAssignedHistory}
+              disabled={adminAssignedHistoryLoading}
+              className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
             >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              {assigning ? "Updating..." : "Update Plan"}
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${
+                  adminAssignedHistoryLoading ? "animate-spin" : ""
+                }`}
+              />
+              Refresh
             </Button>
-          </div>
-
-          {assignMsg ? (
-            <div className="rounded-[18px] border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-700 shadow-sm">
-              {assignMsg}
+          }
+        >
+          <div className="p-5">
+            <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <AdminTable<AdminAssignedPlanHistoryItem>
+                data={paginatedAdminAssignedHistory}
+                columns={adminAssignedHistoryColumns}
+                rowKey={(item, index) =>
+                  `${item._id || item.planId || "admin-assigned"}-${adminAssignedPage}-${index}`
+                }
+                loading={adminAssignedHistoryLoading}
+                loadingRows={5}
+                emptyTitle="No admin assigned history found"
+                emptyDescription="No manually assigned plan history found for this brand."
+                sortBy={adminAssignedSortBy}
+                sortOrder={adminAssignedSortAsc ? "asc" : "desc"}
+                onSort={handleAdminAssignedSort}
+                tableClassName="min-w-[1240px] bg-white"
+                headerRowClassName="bg-slate-50/90"
+                pagination={{
+                  page: adminAssignedPage,
+                  totalPages: adminAssignedTotalPages,
+                  totalItems: sortedAdminAssignedHistory.length,
+                  limit: adminAssignedLimit,
+                  onPageChange: setAdminAssignedPage,
+                  onLimitChange: (nextLimit) => {
+                    setAdminAssignedLimit(nextLimit);
+                    setAdminAssignedPage(1);
+                  },
+                  rowOptions: [5, 10, 20, 50],
+                  loading: adminAssignedHistoryLoading,
+                  showRowsSelector: true,
+                  showSummary: true,
+                }}
+              />
             </div>
-          ) : null}
-        </div>
-      </SectionCard>
-      <SectionCard
-        title="Admin Assigned History"
-        description="Plan assignment history manually updated by admins."
-        action={
-          <Button
-            type="button"
-            onClick={fetchAdminAssignedHistory}
-            disabled={adminAssignedHistoryLoading}
-            className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${adminAssignedHistoryLoading ? "animate-spin" : ""
-                }`}
-            />
-            Refresh
-          </Button>
-        }
-      >
-        <div className="p-5">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-            <AdminTable<AdminAssignedPlanHistoryItem>
-              data={paginatedAdminAssignedHistory}
-              columns={adminAssignedHistoryColumns}
-              rowKey={(item, index) =>
-                `${item._id || item.planId || "admin-assigned"}-${adminAssignedPage}-${index}`
-              }
-              loading={adminAssignedHistoryLoading}
-              loadingRows={5}
-              error={adminAssignedHistoryError}
-              emptyTitle="No admin assigned history found"
-              emptyDescription="No manually assigned plan history found for this brand."
-              sortBy={adminAssignedSortBy}
-              sortOrder={adminAssignedSortAsc ? "asc" : "desc"}
-              onSort={handleAdminAssignedSort}
-              tableClassName="min-w-[1240px] bg-white"
-              headerRowClassName="bg-slate-50/90"
-              pagination={{
-                page: adminAssignedPage,
-                totalPages: adminAssignedTotalPages,
-                totalItems: sortedAdminAssignedHistory.length,
-                limit: adminAssignedLimit,
-                onPageChange: setAdminAssignedPage,
-                onLimitChange: (nextLimit) => {
-                  setAdminAssignedLimit(nextLimit);
-                  setAdminAssignedPage(1);
-                },
-                rowOptions: [5, 10, 20, 50],
-                loading: adminAssignedHistoryLoading,
-                showRowsSelector: true,
-                showSummary: true,
-              }}
-            />
           </div>
-        </div>
-      </SectionCard>
-      <SectionCard
-        title="Subscription History"
-        description="Only plan subscription history fetched from payment history."
-        action={
-          <Button
-            type="button"
-            onClick={fetchSubscriptionHistory}
-            disabled={subscriptionHistoryLoading}
-            className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${subscriptionHistoryLoading ? "animate-spin" : ""
+        </SectionCard>
+
+        <SectionCard
+          title="Subscription History"
+          description="Only plan subscription history fetched from payment history."
+          action={
+            <Button
+              type="button"
+              onClick={fetchSubscriptionHistory}
+              disabled={subscriptionHistoryLoading}
+              className="h-10 rounded-[10px] bg-black px-4 text-xs font-extrabold text-white shadow-sm hover:bg-black/90 disabled:opacity-60"
+            >
+              <RefreshCw
+                className={`mr-2 h-4 w-4 ${
+                  subscriptionHistoryLoading ? "animate-spin" : ""
                 }`}
-            />
-            Refresh
-          </Button>
-        }
-      >
-        <div className="p-5">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-            <AdminTable<PaymentHistoryItem>
-              data={paginatedSubscriptionHistory}
-              columns={subscriptionHistoryColumns}
-              rowKey={(item, index) =>
-                `${getPaymentHistoryDate(item, index)}-${subscriptionPage}-${index}`
-              }
-              loading={subscriptionHistoryLoading}
-              loadingRows={5}
-              error={subscriptionHistoryError}
-              emptyTitle="No subscription history found"
-              emptyDescription="No plan payment history found for this brand."
-              sortBy={subscriptionSortBy}
-              sortOrder={subscriptionSortAsc ? "asc" : "desc"}
-              onSort={handleSubscriptionSort}
-              tableClassName="min-w-[980px] bg-white"
-              headerRowClassName="bg-slate-50/90"
-              pagination={{
-                page: subscriptionPage,
-                totalPages: subscriptionTotalPages,
-                totalItems: sortedSubscriptionHistory.length,
-                limit: subscriptionLimit,
-                onPageChange: setSubscriptionPage,
-                onLimitChange: (nextLimit) => {
-                  setSubscriptionLimit(nextLimit);
-                  setSubscriptionPage(1);
-                },
-                rowOptions: [5, 10, 20, 50],
-                loading: subscriptionHistoryLoading,
-                showRowsSelector: true,
-                showSummary: true,
-              }}
-            />
+              />
+              Refresh
+            </Button>
+          }
+        >
+          <div className="p-5">
+            <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <AdminTable<PaymentHistoryItem>
+                data={paginatedSubscriptionHistory}
+                columns={subscriptionHistoryColumns}
+                rowKey={(item, index) =>
+                  `${getPaymentHistoryDate(item, index)}-${subscriptionPage}-${index}`
+                }
+                loading={subscriptionHistoryLoading}
+                loadingRows={5}
+                emptyTitle="No subscription history found"
+                emptyDescription="No plan payment history found for this brand."
+                sortBy={subscriptionSortBy}
+                sortOrder={subscriptionSortAsc ? "asc" : "desc"}
+                onSort={handleSubscriptionSort}
+                tableClassName="min-w-[980px] bg-white"
+                headerRowClassName="bg-slate-50/90"
+                pagination={{
+                  page: subscriptionPage,
+                  totalPages: subscriptionTotalPages,
+                  totalItems: sortedSubscriptionHistory.length,
+                  limit: subscriptionLimit,
+                  onPageChange: setSubscriptionPage,
+                  onLimitChange: (nextLimit) => {
+                    setSubscriptionLimit(nextLimit);
+                    setSubscriptionPage(1);
+                  },
+                  rowOptions: [5, 10, 20, 50],
+                  loading: subscriptionHistoryLoading,
+                  showRowsSelector: true,
+                  showSummary: true,
+                }}
+              />
+            </div>
           </div>
-        </div>
-      </SectionCard>
-    </div>
+        </SectionCard>
+      </div>
+    </>
   );
 }

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { post } from "@/lib/api";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import {
   Table,
   TableHeader,
@@ -48,17 +49,149 @@ interface GetCampaignsResponse {
   influencer?: InfluencerLite;
 }
 
+type CampaignFilter = "all" | "approved" | "pending" | "rejected";
+
+type ApiErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
+};
+
 const CAMPAIGN_ROUTE_BASE = "/admin/campaigns/view?id=";
+const PAGE_LIMIT = 10;
+
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const err = error as ApiErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function showErrorToast(title: string, error: unknown, fallback: string) {
+  toast({
+    icon: "error",
+    title,
+    text: getErrorMessage(error, fallback),
+    timer: 4000,
+  });
+}
+
+function showValidationToast(title: string, message: string) {
+  toast({
+    icon: "error",
+    title,
+    text: message,
+    timer: 4000,
+  });
+}
+
+function showWarningToast(title: string, message?: string) {
+  toast({
+    icon: "warning",
+    title,
+    text: message,
+    timer: 3500,
+  });
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
+
   const dt = new Date(value);
+
   if (Number.isNaN(dt.getTime())) return "-";
+
   return dt.toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
+}
+
+function getCampaignDisplayId(campaign: Campaign, index: number) {
+  return campaign._id ?? campaign.id ?? campaign.campaignId ?? `campaign-${index}`;
+}
+
+function getCampaignRouteId(campaign: Campaign) {
+  return campaign.campaignId ?? campaign.id ?? campaign._id ?? "";
+}
+
+function getCampaignName(campaign: Campaign) {
+  return campaign.name || campaign.campaignName || "Unnamed Campaign";
+}
+
+function getStatusClass(status?: Campaign["status"]) {
+  const map: Record<Campaign["status"], string> = {
+    approved: "text-green-600",
+    pending: "text-yellow-600",
+    rejected: "text-red-600",
+  };
+
+  return status ? map[status] || "text-gray-600" : "text-gray-600";
 }
 
 export default function InfluencerCampaignsPage() {
@@ -67,7 +200,7 @@ export default function InfluencerCampaignsPage() {
   const influencerId = params.get("influencerId");
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [filter, setFilter] = useState<"all" | "approved" | "pending" | "rejected">("all");
+  const [filter, setFilter] = useState<CampaignFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +212,24 @@ export default function InfluencerCampaignsPage() {
   const [influencerEmail, setInfluencerEmail] = useState("");
 
   useEffect(() => {
-    if (!influencerId) return;
+    if (!influencerId) {
+      const message = "Missing influencer ID in the URL.";
+
+      setCampaigns([]);
+      setError(message);
+      setLoading(false);
+      setPages(1);
+      setTotal(0);
+      setInfluencerName("");
+      setInfluencerEmail("");
+
+      showValidationToast(
+        "Missing influencer ID",
+        "Please open this page with a valid influencerId."
+      );
+
+      return;
+    }
 
     let isMounted = true;
 
@@ -88,15 +238,18 @@ export default function InfluencerCampaignsPage() {
         setLoading(true);
         setError(null);
 
-        const data = await post<GetCampaignsResponse>("/admin/campaign/getByInfluencerId", {
-          influencerId,
-          page,
-          limit: 10,
-          search: "",
-          sortBy: "createdAt",
-          sortOrder: "desc",
-          status: "all",
-        });
+        const data = await post<GetCampaignsResponse>(
+          "/admin/campaign/getByInfluencerId",
+          {
+            influencerId,
+            page,
+            limit: PAGE_LIMIT,
+            search: "",
+            sortBy: "createdAt",
+            sortOrder: "desc",
+            status: "all",
+          }
+        );
 
         if (!isMounted) return;
 
@@ -111,9 +264,23 @@ export default function InfluencerCampaignsPage() {
           setInfluencerName("");
           setInfluencerEmail("");
         }
-      } catch (err: any) {
+      } catch (err) {
         if (!isMounted) return;
-        setError(err?.message ?? "Failed to load campaigns");
+
+        const message = getErrorMessage(err, "Failed to load campaigns.");
+
+        setCampaigns([]);
+        setError(message);
+        setPages(1);
+        setTotal(0);
+        setInfluencerName("");
+        setInfluencerEmail("");
+
+        showErrorToast(
+          "Campaigns loading failed",
+          err,
+          "Failed to load campaigns."
+        );
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -126,139 +293,171 @@ export default function InfluencerCampaignsPage() {
     };
   }, [influencerId, page]);
 
+  useEffect(() => {
+    if (page > pages) {
+      setPage(Math.max(1, pages));
+    }
+  }, [page, pages]);
+
   const filtered = useMemo(() => {
     if (filter === "all") return campaigns;
-    return campaigns.filter((c) => c.status === filter);
+
+    return campaigns.filter((campaign) => campaign.status === filter);
   }, [campaigns, filter]);
 
-  if (!influencerId) {
-    return (
-      <div className="p-6">
-        <p className="text-red-600">Error: Missing influencer ID in the URL.</p>
-      </div>
-    );
-  }
+  const headingName =
+    influencerName?.trim() || influencerEmail?.trim() || influencerId || "Influencer";
+
+  const handleCampaignClick = (campaign: Campaign) => {
+    const campaignRouteId = getCampaignRouteId(campaign);
+
+    if (!campaignRouteId) {
+      showWarningToast(
+        "Campaign ID missing",
+        "Unable to open this campaign because its ID is missing."
+      );
+      return;
+    }
+
+    router.push(`${CAMPAIGN_ROUTE_BASE}${campaignRouteId}`);
+  };
 
   if (loading) {
-    return <p className="p-6">Loading campaigns...</p>;
-  }
-
-  if (error) {
     return (
-      <div className="p-6">
-        <p className="text-red-600">Error loading campaigns: {error}</p>
-      </div>
+      <>
+        <ToastStyles />
+
+        <div className="p-6">
+          <p>Loading campaigns...</p>
+        </div>
+      </>
     );
   }
 
-  const headingName =
-    influencerName?.trim() || influencerEmail?.trim() || influencerId;
+  if (error && !campaigns.length) {
+    return (
+      <>
+        <ToastStyles />
+
+        <div className="p-6">
+          <p className="text-red-600">Error loading campaigns: {error}</p>
+        </div>
+      </>
+    );
+  }
 
   return (
-    <div className="p-6 space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold">Campaigns for {headingName}</h1>
-        <p className="text-sm text-gray-500">
-          {influencerEmail ? ` • ${influencerEmail}` : ""}
-          {typeof total === "number" ? ` • ${total} total` : ""}
-        </p>
-      </div>
+    <>
+      <ToastStyles />
 
-      <div className="mb-4 flex items-center space-x-2">
-        <span>Show:</span>
-        <Select
-          value={filter}
-          onValueChange={(v) =>
-            setFilter(v as "all" | "approved" | "pending" | "rejected")
-          }
-        >
-          <SelectTrigger className="w-36">
-            <SelectValue placeholder="Filter" />
-          </SelectTrigger>
-          <SelectContent className="bg-white">
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="approved">Approved</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {filtered.length === 0 ? (
-        <div className="rounded-lg border p-6 text-sm text-gray-600">
-          No campaigns to display.
+      <div className="p-6 space-y-4">
+        <div>
+          <h1 className="text-2xl font-bold">Campaigns for {headingName}</h1>
+          <p className="text-sm text-gray-500">
+            {influencerEmail ? ` • ${influencerEmail}` : ""}
+            {typeof total === "number" ? ` • ${total} total` : ""}
+          </p>
         </div>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Campaign</TableCell>
-              <TableCell>Brand</TableCell>
-              <TableCell>Applied Date</TableCell>
-              <TableCell>Status</TableCell>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((c) => {
-              const id = c._id ?? c.id ?? c.campaignId ?? "";
-              const campaignName = c.name || c.campaignName || "Unnamed Campaign";
 
-              const handleRowClick = () => {
-                const campaignId = c.campaignId ?? c.id ?? id;
-                if (!campaignId) return;
-                router.push(`${CAMPAIGN_ROUTE_BASE}${campaignId}`);
-              };
+        <div className="mb-4 flex items-center space-x-2">
+          <span>Show:</span>
 
-              return (
-                <TableRow
-                  key={id}
-                  onClick={handleRowClick}
-                  className="cursor-pointer hover:bg-muted/60 transition-colors"
-                >
-                  <TableCell className="text-xs text-gray-500">{id}</TableCell>
-                  <TableCell className="font-medium underline-offset-2 hover:underline">
-                    {campaignName}
-                  </TableCell>
-                  <TableCell>{c.brandName ?? "-"}</TableCell>
-                  <TableCell>{formatDate(c.appliedDate)}</TableCell>
-                  <TableCell
-                    className={`font-medium ${
-                      {
-                        approved: "text-green-600",
-                        pending: "text-yellow-600",
-                        rejected: "text-red-600",
-                      }[c.status] || "text-gray-600"
-                    }`}
+          <Select
+            value={filter}
+            onValueChange={(value) => setFilter(value as CampaignFilter)}
+          >
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Filter" />
+            </SelectTrigger>
+
+            <SelectContent className="bg-white">
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+            {error}
+          </div>
+        ) : null}
+
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border p-6 text-sm text-gray-600">
+            No campaigns to display.
+          </div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableCell>ID</TableCell>
+                <TableCell>Campaign</TableCell>
+                <TableCell>Brand</TableCell>
+                <TableCell>Applied Date</TableCell>
+                <TableCell>Status</TableCell>
+              </TableRow>
+            </TableHeader>
+
+            <TableBody>
+              {filtered.map((campaign, index) => {
+                const id = getCampaignDisplayId(campaign, index);
+                const campaignName = getCampaignName(campaign);
+
+                return (
+                  <TableRow
+                    key={id}
+                    onClick={() => handleCampaignClick(campaign)}
+                    className="cursor-pointer hover:bg-muted/60 transition-colors"
                   >
-                    {c.status}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      )}
+                    <TableCell className="text-xs text-gray-500">{id}</TableCell>
 
-      <div className="flex items-center justify-between mt-4">
-        <button
-          disabled={page <= 1}
-          onClick={() => setPage((p) => Math.max(p - 1, 1))}
-          className="px-4 py-2 border rounded disabled:opacity-50"
-        >
-          Previous
-        </button>
-        <span>
-          Page {page} of {pages}
-        </span>
-        <button
-          disabled={page >= pages}
-          onClick={() => setPage((p) => Math.min(p + 1, pages))}
-          className="px-4 py-2 border rounded disabled:opacity-50"
-        >
-          Next
-        </button>
+                    <TableCell className="font-medium underline-offset-2 hover:underline">
+                      {campaignName}
+                    </TableCell>
+
+                    <TableCell>{campaign.brandName ?? "-"}</TableCell>
+
+                    <TableCell>{formatDate(campaign.appliedDate)}</TableCell>
+
+                    <TableCell
+                      className={`font-medium ${getStatusClass(campaign.status)}`}
+                    >
+                      {campaign.status}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        <div className="flex items-center justify-between mt-4">
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage((currentPage) => Math.max(currentPage - 1, 1))}
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            Previous
+          </button>
+
+          <span>
+            Page {page} of {pages}
+          </span>
+
+          <button
+            disabled={page >= pages}
+            onClick={() =>
+              setPage((currentPage) => Math.min(currentPage + 1, pages))
+            }
+            className="px-4 py-2 border rounded disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
