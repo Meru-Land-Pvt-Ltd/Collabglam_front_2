@@ -493,13 +493,13 @@ function ActionButtons({
         </button>
       ) : null}
 
-      {/* <button
+      <button
         type="button"
         onClick={onManage}
         className="inline-flex h-8 items-center justify-center rounded-[0.5rem] bg-[#1A1A1A] px-4 text-[12px] font-medium text-white hover:opacity-90"
       >
         Manage
-      </button> */}
+      </button>
       {showViewContract && onViewContract ? (
         <button
           type="button"
@@ -624,13 +624,13 @@ function ActiveMilestoneActions({
         </button>
       ) : null}
 
-      {/* <button
+      <button
         type="button"
         onClick={onManage}
         className="inline-flex h-8 items-center justify-center rounded-[0.5rem] bg-[#1A1A1A] px-4 text-[12px] font-medium text-white hover:opacity-90"
       >
         Manage
-      </button> */}
+      </button>
 
       <button
         type="button"
@@ -1528,20 +1528,40 @@ export default function InfluencerList() {
 
   const handleManage = useCallback(
     async (row: InfluencerRow) => {
-      const raw = (row as any)?.__raw ?? null;
+      const raw = (row as any)?.__raw ?? {};
 
-      let contractId =
-        contractMetaMap[row.id]?.contractId ??
-        raw?.contractId ??
-        raw?._id ??
-        "";
+      const influencerId = String(
+        raw?.influencerId ||
+        row.id ||
+        ""
+      ).trim();
 
-      // Fallback: fetch latest contract if contract id is not ready yet
+      if (!influencerId) {
+        toast({
+          icon: "error",
+          title: "Influencer not found",
+          text: "Could not identify this influencer.",
+        });
+        return;
+      }
+
+      let contractId = String(
+        contractMetaMap[row.id]?.contractId ||
+        contractMetaMap[row.id]?._id ||
+        raw?.contractId ||
+        raw?.contract?._id ||
+        raw?.contract?.contractId ||
+        ""
+      ).trim();
+
+      // Fallback: if contract meta has not loaded yet, fetch latest contract before redirect.
       if (!contractId && raw?.influencerId && brandId && campaignId) {
         try {
           const meta = await getLatestContractForApplicant(raw);
+
           if (meta) {
-            contractId = meta?.contractId ?? meta?._id ?? "";
+            contractId = String(meta?.contractId || meta?._id || "").trim();
+
             setContractMetaMap((prev) => ({
               ...prev,
               [row.id]: meta,
@@ -1552,16 +1572,19 @@ export default function InfluencerList() {
         }
       }
 
-      if (!contractId) {
-        toast({
-          icon: "error",
-          title: "Contract not found",
-          text: "No contract is available for this influencer yet.",
-        });
-        return;
+      const params = new URLSearchParams();
+
+      params.set("influencerId", influencerId);
+
+      if (campaignId) {
+        params.set("campaignId", campaignId);
       }
 
-      const targetUrl = `/brand/influencers?id=${encodeURIComponent(contractId)}`;
+      if (contractId) {
+        params.set("contractId", contractId);
+      }
+
+      const targetUrl = `/brand/influencers?${params.toString()}`;
 
       if (typeof window !== "undefined") {
         window.location.href = targetUrl;
@@ -1570,7 +1593,13 @@ export default function InfluencerList() {
 
       router.push(targetUrl);
     },
-    [router, contractMetaMap, brandId, campaignId, getLatestContractForApplicant]
+    [
+      router,
+      campaignId,
+      brandId,
+      contractMetaMap,
+      getLatestContractForApplicant,
+    ]
   );
 
   const handleMail = useCallback(

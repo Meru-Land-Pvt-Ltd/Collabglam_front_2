@@ -397,7 +397,10 @@ export default function ViewBrandPage() {
           <BrandOverviewTab
             brand={brand}
             onTabChange={setActiveTab}
-            onRefresh={() => brandId && fetchBrand(brandId)}
+            onRefresh={async () => {
+              if (!brandId) return;
+              await fetchBrand(brandId);
+            }}
             onCreateCampaign={() =>
               router.push(`/admin/brands/create-campaign?brandId=${brand._id}`)
             }

@@ -4,6 +4,7 @@ import * as Api from "@/lib/api";
 import { post as libPost, patch as libPatch } from "@/lib/api";
 
 const BRAND_BASE = "/brand";
+const INFLUENCER_BASE = "/influencer";
 const LIST_BASE = "/list";
 const CAMPAIGN_BASE = "/campaign";
 const WALLET_BASE = "/wallet";
@@ -2173,4 +2174,142 @@ export async function apiAdminEditCampaign(payload: any) {
 
 export async function apiFetchCampaignPitchFolder(campaignId: string) {
   return apiGet(`/pitch-folders/campaign/${campaignId}`);
+}
+
+export type InfluencerDetails = {
+  _id?: string;
+  id?: string;
+
+  name?: string;
+  creatorName?: string;
+  email?: string;
+  phone?: string;
+
+  countryId?: string;
+  country?: any;
+
+  languageIds?: string[];
+  categoryIds?: string[];
+
+  profilePic?: string;
+  bio?: string;
+
+  page1?: any[];
+  page2?: QA[];
+  page3?: QA[];
+
+  onboarding?: {
+    page1Done?: boolean;
+    page2Done?: boolean;
+    page3Done?: boolean;
+  };
+
+  socialProfiles?: any;
+
+  createdAt?: string;
+  updatedAt?: string;
+
+  [key: string]: any;
+};
+
+export type GetInfluencerByIdResponse = {
+  influencer: InfluencerDetails;
+};
+
+export async function apiGetInfluencerById(influencerId: string) {
+  const id = String(influencerId || "").trim();
+
+  if (!id) {
+    throw new Error("influencerId is required");
+  }
+
+  return apiGet<GetInfluencerByIdResponse>(
+    `${INFLUENCER_BASE}/getById`,
+    {
+      _id: id,
+    }
+  );
+}
+
+
+export type InfluencerMatchScoreCriteria = {
+  key: string;
+  label: string;
+  weight: number;
+  score: number;
+  campaignValues?: string[];
+  influencerValues?: string[];
+};
+
+export type InfluencerMatchScoreBreakdownItem = {
+  label: string;
+  weight: number;
+  score: number;
+  weightedScore: number;
+  campaignValues?: string[];
+  influencerValues?: string[];
+};
+
+export type InfluencerMatchScoreResponse = {
+  matchScore: number;
+  matchPercent: string;
+  label: "High" | "Good" | "Average" | "Low" | string;
+  breakdown?: Record<string, InfluencerMatchScoreBreakdownItem>;
+  criteria?: InfluencerMatchScoreCriteria[];
+  matched?: {
+    category?: string[];
+    subcategory?: string[];
+    platform?: string[];
+  };
+  source?: {
+    campaign?: {
+      id?: string;
+      campaignTitle?: string;
+      categoryId?: string;
+      subcategoryIds?: string[];
+      categoryNames?: string[];
+      subcategoryNames?: string[];
+      platforms?: string[];
+    };
+    influencer?: {
+      id?: string;
+      influencerId?: string;
+      name?: string;
+      handle?: string;
+      categoryNames?: string[];
+      subcategoryNames?: string[];
+      interests?: string[];
+      platforms?: string[];
+      followers?: number;
+      engagementRate?: string;
+    };
+  };
+};
+
+export type GetInfluencerMatchScorePayload = {
+  campaignId: string;
+  influencerId: string;
+};
+
+export async function apiGetInfluencerMatchScore(
+  payload: GetInfluencerMatchScorePayload
+) {
+  const campaignId = String(payload.campaignId || "").trim();
+  const influencerId = String(payload.influencerId || "").trim();
+
+  if (!campaignId) {
+    throw new Error("campaignId is required");
+  }
+
+  if (!influencerId) {
+    throw new Error("influencerId is required");
+  }
+
+  return apiPost<InfluencerMatchScoreResponse>(
+    `${CAMPAIGN_BASE}/influencer-match-score`,
+    {
+      campaignId,
+      influencerId,
+    }
+  );
 }
