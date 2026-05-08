@@ -50,8 +50,15 @@ type ThreadRow = {
     primaryContact?: { name?: string; email?: string };
     stage?: string;
   } | null;
-  updatedAt?: string;
-  lastMessageAt?: string;
+  updatedAt?: string | null;
+  lastMessageAt?: string | null;
+  lastInboundAt?: string | null;
+  lastOutboundAt?: string | null;
+  unreadForRevenueHead?: boolean;
+  unreadForBme?: boolean;
+  unreadForIme?: boolean;
+  isUnread?: boolean;
+  hasUnreadReply?: boolean;
 };
 
 type ThreadMessage = {
@@ -398,7 +405,7 @@ function formatDateTime(value?: string | null) {
   });
 }
 
-function formatShortDateTime(value?: string) {
+function formatShortDateTime(value?: string | null) {
   if (!value) return "—";
 
   const date = new Date(value);
@@ -468,30 +475,6 @@ function normalizeComparableName(value?: string | null) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
-}
-
-function getBrandDisplayName(thread?: ThreadRow | null) {
-  const prospectName = firstUsefulName(
-    thread?.prospectId?.companyName,
-    thread?.prospectId?.primaryContact?.name
-  );
-
-  if (prospectName) return prospectName;
-
-  const mailboxNames = [
-    getPreferredMailboxName(thread),
-    emailToDisplayName(getPreferredMailboxEmail(thread)),
-  ]
-    .map(normalizeComparableName)
-    .filter(Boolean);
-
-  const fallbackBrand = [thread?.brandName, thread?.brandDisplayName].find((value) => {
-    const cleaned = firstUsefulName(value);
-    if (!cleaned) return false;
-    return !mailboxNames.includes(normalizeComparableName(cleaned));
-  });
-
-  return firstUsefulName(fallbackBrand) || "Lead";
 }
 
 function isEmailLike(value?: string | null) {
@@ -593,6 +576,30 @@ function getPreferredMailboxName(thread?: ThreadRow | null) {
   );
 }
 
+function getBrandDisplayName(thread?: ThreadRow | null) {
+  const prospectName = firstUsefulName(
+    thread?.prospectId?.companyName,
+    thread?.prospectId?.primaryContact?.name
+  );
+
+  if (prospectName) return prospectName;
+
+  const mailboxNames = [
+    getPreferredMailboxName(thread),
+    emailToDisplayName(getPreferredMailboxEmail(thread)),
+  ]
+    .map(normalizeComparableName)
+    .filter(Boolean);
+
+  const fallbackBrand = [thread?.brandName, thread?.brandDisplayName].find((value) => {
+    const cleaned = firstUsefulName(value);
+    if (!cleaned) return false;
+    return !mailboxNames.includes(normalizeComparableName(cleaned));
+  });
+
+  return firstUsefulName(fallbackBrand) || "Lead";
+}
+
 function getThreadTeamLabel(thread?: ThreadRow | null) {
   const mailboxName = getPreferredMailboxName(thread);
   const mailboxEmail = getPreferredMailboxEmail(thread);
@@ -641,6 +648,61 @@ function getMessageDate(message: ThreadMessage) {
   return message.receivedAt || message.sentAt || message.createdAt || message.updatedAt || "";
 }
 
+function getThreadTimeValue(thread?: ThreadRow | null) {
+  const values = [
+    thread?.lastMessageAt,
+    thread?.lastInboundAt,
+    thread?.updatedAt,
+  ];
+
+  for (const value of values) {
+    const time = new Date(value || "").getTime();
+    if (Number.isFinite(time)) return time;
+  }
+
+  return 0;
+}
+
+function isThreadUnreadForActor(thread?: ThreadRow | null, actorRole = "") {
+  if (!thread) return false;
+
+  if (typeof thread.isUnread === "boolean") return thread.isUnread;
+
+  const role = String(actorRole || "").trim().toLowerCase();
+
+  if (role === "super_admin") {
+    return Boolean(
+      thread.unreadForRevenueHead ||
+      thread.unreadForBme ||
+      thread.unreadForIme
+    );
+  }
+
+  if (role === "bme") return Boolean(thread.unreadForBme);
+  if (role === "ime") return Boolean(thread.unreadForIme);
+  if (role === "revenue_head" || role === "rh") {
+    return Boolean(thread.unreadForRevenueHead);
+  }
+
+  return Boolean(
+    thread.unreadForRevenueHead ||
+    thread.unreadForBme ||
+    thread.unreadForIme
+  );
+}
+
+function sortThreadsForInbox(threads: ThreadRow[] = [], actorRole = "") {
+  return [...threads].sort((a, b) => {
+    const unreadDiff =
+      Number(isThreadUnreadForActor(b, actorRole)) -
+      Number(isThreadUnreadForActor(a, actorRole));
+
+    if (unreadDiff) return unreadDiff;
+
+    return getThreadTimeValue(b) - getThreadTimeValue(a);
+  });
+}
+
 async function hydrateThreadsWithMissingCampaignDetails(threads: ThreadRow[]) {
   const hydrated = await Promise.all(
     threads.map(async (thread) => {
@@ -666,6 +728,26 @@ async function hydrateThreadsWithMissingCampaignDetails(threads: ThreadRow[]) {
           assignedImeId: detailThread?.assignedImeId || thread.assignedImeId || null,
           brandDisplayName: detailThread?.brandDisplayName || thread.brandDisplayName || "",
           teamDisplayName: detailThread?.teamDisplayName || thread.teamDisplayName || "",
+          unreadForRevenueHead:
+            typeof detailThread?.unreadForRevenueHead === "boolean"
+              ? detailThread.unreadForRevenueHead
+              : thread.unreadForRevenueHead,
+          unreadForBme:
+            typeof detailThread?.unreadForBme === "boolean"
+              ? detailThread.unreadForBme
+              : thread.unreadForBme,
+          unreadForIme:
+            typeof detailThread?.unreadForIme === "boolean"
+              ? detailThread.unreadForIme
+              : thread.unreadForIme,
+          isUnread:
+            typeof detailThread?.isUnread === "boolean"
+              ? detailThread.isUnread
+              : thread.isUnread,
+          hasUnreadReply:
+            typeof detailThread?.hasUnreadReply === "boolean"
+              ? detailThread.hasUnreadReply
+              : thread.hasUnreadReply,
         };
       } catch {
         return thread;
@@ -915,7 +997,10 @@ export default function RepliesPage() {
     );
   }, [threads]);
 
-  const filteredThreads = useMemo(() => threads, [threads]);
+  const filteredThreads = useMemo(
+    () => sortThreadsForInbox(threads, actorRole),
+    [threads, actorRole]
+  );
 
   const selectedThread = useMemo(() => {
     return (
@@ -1146,8 +1231,7 @@ export default function RepliesPage() {
   async function loadPage(showLoader = true) {
     try {
       if (showLoader) setLoading(true);
-
-      setMessage(null);
+      if (showLoader) setMessage(null);
 
       const query: Record<string, string> = {};
 
@@ -1162,14 +1246,17 @@ export default function RepliesPage() {
         adminGet("/admins/me"),
       ]);
 
+      const nextRole = String(mePayload?.role || "").toLowerCase();
+
       const rawThreads = Array.isArray(threadsPayload?.data)
         ? threadsPayload.data
         : [];
 
-      const nextThreads = await hydrateThreadsWithMissingCampaignDetails(rawThreads);
+      const hydratedThreads = await hydrateThreadsWithMissingCampaignDetails(rawThreads);
+      const nextThreads = sortThreadsForInbox(hydratedThreads, nextRole);
 
       setThreads(nextThreads);
-      setActorRole(String(mePayload?.role || "").toLowerCase());
+      setActorRole(nextRole);
 
       const threadIdFromQuery = String(searchParams.get("threadId") || "");
       const prospectIdFromQuery = String(searchParams.get("prospectId") || "");
@@ -1195,7 +1282,7 @@ export default function RepliesPage() {
           return prev;
         }
 
-        return nextThreads[0]?._id || "";
+        return "";
       });
     } catch (error) {
       setMessage({
@@ -1225,16 +1312,62 @@ export default function RepliesPage() {
 
       const payload: any = await adminGet(`/outreach/threads/${selectedThreadId}`);
 
+      const nextThread = payload?.thread || null;
+      const nextMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+
       setThreadDetail({
-        thread: payload?.thread || null,
-        messages: Array.isArray(payload?.messages) ? payload.messages : [],
+        thread: nextThread,
+        messages: nextMessages,
       });
 
-      setComposerSubject(payload?.thread?.subject || "");
+      setComposerSubject(nextThread?.subject || "");
       setComposerBody("");
 
       if (composerEditorRef.current) {
         composerEditorRef.current.innerHTML = "";
+      }
+
+      if (isThreadUnreadForActor(nextThread, actorRole)) {
+        const readPayload: any = await adminPost(
+          `/outreach/threads/${selectedThreadId}/read`,
+          {}
+        );
+
+        const readThread =
+          readPayload?.thread ||
+          readPayload?.data?.thread ||
+          {
+            ...nextThread,
+            unreadForRevenueHead: false,
+            unreadForBme: false,
+            unreadForIme: false,
+            isUnread: false,
+            hasUnreadReply: false,
+          };
+
+        setThreadDetail({
+          thread: readThread,
+          messages: nextMessages,
+        });
+
+        setThreads((prev) =>
+          sortThreadsForInbox(
+            prev.map((item) =>
+              item._id === selectedThreadId
+                ? {
+                  ...item,
+                  ...readThread,
+                  unreadForRevenueHead: false,
+                  unreadForBme: false,
+                  unreadForIme: false,
+                  isUnread: false,
+                  hasUnreadReply: false,
+                }
+                : item
+            ),
+            actorRole
+          )
+        );
       }
     } catch (error) {
       setThreadDetail({ thread: null, messages: [] });
@@ -1252,6 +1385,15 @@ export default function RepliesPage() {
 
   useEffect(() => {
     void loadPage(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignFilter, sdrFilter, bmeFilter, rhFilter, search]);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void loadPage(false);
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignFilter, sdrFilter, bmeFilter, rhFilter, search]);
 
@@ -1460,8 +1602,11 @@ export default function RepliesPage() {
               <ul className="space-y-2">
                 {filteredThreads.map((thread) => {
                   const active = thread._id === selectedThreadId;
+                  const unread = isThreadUnreadForActor(thread, actorRole);
                   const brandName = getBrandDisplayName(thread);
-                  const brandEmail = canSeeBrandEmail ? thread.prospectId?.primaryContact?.email || thread.brandEmail || "" : "";
+                  const brandEmail = canSeeBrandEmail
+                    ? thread.prospectId?.primaryContact?.email || thread.brandEmail || ""
+                    : "";
                   const campaignName = thread.campaignId?.name || "No campaign";
                   const previewText = getThreadPreviewText(thread);
 
@@ -1470,27 +1615,50 @@ export default function RepliesPage() {
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedThreadId(thread._id);
                           setShowMobileThread(true);
+
+                          if (thread._id === selectedThreadId) {
+                            void loadSelectedThread();
+                            return;
+                          }
+
+                          setSelectedThreadId(thread._id);
                         }}
                         className={cx(
                           "w-full rounded-2xl border p-4 text-left transition",
-                          active
-                            ? "border-slate-900 bg-white shadow-sm"
-                            : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
+                          active && unread
+                            ? "border-blue-500 bg-blue-50 shadow-sm"
+                            : active
+                              ? "border-slate-900 bg-white shadow-sm"
+                              : unread
+                                ? "border-blue-200 bg-blue-50/70 shadow-sm hover:border-blue-300 hover:bg-blue-50"
+                                : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
                         )}
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-bold text-slate-800">
+                          <div
+                            className={cx(
+                              "flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-bold",
+                              unread
+                                ? "bg-blue-600 text-white"
+                                : "bg-slate-200 text-slate-800"
+                            )}
+                          >
                             {getInitials(brandName)}
                           </div>
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold text-slate-900">
+                                <p
+                                  className={cx(
+                                    "truncate text-sm text-slate-900",
+                                    unread ? "font-bold" : "font-semibold"
+                                  )}
+                                >
                                   {brandName}
                                 </p>
+
                                 {brandEmail ? (
                                   <p className="mt-0.5 truncate text-[11px] font-medium text-slate-500">
                                     {brandEmail}
@@ -1498,15 +1666,33 @@ export default function RepliesPage() {
                                 ) : null}
                               </div>
 
-                              <span className="shrink-0 text-xs text-slate-500">
+                              <span
+                                className={cx(
+                                  "shrink-0 text-xs",
+                                  unread ? "font-bold text-blue-700" : "text-slate-500"
+                                )}
+                              >
                                 {formatShortDateTime(
-                                  thread.lastMessageAt || thread.updatedAt
+                                  thread.lastMessageAt || thread.updatedAt || ""
                                 )}
                               </span>
                             </div>
 
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                              <span className="truncate">{previewText}</span>
+                              {unread ? (
+                                <span className="inline-flex shrink-0 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                  New reply
+                                </span>
+                              ) : null}
+
+                              <span
+                                className={cx(
+                                  "truncate",
+                                  unread ? "font-semibold text-slate-800" : "text-slate-500"
+                                )}
+                              >
+                                {previewText}
+                              </span>
 
                               <>
                                 <span>•</span>
@@ -1558,10 +1744,16 @@ export default function RepliesPage() {
 
                         <p className="mt-1 truncate text-sm text-slate-500">
                           {getBrandDisplayName(selectedThreadMeta)}
-                          {canSeeBrandEmail && (selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail)
-                            ? ` · ${selectedThreadMeta.prospectId?.primaryContact?.email || selectedThreadMeta.brandEmail}`
+                          {canSeeBrandEmail &&
+                            (selectedThreadMeta.prospectId?.primaryContact?.email ||
+                              selectedThreadMeta.brandEmail)
+                            ? ` · ${selectedThreadMeta.prospectId?.primaryContact?.email ||
+                            selectedThreadMeta.brandEmail
+                            }`
                             : ""}
-                          {selectedThreadMeta.campaignId?.name ? ` · ${selectedThreadMeta.campaignId.name}` : ""}
+                          {selectedThreadMeta.campaignId?.name
+                            ? ` · ${selectedThreadMeta.campaignId.name}`
+                            : ""}
                           {" · "}
                           {getThreadTeamLabel(selectedThreadMeta)}
                         </p>
@@ -1595,7 +1787,6 @@ export default function RepliesPage() {
                     </div>
 
                     <div className="hidden items-center gap-3 sm:flex">
-
                       <button
                         type="button"
                         onClick={openReplyModal}
