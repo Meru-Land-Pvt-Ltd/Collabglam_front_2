@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "@/components/ui/toast";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import { Button } from "@/components/ui/buttonComp";
 import { FloatingInput } from "@/components/ui/floatingInput";
-import { FloatingMultiSelect, FloatingSelect, SelectItem } from "@/components/ui/selectComp";
+import {
+  FloatingMultiSelect,
+  FloatingSelect,
+  SelectItem,
+} from "@/components/ui/selectComp";
 import { LabeledTextarea } from "@/components/ui/textAreaComp";
 import { ProductCardUpload } from "@/components/ui/productCard-Image";
 import { FloatingDateInput } from "@/components/ui/date";
@@ -46,7 +50,11 @@ import {
   prettyTierValue,
 } from "./create-campaign.utils";
 
-import { useCampaignLists, useCategoryPicker, useSidebarOffsetPx } from "./create-campaign.hooks";
+import {
+  useCampaignLists,
+  useCategoryPicker,
+  useSidebarOffsetPx,
+} from "./create-campaign.hooks";
 
 import { CaretDown, CaretUp, PaperPlaneTilt } from "@phosphor-icons/react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -54,18 +62,140 @@ import { useRouter, useSearchParams } from "next/navigation";
 /* ============================================================================
    Toast helpers
 ============================================================================ */
-function toastSuccess(title: string, description?: string) {
-  return toast({ icon: "success", title, text: description });
+
+type ApiErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
+};
+
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
 }
+
+function getBackendErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong."
+) {
+  const apiMessage = getApiErrorMessage(error as any);
+
+  if (
+    apiMessage &&
+    apiMessage.trim() &&
+    apiMessage !== "Something went wrong"
+  ) {
+    return apiMessage;
+  }
+
+  const err = error as ApiErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function toastSuccess(title: string, description?: string) {
+  return toast({
+    icon: "success",
+    title,
+    text: description,
+    timer: 2500,
+  });
+}
+
 function toastError(title: string, description?: string) {
-  return toast({ icon: "error", title, text: description });
+  return toast({
+    icon: "error",
+    title,
+    text: description,
+    timer: 4000,
+  });
+}
+
+function toastWarning(title: string, description?: string) {
+  return toast({
+    icon: "warning",
+    title,
+    text: description,
+    timer: 4000,
+  });
 }
 
 /* ============================================================================
    Shared UI bits
 ============================================================================ */
-function CenterWrap({ children, withBottomBar = false }: { children: React.ReactNode; withBottomBar?: boolean }) {
-  return <div className={cn("cg-center-wrap", withBottomBar && "cg-center-wrap--with-bottom")}>{children}</div>;
+
+function CenterWrap({
+  children,
+  withBottomBar = false,
+}: {
+  children: React.ReactNode;
+  withBottomBar?: boolean;
+}) {
+  return (
+    <div className={cn("cg-center-wrap", withBottomBar && "cg-center-wrap--with-bottom")}>
+      {children}
+    </div>
+  );
 }
 
 function ProgressBar({
@@ -85,15 +215,28 @@ function ProgressBar({
         <span>{safe}%</span>
         <span>100%</span>
       </div>
-      <div className={cn("mt-2 w-full overflow-hidden rounded-pill bg-neutral-150", heightClassName)}>
-        <div className={cn("h-full rounded-pill transition-[width] duration-200 ease-out", barClassName)} style={{ width: `${safe}%` }} />
+      <div
+        className={cn(
+          "mt-2 w-full overflow-hidden rounded-pill bg-neutral-150",
+          heightClassName
+        )}
+      >
+        <div
+          className={cn(
+            "h-full rounded-pill transition-[width] duration-200 ease-out",
+            barClassName
+          )}
+          style={{ width: `${safe}%` }}
+        />
       </div>
     </div>
   );
 }
 
 function useViewportWidth() {
-  const [w, setW] = React.useState(() => (typeof window !== "undefined" ? window.innerWidth : 0));
+  const [w, setW] = React.useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 0
+  );
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -177,7 +320,12 @@ function FixedBottomBar({
         ["--cg-bottombar-maxw" as any]: `${clampedMaxW}px`,
       }}
     >
-      <div className={cn("cg-bottom-bar-inner", "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between")}>
+      <div
+        className={cn(
+          "cg-bottom-bar-inner",
+          "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">{left}</div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">{right}</div>
       </div>
@@ -199,7 +347,6 @@ type ExistingProductImage = {
   size?: number;
   key?: string;
 };
-
 
 type ManualForm = {
   title: string;
@@ -281,6 +428,7 @@ type TierRange = { min?: number; max?: number };
 
 const parseAbbrevNumber = (raw: string): number | null => {
   if (!raw) return null;
+
   let s = String(raw).trim().toUpperCase();
   s = s.replace(/[, ]+/g, "").replace(/\+$/, "");
 
@@ -314,30 +462,48 @@ const parseRangeFromText = (text?: string): TierRange | null => {
   if (parts.length >= 2) {
     const min = parseAbbrevNumber(parts[0]);
     const max = parseAbbrevNumber(parts[1]);
+
     if (min == null && max == null) return null;
-    return { min: min ?? undefined, max: max ?? undefined };
+
+    return {
+      min: min ?? undefined,
+      max: max ?? undefined,
+    };
   }
 
   if (parts.length === 1) {
     const n = parseAbbrevNumber(parts[0]);
     if (n == null) return null;
-    return { min: n, max: n };
+
+    return {
+      min: n,
+      max: n,
+    };
   }
 
   return null;
 };
 
-const aggregateRanges = (ranges: Array<TierRange | null | undefined>): TierRange | null => {
+const aggregateRanges = (
+  ranges: Array<TierRange | null | undefined>
+): TierRange | null => {
   let min: number | undefined;
   let max: number | undefined;
 
   for (const r of ranges) {
     if (!r) continue;
-    if (typeof r.min === "number") min = min === undefined ? r.min : Math.min(min, r.min);
-    if (typeof r.max === "number") max = max === undefined ? r.max : Math.max(max, r.max);
+
+    if (typeof r.min === "number") {
+      min = min === undefined ? r.min : Math.min(min, r.min);
+    }
+
+    if (typeof r.max === "number") {
+      max = max === undefined ? r.max : Math.max(max, r.max);
+    }
   }
 
   if (min === undefined && max === undefined) return null;
+
   return { min, max };
 };
 
@@ -346,34 +512,43 @@ const todayISO = () => {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
+
   return `${yyyy}-${mm}-${dd}`;
 };
 
 const toLocalDate = (iso?: string) => {
   if (!iso) return null;
+
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
+
   const y = Number(m[1]);
   const mo = Number(m[2]) - 1;
   const d = Number(m[3]);
   const dt = new Date(y, mo, d);
+
   return Number.isFinite(dt.getTime()) ? dt : null;
 };
 
 const addDaysISO = (iso: string, days: number) => {
   const d = toLocalDate(iso);
   if (!d) return "";
+
   d.setDate(d.getDate() + days);
+
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
+
   return `${yyyy}-${mm}-${dd}`;
 };
 
 const isSameOrBeforeISO = (a?: string, b?: string) => {
   const da = toLocalDate(a);
   const db = toLocalDate(b);
+
   if (!da || !db) return false;
+
   return da.getTime() <= db.getTime();
 };
 
@@ -382,6 +557,7 @@ const TODAY = todayISO();
 /* ============================================================================
    Actor-aware payload helpers
 ============================================================================ */
+
 type ActorAwareCreatePayload = CreateCampaignManualPayload & {
   adminId?: string;
   adminEmail?: string;
@@ -442,6 +618,7 @@ function resolveTargetBrandId(
 /* ============================================================================
    Payload builders
 ============================================================================ */
+
 function buildCreateManualPayload(
   brandId: string,
   form: ManualForm,
@@ -475,8 +652,12 @@ function buildCreateManualPayload(
     preferredHashtags: form.hashtags,
 
     numberOfInfluencers: Number(form.numberOfInfluencers || 0),
-    ...(Number(form.maxFollowers) > 0 ? { maxFollowers: Number(form.maxFollowers) } : {}),
-    ...(Number(form.minFollowers) > 0 ? { minFollowers: Number(form.minFollowers) } : {}),
+    ...(Number(form.maxFollowers) > 0
+      ? { maxFollowers: Number(form.maxFollowers) }
+      : {}),
+    ...(Number(form.minFollowers) > 0
+      ? { minFollowers: Number(form.minFollowers) }
+      : {}),
 
     campaignBudget: Number(form.campaignBudget || 0),
     paymentType: form.paymentType,
@@ -530,8 +711,12 @@ function buildEditDraftPayload(
     preferredHashtags: form.hashtags,
 
     numberOfInfluencers: Number(form.numberOfInfluencers || 0),
-    ...(Number(form.minFollowers) > 0 ? { minFollowers: Number(form.minFollowers) } : {}),
-    ...(Number(form.maxFollowers) > 0 ? { maxFollowers: Number(form.maxFollowers) } : {}),
+    ...(Number(form.minFollowers) > 0
+      ? { minFollowers: Number(form.minFollowers) }
+      : {}),
+    ...(Number(form.maxFollowers) > 0
+      ? { maxFollowers: Number(form.maxFollowers) }
+      : {}),
 
     campaignBudget: Number(form.campaignBudget || 0),
     paymentType: form.paymentType,
@@ -546,6 +731,7 @@ function buildEditDraftPayload(
 /* ============================================================================
    Validation
 ============================================================================ */
+
 function validateManualForm(args: {
   form: ManualForm;
   dateOk: boolean;
@@ -556,7 +742,17 @@ function validateManualForm(args: {
   const e: Record<string, string> = {};
 
   if (!form.title.trim()) e.title = "Campaign title is required.";
-  if (!form.description.trim()) e.description = "Description is required.";
+
+  if (!form.description.trim()) {
+    e.description = "Description is required.";
+  } else if (form.description.trim().length < 50) {
+    e.description = "Description must be at least 50 characters.";
+  }
+
+  if (!form.campaignType.trim()) {
+    e.campaignType = "Campaign type is required.";
+  }
+
   if (!form.categoryId.trim()) e.categoryId = "Campaign category is required.";
 
   if (!form.subcategories?.length) e.subcategories = "Select at least 1 subcategory.";
@@ -568,19 +764,36 @@ function validateManualForm(args: {
   if (!isEditMode && !form.productFiles?.length) {
     e.productFiles = "Upload at least 1 product image/file.";
   }
+
   if (blockingFileErrors?.length) e.productFiles = blockingFileErrors[0];
 
   if (!form.paymentType.trim()) e.paymentType = "Payment type is required.";
-  if (!Number(form.campaignBudget) || Number(form.campaignBudget) <= 0) e.campaignBudget = "Campaign budget is required.";
+
+  if (!Number(form.campaignBudget) || Number(form.campaignBudget) <= 0) {
+    e.campaignBudget = "Campaign budget is required.";
+  }
 
   if (!form.startDate) e.startDate = "Start date is required.";
   if (!form.endDate) e.endDate = "End date is required.";
-  if (form.startDate && form.endDate && !dateOk) e.endDate = "End Date must be after Start Date.";
 
-  if (Number(form.minFollowers) < 0) e.minFollowers = "Min followers can't be negative.";
-  if (Number(form.maxFollowers) < 0) e.maxFollowers = "Max followers can't be negative.";
-  if (Number(form.minFollowers) > 0 && Number(form.maxFollowers) > 0 && Number(form.minFollowers) > Number(form.maxFollowers)) {
-    e.maxFollowers = "Max followers must be ≥ Min followers.";
+  if (form.startDate && form.endDate && !dateOk) {
+    e.endDate = "End Date must be after Start Date.";
+  }
+
+  if (Number(form.minFollowers) < 0) {
+    e.minFollowers = "Min followers can't be negative.";
+  }
+
+  if (Number(form.maxFollowers) < 0) {
+    e.maxFollowers = "Max followers can't be negative.";
+  }
+
+  if (
+    Number(form.minFollowers) > 0 &&
+    Number(form.maxFollowers) > 0 &&
+    Number(form.minFollowers) > Number(form.maxFollowers)
+  ) {
+    e.maxFollowers = "Max followers must be greater than or equal to Min followers.";
   }
 
   if (!Number(form.numberOfInfluencers) || Number(form.numberOfInfluencers) <= 0) {
@@ -601,6 +814,7 @@ function validateManualForm(args: {
 /* ============================================================================
    Accordion + Chips
 ============================================================================ */
+
 function AccordionCard({
   title,
   subtitle,
@@ -616,13 +830,20 @@ function AccordionCard({
 
   return (
     <div className={cn("cg-accordion", open ? "cg-accordion--open" : "cg-accordion--closed")}>
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="cg-accordion-btn">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="cg-accordion-btn"
+      >
         <div className="min-w-0 flex-1">
           <div className="cg-accordion-title">{title}</div>
           {subtitle ? <div className="cg-accordion-subtitle">{subtitle}</div> : null}
         </div>
 
-        <span className="mt-[6px] shrink-0 text-neutral-900">{open ? <CaretUp size={20} /> : <CaretDown size={20} />}</span>
+        <span className="mt-[6px] shrink-0 text-neutral-900">
+          {open ? <CaretUp size={20} /> : <CaretDown size={20} />}
+        </span>
       </button>
 
       {open ? <div className="p-3 pt-0">{children}</div> : null}
@@ -645,6 +866,7 @@ function ChipMultiSelect({
       .filter((o) => !!String(o?.value ?? "").trim() && !!String(o?.label ?? "").trim());
 
     const seen = new Set<string>();
+
     return out.filter((o) => {
       if (seen.has(o.value)) return false;
       seen.add(o.value);
@@ -665,9 +887,17 @@ function ChipMultiSelect({
       <div className="flex flex-wrap gap-2">
         {normalized.map((opt) => {
           const active = value.includes(opt.value);
+
           return (
-            <button key={opt.value} type="button" onClick={() => toggle(opt.value)} className={cn("cg-chip", active && "cg-chip--active")}>
-              <span className={cn("cg-chip-text", active && "cg-chip-text--active")}>{opt.label}</span>
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => toggle(opt.value)}
+              className={cn("cg-chip", active && "cg-chip--active")}
+            >
+              <span className={cn("cg-chip-text", active && "cg-chip-text--active")}>
+                {opt.label}
+              </span>
             </button>
           );
         })}
@@ -679,6 +909,7 @@ function ChipMultiSelect({
 /* ============================================================================
    Manual Screen
 ============================================================================ */
+
 function CreateManualScreen({
   sidebarOffsetPx,
   formMaxWidth = 760,
@@ -704,7 +935,9 @@ function CreateManualScreen({
   const [productFileErrors, setProductFileErrors] = useState<string[]>([]);
   const followersTouchedRef = useRef({ min: false, max: false });
 
-  const [existingProductImages, setExistingProductImages] = useState<ExistingProductImage[]>([]);
+  const [existingProductImages, setExistingProductImages] = useState<
+    ExistingProductImage[]
+  >([]);
 
   const [campaignId, setCampaignId] = useState<string>("");
   const [publishing, setPublishing] = useState(false);
@@ -720,6 +953,15 @@ function CreateManualScreen({
   const [serverFieldErrors, setServerFieldErrors] = useState<Record<string, string>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
+  const showValidationSummaryToast = useCallback((errors: Record<string, string>) => {
+    const firstError = Object.values(errors).find(Boolean);
+
+    toastError(
+      "Please fix the highlighted fields",
+      firstError || "Some required campaign details are missing or invalid."
+    );
+  }, []);
+
   const resolvedBrandId = useMemo(
     () => resolveTargetBrandId(targetBrandId, initialFromCampaign || null),
     [targetBrandId, initialFromCampaign]
@@ -727,23 +969,18 @@ function CreateManualScreen({
 
   const setField = useCallback(<K extends keyof ManualForm>(key: K, value: ManualForm[K]) => {
     setForm((p) => ({ ...p, [key]: value }));
+
+    setServerFieldErrors((prev) => {
+      if (!prev[key as string]) return prev;
+
+      const next = { ...prev };
+      delete next[key as string];
+      return next;
+    });
   }, []);
 
   const extractBackendMessage = useCallback((e: any) => {
-    const base = getApiErrorMessage(e);
-    if (base && base !== "Something went wrong") return base;
-
-    const d = e?.response?.data ?? e?.data ?? e;
-
-    if (typeof d === "string") return d;
-    if (typeof d?.message === "string") return d.message;
-    if (typeof d?.error === "string") return d.error;
-    if (typeof d?.detail === "string") return d.detail;
-
-    const firstArrMsg = d?.errors?.[0]?.msg || d?.errors?.[0]?.message || d?.issues?.[0]?.message;
-    if (typeof firstArrMsg === "string") return firstArrMsg;
-
-    return "Failed to publish campaign.";
+    return getBackendErrorMessage(e, "Failed to publish campaign.");
   }, []);
 
   const extractBackendSuccessMessage = useCallback((res: any, fallback: string) => {
@@ -751,7 +988,9 @@ function CreateManualScreen({
 
     if (typeof d === "string") return d;
     if (typeof d?.message === "string" && d.message.trim()) return d.message;
-    if (typeof d?.successMessage === "string" && d.successMessage.trim()) return d.successMessage;
+    if (typeof d?.successMessage === "string" && d.successMessage.trim()) {
+      return d.successMessage;
+    }
     if (typeof d?.detail === "string" && d.detail.trim()) return d.detail;
     if (typeof d?.msg === "string" && d.msg.trim()) return d.msg;
 
@@ -762,28 +1001,38 @@ function CreateManualScreen({
     const d = e?.response?.data ?? e?.data ?? e;
 
     const fe = d?.fieldErrors || d?.errorsByField || d?.validationErrors;
-    if (fe && typeof fe === "object" && !Array.isArray(fe)) return fe as Record<string, string>;
+    if (fe && typeof fe === "object" && !Array.isArray(fe)) {
+      return fe as Record<string, string>;
+    }
 
     const arr = d?.errors;
     if (Array.isArray(arr)) {
       const out: Record<string, string> = {};
+
       for (const it of arr) {
         const k = String(it?.param ?? it?.field ?? it?.path ?? "").trim();
         const m = String(it?.msg ?? it?.message ?? "").trim();
+
         if (k && m && !out[k]) out[k] = m;
       }
+
       return out;
     }
 
     const issues = d?.issues;
     if (Array.isArray(issues)) {
       const out: Record<string, string> = {};
+
       for (const it of issues) {
-        const path = Array.isArray(it?.path) ? String(it.path[0] ?? "") : String(it?.path ?? "");
+        const path = Array.isArray(it?.path)
+          ? String(it.path[0] ?? "")
+          : String(it?.path ?? "");
         const m = String(it?.message ?? "").trim();
         const k = String(path).trim();
+
         if (k && m && !out[k]) out[k] = m;
       }
+
       return out;
     }
 
@@ -823,70 +1072,101 @@ function CreateManualScreen({
     (doc: any) => {
       const normalizePaymentType = (v: any) => {
         const s = String(v ?? "").trim().toLowerCase();
+
         if (s === "milestone") return "Milestone";
         if (s === "fixed") return "Fixed";
         if (s === "gifting") return "Gifting";
+
         return "Milestone";
       };
 
-      const id = pickCampaignId(doc);
-      if (id) setCampaignId(id);
+      try {
+        const id = pickCampaignId(doc);
+        if (id) setCampaignId(id);
 
-      const details = doc?.details ?? null;
-      setExistingProductImages(
-        normalizeExistingProductImages(doc?.productImages || doc?.images || [])
-      );
+        const details = doc?.details ?? null;
+        setLoadedDetails(details);
 
-      const nextCategoryId = String(doc?.categoryId ?? details?.category?.id ?? "").trim();
-      const categoryFromPicker = categoryPicker.categoryOptions.find((o) => o.value === nextCategoryId);
+        setExistingProductImages(
+          normalizeExistingProductImages(doc?.productImages || doc?.images || [])
+        );
 
-      const nextCategoryName = String(
-        doc?.categoryName ?? doc?.category?.name ?? details?.category?.name ?? categoryFromPicker?.label ?? ""
-      ).trim();
+        const nextCategoryId = String(
+          doc?.categoryId ?? details?.category?.id ?? ""
+        ).trim();
 
-      const next: ManualForm = {
-        ...EMPTY_MANUAL,
-        title: String(doc?.campaignTitle ?? doc?.title ?? "").trim(),
-        description: String(doc?.description ?? "").trim(),
-        campaignType: String(doc?.campaignType ?? "").trim(),
-        categoryId: nextCategoryId,
-        categoryName: nextCategoryName,
-        subcategories: idsOf(doc?.subcategoryIds ?? details?.subcategories ?? doc?.subcategories),
-        productLink: String(doc?.productLink ?? "").trim(),
-        productFiles: [],
-        goals: idsOf(doc?.campaignGoals ?? details?.campaignGoals ?? doc?.goals),
-        numberOfInfluencers: Number(doc?.numberOfInfluencers ?? 0),
-        influencerTier: idsOf(doc?.influencerTierIds ?? details?.influencerTiers),
-        minFollowers: Number(doc?.minFollowers ?? 0),
-        maxFollowers: Number(doc?.maxFollowers ?? 0),
-        contentFormats: idsOf(doc?.contentFormats ?? details?.contentFormats),
-        contentLanguage: idsOf(doc?.contentLanguageIds ?? details?.contentLanguages),
-        paymentType: normalizePaymentType(doc?.paymentType ?? "Milestone"),
-        campaignBudget: Number(doc?.campaignBudget ?? 0),
-        startDate: safeDateInput(doc?.startAt ?? doc?.startDate),
-        endDate: safeDateInput(doc?.endAt ?? doc?.endDate),
-        platforms: (Array.isArray(doc?.platformSelection) ? doc.platformSelection : []).map(platformToUi).filter(Boolean),
-        targetCountry: idsOf(doc?.targetCountryIds ?? details?.targetCountries),
-        targetAgeGroups: idsOf(doc?.targetAgeRanges ?? details?.targetAgeRanges),
-        additionalNotes: String(doc?.additionalNotes ?? ""),
-        attachment: null,
-        hashtags: idsOf(doc?.preferredHashtags ?? doc?.hashtags),
-      };
+        const categoryFromPicker = categoryPicker.categoryOptions.find(
+          (o) => o.value === nextCategoryId
+        );
 
-      setForm(next);
+        const nextCategoryName = String(
+          doc?.categoryName ??
+            doc?.category?.name ??
+            details?.category?.name ??
+            categoryFromPicker?.label ??
+            ""
+        ).trim();
 
-      if (nextCategoryId) {
-        categoryPicker.hydrateSelectedCategory({ id: nextCategoryId, name: nextCategoryName || "Selected category" });
+        const next: ManualForm = {
+          ...EMPTY_MANUAL,
+          title: String(doc?.campaignTitle ?? doc?.title ?? "").trim(),
+          description: String(doc?.description ?? "").trim(),
+          campaignType: String(doc?.campaignType ?? "").trim(),
+          categoryId: nextCategoryId,
+          categoryName: nextCategoryName,
+          subcategories: idsOf(
+            doc?.subcategoryIds ?? details?.subcategories ?? doc?.subcategories
+          ),
+          productLink: String(doc?.productLink ?? "").trim(),
+          productFiles: [],
+          goals: idsOf(doc?.campaignGoals ?? details?.campaignGoals ?? doc?.goals),
+          numberOfInfluencers: Number(doc?.numberOfInfluencers ?? 0),
+          influencerTier: idsOf(doc?.influencerTierIds ?? details?.influencerTiers),
+          minFollowers: Number(doc?.minFollowers ?? 0),
+          maxFollowers: Number(doc?.maxFollowers ?? 0),
+          contentFormats: idsOf(doc?.contentFormats ?? details?.contentFormats),
+          contentLanguage: idsOf(doc?.contentLanguageIds ?? details?.contentLanguages),
+          paymentType: normalizePaymentType(doc?.paymentType ?? "Milestone"),
+          campaignBudget: Number(doc?.campaignBudget ?? 0),
+          startDate: safeDateInput(doc?.startAt ?? doc?.startDate),
+          endDate: safeDateInput(doc?.endAt ?? doc?.endDate),
+          platforms: (Array.isArray(doc?.platformSelection)
+            ? doc.platformSelection
+            : []
+          )
+            .map(platformToUi)
+            .filter(Boolean),
+          targetCountry: idsOf(doc?.targetCountryIds ?? details?.targetCountries),
+          targetAgeGroups: idsOf(doc?.targetAgeRanges ?? details?.targetAgeRanges),
+          additionalNotes: String(doc?.additionalNotes ?? ""),
+          attachment: null,
+          hashtags: idsOf(doc?.preferredHashtags ?? doc?.hashtags),
+        };
+
+        setForm(next);
+
+        if (nextCategoryId) {
+          categoryPicker.hydrateSelectedCategory({
+            id: nextCategoryId,
+            name: nextCategoryName || "Selected category",
+          });
+        }
+
+        setServerFieldErrors({});
+      } catch (error) {
+        toastError(
+          "Failed to prepare campaign form",
+          getBackendErrorMessage(error, "Campaign details could not be loaded into the form.")
+        );
       }
-
-      setServerFieldErrors({});
     },
-    [categoryPicker]
+    [categoryPicker, normalizeExistingProductImages]
   );
 
   useEffect(() => {
     if (!initialFromCampaign) return;
     if (loadedInitialRef.current === initialFromCampaign) return;
+
     loadedInitialRef.current = initialFromCampaign;
     loadCampaignIntoForm(initialFromCampaign);
   }, [initialFromCampaign, loadCampaignIntoForm]);
@@ -894,17 +1174,26 @@ function CreateManualScreen({
   const seededHashtagOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.preferredHashtags ?? [])
-        .map((h: any) => ({ label: String(h?.tag ?? "").trim(), value: String(h?.id ?? "").trim() }))
+        .map((h: any) => ({
+          label: String(h?.tag ?? "").trim(),
+          value: String(h?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
 
-  const hashtagOptions = useMemo(() => mergeOptions(lists.preferredHashtags, seededHashtagOptions), [lists.preferredHashtags, seededHashtagOptions]);
+  const hashtagOptions = useMemo(
+    () => mergeOptions(lists.preferredHashtags, seededHashtagOptions),
+    [lists.preferredHashtags, seededHashtagOptions]
+  );
 
   const seededGoalOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.campaignGoals ?? [])
-        .map((g: any) => ({ label: String(g?.goal ?? "").trim(), value: String(g?.id ?? "").trim() }))
+        .map((g: any) => ({
+          label: String(g?.goal ?? "").trim(),
+          value: String(g?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
@@ -916,7 +1205,11 @@ function CreateManualScreen({
           const category = String(t?.category ?? "").trim();
           const range = prettyTierValue(t?.value);
           const label = category && range ? `${category} (${range})` : category || range;
-          return { label, value: String(t?.id ?? "").trim() };
+
+          return {
+            label,
+            value: String(t?.id ?? "").trim(),
+          };
         })
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
@@ -926,11 +1219,19 @@ function CreateManualScreen({
     const id = String(form.categoryId || loadedDetails?.category?.id || "").trim();
     const fromPicker = categoryPicker.categoryOptions.find((o) => o.value === id);
 
-    const label = String(form.categoryName || loadedDetails?.category?.name || fromPicker?.label || "").trim();
+    const label = String(
+      form.categoryName || loadedDetails?.category?.name || fromPicker?.label || ""
+    ).trim();
 
     if (!id || !label) return [];
+
     return [{ value: id, label }];
-  }, [form.categoryId, form.categoryName, loadedDetails, categoryPicker.categoryOptions]);
+  }, [
+    form.categoryId,
+    form.categoryName,
+    loadedDetails,
+    categoryPicker.categoryOptions,
+  ]);
 
   const categoryOptionsMerged = useMemo(
     () => mergeOptions(categoryPicker.categoryOptions, seededCategoryOption),
@@ -940,7 +1241,10 @@ function CreateManualScreen({
   const seededFormatOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.contentFormats ?? [])
-        .map((f: any) => ({ label: String(f?.format ?? "").trim(), value: String(f?.id ?? "").trim() }))
+        .map((f: any) => ({
+          label: String(f?.format ?? "").trim(),
+          value: String(f?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
@@ -948,7 +1252,10 @@ function CreateManualScreen({
   const seededLangOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.contentLanguages ?? [])
-        .map((l: any) => ({ label: String(l?.name ?? "").trim(), value: String(l?.id ?? "").trim() }))
+        .map((l: any) => ({
+          label: String(l?.name ?? "").trim(),
+          value: String(l?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
@@ -956,7 +1263,10 @@ function CreateManualScreen({
   const seededAgeOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.targetAgeRanges ?? [])
-        .map((a: any) => ({ label: String(a?.range ?? "").trim(), value: String(a?.id ?? "").trim() }))
+        .map((a: any) => ({
+          label: String(a?.range ?? "").trim(),
+          value: String(a?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
@@ -968,8 +1278,13 @@ function CreateManualScreen({
           const name = String(c?.countryNameEn ?? "").trim();
           const flag = String(c?.flag ?? "").trim();
           const id = String(c?.id ?? "").trim();
+
           if (!name || !id) return null;
-          return { label: `${flag ? flag + " " : ""}${name}`, value: id };
+
+          return {
+            label: `${flag ? flag + " " : ""}${name}`,
+            value: id,
+          };
         })
         .filter(Boolean) as Option[],
     [loadedDetails]
@@ -978,18 +1293,48 @@ function CreateManualScreen({
   const seededSubcategoryOptions = useMemo<Option[]>(
     () =>
       (loadedDetails?.subcategories ?? [])
-        .map((s: any) => ({ label: String(s?.name ?? "").trim(), value: String(s?.id ?? "").trim() }))
+        .map((s: any) => ({
+          label: String(s?.name ?? "").trim(),
+          value: String(s?.id ?? "").trim(),
+        }))
         .filter((x: any) => x.label && x.value),
     [loadedDetails]
   );
 
-  const goalsOptions = useMemo(() => mergeOptions(lists.productServiceGoals, seededGoalOptions), [lists.productServiceGoals, seededGoalOptions]);
-  const tierOptions = useMemo(() => mergeOptions(lists.influencerTiers, seededTierOptions), [lists.influencerTiers, seededTierOptions]);
-  const formatOptions = useMemo(() => mergeOptions(lists.contentFormats, seededFormatOptions), [lists.contentFormats, seededFormatOptions]);
-  const langOptions = useMemo(() => mergeOptions(lists.contentLanguages, seededLangOptions), [lists.contentLanguages, seededLangOptions]);
-  const ageOptions = useMemo(() => mergeOptions(lists.ageRanges, seededAgeOptions), [lists.ageRanges, seededAgeOptions]);
-  const countryNameOptions = useMemo(() => mergeOptions(lists.countriesByName, seededCountryOptions), [lists.countriesByName, seededCountryOptions]);
-  const subcategoryOptionsMerged = useMemo(() => mergeOptions(categoryPicker.subcategoryOptions, seededSubcategoryOptions), [categoryPicker.subcategoryOptions, seededSubcategoryOptions]);
+  const goalsOptions = useMemo(
+    () => mergeOptions(lists.productServiceGoals, seededGoalOptions),
+    [lists.productServiceGoals, seededGoalOptions]
+  );
+
+  const tierOptions = useMemo(
+    () => mergeOptions(lists.influencerTiers, seededTierOptions),
+    [lists.influencerTiers, seededTierOptions]
+  );
+
+  const formatOptions = useMemo(
+    () => mergeOptions(lists.contentFormats, seededFormatOptions),
+    [lists.contentFormats, seededFormatOptions]
+  );
+
+  const langOptions = useMemo(
+    () => mergeOptions(lists.contentLanguages, seededLangOptions),
+    [lists.contentLanguages, seededLangOptions]
+  );
+
+  const ageOptions = useMemo(
+    () => mergeOptions(lists.ageRanges, seededAgeOptions),
+    [lists.ageRanges, seededAgeOptions]
+  );
+
+  const countryNameOptions = useMemo(
+    () => mergeOptions(lists.countriesByName, seededCountryOptions),
+    [lists.countriesByName, seededCountryOptions]
+  );
+
+  const subcategoryOptionsMerged = useMemo(
+    () => mergeOptions(categoryPicker.subcategoryOptions, seededSubcategoryOptions),
+    [categoryPicker.subcategoryOptions, seededSubcategoryOptions]
+  );
 
   const tierRangeById = useMemo(() => {
     const out = new Map<string, TierRange>();
@@ -1020,19 +1365,29 @@ function CreateManualScreen({
 
   const selectedCountryOptions = useMemo(() => {
     const map = new Map((lists.raw.countries ?? []).map((c: any) => [countryKey(c), c]));
+
     return (form.targetCountry ?? [])
       .map((id) => {
         const c = map.get(id);
         if (!c) return null;
-        const name = String(c?.countryNameEn ?? "").trim();
-        const flag = String(c?.flag ?? "").trim();
+
+        const name = String((c as any)?.countryNameEn ?? "").trim();
+        const flag = String((c as any)?.flag ?? "").trim();
+
         if (!name) return null;
-        return { label: `${flag ? flag + " " : ""}${name}`, value: id };
+
+        return {
+          label: `${flag ? flag + " " : ""}${name}`,
+          value: id,
+        };
       })
       .filter(Boolean) as Option[];
   }, [form.targetCountry, lists.raw.countries]);
 
-  const countryOptionsForSelect = useMemo(() => mergeOptions(countryNameOptions, selectedCountryOptions), [countryNameOptions, selectedCountryOptions]);
+  const countryOptionsForSelect = useMemo(
+    () => mergeOptions(countryNameOptions, selectedCountryOptions),
+    [countryNameOptions, selectedCountryOptions]
+  );
 
   const dateOk = isValidDateRange(form.startDate, form.endDate);
   const datesFilled = !!form.startDate && !!form.endDate;
@@ -1041,6 +1396,7 @@ function CreateManualScreen({
     const checks = [
       form.title.trim().length > 0,
       form.description.trim().length > 49,
+      form.campaignType.trim().length > 0,
       form.categoryId.trim().length > 0,
       form.subcategories.length > 0,
       form.goals.length > 0,
@@ -1055,10 +1411,12 @@ function CreateManualScreen({
       form.endDate.trim().length > 0,
       Number(form.campaignBudget || 0) > 0,
       datesFilled && dateOk,
-      (form.productFiles?.length || 0) > 0 && productFileErrors.length === 0,
+      isEditMode ||
+        ((form.productFiles?.length || 0) > 0 && productFileErrors.length === 0),
     ];
+
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  }, [form, dateOk, datesFilled, productFileErrors.length]);
+  }, [form, dateOk, datesFilled, productFileErrors.length, isEditMode]);
 
   const computedBottomBarMaxW = bottomBarMaxWidth ?? formMaxWidth + 120;
 
@@ -1074,6 +1432,7 @@ function CreateManualScreen({
     categoryPicker.setSubSearch("");
 
     setDraftJustSaved(false);
+
     if (draftSavedTimerRef.current) {
       window.clearTimeout(draftSavedTimerRef.current);
       draftSavedTimerRef.current = null;
@@ -1081,6 +1440,8 @@ function CreateManualScreen({
 
     setSubmitAttempted(false);
     setServerFieldErrors({});
+
+    toastSuccess("Form reset", "Campaign form has been cleared.");
   }, [categoryPicker]);
 
   const saveDraftManually = useCallback(async () => {
@@ -1123,9 +1484,19 @@ function CreateManualScreen({
       }
 
       setDraftJustSaved(true);
-      draftSavedTimerRef.current = window.setTimeout(() => setDraftJustSaved(false), 1200);
+      draftSavedTimerRef.current = window.setTimeout(
+        () => setDraftJustSaved(false),
+        1200
+      );
     } catch (e) {
       const backendMsg = extractBackendMessage(e);
+      const fieldErrors = extractBackendFieldErrors(e);
+
+      if (fieldErrors && Object.keys(fieldErrors).length) {
+        setServerFieldErrors(fieldErrors);
+        setSubmitAttempted(true);
+      }
+
       toastError("Failed to save draft", backendMsg);
     } finally {
       setDraftSaving(false);
@@ -1137,11 +1508,14 @@ function CreateManualScreen({
     initialFromCampaign,
     extractBackendMessage,
     extractBackendSuccessMessage,
+    extractBackendFieldErrors,
   ]);
 
   useEffect(() => {
     return () => {
-      if (draftSavedTimerRef.current) window.clearTimeout(draftSavedTimerRef.current);
+      if (draftSavedTimerRef.current) {
+        window.clearTimeout(draftSavedTimerRef.current);
+      }
     };
   }, []);
 
@@ -1160,8 +1534,16 @@ function CreateManualScreen({
     return { ...manualErrors, ...(serverFieldErrors || {}) };
   }, [manualErrors, serverFieldErrors]);
 
-  const stateFor = useCallback((key: string) => (submitAttempted && combinedErrors[key] ? ("error" as const) : undefined), [submitAttempted, combinedErrors]);
-  const msgFor = useCallback((key: string) => (submitAttempted ? combinedErrors[key] : ""), [submitAttempted, combinedErrors]);
+  const stateFor = useCallback(
+    (key: string) =>
+      submitAttempted && combinedErrors[key] ? ("error" as const) : undefined,
+    [submitAttempted, combinedErrors]
+  );
+
+  const msgFor = useCallback(
+    (key: string) => (submitAttempted ? combinedErrors[key] : ""),
+    [submitAttempted, combinedErrors]
+  );
 
   const publishCampaign = useCallback(async () => {
     setSubmitAttempted(true);
@@ -1173,7 +1555,11 @@ function CreateManualScreen({
       blockingFileErrors: productFileErrors,
       isEditMode,
     });
-    if (Object.values(errs).some(Boolean)) return;
+
+    if (Object.values(errs).some(Boolean)) {
+      showValidationSummaryToast(errs);
+      return;
+    }
 
     const adminActor = getOptionalAdminPayload();
     const brandId = resolveTargetBrandId(resolvedBrandId, initialFromCampaign || null);
@@ -1208,6 +1594,10 @@ function CreateManualScreen({
         const uploadRes = await apiUploadImages(form.productFiles);
         const urls: string[] = uploadRes?.urls ?? uploadRes?.data?.urls ?? [];
 
+        if (!urls.length) {
+          throw new Error("Image upload failed. No image URLs returned from backend.");
+        }
+
         uploadedImages = urls.map((url, i) => {
           const file = form.productFiles[i];
           const key = url.split("/campaign-images/")[1] ?? url.split("/").pop() ?? "";
@@ -1222,6 +1612,7 @@ function CreateManualScreen({
             key,
           };
         });
+
         productImagesForPayload = isEditMode
           ? [...existingProductImages, ...uploadedImages]
           : uploadedImages;
@@ -1239,7 +1630,9 @@ function CreateManualScreen({
           categoryId: form.categoryId,
           subcategoryIds: form.subcategories,
           productLink: form.productLink.trim(),
-          productImages: productImagesForPayload.length ? productImagesForPayload : undefined,
+          productImages: productImagesForPayload.length
+            ? productImagesForPayload
+            : undefined,
           campaignGoals: form.goals,
           influencerTierIds: form.influencerTier,
           contentFormats: form.contentFormats,
@@ -1249,8 +1642,12 @@ function CreateManualScreen({
           targetAgeRanges: form.targetAgeGroups,
           preferredHashtags: form.hashtags,
           numberOfInfluencers: Number(form.numberOfInfluencers || 0),
-          ...(Number(form.minFollowers) > 0 ? { minFollowers: Number(form.minFollowers) } : {}),
-          ...(Number(form.maxFollowers) > 0 ? { maxFollowers: Number(form.maxFollowers) } : {}),
+          ...(Number(form.minFollowers) > 0
+            ? { minFollowers: Number(form.minFollowers) }
+            : {}),
+          ...(Number(form.maxFollowers) > 0
+            ? { maxFollowers: Number(form.maxFollowers) }
+            : {}),
           campaignBudget: Number(form.campaignBudget || 0),
           paymentType: form.paymentType,
           additionalNotes: form.additionalNotes || undefined,
@@ -1261,9 +1658,9 @@ function CreateManualScreen({
         const updated: any = isEditMode
           ? await apiAdminEditCampaign(commonPayload)
           : await apiCampaignEditDraft({
-            ...commonPayload,
-            status: "active" as CampaignStatus,
-          } as ActorAwareEditPayload);
+              ...commonPayload,
+              status: "active" as CampaignStatus,
+            } as ActorAwareEditPayload);
 
         const cid = pickCampaignId(updated) || campaignId;
 
@@ -1278,7 +1675,11 @@ function CreateManualScreen({
           )
         );
       } else {
-        const base = buildCreateManualPayload(brandId, form, false) as ActorAwareCreatePayload;
+        const base = buildCreateManualPayload(
+          brandId,
+          form,
+          false
+        ) as ActorAwareCreatePayload;
 
         const created: any = await apiCampaignCreate({
           ...base,
@@ -1300,14 +1701,21 @@ function CreateManualScreen({
         router.replace(`/admin/campaigns/view?id=${publishedCampaignId}`);
         onAfterPublish?.();
       } else {
-        toastError("Campaign published", "Campaign ID not found for redirect.");
+        toastWarning("Campaign published", "Campaign ID not found for redirect.");
       }
     } catch (e: any) {
       const backendMsg = extractBackendMessage(e);
       const fe = extractBackendFieldErrors(e);
 
-      if (fe && Object.keys(fe).length) setServerFieldErrors(fe);
-      toastError("Failed to publish campaign", backendMsg);
+      if (fe && Object.keys(fe).length) {
+        setServerFieldErrors(fe);
+        setSubmitAttempted(true);
+      }
+
+      toastError(
+        isEditMode ? "Failed to save campaign" : "Failed to publish campaign",
+        backendMsg
+      );
     } finally {
       setPublishing(false);
     }
@@ -1326,16 +1734,35 @@ function CreateManualScreen({
     extractBackendSuccessMessage,
     existingProductImages,
     router,
+    showValidationSummaryToast,
   ]);
 
   const catSearchProps = useSearchProps(categoryPicker.search, categoryPicker.setSearch);
-  const tierSearchProps = useSearchProps(lists.search.influencerTiers.value, lists.search.influencerTiers.onChange);
-  const formatSearchProps = useSearchProps(lists.search.contentFormats.value, lists.search.contentFormats.onChange);
-  const langSearchProps = useSearchProps(lists.search.contentLanguages.value, lists.search.contentLanguages.onChange);
-  const countrySearchProps = useSearchProps(lists.search.countries.value, lists.search.countries.onChange);
-  const ageSearchProps = useSearchProps(lists.search.ageRanges.value, lists.search.ageRanges.onChange);
-  const hashtagSearchProps = useSearchProps(lists.search.preferredHashtags.value, lists.search.preferredHashtags.onChange);
-  console.log("campaignId", campaignId)
+  const tierSearchProps = useSearchProps(
+    lists.search.influencerTiers.value,
+    lists.search.influencerTiers.onChange
+  );
+  const formatSearchProps = useSearchProps(
+    lists.search.contentFormats.value,
+    lists.search.contentFormats.onChange
+  );
+  const langSearchProps = useSearchProps(
+    lists.search.contentLanguages.value,
+    lists.search.contentLanguages.onChange
+  );
+  const countrySearchProps = useSearchProps(
+    lists.search.countries.value,
+    lists.search.countries.onChange
+  );
+  const ageSearchProps = useSearchProps(
+    lists.search.ageRanges.value,
+    lists.search.ageRanges.onChange
+  );
+  const hashtagSearchProps = useSearchProps(
+    lists.search.preferredHashtags.value,
+    lists.search.preferredHashtags.onChange
+  );
+
   return (
     <>
       <div className="cg-page-frame flex min-h-0 h-[100dvh] w-full flex-col overflow-hidden">
@@ -1352,17 +1779,26 @@ function CreateManualScreen({
 
               <div className="shrink-0 px-4 pt-5 sm:px-6 lg:px-10">
                 <div className="w-full pb-4">
-                  <ProgressBar value={progress} heightClassName="h-[3px]" barClassName="bg-success-500" />
+                  <ProgressBar
+                    value={progress}
+                    heightClassName="h-[3px]"
+                    barClassName="bg-success-500"
+                  />
                 </div>
               </div>
 
               <div className="cg-scrollbar flex-1 min-h-0 overflow-x-hidden overflow-y-auto overscroll-contain">
-                <div className="min-w-0 px-4 pb-10 sm:px-6 lg:px-5" style={{ paddingBottom: "calc(var(--cg-bottombar-h) + 32px)" }}>
+                <div
+                  className="min-w-0 px-4 pb-10 sm:px-6 lg:px-5"
+                  style={{ paddingBottom: "calc(var(--cg-bottombar-h) + 32px)" }}
+                >
                   <div className="rounded-l border border-[#D6D6D6] p-5">
                     <div className="bg-white p-5">
                       <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0">
-                          <div className="cg-accordion-title">Product / Service Info</div>
+                          <div className="cg-accordion-title">
+                            Product / Service Info
+                          </div>
                           <div className="cg-accordion-subtitle">
                             Describe your product or service, the campaign goal, and what you’d like creators to highlight.
                           </div>
@@ -1386,7 +1822,9 @@ function CreateManualScreen({
                           value={form.description}
                           minLength={50}
                           maxLength={4000}
-                          onChange={(e: any) => setField("description", String(e.target.value))}
+                          onChange={(e: any) =>
+                            setField("description", String(e.target.value))
+                          }
                           state={stateFor("description")}
                           errorText={msgFor("description")}
                         />
@@ -1415,7 +1853,10 @@ function CreateManualScreen({
                             value={form.categoryId}
                             onValueChange={(id) => {
                               categoryPicker.selectCategoryId(id);
-                              const opt = categoryOptionsMerged.find((o) => o.value === id);
+                              const opt = categoryOptionsMerged.find(
+                                (o) => o.value === id
+                              );
+
                               setField("categoryId", id);
                               setField("categoryName", opt?.label ?? "");
                               setField("subcategories", []);
@@ -1452,8 +1893,18 @@ function CreateManualScreen({
                           onFilesChange={(next) => {
                             const errs = validateFiles(next, "Product file");
                             setProductFileErrors(errs);
-                            if (errs.length) return;
+
+                            if (errs.length) {
+                              toastError("Invalid product file", errs[0]);
+                              return;
+                            }
+
                             setField("productFiles", next);
+                            setServerFieldErrors((prev) => {
+                              const nextErrors = { ...prev };
+                              delete nextErrors.productFiles;
+                              return nextErrors;
+                            });
                           }}
                         />
 
@@ -1505,27 +1956,45 @@ function CreateManualScreen({
                         />
 
                         <div>
-                          <div className={cn("cg-description mb-2 flex items-center gap-1 text-size-[14px]", stateFor("goals") && "!text-red-600")}>
+                          <div
+                            className={cn(
+                              "cg-description mb-2 flex items-center gap-1 text-size-[14px]",
+                              stateFor("goals") && "!text-red-600"
+                            )}
+                          >
                             <span>Campaign Goals</span>
                             <span className="!text-red-600">*</span>
                           </div>
 
-                          <ChipMultiSelect options={goalsOptions} value={form.goals} onChange={(next) => setField("goals", next)} />
+                          <ChipMultiSelect
+                            options={goalsOptions}
+                            value={form.goals}
+                            onChange={(next) => setField("goals", next)}
+                          />
 
-                          {stateFor("goals") ? <div className="mt-1 text-[14px] text-red-600">{msgFor("goals")}</div> : null}
+                          {stateFor("goals") ? (
+                            <div className="mt-1 text-[14px] text-red-600">
+                              {msgFor("goals")}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-10 flex flex-col gap-[40px]">
-                      <AccordionCard title="Creator Requirements" subtitle="Define who you’re looking to collaborate with.">
+                      <AccordionCard
+                        title="Creator Requirements"
+                        subtitle="Define who you’re looking to collaborate with."
+                      >
                         <div className="grid gap-4 md:grid-cols-2">
                           <FloatingInput
                             label="Number of Influencers"
                             type="number"
                             required
                             value={String(form.numberOfInfluencers || "")}
-                            onValueChange={(v) => setField("numberOfInfluencers", clampNonNegative(v))}
+                            onValueChange={(v) =>
+                              setField("numberOfInfluencers", clampNonNegative(v))
+                            }
                             state={stateFor("numberOfInfluencers")}
                             errorText={msgFor("numberOfInfluencers")}
                           />
@@ -1553,11 +2022,20 @@ function CreateManualScreen({
                                   };
                                 }
 
-                                const ranges = selected.map((id) => tierRangeById.get(id));
+                                const ranges = selected.map((id) =>
+                                  tierRangeById.get(id)
+                                );
                                 const agg = aggregateRanges(ranges);
 
-                                const nextMin = !followersTouchedRef.current.min && agg?.min != null ? agg.min : prev.minFollowers;
-                                const nextMax = !followersTouchedRef.current.max && agg?.max != null ? agg.max : prev.maxFollowers;
+                                const nextMin =
+                                  !followersTouchedRef.current.min && agg?.min != null
+                                    ? agg.min
+                                    : prev.minFollowers;
+
+                                const nextMax =
+                                  !followersTouchedRef.current.max && agg?.max != null
+                                    ? agg.max
+                                    : prev.maxFollowers;
 
                                 return {
                                   ...prev,
@@ -1565,6 +2043,14 @@ function CreateManualScreen({
                                   minFollowers: nextMin ?? prev.minFollowers,
                                   maxFollowers: nextMax ?? prev.maxFollowers,
                                 };
+                              });
+
+                              setServerFieldErrors((prev) => {
+                                if (!prev.influencerTier) return prev;
+
+                                const out = { ...prev };
+                                delete out.influencerTier;
+                                return out;
                               });
                             }}
                             includeAll={false}
@@ -1581,6 +2067,8 @@ function CreateManualScreen({
                               followersTouchedRef.current.min = n > 0;
                               setField("minFollowers", n);
                             }}
+                            state={stateFor("minFollowers")}
+                            errorText={msgFor("minFollowers")}
                           />
 
                           <FloatingInput
@@ -1592,6 +2080,8 @@ function CreateManualScreen({
                               followersTouchedRef.current.max = n > 0;
                               setField("maxFollowers", n);
                             }}
+                            state={stateFor("maxFollowers")}
+                            errorText={msgFor("maxFollowers")}
                           />
 
                           <FloatingMultiSelect
@@ -1618,7 +2108,10 @@ function CreateManualScreen({
                         </div>
                       </AccordionCard>
 
-                      <AccordionCard title="Timeline & Payments" subtitle="Set Budget for delivery and how you want to pay creators.">
+                      <AccordionCard
+                        title="Timeline & Payments"
+                        subtitle="Set Budget for delivery and how you want to pay creators."
+                      >
                         <div className="grid gap-4 md:grid-cols-2">
                           <FloatingSelect
                             label="Payment Type"
@@ -1641,7 +2134,9 @@ function CreateManualScreen({
                             type="number"
                             prefixText="$"
                             value={String(form.campaignBudget || "")}
-                            onValueChange={(v) => setField("campaignBudget", clampNonNegative(v))}
+                            onValueChange={(v) =>
+                              setField("campaignBudget", clampNonNegative(v))
+                            }
                             state={stateFor("campaignBudget")}
                             errorText={msgFor("campaignBudget")}
                           />
@@ -1654,6 +2149,7 @@ function CreateManualScreen({
                             min={TODAY}
                             onValueChange={(v) => {
                               setField("startDate", v);
+
                               if (form.endDate && isSameOrBeforeISO(form.endDate, v)) {
                                 setField("endDate", addDaysISO(v, 1));
                               }
@@ -1675,7 +2171,10 @@ function CreateManualScreen({
                         </div>
                       </AccordionCard>
 
-                      <AccordionCard title="Audience & Platforms" subtitle="Choose where and who this campaign should reach.">
+                      <AccordionCard
+                        title="Audience & Platforms"
+                        subtitle="Choose where and who this campaign should reach."
+                      >
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="md:col-span-2">
                             <FloatingMultiSelect
@@ -1722,13 +2221,23 @@ function CreateManualScreen({
                               label="Additional notes"
                               placeholder="Add any extra context, internal notes, or instructions you don’t want to miss."
                               value={form.additionalNotes}
-                              onChange={(e) => setField("additionalNotes", String((e as any).target.value))}
+                              onChange={(e) =>
+                                setField(
+                                  "additionalNotes",
+                                  String((e as any).target.value)
+                                )
+                              }
                               maxLength={4000}
                               showAttachment
                               attachment={form.attachment}
                               onAttachmentChange={(file) => {
                                 const errs = file ? validateFiles([file], "Attachment") : [];
-                                if (errs.length) return;
+
+                                if (errs.length) {
+                                  toastError("Invalid attachment", errs[0]);
+                                  return;
+                                }
+
                                 setField("attachment", file);
                               }}
                               accept="image/*,.pdf,.doc,.docx"
@@ -1773,6 +2282,19 @@ function CreateManualScreen({
             </Button>
 
             <span aria-hidden className="h-5 w-px bg-[#E6E6E6]" />
+
+            <Button
+              variant="raised"
+              className="shadow-none"
+              onClick={saveDraftManually}
+              disabled={draftSaving || publishing}
+            >
+              {draftSaving
+                ? "Saving Draft..."
+                : draftJustSaved
+                  ? "Draft Saved"
+                  : "Save Draft"}
+            </Button>
           </>
         }
         right={
@@ -1795,12 +2317,10 @@ function CreateManualScreen({
 /* ============================================================================
    Main Page
 ============================================================================ */
+
 export default function CreateCampaignPage() {
   const searchParams = useSearchParams();
 
-  // Accept both params:
-  // View page currently sends ?id=
-  // Some pages may send ?campaignId=
   const editCampaignId =
     searchParams.get("campaignId") ||
     searchParams.get("id") ||
@@ -1847,7 +2367,11 @@ export default function CreateCampaignPage() {
         setManualFromCampaign(doc as EnrichedCampaignDoc);
       } catch (e) {
         if (cancelled) return;
-        toastError("Failed to load campaign", getApiErrorMessage(e));
+
+        toastError(
+          "Failed to load campaign",
+          getBackendErrorMessage(e, "Unable to load campaign details.")
+        );
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -1860,27 +2384,35 @@ export default function CreateCampaignPage() {
 
   if (loading) {
     return (
-      <CenterWrap>
-        <div className="w-full max-w-5xl rounded-2xl border border-neutral-200 bg-white p-6">
-          <div className="h-6 w-40 rounded bg-neutral-200" />
-          <div className="mt-3 h-4 w-96 max-w-full rounded bg-neutral-100" />
-          <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-6">
-            <div className="h-[260px] rounded-xl bg-neutral-100" />
+      <>
+        <ToastStyles />
+
+        <CenterWrap>
+          <div className="w-full max-w-5xl rounded-2xl border border-neutral-200 bg-white p-6">
+            <div className="h-6 w-40 rounded bg-neutral-200" />
+            <div className="mt-3 h-4 w-96 max-w-full rounded bg-neutral-100" />
+            <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-6">
+              <div className="h-[260px] rounded-xl bg-neutral-100" />
+            </div>
           </div>
-        </div>
-      </CenterWrap>
+        </CenterWrap>
+      </>
     );
   }
 
   return (
-    <CreateManualScreen
-      sidebarOffsetPx={sidebarOffsetPx}
-      formMaxWidth={LAYOUT.manualFormMaxWidth}
-      lists={lists}
-      initialFromCampaign={manualFromCampaign}
-      targetBrandId={resolvedBrandId}
-      isEditMode={Boolean(editCampaignId)}
-      onAfterPublish={() => setManualFromCampaign(null)}
-    />
+    <>
+      <ToastStyles />
+
+      <CreateManualScreen
+        sidebarOffsetPx={sidebarOffsetPx}
+        formMaxWidth={LAYOUT.manualFormMaxWidth}
+        lists={lists}
+        initialFromCampaign={manualFromCampaign}
+        targetBrandId={resolvedBrandId}
+        isEditMode={Boolean(editCampaignId)}
+        onAfterPublish={() => setManualFromCampaign(null)}
+      />
+    </>
   );
 }

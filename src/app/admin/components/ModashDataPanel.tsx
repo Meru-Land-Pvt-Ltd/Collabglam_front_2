@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import swal from 'sweetalert';
 import { get } from '@/lib/api';
+import { toast, ToastStyles } from '@/components/ui/toast';
 import { SearchHeader } from '@/app/brand/(protected)/browse-influencer/SearchHeader';
 import { ResultsGrid } from '@/app/brand/(protected)/browse-influencer/ResultsGrid';
 import { DetailPanel } from '@/app/brand/(protected)/browse-influencer/DetailPanel';
@@ -142,6 +142,19 @@ type AdvancedFilters = {
   platform: Record<Platform, PlatformAdvancedFilter>;
 };
 
+type ApiErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
+};
+
 const PLATFORM_ORDER: Platform[] = ['youtube', 'instagram', 'tiktok'];
 
 function createEmptyPlatformFilter(): PlatformAdvancedFilter {
@@ -187,11 +200,103 @@ function updateNestedValue<T extends Record<string, any>>(
   return next;
 }
 
-function showErr(message: string) {
-  return swal({
-    title: 'Error',
-    text: message || 'Something went wrong.',
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return '';
+
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  if (typeof value === 'object') {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : '';
+      })
+      .filter(Boolean)
+      .join(', ');
+  }
+
+  return '';
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const err = error as ApiErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function showErrorToast(title: string, error: unknown, fallback: string) {
+  toast({
     icon: 'error',
+    title,
+    text: getErrorMessage(error, fallback),
+    timer: 4000,
+  });
+}
+
+function showValidationToast(title: string, message: string) {
+  toast({
+    icon: 'error',
+    title,
+    text: message,
+    timer: 4000,
+  });
+}
+
+function showSuccessToast(title: string, message?: string) {
+  toast({
+    icon: 'success',
+    title,
+    text: message,
+    timer: 2500,
+  });
+}
+
+function showWarningToast(title: string, message?: string) {
+  toast({
+    icon: 'warning',
+    title,
+    text: message,
+    timer: 3500,
   });
 }
 
@@ -594,8 +699,12 @@ export default function ModashDataPanel() {
         setTotal(responseTotal);
         setPage(serverPage + 1);
         setHasNext((serverPage + 1) * responseLimit < responseTotal);
-      } catch (e: any) {
-        await showErr(e?.message || 'Failed to load saved influencers.');
+      } catch (error) {
+        showErrorToast(
+          'Saved influencers loading failed',
+          error,
+          'Failed to load saved influencers.'
+        );
       } finally {
         setLoading(false);
       }
@@ -630,8 +739,8 @@ export default function ModashDataPanel() {
         setTotal(responseTotal);
         setPage(serverPage + 1);
         setHasNext((serverPage + 1) * responseLimit < responseTotal);
-      } catch (e: any) {
-        await showErr(e?.message || 'Failed to load users.');
+      } catch (error) {
+        showErrorToast('Users loading failed', error, 'Failed to load users.');
       } finally {
         setLoading(false);
       }
@@ -646,7 +755,13 @@ export default function ModashDataPanel() {
   const handleSearch = useCallback(
     async (query: string) => {
       const cleanQuery = String(query || '').trim();
-      if (!cleanQuery || loading) return;
+
+      if (!cleanQuery) {
+        showValidationToast('Search required', 'Please enter a creator name, handle, keyword, or category.');
+        return;
+      }
+
+      if (loading) return;
 
       setLoading(true);
 
@@ -669,6 +784,12 @@ export default function ModashDataPanel() {
           setTotal(responseTotal);
           setPage(serverPage + 1);
           setHasNext((serverPage + 1) * responseLimit < responseTotal);
+
+          showSuccessToast(
+            'Saved results found',
+            `${savedResults.length} saved influencer${savedResults.length === 1 ? '' : 's'} found.`
+          );
+
           return;
         }
 
@@ -688,8 +809,17 @@ export default function ModashDataPanel() {
         setTotal(responseTotal);
         setPage(serverPage + 1);
         setHasNext((serverPage + 1) * responseLimit < responseTotal);
-      } catch (e: any) {
-        await showErr(e?.message || 'Search failed.');
+
+        if (usersResults.length) {
+          showSuccessToast(
+            'Search completed',
+            `${usersResults.length} influencer${usersResults.length === 1 ? '' : 's'} found.`
+          );
+        } else {
+          showWarningToast('No results found', 'Try changing your search query or filters.');
+        }
+      } catch (error) {
+        showErrorToast('Search failed', error, 'Search failed.');
       } finally {
         setLoading(false);
       }
@@ -697,20 +827,22 @@ export default function ModashDataPanel() {
     [filtersActive, limit, loading, platforms]
   );
 
-  const applyFilters = useCallback(() => {
+  const applyFilters = useCallback(async () => {
     const nextFilters = filtersRef.current;
 
     setFiltersActive(nextFilters);
 
     if (queryText.trim()) {
-      handleSearch(queryText.trim());
+      await handleSearch(queryText.trim());
+      showSuccessToast('Filters applied', 'Search filters have been applied.');
       return;
     }
 
-    loadSaved(1, nextFilters, '');
+    await loadSaved(1, nextFilters, '');
+    showSuccessToast('Filters applied', 'Saved influencers have been filtered.');
   }, [handleSearch, loadSaved, queryText]);
 
-  const resetFilters = useCallback(() => {
+  const resetFilters = useCallback(async () => {
     const nextFilters = createDefaultAdvancedFilters();
 
     filtersRef.current = nextFilters;
@@ -719,11 +851,13 @@ export default function ModashDataPanel() {
     setPlatforms(['youtube']);
 
     if (queryText.trim()) {
-      handleSearch(queryText.trim());
+      await handleSearch(queryText.trim());
+      showSuccessToast('Filters reset', 'All filters have been cleared.');
       return;
     }
 
-    loadSaved(1, nextFilters, '');
+    await loadSaved(1, nextFilters, '');
+    showSuccessToast('Filters reset', 'All filters have been cleared.');
   }, [handleSearch, loadSaved, queryText, setPlatforms]);
 
   const handleLoadMore = useCallback(() => {
@@ -750,7 +884,7 @@ export default function ModashDataPanel() {
       influencer?.handle;
 
     if (!idCandidate) {
-      await showErr('Missing user ID. Cannot open detail panel.');
+      showValidationToast('Missing user ID', 'Cannot open detail panel because the user ID is missing.');
       return;
     }
 
@@ -767,7 +901,15 @@ export default function ModashDataPanel() {
     setSelectedHandle(nextHandle);
     setPanelOpen(true);
 
-    fetchReport(nextId, nextPlatform, calculationMethod);
+    try {
+      await fetchReport(nextId, nextPlatform, calculationMethod);
+    } catch (error) {
+      showErrorToast(
+        'Report loading failed',
+        error,
+        'Failed to load influencer report.'
+      );
+    }
   }
 
   function closeDetailPanel() {
@@ -779,15 +921,37 @@ export default function ModashDataPanel() {
   }
 
   async function refreshDetailPanel() {
-    if (!selectedId || !selectedPlatform) return;
-    await fetchReport(selectedId, selectedPlatform, calculationMethod, undefined, true);
+    if (!selectedId || !selectedPlatform) {
+      showValidationToast(
+        'Report unavailable',
+        'Please select an influencer before refreshing the report.'
+      );
+      return;
+    }
+
+    try {
+      await fetchReport(selectedId, selectedPlatform, calculationMethod, undefined, true);
+      showSuccessToast('Report refreshed', 'Influencer report has been refreshed.');
+    } catch (error) {
+      showErrorToast(
+        'Report refresh failed',
+        error,
+        'Failed to refresh influencer report.'
+      );
+    }
   }
 
   function handlePanelPlatformChange(profile: any) {
     const nextPlatform = normalizePlatform(profile?.provider || profile?.platform) as ReportPlatform;
     const nextId = profile?.modashId || profile?._id || profile?.userId || profile?.id;
 
-    if (!nextPlatform || !nextId) return;
+    if (!nextPlatform || !nextId) {
+      showValidationToast(
+        'Platform profile missing',
+        'Cannot switch platform because profile ID or platform is missing.'
+      );
+      return;
+    }
 
     const nextHandle = profile?.username || profile?.handle || null;
 
@@ -795,108 +959,131 @@ export default function ModashDataPanel() {
     setSelectedPlatform(nextPlatform);
     setSelectedHandle(nextHandle ? String(nextHandle).replace(/^@/, '') : null);
 
-    fetchReport(String(nextId), nextPlatform, calculationMethod);
+    void fetchReport(String(nextId), nextPlatform, calculationMethod).catch((error) => {
+      showErrorToast(
+        'Report loading failed',
+        error,
+        'Failed to load report for selected platform.'
+      );
+    });
   }
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-950">Modash Influencers</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Search, filter, export, and manage influencer profiles.
-          </p>
-        </div>
+    <>
+      <ToastStyles />
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge>
-            Platforms:{' '}
-            {platforms
-              .map((platform) => platform.charAt(0).toUpperCase() + platform.slice(1))
-              .join(', ')}
-          </Badge>
-          <Badge>{new Intl.NumberFormat('en-IN').format(total)} total</Badge>
-        </div>
-      </div>
-
-      <SearchHeader
-        queryText={queryText}
-        setQueryText={setQueryText}
-        loading={loading}
-        onSearch={(query) => {
-          setQueryText(query);
-          handleSearch(query);
-        }}
-        platforms={platforms}
-        setPlatforms={setPlatforms}
-        filters={filters as any}
-        updateFilter={updateFilter}
-        onResetFilters={resetFilters}
-        onApplyFilters={applyFilters}
-      />
-
-      <ResultsGrid
-        platform={primaryPlatform}
-        results={visibleResults}
-        loading={loading}
-        total={total}
-        hasMore={hasNext}
-        onLoadMore={handleLoadMore}
-        onViewProfile={openDetailPanel}
-      />
-
-      {visibleResults.length > 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 pb-4 pt-1">
-          {hasNext ? (
-            <button
-              type="button"
-              onClick={handleLoadMore}
-              disabled={loading}
-              className="inline-flex h-12 min-w-[160px] items-center justify-center rounded-[14px] bg-black px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#111] disabled:cursor-not-allowed disabled:bg-[#e5e5e5] disabled:text-[#9a9a9a]"
-            >
-              {loading ? 'Loading more...' : 'Load More'}
-            </button>
-          ) : (
-            <p className="text-sm text-slate-500">
-              No more results to load.
+      <section className="space-y-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-950">
+              Modash Influencers
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Search, filter, export, and manage influencer profiles.
             </p>
-          )}
+          </div>
 
-          <p className="text-xs text-slate-400">
-            Showing {new Intl.NumberFormat('en-IN').format(visibleResults.length)}
-            {total ? ` of ${new Intl.NumberFormat('en-IN').format(total)}` : ''} profiles
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge>
+              Platforms:{' '}
+              {platforms
+                .map((platform) => platform.charAt(0).toUpperCase() + platform.slice(1))
+                .join(', ')}
+            </Badge>
+            <Badge>{new Intl.NumberFormat('en-IN').format(total)} total</Badge>
+          </div>
         </div>
-      ) : null}
 
-      <DetailPanel
-        open={panelOpen}
-        onClose={closeDetailPanel}
-        loading={loadingReport}
-        error={reportError}
-        data={report}
-        raw={rawReport}
-        platform={selectedPlatform}
-        onChangeCalc={(calc) => {
-          setCalculationMethod(calc);
+        <SearchHeader
+          queryText={queryText}
+          setQueryText={setQueryText}
+          loading={loading}
+          onSearch={(query) => {
+            setQueryText(query);
+            handleSearch(query);
+          }}
+          platforms={platforms}
+          setPlatforms={setPlatforms}
+          filters={filters as any}
+          updateFilter={updateFilter}
+          onResetFilters={resetFilters}
+          onApplyFilters={applyFilters}
+        />
 
-          if (selectedId && selectedPlatform) {
-            fetchReport(selectedId, selectedPlatform, calc);
+        <ResultsGrid
+          platform={primaryPlatform}
+          results={visibleResults}
+          loading={loading}
+          total={total}
+          hasMore={hasNext}
+          onLoadMore={handleLoadMore}
+          onViewProfile={openDetailPanel}
+        />
+
+        {visibleResults.length > 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 pb-4 pt-1">
+            {hasNext ? (
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={loading}
+                className="inline-flex h-12 min-w-[160px] items-center justify-center rounded-[14px] bg-black px-6 text-sm font-semibold text-white shadow-sm transition hover:bg-[#111] disabled:cursor-not-allowed disabled:bg-[#e5e5e5] disabled:text-[#9a9a9a]"
+              >
+                {loading ? 'Loading more...' : 'Load More'}
+              </button>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No more results to load.
+              </p>
+            )}
+
+            <p className="text-xs text-slate-400">
+              Showing {new Intl.NumberFormat('en-IN').format(visibleResults.length)}
+              {total ? ` of ${new Intl.NumberFormat('en-IN').format(total)}` : ''} profiles
+            </p>
+          </div>
+        ) : null}
+
+        <DetailPanel
+          open={panelOpen}
+          onClose={closeDetailPanel}
+          loading={loadingReport}
+          error={reportError}
+          data={report}
+          raw={rawReport}
+          platform={selectedPlatform}
+          onChangeCalc={(calc) => {
+            setCalculationMethod(calc);
+
+            if (selectedId && selectedPlatform) {
+              void fetchReport(selectedId, selectedPlatform, calc).catch((error) => {
+                showErrorToast(
+                  'Report calculation failed',
+                  error,
+                  'Failed to update report calculation.'
+                );
+              });
+            } else {
+              showValidationToast(
+                'Report unavailable',
+                'Please select an influencer before changing calculation method.'
+              );
+            }
+          }}
+          brandId={brandId}
+          handle={selectedHandle}
+          lastFetchedAt={lastFetchedAt}
+          onRefreshReport={refreshDetailPanel}
+          connectedProfiles={
+            selectedInfluencer?.socialProfiles ??
+            selectedInfluencer?.connectedProfiles ??
+            selectedInfluencer?.profiles ??
+            []
           }
-        }}
-        brandId={brandId}
-        handle={selectedHandle}
-        lastFetchedAt={lastFetchedAt}
-        onRefreshReport={refreshDetailPanel}
-        connectedProfiles={
-          selectedInfluencer?.socialProfiles ??
-          selectedInfluencer?.connectedProfiles ??
-          selectedInfluencer?.profiles ??
-          []
-        }
-        onPlatformChange={handlePanelPlatformChange}
-      />
-    </section>
+          onPlatformChange={handlePanelPlatformChange}
+        />
+      </section>
+    </>
   );
 }
 

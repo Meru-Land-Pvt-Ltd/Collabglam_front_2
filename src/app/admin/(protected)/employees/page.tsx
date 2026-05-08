@@ -5,6 +5,8 @@ import {
   BadgeCheck,
   Clock3,
   Download,
+  Eye,
+  EyeOff,
   KeyRound,
   Mail,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
 import AdminTable, {
   type AdminTableColumn,
 } from "@/app/admin/components/table";
+import { toast, ToastStyles } from "@/components/ui/toast";
 
 type AdminStatus = "pending" | "active" | "inactive" | "suspended";
 type PermissionLevel = "none" | "read" | "write";
@@ -74,6 +77,19 @@ type MeResponse = {
   rootAdmin?: string | AdminMini | null;
 };
 
+type ApiErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/";
 
 const ROLE_OPTIONS: Array<{ value: AdminRole; label: string }> = [
@@ -88,6 +104,106 @@ const DEFAULT_ROLE_OPTIONS = ROLE_OPTIONS.map((item) => item.value);
 
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const err = error as ApiErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function showErrorToast(title: string, error: unknown, fallback: string) {
+  toast({
+    icon: "error",
+    title,
+    text: getErrorMessage(error, fallback),
+    timer: 4000,
+  });
+}
+
+function showValidationToast(title: string, message: string) {
+  toast({
+    icon: "error",
+    title,
+    text: message,
+    timer: 4000,
+  });
+}
+
+function showSuccessToast(title: string, message?: string) {
+  toast({
+    icon: "success",
+    title,
+    text: message,
+    timer: 2500,
+  });
+}
+
+function showWarningToast(title: string, message?: string) {
+  toast({
+    icon: "warning",
+    title,
+    text: message,
+    timer: 3500,
+  });
 }
 
 function toApiUrl(path: string) {
@@ -107,6 +223,38 @@ function getAuthHeaders() {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
+}
+
+async function requestJson<T>(
+  path: string,
+  options: RequestInit = {},
+  fallbackError = "Request failed."
+): Promise<T> {
+  const response = await fetch(toApiUrl(path), {
+    credentials: "include",
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw {
+      response: {
+        data,
+        statusText: response.statusText,
+      },
+      message:
+        normalizeErrorValue(data) ||
+        response.statusText ||
+        fallbackError,
+    };
+  }
+
+  return data as T;
 }
 
 function formatDT(v?: string) {
@@ -265,6 +413,10 @@ function needsParentRevenueHead(inviterRole?: string, targetRole?: string) {
   );
 }
 
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function PermissionSwitch({
   value,
   onChange,
@@ -383,8 +535,6 @@ export default function EmployeesPage() {
 
   const [loading, setLoading] = useState(true);
   const [loadingMe, setLoadingMe] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [rowMsg, setRowMsg] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
@@ -404,10 +554,8 @@ export default function EmployeesPage() {
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [passwordEmployee, setPasswordEmployee] = useState<AdminRow | null>(null);
   const [updatePassword, setUpdatePassword] = useState("");
-  const [passwordErr, setPasswordErr] = useState<string | null>(null);
+  const [showUpdatePassword, setShowUpdatePassword] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
-
-  const [editErr, setEditErr] = useState<string | null>(null);
 
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -417,7 +565,6 @@ export default function EmployeesPage() {
   const [inviteParentAdmin, setInviteParentAdmin] = useState("");
   const [inviteAccess, setInviteAccess] = useState<AdminAccess[]>([]);
   const [inviting, setInviting] = useState(false);
-  const [inviteErr, setInviteErr] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | AdminStatus>("all");
@@ -709,7 +856,6 @@ export default function EmployeesPage() {
       setEditRole("");
       setEditStatus("pending");
       setEditAccess([]);
-      setEditErr(null);
       return;
     }
 
@@ -726,7 +872,6 @@ export default function EmployeesPage() {
     setEditRole(String(admin.role || "").toLowerCase());
     setEditStatus((admin.status || "pending") as AdminStatus);
     setEditAccess(nextAccess);
-    setEditErr(null);
   }
 
   function setModuleLevel(
@@ -775,22 +920,23 @@ export default function EmployeesPage() {
     setLoadingMe(true);
 
     try {
-      const res = await fetch(toApiUrl("admins/me"), {
-        method: "GET",
-        credentials: "include",
-        headers: getAuthHeaders(),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to load current admin");
-      }
+      const data = await requestJson<any>(
+        "admins/me",
+        {
+          method: "GET",
+        },
+        "Failed to load current admin."
+      );
 
       setMe(data?.data || data);
-    } catch (e: any) {
+    } catch (e) {
       setMe(null);
-      setError(e?.message || "Failed to load current admin");
+
+      showErrorToast(
+        "Current admin loading failed",
+        e,
+        "Failed to load current admin."
+      );
     } finally {
       setLoadingMe(false);
     }
@@ -798,20 +944,15 @@ export default function EmployeesPage() {
 
   async function fetchEmployees() {
     setLoading(true);
-    setError(null);
 
     try {
-      const res = await fetch(toApiUrl("admins/list"), {
-        method: "GET",
-        credentials: "include",
-        headers: getAuthHeaders(),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to load employees");
-      }
+      const data = await requestJson<any>(
+        "admins/list",
+        {
+          method: "GET",
+        },
+        "Failed to load employees."
+      );
 
       const nextRows = Array.isArray(data?.data)
         ? data.data
@@ -824,40 +965,50 @@ export default function EmployeesPage() {
       if (nextRows.length && !selectedId) {
         hydrateEditor(nextRows[0]);
       }
-    } catch (e: any) {
+    } catch (e) {
       setRows([]);
-      setError(e?.message || "Failed to load employees");
+
+      showErrorToast(
+        "Employees loading failed",
+        e,
+        "Failed to load employees."
+      );
     } finally {
       setLoading(false);
     }
   }
 
-  async function refreshAll() {
+  async function refreshAll(showToast = false) {
     await Promise.all([fetchMe(), fetchEmployees()]);
+
+    if (showToast) {
+      showSuccessToast("Refreshed", "Employee data has been refreshed.");
+    }
   }
 
   async function updateStatus(
     adminId: string,
     status: AdminStatus
   ): Promise<boolean> {
-    if (!canEditEmployees) return false;
+    if (!canEditEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to update employee status."
+      );
+      return false;
+    }
 
     setUpdatingId(adminId);
-    setRowMsg(null);
 
     try {
-      const res = await fetch(toApiUrl("admins/update-status"), {
-        method: "PUT",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ adminId, status }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to update status");
-      }
+      const data = await requestJson<any>(
+        "admins/update-status",
+        {
+          method: "PUT",
+          body: JSON.stringify({ adminId, status }),
+        },
+        "Failed to update status."
+      );
 
       setRows((prev) =>
         prev.map((item) => (item._id === adminId ? { ...item, status } : item))
@@ -867,21 +1018,43 @@ export default function EmployeesPage() {
         setEditStatus(status);
       }
 
-      setRowMsg(data?.message || "Status updated successfully");
+      showSuccessToast(
+        "Status updated",
+        data?.message || "Employee status updated successfully."
+      );
+
       return true;
-    } catch (e: any) {
-      setRowMsg(e?.message || "Failed to update status");
+    } catch (e) {
+      showErrorToast(
+        "Status update failed",
+        e,
+        "Failed to update status."
+      );
+
       return false;
     } finally {
       setUpdatingId(null);
-      setTimeout(() => setRowMsg(null), 2500);
     }
   }
 
   function openStatusConfirm(row: AdminRow) {
+    if (!canEditEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to update employee status."
+      );
+      return;
+    }
+
     const currentStatus = (row.status || "pending") as AdminStatus;
 
-    if (currentStatus === "pending") return;
+    if (currentStatus === "pending") {
+      showWarningToast(
+        "Pending employee",
+        "Pending employees cannot be enabled or disabled until they accept the invite."
+      );
+      return;
+    }
 
     const nextStatus: AdminStatus =
       currentStatus === "active" ? "inactive" : "active";
@@ -917,12 +1090,18 @@ export default function EmployeesPage() {
     event?.preventDefault();
     event?.stopPropagation();
 
-    // Clear search because browser autofill / table click can put admin email here
-    setSearch("");
+    if (!canEditEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to update employee passwords."
+      );
+      return;
+    }
 
+    setSearch("");
     setPasswordEmployee(row);
     setUpdatePassword("");
-    setPasswordErr(null);
+    setShowUpdatePassword(false);
     setPasswordOpen(true);
   }
 
@@ -932,112 +1111,168 @@ export default function EmployeesPage() {
     setPasswordOpen(false);
     setPasswordEmployee(null);
     setUpdatePassword("");
-    setPasswordErr(null);
+    setShowUpdatePassword(false);
   }
 
   async function onUpdatePassword() {
-    if (!passwordEmployee || !canEditEmployees) return;
+    if (!passwordEmployee) {
+      showValidationToast("Employee required", "Please select an employee first.");
+      return;
+    }
+
+    if (!canEditEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to update employee passwords."
+      );
+      return;
+    }
 
     const password = updatePassword.trim();
 
     if (!password) {
-      setPasswordErr("Password is required");
+      showValidationToast("Password required", "Password is required.");
       return;
     }
 
     if (password.length < 8) {
-      setPasswordErr("Password must be at least 8 characters");
+      showValidationToast(
+        "Password too short",
+        "Password must be at least 8 characters."
+      );
       return;
     }
 
     setSavingPassword(true);
-    setPasswordErr(null);
 
     try {
-      const res = await fetch(toApiUrl("admins/update-employee-password"), {
-        method: "POST",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          employeeId: passwordEmployee._id,
-          updatedPassword: password,
-        }),
-      });
+      const data = await requestJson<any>(
+        "admins/update-employee-password",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: passwordEmployee._id,
+            updatedPassword: password,
+          }),
+        },
+        "Failed to update password."
+      );
 
-      const data = await res.json();
+      showSuccessToast(
+        "Password updated",
+        data?.message || "Employee password updated successfully."
+      );
 
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to update password");
-      }
-
-      setRowMsg(data?.message || "Employee password updated successfully");
       closePasswordModal();
-
       await fetchEmployees();
-    } catch (e: any) {
-      setPasswordErr(e?.message || "Failed to update password");
+    } catch (e) {
+      showErrorToast(
+        "Password update failed",
+        e,
+        "Failed to update password."
+      );
     } finally {
       setSavingPassword(false);
-      setTimeout(() => setRowMsg(null), 2500);
     }
   }
 
   async function onSaveCurrent() {
-    if (!selectedId) return;
+    if (!selectedId) {
+      showValidationToast("Employee required", "Please select an employee first.");
+      return;
+    }
+
+    if (!canEditEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to update employees."
+      );
+      return;
+    }
+
+    if (!editRole.trim()) {
+      showValidationToast("Role required", "Please select an employee role.");
+      return;
+    }
 
     setSavingEdit(true);
-    setEditErr(null);
 
     try {
-      const res = await fetch(toApiUrl("admins/update-status"), {
-        method: "PUT",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          adminId: selectedId,
-          name: editName.trim() || undefined,
-          role: editRole.trim(),
-          status: editStatus,
-          access: canonicalizeAccessList(editAccess),
-        }),
-      });
+      const data = await requestJson<any>(
+        "admins/update-status",
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            adminId: selectedId,
+            name: editName.trim() || undefined,
+            role: editRole.trim(),
+            status: editStatus,
+            access: canonicalizeAccessList(editAccess),
+          }),
+        },
+        "Failed to update employee."
+      );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to update employee");
-      }
-
-      setRowMsg(data?.message || "Changes saved");
       setManageOpen(false);
+
+      showSuccessToast(
+        "Employee updated",
+        data?.message || "Employee changes saved successfully."
+      );
+
       await fetchEmployees();
-    } catch (e: any) {
-      setEditErr(e?.message || "Failed to update employee");
+    } catch (e) {
+      showErrorToast(
+        "Employee update failed",
+        e,
+        "Failed to update employee."
+      );
     } finally {
       setSavingEdit(false);
-      setTimeout(() => setRowMsg(null), 2500);
     }
   }
 
   async function onInvite() {
-    setInviteErr(null);
-
     const email = inviteEmail.trim().toLowerCase();
     const role = String(inviteRole || "").trim().toLowerCase() as AdminRole;
     const proxyEmail = inviteProxyEmail.trim();
 
+    if (!canInviteEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to invite employees."
+      );
+      return;
+    }
+
     if (!email) {
-      setInviteErr("Email is required");
+      showValidationToast("Email required", "Email is required.");
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      showValidationToast("Invalid email", "Please enter a valid email address.");
+      return;
+    }
+
+    if (proxyEmail && !isValidEmail(proxyEmail)) {
+      showValidationToast(
+        "Invalid proxy email",
+        "Please enter a valid proxy email address."
+      );
       return;
     }
 
     if (!role) {
-      setInviteErr("Role is required");
+      showValidationToast("Role required", "Role is required.");
       return;
     }
 
     if (needsParentRevenueHead(currentRole, role) && !inviteParentAdmin.trim()) {
-      setInviteErr("Please select a Revenue Head");
+      showValidationToast(
+        "Revenue Head required",
+        "Please select a Revenue Head."
+      );
       return;
     }
 
@@ -1056,18 +1291,14 @@ export default function EmployeesPage() {
         payload.parentAdmin = inviteParentAdmin;
       }
 
-      const res = await fetch(toApiUrl("admins/invite"), {
-        method: "POST",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Invite failed");
-      }
+      const data = await requestJson<any>(
+        "admins/invite",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        },
+        "Invite failed."
+      );
 
       setInviteOpen(false);
       setInviteEmail("");
@@ -1076,66 +1307,106 @@ export default function EmployeesPage() {
       setInviteRole("");
       setInviteParentAdmin("");
       setInviteAccess([]);
-      setRowMsg(data?.message || "Invite sent successfully");
+
+      showSuccessToast(
+        "Invite sent",
+        data?.message || "Employee invite sent successfully."
+      );
 
       await fetchEmployees();
-    } catch (e: any) {
-      setInviteErr(e?.message || "Invite failed");
+    } catch (e) {
+      showErrorToast("Invite failed", e, "Invite failed.");
     } finally {
       setInviting(false);
-      setTimeout(() => setRowMsg(null), 2500);
     }
   }
 
   function exportCsv() {
-    const headers = [
-      "Employee Name",
-      "Employee Email",
-      "Proxy Email",
-      "Role",
-      "Status",
-      "Reports To",
-      "Last Login",
-      "Modules",
-    ];
-
-    const lines = sortedRows.map((row) => {
-      const rowAccess = canonicalizeAccessList(
-        Array.isArray(row.access)
-          ? row.access
-          : Array.isArray(row.permissions)
-            ? row.permissions
-            : []
+    if (!sortedRows.length) {
+      showWarningToast(
+        "No employees to export",
+        "There are no employee rows available for export."
       );
+      return;
+    }
 
-      return [
-        `"${row.name || ""}"`,
-        `"${row.email || ""}"`,
-        `"${row.proxyEmail || ""}"`,
-        `"${row.role || ""}"`,
-        `"${row.status || "pending"}"`,
-        `"${getParentName(row.parentAdmin)}"`,
-        `"${formatDT(row.lastLoginAt)}"`,
-        `"${rowAccess
-          .map((a) => permissionLabelMap.get(a.key) || a.name || a.key)
-          .join(", ")}"`,
+    try {
+      const headers = [
+        "Employee Name",
+        "Employee Email",
+        "Proxy Email",
+        "Role",
+        "Status",
+        "Reports To",
+        "Last Login",
+        "Modules",
       ];
-    });
 
-    const csv = [headers.join(","), ...lines.map((l) => l.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
+      const lines = sortedRows.map((row) => {
+        const rowAccess = canonicalizeAccessList(
+          Array.isArray(row.access)
+            ? row.access
+            : Array.isArray(row.permissions)
+              ? row.permissions
+              : []
+        );
 
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "employees.csv";
-    link.click();
+        return [
+          `"${row.name || ""}"`,
+          `"${row.email || ""}"`,
+          `"${row.proxyEmail || ""}"`,
+          `"${row.role || ""}"`,
+          `"${row.status || "pending"}"`,
+          `"${getParentName(row.parentAdmin)}"`,
+          `"${formatDT(row.lastLoginAt)}"`,
+          `"${rowAccess
+            .map((a) => permissionLabelMap.get(a.key) || a.name || a.key)
+            .join(", ")}"`,
+        ];
+      });
 
-    URL.revokeObjectURL(url);
+      const csv = [headers.join(","), ...lines.map((l) => l.join(","))].join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "employees.csv";
+      link.click();
+
+      URL.revokeObjectURL(url);
+
+      showSuccessToast("Export ready", "Employees CSV has been downloaded.");
+    } catch (e) {
+      showErrorToast(
+        "Export failed",
+        e,
+        "Failed to export employees CSV."
+      );
+    }
+  }
+
+  function openInviteModal() {
+    if (!canInviteEmployees) {
+      showValidationToast(
+        "Permission denied",
+        "You do not have permission to invite employees."
+      );
+      return;
+    }
+
+    setInviteOpen(true);
+    setInviteEmail("");
+    setInviteName("");
+    setInviteProxyEmail("");
+    setInviteRole("");
+    setInviteParentAdmin("");
+    setInviteAccess([]);
   }
 
   useEffect(() => {
-    refreshAll();
+    refreshAll(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1159,652 +1430,654 @@ export default function EmployeesPage() {
     if (!stillVisible) {
       hydrateEditor(filteredRows[0]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filteredRows, selectedId]);
 
   if (!loadingMe && !canViewEmployees) {
     return (
-      <div className="min-h-screen bg-slate-50 p-6">
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
-          You do not have permission to view this page.
+      <>
+        <ToastStyles />
+
+        <div className="min-h-screen bg-slate-50 p-6">
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+            You do not have permission to view this page.
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6 md:px-6 lg:px-8">
-      <div className="mx-auto max-w-full space-y-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
-              Manage Workforce
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Invite employees, manage roles, and control admin access.
-            </p>
-          </div>
+    <>
+      <ToastStyles />
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={refreshAll}
-              disabled={loading || loadingMe}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-            >
-              <RefreshCw className={cn("h-4 w-4", (loading || loadingMe) && "animate-spin")} />
-              {loading || loadingMe ? "Refreshing" : "Refresh"}
-            </button>
-
-            <button
-              type="button"
-              onClick={exportCsv}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              <Download className="h-4 w-4" />
-              Export
-            </button>
-
-            {canInviteEmployees ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setInviteOpen(true);
-                  setInviteErr(null);
-                  setInviteEmail("");
-                  setInviteName("");
-                  setInviteProxyEmail("");
-                  setInviteRole("");
-                  setInviteParentAdmin("");
-                  setInviteAccess([]);
-                }}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
-              >
-                <Mail className="h-4 w-4" />
-                Invite Employee
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            title="Total Employees"
-            value={totalEmployees}
-            subtext={`+${pendingInvites} pending invite${pendingInvites !== 1 ? "s" : ""}`}
-            icon={Users}
-          />
-          <StatCard
-            title="Active Staff"
-            value={activeStaff}
-            subtext={utilization}
-            icon={UserCheck}
-          />
-          <StatCard
-            title="Disabled Accounts"
-            value={disabledAccounts}
-            subtext="Inactive or suspended"
-            icon={UserX}
-          />
-          <StatCard
-            title="Pending Invites"
-            value={pendingInvites}
-            subtext="Awaiting response"
-            icon={Mail}
-          />
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="search"
-                name="employeeSearchInput"
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="none"
-                spellCheck={false}
-                placeholder="Search name, email, proxy email or role..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-slate-400"
-              />
-            </div>
-
-            <select
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-            >
-              <option value="all">All Roles</option>
-              {roleOptions.map((role) => (
-                <option key={role} value={role}>
-                  {getRoleLabel(role)}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "all" | AdminStatus)}
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
-            </select>
-          </div>
-
-          {error ? (
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {error}
-            </div>
-          ) : null}
-
-          {rowMsg ? (
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              {rowMsg}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <AdminTable
-            data={pagedRows}
-            columns={tableColumns}
-            rowKey={(row) => row._id}
-            loading={loading}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSort={handleSort}
-            emptyTitle="No employees found"
-            emptyDescription="Try adjusting the filters or refreshing the list."
-            actions={{
-              header: "Actions",
-              align: "right",
-              render: (row) => {
-                const st = (row.status || "pending") as AdminStatus;
-                const isActive = st === "active";
-                const isPending = st === "pending";
-                const isUpdating = updatingId === row._id;
-
-                return (
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        hydrateEditor(row);
-                        setManageOpen(true);
-                      }}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                    >
-                      Manage
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!canEditEmployees}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                      }}
-                      onClick={(e) => openPasswordModal(row, e)}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      UpdatePassword
-                    </button>
-
-                    {!isPending ? (
-                      <button
-                        type="button"
-                        disabled={isUpdating || !canEditEmployees}
-                        onClick={() => openStatusConfirm(row)}
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                      >
-                        {isUpdating ? "Updating" : isActive ? "Disable" : "Enable"}
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              },
-            }}
-            pagination={{
-              page,
-              totalPages,
-              totalItems: sortedRows.length,
-              limit,
-              onPageChange: setPage,
-              onLimitChange: (next) => {
-                setLimit(next);
-                setPage(1);
-              },
-              rowOptions: [10, 20, 50, 100] as const,
-              showRowsSelector: true,
-              showSummary: true,
-            }}
-          />
-        </div>
-      </div>
-
-      {statusConfirm ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <h2 className="text-lg font-bold tracking-tight text-slate-950">
-                  {statusConfirm.nextStatus === "active"
-                    ? "Enable Employee?"
-                    : "Disable Employee?"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Please confirm before changing this employee&apos;s account status.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={closeStatusConfirm}
-                disabled={updatingId === statusConfirm.row._id}
-                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4 p-5">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-sm font-semibold text-slate-950">
-                  {statusConfirm.row.name || "Unnamed Employee"}
-                </div>
-
-                <div className="mt-1 break-all text-sm text-slate-500">
-                  {statusConfirm.row.email}
-                </div>
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
-                      statusTone(statusConfirm.row.status)
-                    )}
-                  >
-                    Current: {getStatusLabel(statusConfirm.row.status)}
-                  </span>
-
-                  <span
-                    className={cn(
-                      "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
-                      statusTone(statusConfirm.nextStatus)
-                    )}
-                  >
-                    New: {getStatusLabel(statusConfirm.nextStatus)}
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-sm text-slate-600">
-                {statusConfirm.nextStatus === "active"
-                  ? "This employee will regain access based on their assigned role and permissions."
-                  : "This employee will lose active access until they are enabled again."}
+      <div className="min-h-screen px-4 py-6 md:px-6 lg:px-8">
+        <div className="mx-auto max-w-full space-y-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">
+                Manage Workforce
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                Invite employees, manage roles, and control admin access.
               </p>
             </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={closeStatusConfirm}
-                disabled={updatingId === statusConfirm.row._id}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                onClick={() => refreshAll(true)}
+                disabled={loading || loadingMe}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
               >
-                Cancel
+                <RefreshCw className={cn("h-4 w-4", (loading || loadingMe) && "animate-spin")} />
+                {loading || loadingMe ? "Refreshing" : "Refresh"}
               </button>
 
               <button
                 type="button"
-                onClick={confirmStatusChange}
-                disabled={updatingId === statusConfirm.row._id}
-                className={cn(
-                  "h-10 rounded-xl px-4 text-sm font-semibold text-white transition disabled:opacity-50",
-                  statusConfirm.nextStatus === "active"
-                    ? "bg-slate-950 hover:bg-slate-800"
-                    : "bg-red-600 hover:bg-red-700"
-                )}
+                onClick={exportCsv}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
-                {updatingId === statusConfirm.row._id
-                  ? "Updating..."
-                  : statusConfirm.nextStatus === "active"
-                    ? "Yes, Enable"
-                    : "Yes, Disable"}
+                <Download className="h-4 w-4" />
+                Export
               </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
-      {inviteOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-950">
+              {canInviteEmployees ? (
+                <button
+                  type="button"
+                  onClick={openInviteModal}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
+                >
+                  <Mail className="h-4 w-4" />
                   Invite Employee
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Assign role, hierarchy, and module access.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
-                onClick={() => setInviteOpen(false)}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 space-y-5 overflow-y-auto p-5">
-              {inviteErr ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {inviteErr}
-                </div>
+                </button>
               ) : null}
-
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <span className="font-semibold text-slate-900">Allowed roles:</span>{" "}
-                {inviteRoleOptions.map((role) => role.label).join(", ") || "None"}
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Email">
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="name@domain.com"
-                  />
-                </Field>
-
-                <Field label="Full Name">
-                  <input
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
-                    value={inviteName}
-                    onChange={(e) => setInviteName(e.target.value)}
-                    placeholder="Jane Doe"
-                  />
-                </Field>
-
-                <Field label="Role">
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
-                    value={inviteRole}
-                    onChange={(e) => {
-                      setInviteRole(e.target.value as AdminRole | "");
-                      setInviteParentAdmin("");
-                    }}
-                  >
-                    <option value="">Select role</option>
-                    {inviteRoleOptions.map((role) => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </div>
-
-              {needsParentRevenueHead(currentRole, inviteRole) ? (
-                <Field label="Assign Revenue Head">
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
-                    value={inviteParentAdmin}
-                    onChange={(e) => setInviteParentAdmin(e.target.value)}
-                  >
-                    <option value="">Select Revenue Head</option>
-                    {revenueHeadOptions.map((admin) => (
-                      <option key={admin._id} value={admin._id}>
-                        {(admin.name || admin.email) +
-                          " · " +
-                          getRoleLabel(admin.role)}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              ) : null}
-
-              <PermissionSections
-                permissionSections={permissionSections}
-                access={inviteAccess}
-                onChange={(moduleKey, next) =>
-                  setModuleLevel(setInviteAccess, moduleKey, next)
-                }
-              />
-            </div>
-
-            <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setInviteOpen(false)}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={onInvite}
-                disabled={inviting || !inviteEmail.trim() || !inviteRole.trim()}
-                className="h-10 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-              >
-                {inviting ? "Sending..." : "Send Invite"}
-              </button>
             </div>
           </div>
-        </div>
-      ) : null}
 
-      {passwordOpen && passwordEmployee ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-950">
-                  Update Password
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Set a new password for this employee.
-                </p>
-              </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              title="Total Employees"
+              value={totalEmployees}
+              subtext={`+${pendingInvites} pending invite${pendingInvites !== 1 ? "s" : ""}`}
+              icon={Users}
+            />
+            <StatCard
+              title="Active Staff"
+              value={activeStaff}
+              subtext={utilization}
+              icon={UserCheck}
+            />
+            <StatCard
+              title="Disabled Accounts"
+              value={disabledAccounts}
+              subtext="Inactive or suspended"
+              icon={UserX}
+            />
+            <StatCard
+              title="Pending Invites"
+              value={pendingInvites}
+              subtext="Awaiting response"
+              icon={Mail}
+            />
+          </div>
 
-              <button
-                type="button"
-                onClick={closePasswordModal}
-                disabled={savingPassword}
-                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="space-y-4 p-5">
-              {passwordErr ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {passwordErr}
-                </div>
-              ) : null}
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-semibold text-slate-400">
-                  Employee Name
-                </div>
-                <div className="mt-1 text-sm font-semibold text-slate-950">
-                  {passwordEmployee.name || "Unnamed Employee"}
-                </div>
-                <div className="mt-1 break-all text-xs text-slate-500">
-                  {passwordEmployee.email}
-                </div>
-              </div>
-
-              <Field label="Update Password">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="grid gap-3 lg:grid-cols-[1fr_180px_180px]">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
-                  type="password"
-                  name="newEmployeePassword"
-                  autoComplete="new-password"
-                  value={updatePassword}
-                  onChange={(e) => setUpdatePassword(e.target.value)}
-                  disabled={savingPassword || !canEditEmployees}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
-                  placeholder="Enter new password"
+                  type="search"
+                  name="employeeSearchInput"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  placeholder="Search name, email, proxy email or role..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm outline-none transition focus:border-slate-400"
                 />
-              </Field>
-            </div>
+              </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={closePasswordModal}
-                disabled={savingPassword}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                value={roleFilter}
+                onChange={(e) => setRoleFilter(e.target.value)}
               >
-                Cancel
-              </button>
+                <option value="all">All Roles</option>
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {getRoleLabel(role)}
+                  </option>
+                ))}
+              </select>
 
-              <button
-                type="button"
-                onClick={onUpdatePassword}
-                disabled={
-                  savingPassword || !updatePassword.trim() || !canEditEmployees
-                }
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+              <select
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as "all" | AdminStatus)}
               >
-                <KeyRound className="h-4 w-4" />
-                {savingPassword ? "Updating..." : "Update Password"}
-              </button>
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+              </select>
             </div>
           </div>
-        </div>
-      ) : null}
 
-      {manageOpen && selectedEmployee ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-              <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-950">
-                  Manage Employee
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Edit role, status, and permissions for {selectedEmployee.email}
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <AdminTable
+              data={pagedRows}
+              columns={tableColumns}
+              rowKey={(row) => row._id}
+              loading={loading}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSort={handleSort}
+              emptyTitle="No employees found"
+              emptyDescription="Try adjusting the filters or refreshing the list."
+              actions={{
+                header: "Actions",
+                align: "right",
+                render: (row) => {
+                  const st = (row.status || "pending") as AdminStatus;
+                  const isActive = st === "active";
+                  const isPending = st === "pending";
+                  const isUpdating = updatingId === row._id;
+
+                  return (
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          hydrateEditor(row);
+                          setManageOpen(true);
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        Manage
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!canEditEmployees}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onClick={(e) => openPasswordModal(row, e)}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        Update Password
+                      </button>
+
+                      {!isPending ? (
+                        <button
+                          type="button"
+                          disabled={isUpdating || !canEditEmployees}
+                          onClick={() => openStatusConfirm(row)}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {isUpdating ? "Updating" : isActive ? "Disable" : "Enable"}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                },
+              }}
+              pagination={{
+                page,
+                totalPages,
+                totalItems: sortedRows.length,
+                limit,
+                onPageChange: setPage,
+                onLimitChange: (next) => {
+                  setLimit(next);
+                  setPage(1);
+                },
+                rowOptions: [10, 20, 50, 100] as const,
+                showRowsSelector: true,
+                showSummary: true,
+              }}
+            />
+          </div>
+        </div>
+
+        {statusConfirm ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h2 className="text-lg font-bold tracking-tight text-slate-950">
+                    {statusConfirm.nextStatus === "active"
+                      ? "Enable Employee?"
+                      : "Disable Employee?"}
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Please confirm before changing this employee&apos;s account status.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeStatusConfirm}
+                  disabled={updatingId === statusConfirm.row._id}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-sm font-semibold text-slate-950">
+                    {statusConfirm.row.name || "Unnamed Employee"}
+                  </div>
+
+                  <div className="mt-1 break-all text-sm text-slate-500">
+                    {statusConfirm.row.email}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                        statusTone(statusConfirm.row.status)
+                      )}
+                    >
+                      Current: {getStatusLabel(statusConfirm.row.status)}
+                    </span>
+
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full border px-3 py-1 text-xs font-semibold",
+                        statusTone(statusConfirm.nextStatus)
+                      )}
+                    >
+                      New: {getStatusLabel(statusConfirm.nextStatus)}
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-sm text-slate-600">
+                  {statusConfirm.nextStatus === "active"
+                    ? "This employee will regain access based on their assigned role and permissions."
+                    : "This employee will lose active access until they are enabled again."}
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setManageOpen(false)}
-                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={closeStatusConfirm}
+                  disabled={updatingId === statusConfirm.row._id}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmStatusChange}
+                  disabled={updatingId === statusConfirm.row._id}
+                  className={cn(
+                    "h-10 rounded-xl px-4 text-sm font-semibold text-white transition disabled:opacity-50",
+                    statusConfirm.nextStatus === "active"
+                      ? "bg-slate-950 hover:bg-slate-800"
+                      : "bg-red-600 hover:bg-red-700"
+                  )}
+                >
+                  {updatingId === statusConfirm.row._id
+                    ? "Updating..."
+                    : statusConfirm.nextStatus === "active"
+                      ? "Yes, Enable"
+                      : "Yes, Disable"}
+                </button>
+              </div>
             </div>
+          </div>
+        ) : null}
 
-            <div className="flex-1 overflow-y-auto p-5">
-              {editErr ? (
-                <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                  {editErr}
+        {inviteOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-950">
+                    Invite Employee
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Assign role, hierarchy, and module access.
+                  </p>
                 </div>
-              ) : null}
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Full Name">
-                  <input
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    disabled={!canEditEmployees}
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
-                    placeholder="Employee name"
-                  />
-                </Field>
-
-                <Field label="Role">
-                  <select
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value)}
-                    disabled={!canEditEmployees}
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
-                  >
-                    <option value="">Select role</option>
-                    {editRoleOptions.map((role) => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Status">
-                  <select
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
-                    value={editStatus}
-                    disabled={!canEditEmployees}
-                    onChange={(e) => setEditStatus(e.target.value as AdminStatus)}
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </Field>
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                  onClick={() => !inviting && setInviteOpen(false)}
+                  disabled={inviting}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex-1 space-y-5 overflow-y-auto p-5">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <span className="font-semibold text-slate-900">Allowed roles:</span>{" "}
+                  {inviteRoleOptions.map((role) => role.label).join(", ") || "None"}
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
-                  <InfoItem label="Email" value={selectedEmployee.email} />
-                  <InfoItem label="Proxy Email" value={selectedEmployee.proxyEmail || "—"} />
-                  <InfoItem label="Reports To" value={getParentName(selectedEmployee.parentAdmin)} />
-                  <InfoItem label="Last Login" value={formatDT(selectedEmployee.lastLoginAt)} />
-                </div>
-              </div>
+                  <Field label="Email">
+                    <input
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="name@domain.com"
+                    />
+                  </Field>
 
-              <div className="mt-5">
+                  <Field label="Full Name">
+                    <input
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
+                      value={inviteName}
+                      onChange={(e) => setInviteName(e.target.value)}
+                      placeholder="Jane Doe"
+                    />
+                  </Field>
+
+                  <Field label="Role">
+                    <select
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
+                      value={inviteRole}
+                      onChange={(e) => {
+                        setInviteRole(e.target.value as AdminRole | "");
+                        setInviteParentAdmin("");
+                      }}
+                    >
+                      <option value="">Select role</option>
+                      {inviteRoleOptions.map((role) => (
+                        <option key={role.value} value={role.value}>
+                          {role.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Proxy Email">
+                    <input
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
+                      value={inviteProxyEmail}
+                      onChange={(e) => setInviteProxyEmail(e.target.value)}
+                      placeholder="proxy@domain.com"
+                    />
+                  </Field>
+                </div>
+
+                {needsParentRevenueHead(currentRole, inviteRole) ? (
+                  <Field label="Assign Revenue Head">
+                    <select
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400"
+                      value={inviteParentAdmin}
+                      onChange={(e) => setInviteParentAdmin(e.target.value)}
+                    >
+                      <option value="">Select Revenue Head</option>
+                      {revenueHeadOptions.map((admin) => (
+                        <option key={admin._id} value={admin._id}>
+                          {(admin.name || admin.email) +
+                            " · " +
+                            getRoleLabel(admin.role)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : null}
+
                 <PermissionSections
                   permissionSections={permissionSections}
-                  access={editAccess}
-                  disabled={!canEditEmployees}
+                  access={inviteAccess}
                   onChange={(moduleKey, next) =>
-                    setModuleLevel(setEditAccess, moduleKey, next)
+                    setModuleLevel(setInviteAccess, moduleKey, next)
                   }
                 />
               </div>
-            </div>
 
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
-              <button
-                type="button"
-                onClick={() => {
-                  hydrateEditor(selectedEmployee);
-                  setManageOpen(false);
-                }}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Cancel
-              </button>
+              <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => setInviteOpen(false)}
+                  disabled={inviting}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
 
-              <button
-                type="button"
-                onClick={onSaveCurrent}
-                disabled={savingEdit || !editRole.trim() || !canEditEmployees}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
-              >
-                <BadgeCheck className="h-4 w-4" />
-                {savingEdit ? "Saving..." : "Save Changes"}
-              </button>
+                <button
+                  type="button"
+                  onClick={onInvite}
+                  disabled={inviting || !inviteEmail.trim() || !inviteRole.trim()}
+                  className="h-10 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {inviting ? "Sending..." : "Send Invite"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-    </div>
+        ) : null}
+
+        {passwordOpen && passwordEmployee ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-950">
+                    Update Password
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Set a new password for this employee.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  disabled={savingPassword}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="space-y-4 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold text-slate-400">
+                    Employee Name
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-slate-950">
+                    {passwordEmployee.name || "Unnamed Employee"}
+                  </div>
+                  <div className="mt-1 break-all text-xs text-slate-500">
+                    {passwordEmployee.email}
+                  </div>
+                </div>
+
+                <Field label="Update Password">
+                  <div className="relative">
+                    <input
+                      type={showUpdatePassword ? "text" : "password"}
+                      name="newEmployeePassword"
+                      autoComplete="new-password"
+                      value={updatePassword}
+                      onChange={(e) => setUpdatePassword(e.target.value)}
+                      disabled={savingPassword || !canEditEmployees}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-12 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
+                      placeholder="Enter new password"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowUpdatePassword((prev) => !prev)}
+                      disabled={savingPassword || !canEditEmployees}
+                      aria-label={
+                        showUpdatePassword ? "Hide password" : "Show password"
+                      }
+                      title={showUpdatePassword ? "Hide password" : "Show password"}
+                      className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {showUpdatePassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </Field>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  disabled={savingPassword}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onUpdatePassword}
+                  disabled={
+                    savingPassword || !updatePassword.trim() || !canEditEmployees
+                  }
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <KeyRound className="h-4 w-4" />
+                  {savingPassword ? "Updating..." : "Update Password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {manageOpen && selectedEmployee ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-bold tracking-tight text-slate-950">
+                    Manage Employee
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Edit role, status, and permissions for {selectedEmployee.email}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => !savingEdit && setManageOpen(false)}
+                  disabled={savingEdit}
+                  className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-5">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Field label="Full Name">
+                    <input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      disabled={!canEditEmployees}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
+                      placeholder="Employee name"
+                    />
+                  </Field>
+
+                  <Field label="Role">
+                    <select
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value)}
+                      disabled={!canEditEmployees}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
+                    >
+                      <option value="">Select role</option>
+                      {editRoleOptions.map((role) => (
+                        <option key={role.value} value={role.value}>
+                          {role.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Status">
+                    <select
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-slate-400 disabled:opacity-60"
+                      value={editStatus}
+                      disabled={!canEditEmployees}
+                      onChange={(e) => setEditStatus(e.target.value as AdminStatus)}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="suspended">Suspended</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <InfoItem label="Email" value={selectedEmployee.email} />
+                    <InfoItem label="Proxy Email" value={selectedEmployee.proxyEmail || "—"} />
+                    <InfoItem label="Reports To" value={getParentName(selectedEmployee.parentAdmin)} />
+                    <InfoItem label="Last Login" value={formatDT(selectedEmployee.lastLoginAt)} />
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <PermissionSections
+                    permissionSections={permissionSections}
+                    access={editAccess}
+                    disabled={!canEditEmployees}
+                    onChange={(moduleKey, next) =>
+                      setModuleLevel(setEditAccess, moduleKey, next)
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    hydrateEditor(selectedEmployee);
+                    setManageOpen(false);
+                  }}
+                  disabled={savingEdit}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onSaveCurrent}
+                  disabled={savingEdit || !editRole.trim() || !canEditEmployees}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <BadgeCheck className="h-4 w-4" />
+                  {savingEdit ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </>
   );
 }
 

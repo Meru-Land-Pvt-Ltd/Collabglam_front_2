@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import type { BrandDetail, BrandTab } from "./types";
 import { formatDate, getOverviewTeam } from "./utils";
 import { SectionCard, StatusPill } from "./shared";
@@ -47,6 +48,112 @@ type OnboardingSection = {
   skipped: boolean;
   items: OnboardingItem[];
 };
+
+type MaybePromise<T = void> = T | Promise<T>;
+
+type BrandOverviewTabProps = {
+  brand: BrandDetail;
+  onTabChange: (tab: BrandTab) => MaybePromise<void>;
+  onRefresh: () => MaybePromise<void>;
+  onCreateCampaign: () => MaybePromise<void>;
+  onAddTeam?: () => MaybePromise<void>;
+  onManageTeam?: () => MaybePromise<void>;
+};
+
+type ErrorLike = {
+  message?: unknown;
+  error?: unknown;
+  errors?: unknown;
+  detail?: unknown;
+  data?: unknown;
+  statusText?: unknown;
+  response?: {
+    data?: unknown;
+    statusText?: unknown;
+  };
+};
+
+function normalizeErrorValue(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => normalizeErrorValue(item))
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+
+    const directMessage =
+      normalizeErrorValue(objectValue.message) ||
+      normalizeErrorValue(objectValue.error) ||
+      normalizeErrorValue(objectValue.detail) ||
+      normalizeErrorValue(objectValue.msg);
+
+    if (directMessage) return directMessage;
+
+    return Object.entries(objectValue)
+      .map(([key, item]) => {
+        const itemMessage = normalizeErrorValue(item);
+        return itemMessage ? `${key}: ${itemMessage}` : "";
+      })
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  const err = error as ErrorLike | undefined;
+
+  const candidates = [
+    err?.response?.data,
+    err?.data,
+    err?.errors,
+    err?.error,
+    err?.detail,
+    err?.message,
+    err?.response?.statusText,
+    err?.statusText,
+    error,
+  ];
+
+  for (const candidate of candidates) {
+    const message = normalizeErrorValue(candidate);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function showErrorToast(title: string, error: unknown, fallback: string) {
+  toast({
+    icon: "error",
+    title,
+    text: getErrorMessage(error, fallback),
+    timer: 4000,
+  });
+}
+
+function showFrontendError(title: string, message: string) {
+  toast({
+    icon: "error",
+    title,
+    text: message,
+    timer: 4000,
+  });
+}
 
 function getPageStatus(
   skipped: boolean,
@@ -104,6 +211,19 @@ function formatPlanDisplayName(value?: string) {
     .join(" ");
 }
 
+function safeOnboardingItems(
+  items?: Array<{ question?: string; answers?: string[] }> | null
+): OnboardingItem[] {
+  if (!Array.isArray(items)) return [];
+
+  return items.map((item) => ({
+    question: String(item?.question || "").trim(),
+    answers: Array.isArray(item?.answers)
+      ? item.answers.map((answer) => String(answer || "").trim()).filter(Boolean)
+      : [],
+  }));
+}
+
 function BrandProfileListRow({
   field,
   value,
@@ -125,8 +245,8 @@ function BrandProfileListRow({
 }
 
 function BrandProfileList({ rows }: { rows: BrandInfoRow[] }) {
-  const leftRows = rows.slice(0, 4);
-  const rightRows = rows.slice(4, 10);
+  const leftRows = rows.slice(0, 5);
+  const rightRows = rows.slice(5, 10);
 
   return (
     <div className="rounded-[28px] border border-black/10 bg-white px-5 py-4 shadow-sm">
@@ -155,20 +275,115 @@ function BrandProfileList({ rows }: { rows: BrandInfoRow[] }) {
   );
 }
 
-export function BrandOverviewTab({
+class BrandOverviewErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; message: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+
+    this.state = {
+      hasError: false,
+      message: "",
+    };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: getErrorMessage(
+        error,
+        "Something went wrong while loading the brand overview."
+      ),
+    };
+  }
+
+  componentDidCatch(error: unknown) {
+    showErrorToast(
+      "Brand overview error",
+      error,
+      "Something went wrong while loading the brand overview."
+    );
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-semibold text-rose-700">
+          <p className="text-base font-black text-rose-800">
+            Brand overview could not be displayed.
+          </p>
+
+          <p className="mt-1 text-sm font-semibold text-rose-700">
+            {this.state.message}
+          </p>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4 rounded-full border-rose-200 bg-white text-rose-700 hover:bg-rose-100"
+            onClick={() =>
+              this.setState({
+                hasError: false,
+                message: "",
+              })
+            }
+          >
+            Try Again
+          </Button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+export function BrandOverviewTab(props: BrandOverviewTabProps) {
+  return (
+    <>
+      <ToastStyles />
+
+      <BrandOverviewErrorBoundary>
+        <BrandOverviewTabContent {...props} />
+      </BrandOverviewErrorBoundary>
+    </>
+  );
+}
+
+function BrandOverviewTabContent({
   brand,
   onAddTeam,
   onManageTeam,
-}: {
-  brand: BrandDetail;
-  onTabChange: (tab: BrandTab) => void;
-  onRefresh: () => void;
-  onCreateCampaign: () => void;
-  onAddTeam?: () => void;
-  onManageTeam?: () => void;
-}) {
+}: BrandOverviewTabProps) {
   const [expandedOnboardingRowId, setExpandedOnboardingRowId] =
     useState<string | null>("Page 1");
+
+  const handleSafeAction = useCallback(
+    async (
+      actionTitle: string,
+      callback?: () => MaybePromise<void>
+    ) => {
+      if (!callback) {
+        showFrontendError(
+          `${actionTitle} unavailable`,
+          "This action is not configured for this page."
+        );
+        return;
+      }
+
+      try {
+        await callback();
+      } catch (error) {
+        showErrorToast(
+          `${actionTitle} failed`,
+          error,
+          `Failed to ${actionTitle.toLowerCase()}.`
+        );
+      }
+    },
+    []
+  );
 
   const currentPlanName = formatPlanDisplayName(
     brand.subscription?.planName || brand.planName
@@ -181,26 +396,17 @@ export function BrandOverviewTab({
       {
         page: "Page 1",
         skipped: Boolean(brand.ispage1Skip),
-        items: (brand.page1 || []).map((item) => ({
-          question: item.question || "",
-          answers: item.answers || [],
-        })),
+        items: safeOnboardingItems(brand.page1),
       },
       {
         page: "Page 2",
         skipped: Boolean(brand.ispage2Skip),
-        items: (brand.page2 || []).map((item) => ({
-          question: item.question || "",
-          answers: item.answers || [],
-        })),
+        items: safeOnboardingItems(brand.page2),
       },
       {
         page: "Page 3",
         skipped: Boolean(brand.ispage3Skip),
-        items: (brand.page3 || []).map((item) => ({
-          question: item.question || "",
-          answers: item.answers || [],
-        })),
+        items: safeOnboardingItems(brand.page3),
       },
     ],
     [brand]
@@ -271,6 +477,11 @@ export function BrandOverviewTab({
         id: "companySize",
         field: "Company Size",
         value: brand.companySize || "—",
+      },
+      {
+        id: "currentPlan",
+        field: "Current Plan",
+        value: currentPlanName,
       },
       {
         id: "accountStatus",
@@ -389,69 +600,91 @@ export function BrandOverviewTab({
     () => ({
       expandedRowId: expandedOnboardingRowId,
       onToggle: (rowId) => {
-        setExpandedOnboardingRowId((prev) => (prev === rowId ? null : rowId));
+        try {
+          setExpandedOnboardingRowId((prev) => (prev === rowId ? null : rowId));
+        } catch (error) {
+          showErrorToast(
+            "Onboarding toggle failed",
+            error,
+            "Failed to open or close onboarding details."
+          );
+        }
       },
       canExpand: (row) => row.page !== "Profile Picture",
       expandedRowClassName: "bg-black/[0.02]",
       expandedCellClassName: "px-6 py-5",
       renderExpandedRow: (row) => {
-        if (row.skipped) {
+        try {
+          if (row.skipped) {
+            return (
+              <div className="rounded-2xl border border-dashed border-black/10 bg-white px-4 py-4 text-sm font-medium text-black/55">
+                This onboarding page was skipped.
+              </div>
+            );
+          }
+
+          if (!row.items.length) {
+            return (
+              <div className="rounded-2xl border border-dashed border-black/10 bg-white px-4 py-4 text-sm font-medium text-black/55">
+                No questions or answers are available for this page yet.
+              </div>
+            );
+          }
+
           return (
-            <div className="rounded-2xl border border-dashed border-black/10 bg-white px-4 py-4 text-sm font-medium text-black/55">
-              This onboarding page was skipped.
-            </div>
-          );
-        }
-
-        if (!row.items.length) {
-          return (
-            <div className="rounded-2xl border border-dashed border-black/10 bg-white px-4 py-4 text-sm font-medium text-black/55">
-              No questions or answers are available for this page yet.
-            </div>
-          );
-        }
-
-        return (
-          <div className="space-y-3">
-            {row.items.map((item, index) => (
-              <div
-                key={`${row.id}-question-${index}`}
-                className="rounded-[20px] border border-black/8 bg-white p-4"
-              >
-                <p className="text-[11px] font-black uppercase tracking-[0.14em] text-black/40">
-                  Question {index + 1}
-                </p>
-
-                <p className="mt-2 text-sm font-semibold text-[#1a1a1a]">
-                  {item.question || "No question available"}
-                </p>
-
-                <div className="mt-4">
+            <div className="space-y-3">
+              {row.items.map((item, index) => (
+                <div
+                  key={`${row.id}-question-${index}`}
+                  className="rounded-[20px] border border-black/8 bg-white p-4"
+                >
                   <p className="text-[11px] font-black uppercase tracking-[0.14em] text-black/40">
-                    Answers
+                    Question {index + 1}
                   </p>
 
-                  {item.answers?.length ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {item.answers.map((answer, answerIndex) => (
-                        <span
-                          key={`${row.id}-answer-${index}-${answerIndex}`}
-                          className="inline-flex rounded-full border border-black/10 bg-black/[0.04] px-3 py-1.5 text-xs font-semibold text-[#1a1a1a]"
-                        >
-                          {answer}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm font-medium text-black/55">
-                      No answer recorded.
+                  <p className="mt-2 text-sm font-semibold text-[#1a1a1a]">
+                    {item.question || "No question available"}
+                  </p>
+
+                  <div className="mt-4">
+                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-black/40">
+                      Answers
                     </p>
-                  )}
+
+                    {item.answers?.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {item.answers.map((answer, answerIndex) => (
+                          <span
+                            key={`${row.id}-answer-${index}-${answerIndex}`}
+                            className="inline-flex rounded-full border border-black/10 bg-black/[0.04] px-3 py-1.5 text-xs font-semibold text-[#1a1a1a]"
+                          >
+                            {answer}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm font-medium text-black/55">
+                        No answer recorded.
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        );
+              ))}
+            </div>
+          );
+        } catch (error) {
+          showErrorToast(
+            "Onboarding details error",
+            error,
+            "Failed to display onboarding details."
+          );
+
+          return (
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm font-semibold text-rose-700">
+              Failed to display onboarding details.
+            </div>
+          );
+        }
       },
     }),
     [expandedOnboardingRowId]
@@ -490,26 +723,36 @@ export function BrandOverviewTab({
         <SectionCard
           title="Assigned Team"
           description="Team ownership and assignment status managed directly from Overview."
-          // action={
-          //   <div className="flex flex-wrap gap-2">
-          //     <Button
-          //       className="rounded-full bg-[#1a1a1a] text-white shadow-sm hover:bg-black"
-          //       onClick={onAddTeam}
-          //     >
-          //       <Plus className="mr-2 h-4 w-4" />
-          //       Add Team
-          //     </Button>
+          action={
+            onAddTeam || onManageTeam ? (
+              <div className="flex flex-wrap gap-2">
+                {onAddTeam ? (
+                  <Button
+                    type="button"
+                    className="rounded-full bg-[#1a1a1a] text-white shadow-sm hover:bg-black"
+                    onClick={() => void handleSafeAction("Add team", onAddTeam)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Team
+                  </Button>
+                ) : null}
 
-          //     <Button
-          //       variant="outline"
-          //       className="rounded-full border-black/10 bg-white text-[#1a1a1a] shadow-sm hover:bg-[#1a1a1a] hover:text-white"
-          //       onClick={onManageTeam}
-          //     >
-          //       <Pencil className="mr-2 h-4 w-4" />
-          //       Manage
-          //     </Button>
-          //   </div>
-          // }
+                {onManageTeam ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full border-black/10 bg-white text-[#1a1a1a] shadow-sm hover:bg-[#1a1a1a] hover:text-white"
+                    onClick={() =>
+                      void handleSafeAction("Manage team", onManageTeam)
+                    }
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Manage
+                  </Button>
+                ) : null}
+              </div>
+            ) : undefined
+          }
         >
           <AdminTable<TeamRow>
             data={teamRows}

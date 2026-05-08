@@ -1,7 +1,13 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { Eye, Plus, Search, Sparkles } from "lucide-react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Eye, Search, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import AdminTable, { type AdminTableColumn } from "../../../components/table";
 import { Button } from "@/components/ui/button";
@@ -13,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast, ToastStyles } from "@/components/ui/toast";
 import type { Campaign } from "./types";
 import { formatDate } from "./utils";
 import { SectionCard, StatusPill } from "./shared";
@@ -72,6 +79,14 @@ const dateRangeOptions: Array<{ label: string; value: DateRangeFilter }> = [
   { label: "This Month", value: "this_month" },
 ];
 
+const campaignTypeFilterOptions: CampaignTypeFilter[] = [
+  "all",
+  "standard_campaign",
+  "fully_managed",
+];
+
+const validStatusFilters = [0, 1, 2] as const;
+
 function normalize(value?: string | null) {
   return String(value || "").trim().toLowerCase();
 }
@@ -102,6 +117,72 @@ function getStartDate(campaign: CampaignWithApiFields) {
 
 function getEndDate(campaign: CampaignWithApiFields) {
   return campaign.timeline?.endDate || campaign.endAt || "";
+}
+
+function isCampaignTypeFilter(value: string): value is CampaignTypeFilter {
+  return campaignTypeFilterOptions.includes(value as CampaignTypeFilter);
+}
+
+function isDateRangeFilter(value: string): value is DateRangeFilter {
+  return dateRangeOptions.some((option) => option.value === value);
+}
+
+function isStatusFilter(value: number): value is 0 | 1 | 2 {
+  return validStatusFilters.some((status) => status === value);
+}
+
+function getBackendErrorMessage(
+  error: unknown,
+  fallback = "Something went wrong."
+): string {
+  if (!error) return fallback;
+
+  if (typeof error === "string") {
+    const message = error.trim();
+
+    if (!message) return fallback;
+
+    try {
+      const parsed = JSON.parse(message);
+      return getBackendErrorMessage(parsed, fallback);
+    } catch {
+      return message;
+    }
+  }
+
+  if (Array.isArray(error)) {
+    const messages = error
+      .map((item) => getBackendErrorMessage(item, ""))
+      .filter(Boolean);
+
+    return messages.join(", ") || fallback;
+  }
+
+  if (typeof error === "object") {
+    const objectError = error as Record<string, unknown>;
+
+    const directMessage =
+      objectError.message ||
+      objectError.error ||
+      objectError.detail ||
+      objectError.msg;
+
+    if (directMessage) {
+      return getBackendErrorMessage(directMessage, fallback);
+    }
+
+    if (objectError.errors) {
+      return getBackendErrorMessage(objectError.errors, fallback);
+    }
+
+    const nestedMessages = Object.values(objectError)
+      .map((item) => getBackendErrorMessage(item, ""))
+      .filter(Boolean);
+
+    return nestedMessages.join(", ") || fallback;
+  }
+
+  return String(error);
 }
 
 function isFullyManagedCampaign(campaign: CampaignWithApiFields) {
@@ -200,45 +281,6 @@ function FullyManagedBadge() {
   );
 }
 
-function CampaignSummaryCard({
-  title,
-  value,
-  description,
-  tone,
-}: {
-  title: string;
-  value: number;
-  description: string;
-  tone: "managed" | "standard";
-}) {
-  return (
-    <div
-      className={`rounded-3xl border bg-white p-5 shadow-sm ${
-        tone === "managed" ? "border-amber-200" : "border-black/10"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-black uppercase tracking-[0.12em] text-black/45">
-            {title}
-          </p>
-          <p className="mt-3 text-4xl font-black text-[#1a1a1a]">{value}</p>
-        </div>
-
-        {tone === "managed" ? (
-          <FullyManagedBadge />
-        ) : (
-          <span className="inline-flex rounded-full border border-black/10 bg-black/5 px-3 py-1 text-xs font-extrabold text-black/60">
-            Standard
-          </span>
-        )}
-      </div>
-
-      <p className="mt-3 text-sm font-semibold text-black/50">{description}</p>
-    </div>
-  );
-}
-
 function CampaignTypeButton({
   active,
   children,
@@ -296,22 +338,59 @@ export function BrandCampaignsTab({
 }) {
   const router = useRouter();
 
+  const lastBackendErrorRef = useRef("");
+  const brandIdErrorShownRef = useRef(false);
+
   const [campaignTypeFilter, setCampaignTypeFilter] =
     useState<CampaignTypeFilter>("all");
   const [dateRangeFilter, setDateRangeFilter] =
     useState<DateRangeFilter>("all_time");
 
-  const campaignList = campaigns as CampaignWithApiFields[];
-
-  const fullyManagedCount = useMemo(
-    () => campaignList.filter(isFullyManagedCampaign).length,
-    [campaignList]
+  const campaignList = useMemo(
+    () => campaigns as CampaignWithApiFields[],
+    [campaigns]
   );
 
-  const standardCampaignCount = useMemo(
-    () => campaignList.length - fullyManagedCount,
-    [campaignList, fullyManagedCount]
-  );
+  const showErrorToast = useCallback((title: string, text?: string) => {
+    toast({
+      icon: "error",
+      title,
+      text,
+      timer: 4500,
+    });
+  }, []);
+
+  useEffect(() => {
+    const backendMessage = getBackendErrorMessage(errorCampaigns, "");
+
+    if (!backendMessage) return;
+    if (lastBackendErrorRef.current === backendMessage) return;
+
+    lastBackendErrorRef.current = backendMessage;
+
+    toast({
+      icon: "error",
+      title: "Campaign Error",
+      text: backendMessage,
+      timer: 5000,
+    });
+  }, [errorCampaigns]);
+
+  useEffect(() => {
+    if (brandId?.trim()) {
+      brandIdErrorShownRef.current = false;
+      return;
+    }
+
+    if (brandIdErrorShownRef.current) return;
+
+    brandIdErrorShownRef.current = true;
+
+    showErrorToast(
+      "Brand ID Missing",
+      "Unable to identify this brand. Please refresh the page or open the brand again."
+    );
+  }, [brandId, showErrorToast]);
 
   const filteredCampaigns = useMemo(() => {
     const query = normalize(searchTerm);
@@ -351,17 +430,59 @@ export function BrandCampaignsTab({
     });
   }, [campaignList, campaignTypeFilter, dateRangeFilter, searchTerm, statusFilter]);
 
-  const hasActiveFilters =
-    searchTerm.trim() !== "" ||
-    campaignTypeFilter !== "all" ||
-    dateRangeFilter !== "all_time" ||
-    statusFilter !== 0;
-
   const resetFilters = () => {
     setSearchTerm("");
     setCampaignTypeFilter("all");
     setDateRangeFilter("all_time");
     setStatusFilter(0);
+    setCampaignsPage(1);
+  };
+
+  const handleCampaignTypeFilterChange = (value: string) => {
+    if (!isCampaignTypeFilter(value)) {
+      showErrorToast(
+        "Invalid Campaign Type",
+        "Please select a valid campaign type filter."
+      );
+      return;
+    }
+
+    setCampaignTypeFilter(value);
+    setCampaignsPage(1);
+  };
+
+  const handleDateRangeChange = (value: string) => {
+    if (!isDateRangeFilter(value)) {
+      showErrorToast(
+        "Invalid Date Range",
+        "Please select a valid date range filter."
+      );
+      return;
+    }
+
+    setDateRangeFilter(value);
+    setCampaignsPage(1);
+  };
+
+  const handleStatusFilterChange = (value: string) => {
+    const nextStatus = Number(value);
+
+    if (!Number.isFinite(nextStatus) || !isStatusFilter(nextStatus)) {
+      showErrorToast("Invalid Status", "Please select a valid status filter.");
+      return;
+    }
+
+    setStatusFilter(nextStatus);
+    setCampaignsPage(1);
+  };
+
+  const handleSearchChange = (value: string) => {
+    if (typeof value !== "string") {
+      showErrorToast("Invalid Search", "Search value must be valid text.");
+      return;
+    }
+
+    setSearchTerm(value);
     setCampaignsPage(1);
   };
 
@@ -375,9 +496,43 @@ export function BrandCampaignsTab({
       "status",
     ] as Array<keyof Campaign | "startDate" | "endDate" | "status">;
 
-    if (allowedSortFields.includes(field as any)) {
-      toggleSort(field as keyof Campaign | "startDate" | "endDate" | "status");
+    if (!allowedSortFields.includes(field as any)) {
+      showErrorToast(
+        "Invalid Sort Field",
+        "This column cannot be sorted right now."
+      );
+      return;
     }
+
+    toggleSort(field as keyof Campaign | "startDate" | "endDate" | "status");
+  };
+
+  const handlePageChange = (page: number) => {
+    const totalPages = Math.max(campaignsTotalPages || 1, 1);
+
+    if (!Number.isFinite(page) || page < 1 || page > totalPages) {
+      showErrorToast(
+        "Invalid Page",
+        `Please choose a page between 1 and ${totalPages}.`
+      );
+      return;
+    }
+
+    setCampaignsPage(page);
+  };
+
+  const handleOpenCampaign = (campaign: CampaignWithApiFields) => {
+    const campaignId = getCampaignId(campaign).trim();
+
+    if (!campaignId) {
+      showErrorToast(
+        "Campaign ID Missing",
+        "This campaign cannot be opened because the backend did not return a valid campaign ID."
+      );
+      return;
+    }
+
+    router.push(`/admin/campaigns/view?id=${encodeURIComponent(campaignId)}`);
   };
 
   const columns = useMemo<AdminTableColumn<CampaignWithApiFields>[]>(
@@ -500,180 +655,182 @@ export function BrandCampaignsTab({
   );
 
   return (
-    <SectionCard
-      title="Campaigns"
-      description="Manage campaigns created for this brand."
-    >
-      <div className="space-y-5 p-5">
-        <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-5">
-            <h3 className="text-2xl font-black tracking-[-0.03em] text-slate-900">
-              Filters
-            </h3>
-            <p className="mt-2 text-sm font-medium text-slate-500">
-              Affects the campaign table below only
-            </p>
-          </div>
+    <>
+      <ToastStyles />
 
-          <div className="grid gap-4 px-5 py-6 xl:grid-cols-[1.2fr_1.7fr_0.7fr_0.7fr_auto] xl:items-end">
-            <div>
-              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                Search
+      <SectionCard
+        title="Campaigns"
+        description="Manage campaigns created for this brand."
+      >
+        <div className="space-y-5 p-5">
+          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-5 py-5">
+              <h3 className="text-2xl font-black tracking-[-0.03em] text-slate-900">
+                Filters
+              </h3>
+              <p className="mt-2 text-sm font-medium text-slate-500">
+                Affects the campaign table below only
               </p>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  placeholder="Search .."
-                  value={searchTerm}
-                  onChange={(event) => {
-                    setSearchTerm(event.target.value);
-                    setCampaignsPage(1);
-                  }}
-                  className="h-11 rounded-lg border-slate-200 bg-white pl-11 text-sm font-semibold text-slate-700 shadow-none focus-visible:ring-0"
-                />
+            </div>
+
+            <div className="grid gap-4 px-5 py-6 xl:grid-cols-[1.2fr_1.7fr_0.7fr_0.7fr_auto] xl:items-end">
+              <div>
+                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                  Search
+                </p>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    placeholder="Search .."
+                    value={searchTerm}
+                    onChange={(event) => handleSearchChange(event.target.value)}
+                    className="h-11 rounded-lg border-slate-200 bg-white pl-11 text-sm font-semibold text-slate-700 shadow-none focus-visible:ring-0"
+                  />
+                </div>
               </div>
-            </div>
 
-            <div>
-              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                Campaign Type
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <CampaignTypeButton
-                  active={campaignTypeFilter === "all"}
-                  onClick={() => {
-                    setCampaignTypeFilter("all");
-                    setCampaignsPage(1);
-                  }}
-                >
-                  All
-                </CampaignTypeButton>
+              <div>
+                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                  Campaign Type
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <CampaignTypeButton
+                    active={campaignTypeFilter === "all"}
+                    onClick={() => handleCampaignTypeFilterChange("all")}
+                  >
+                    All
+                  </CampaignTypeButton>
 
-                <CampaignTypeButton
-                  active={campaignTypeFilter === "standard_campaign"}
-                  onClick={() => {
-                    setCampaignTypeFilter("standard_campaign");
-                    setCampaignsPage(1);
-                  }}
-                >
-                  Standard Campaign
-                </CampaignTypeButton>
-
-                <CampaignTypeButton
-                  active={campaignTypeFilter === "fully_managed"}
-                  onClick={() => {
-                    setCampaignTypeFilter("fully_managed");
-                    setCampaignsPage(1);
-                  }}
-                >
-                  Fully Managed Campaign
-                </CampaignTypeButton>
-              </div>
-            </div>
-
-            <div>
-              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                Date Range
-              </p>
-              <Select
-                value={dateRangeFilter}
-                onValueChange={(value) => {
-                  setDateRangeFilter(value as DateRangeFilter);
-                  setCampaignsPage(1);
-                }}
-              >
-                <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
-                  <SelectValue placeholder="Date Range" />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  {dateRangeOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                Status
-              </p>
-              <Select
-                value={statusFilter.toString()}
-                onValueChange={(value) => {
-                  setStatusFilter(Number(value) as 0 | 1 | 2);
-                  setCampaignsPage(1);
-                }}
-              >
-                <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="0">All Status</SelectItem>
-                  <SelectItem value="1">Active</SelectItem>
-                  <SelectItem value="2">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-l border border-black/10 bg-white">
-          <AdminTable<CampaignWithApiFields>
-            data={filteredCampaigns}
-            columns={columns}
-            rowKey={(campaign, index) =>
-              getCampaignId(campaign) || `${getCampaignName(campaign)}-${index}`
-            }
-            loading={loadingCampaigns}
-            loadingRows={6}
-            error={errorCampaigns}
-            emptyTitle="No campaigns found"
-            emptyDescription="Try adjusting the filters or create a new campaign for this brand."
-            sortBy={String(sortBy)}
-            sortOrder={sortAsc ? "asc" : "desc"}
-            onSort={handleSort}
-            tableClassName="bg-white"
-            actions={{
-              header: "Open",
-              align: "right",
-              cellClassName: "min-w-[110px]",
-              render: (campaign) => {
-                const campaignId = getCampaignId(campaign);
-
-                return (
-                  <Button
-                    size="sm"
-                    disabled={!campaignId}
-                    className="rounded-full bg-[#1a1a1a] text-white hover:bg-[#1a1a1a]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                  <CampaignTypeButton
+                    active={campaignTypeFilter === "standard_campaign"}
                     onClick={() =>
-                      router.push(`/admin/campaigns/view?id=${campaignId}`)
+                      handleCampaignTypeFilterChange("standard_campaign")
                     }
                   >
-                    <Eye className=" h-4 w-3" />
+                    Standard Campaign
+                  </CampaignTypeButton>
+
+                  <CampaignTypeButton
+                    active={campaignTypeFilter === "fully_managed"}
+                    onClick={() =>
+                      handleCampaignTypeFilterChange("fully_managed")
+                    }
+                  >
+                    Fully Managed Campaign
+                  </CampaignTypeButton>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                  Date Range
+                </p>
+                <Select
+                  value={dateRangeFilter}
+                  onValueChange={handleDateRangeChange}
+                >
+                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
+                    <SelectValue placeholder="Date Range" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    {dateRangeOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                  Status
+                </p>
+                <Select
+                  value={statusFilter.toString()}
+                  onValueChange={handleStatusFilterChange}
+                >
+                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    <SelectItem value="0">All Status</SelectItem>
+                    <SelectItem value="1">Active</SelectItem>
+                    <SelectItem value="2">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={resetFilters}
+                  className="h-11 rounded-lg border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-l border border-black/10 bg-white">
+            <AdminTable<CampaignWithApiFields>
+              data={filteredCampaigns}
+              columns={columns}
+              rowKey={(campaign, index) =>
+                getCampaignId(campaign) || `${getCampaignName(campaign)}-${index}`
+              }
+              loading={loadingCampaigns}
+              loadingRows={6}
+              error={null}
+              emptyTitle={
+                errorCampaigns ? "Unable to load campaigns" : "No campaigns found"
+              }
+              emptyDescription={
+                errorCampaigns
+                  ? "Backend error is shown in the toast. Please try again."
+                  : "Try adjusting the filters or create a new campaign for this brand."
+              }
+              sortBy={String(sortBy)}
+              sortOrder={sortAsc ? "asc" : "desc"}
+              onSort={handleSort}
+              tableClassName="bg-white"
+              actions={{
+                header: "Open",
+                align: "right",
+                cellClassName: "min-w-[110px]",
+                render: (campaign) => (
+                  <Button
+                    size="sm"
+                    disabled={loadingCampaigns}
+                    className="rounded-full bg-[#1a1a1a] text-white hover:bg-[#1a1a1a]/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => handleOpenCampaign(campaign)}
+                  >
+                    <Eye className="h-4 w-3" />
                     View
                   </Button>
-                );
-              },
-            }}
-            pagination={
-              campaignsTotalPages > 1
-                ? {
-                    page: campaignsPage,
-                    totalPages: campaignsTotalPages,
-                    totalItems: campaignsTotalPages * Math.max(campaignList.length, 1),
-                    limit: Math.max(campaignList.length, 10),
-                    onPageChange: setCampaignsPage,
-                    loading: loadingCampaigns,
-                    showRowsSelector: false,
-                    showSummary: false,
-                  }
-                : undefined
-            }
-          />
+                ),
+              }}
+              pagination={
+                campaignsTotalPages > 1
+                  ? {
+                      page: campaignsPage,
+                      totalPages: campaignsTotalPages,
+                      totalItems:
+                        campaignsTotalPages * Math.max(campaignList.length, 1),
+                      limit: Math.max(campaignList.length, 10),
+                      onPageChange: handlePageChange,
+                      loading: loadingCampaigns,
+                      showRowsSelector: false,
+                      showSummary: false,
+                    }
+                  : undefined
+              }
+            />
+          </div>
         </div>
-      </div>
-    </SectionCard>
+      </SectionCard>
+    </>
   );
 }
