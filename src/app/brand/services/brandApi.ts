@@ -1798,11 +1798,22 @@ export type GetDeliverablesListResponse = {
   filters?: {
     brandId?: string;
     milestoneId?: string;
+    milestoneHistoryId?: string;
     influencerId?: string;
     campaignId?: string;
     status?: string;
     search?: string;
   };
+};
+
+export type GetDeliverablesByMilestoneHistoryPayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
+  campaignId: string;
+  influencerId: string;
+  status?: string;
+  page?: number;
+  limit?: number;
 };
 
 export async function apiGetDeliverablesByBrand(
@@ -1831,6 +1842,23 @@ export async function apiGetDeliverablesByMilestone(
       brandId: payload.brandId,
       influencerId: payload.influencerId,
       campaignId: payload.campaignId,
+      status: payload.status,
+      page: payload.page ?? 1,
+      limit: payload.limit ?? 20,
+    }
+  );
+}
+
+export async function apiGetDeliverablesByMilestoneHistoryId(
+  payload: GetDeliverablesByMilestoneHistoryPayload
+) {
+  return apiPost<GetDeliverablesListResponse>(
+    `${DELIVERABLE_BASE}/by-milestonehistoryId`,
+    {
+      milestoneId: payload.milestoneId,
+      milestoneHistoryId: payload.milestoneHistoryId,
+      campaignId: payload.campaignId,
+      influencerId: payload.influencerId,
       status: payload.status,
       page: payload.page ?? 1,
       limit: payload.limit ?? 20,
