@@ -24,12 +24,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  Copy,
   Download,
   FileText,
   Heart,
   Image as ImageIcon,
   Layers3,
   Link2,
+  Loader2,
   Mail,
   Pencil,
   Plus,
@@ -237,6 +239,37 @@ interface InfluencerApplicant {
     };
   };
 }
+
+type ReviewType = "brand_to_influencer" | "influencer_to_brand";
+
+type GeneratedReviewLink = {
+  _id: string;
+  reviewRequestId?: string;
+  reviewType: ReviewType;
+  reviewerRole?: string;
+  revieweeRole?: string;
+  publicUrl: string;
+  expiresAt?: string;
+
+  isExistingLink?: boolean;
+  regenerated?: boolean;
+  isUpdateLink?: boolean;
+  isSkippedLink?: boolean;
+  wasExpired?: boolean;
+};
+
+type GenerateReviewResponse = {
+  success?: boolean;
+  message?: string;
+  data?: GeneratedReviewLink[];
+};
+
+type GeneratedReviewGroup = {
+  influencerId: string;
+  influencerName: string;
+  createdAt: string;
+  links: GeneratedReviewLink[];
+};
 
 type ApplicantStatusCounts = {
   total?: number;
@@ -535,6 +568,39 @@ const prettify = (v?: string | null) => {
   if (!v) return "—";
   return v.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 };
+
+function formatReviewType(value?: string) {
+  if (value === "brand_to_influencer") return "Brand → Influencer";
+  if (value === "influencer_to_brand") return "Influencer → Brand";
+  return "Review Link";
+}
+
+function getReviewTypeMeta(value?: string) {
+  if (value === "brand_to_influencer") {
+    return {
+      label: "Brand feedback",
+      helper: "Brand rates the influencer",
+      accent: "from-stone-500 to-stone-700",
+      pill: "bg-stone-100 text-stone-700 ring-stone-200",
+    };
+  }
+
+  if (value === "influencer_to_brand") {
+    return {
+      label: "Influencer feedback",
+      helper: "Influencer rates the brand",
+      accent: "from-stone-500 to-stone-700",
+      pill: "bg-stone-100 text-stone-700 ring-stone-200",
+    };
+  }
+
+  return {
+    label: "Review feedback",
+    helper: "Shareable review link",
+    accent: "from-stone-700 to-stone-950",
+    pill: "bg-stone-100 text-stone-700 ring-stone-200",
+  };
+}
 
 const normalizeUrl = (v?: string | null) => {
   const s = String(v || "").trim();
@@ -1412,6 +1478,164 @@ const ApplicantAvatar = ({
   );
 };
 
+
+const ReviewLinkTypeBadge = ({ type }: { type?: string }) => {
+  const meta = getReviewTypeMeta(type);
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ${meta.pill}`}
+    >
+      {formatReviewType(type)}
+    </span>
+  );
+};
+
+const GeneratedReviewLinksPanel = ({
+  groups,
+  onCopy,
+  onClear,
+  onRegenerate,
+  regeneratingKey,
+}: {
+  groups: GeneratedReviewGroup[];
+  onCopy: (url?: string) => void | Promise<void>;
+  onClear: () => void;
+  onRegenerate: (
+    group: GeneratedReviewGroup,
+    link: GeneratedReviewLink
+  ) => void | Promise<void>;
+  regeneratingKey?: string;
+}) => {
+  if (!groups.length) return null;
+
+  const totalLinks = groups.reduce((sum, group) => sum + group.links.length, 0);
+
+  return (
+    <div className="mx-5 mt-4 overflow-hidden rounded-2xl border border-stone-200 bg-white">
+      <div className="flex flex-col gap-3 border-b border-stone-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">
+            Review links
+          </p>
+          <p className="mt-1 text-xs text-stone-500">
+            {groups.length} influencer{groups.length === 1 ? "" : "s"} ·{" "}
+            {totalLinks} link{totalLinks === 1 ? "" : "s"} available to copy,
+            open, or regenerate.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClear}
+          className="inline-flex h-9 items-center justify-center rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 transition hover:bg-stone-50"
+        >
+          Clear
+        </button>
+      </div>
+
+      <div className="divide-y divide-stone-100">
+        {groups.map((group) => (
+          <div key={group.influencerId} className="px-5 py-4">
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-stone-900">
+                  {group.influencerName}
+                </p>
+                <p className="text-xs text-stone-500">
+                  Updated {formatDateTime(group.createdAt)}
+                </p>
+              </div>
+
+              <span className="inline-flex w-fit rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                Ready
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {group.links.map((link) => {
+                const meta = getReviewTypeMeta(link.reviewType);
+                const key = `${group.influencerId}:${link.reviewType}`;
+                const isRegenerating = regeneratingKey === key;
+
+                return (
+                  <div
+                    key={`${link._id}-${link.reviewType}`}
+                    className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-3"
+                  >
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <ReviewLinkTypeBadge type={link.reviewType} />
+
+                          <span className="text-[11px] font-medium text-stone-500">
+                            {meta.helper}
+                          </span>
+
+                          {link.wasExpired ? (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-100">
+                              Expired link refreshed
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="break-all font-mono text-xs leading-5 text-stone-700">
+                          {link.publicUrl}
+                        </p>
+
+                        {link.expiresAt ? (
+                          <p className="mt-1 text-[11px] font-medium text-stone-400">
+                            Expires {formatDateTime(link.expiresAt)}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onCopy(link.publicUrl)}
+                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 text-xs font-semibold text-stone-700 transition hover:bg-stone-100"
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Copy
+                        </button>
+
+                        <a
+                          href={link.publicUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-stone-900 bg-stone-900 px-3 text-xs font-semibold text-white transition hover:bg-stone-800"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => onRegenerate(group, link)}
+                          disabled={isRegenerating}
+                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isRegenerating ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <HiOutlineRefresh className="h-3.5 w-3.5" />
+                          )}
+                          {isRegenerating ? "Regenerating" : "Regenerate"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 /* ========================= Main Page ========================= */
 
 export default function ViewCampaignPage() {
@@ -1493,6 +1717,13 @@ export default function ViewCampaignPage() {
   const [pitchFolderError, setPitchFolderError] = useState<string | null>(null);
   const [assignedPitchFolder, setAssignedPitchFolder] = useState<AssignedPitchFolder | null>(null);
   const [pitchFolderSearch, setPitchFolderSearch] = useState("");
+
+  const [reviewGeneratingKey, setReviewGeneratingKey] = useState("");
+  const [reviewRegeneratingKey, setReviewRegeneratingKey] = useState("");
+  const [reviewBulkGenerating, setReviewBulkGenerating] = useState(false);
+  const [generatedReviewGroups, setGeneratedReviewGroups] = useState<
+    GeneratedReviewGroup[]
+  >([]);
 
   useEffect(() => {
     try {
@@ -1579,6 +1810,8 @@ export default function ViewCampaignPage() {
   const isBudgetLocked = false;
   const canShowAddMilestone = currentAdminRole !== "ime";
   const canShowAddDeliverable = currentAdminRole !== "bme";
+
+  const reviewCampaignId = String(campaign?._id || id || "").trim();
 
   const fetchAdminCreatedCampaignApplicants = useCallback(async () => {
     const response: any = await post("/campaign-invitation/get-by-campaign", {
@@ -2354,6 +2587,234 @@ export default function ViewCampaignPage() {
     return Math.max(1, Math.ceil((end - start) / (1000 * 60 * 60 * 24)));
   }, [campaign?.startAt, campaign?.endAt]);
 
+  const canGenerateReviewLinkForApplicant = useCallback(
+    (inf: InfluencerApplicant) => {
+      if (!inf.influencerId) return false;
+      if (!brandId) return false;
+      if (!reviewCampaignId) return false;
+
+      return isApplicantActive(inf) || inf.isCompleted === 1;
+    },
+    [brandId, reviewCampaignId]
+  );
+
+  const copyReviewLink = useCallback(async (url?: string) => {
+    if (!url) return;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      await showSuccess("Review link copied.");
+    } catch {
+      await showErr("Unable to copy review link.");
+    }
+  }, []);
+
+  const addGeneratedReviewGroup = useCallback((group: GeneratedReviewGroup) => {
+    setGeneratedReviewGroups((prev) => {
+      const existing = prev.find(
+        (item) => item.influencerId === group.influencerId
+      );
+
+      const withoutExisting = prev.filter(
+        (item) => item.influencerId !== group.influencerId
+      );
+
+      if (!existing) {
+        return [group, ...prev].slice(0, 12);
+      }
+
+      const linkMap = new Map<ReviewType, GeneratedReviewLink>();
+
+      for (const link of existing.links) {
+        linkMap.set(link.reviewType, link);
+      }
+
+      for (const link of group.links) {
+        linkMap.set(link.reviewType, link);
+      }
+
+      return [
+        {
+          ...existing,
+          influencerName: group.influencerName || existing.influencerName,
+          createdAt: group.createdAt,
+          links: Array.from(linkMap.values()),
+        },
+        ...withoutExisting,
+      ].slice(0, 12);
+    });
+  }, []);
+
+  const generateReviewLinksForApplicant = useCallback(
+    async (
+      inf: InfluencerApplicant,
+      options?: {
+        regenerate?: boolean;
+        reviewTypes?: ReviewType[];
+      }
+    ) => {
+      const influencerId = String(inf.influencerId || "").trim();
+
+      if (!reviewCampaignId) {
+        throw new Error("Campaign ID is missing.");
+      }
+
+      if (!brandId) {
+        throw new Error("Brand ID is missing.");
+      }
+
+      if (!influencerId) {
+        throw new Error("Influencer ID is missing.");
+      }
+
+      const payload = await post<GenerateReviewResponse>(
+        "/campaign-reviews/admin/generate-links",
+        {
+          campaignId: reviewCampaignId,
+          brandId,
+          influencerId,
+          reviewTypes: options?.reviewTypes || [
+            "brand_to_influencer",
+            "influencer_to_brand",
+          ],
+          expiresInDays: 30,
+          regenerate: Boolean(options?.regenerate),
+        }
+      );
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to get review links.");
+      }
+
+      const links = Array.isArray(payload?.data) ? payload.data : [];
+
+      if (!links.length) {
+        throw new Error("No review links returned from server.");
+      }
+
+      const group: GeneratedReviewGroup = {
+        influencerId,
+        influencerName: inf.name || inf.handle || "Influencer",
+        createdAt: new Date().toISOString(),
+        links,
+      };
+
+      addGeneratedReviewGroup(group);
+      return group;
+    },
+    [reviewCampaignId, brandId, addGeneratedReviewGroup]
+  );
+
+  const handleGenerateReviewLinks = useCallback(
+    async (inf: InfluencerApplicant) => {
+      const key = String(inf.influencerId || inf.handle || inf.name || "review");
+
+      try {
+        setReviewGeneratingKey(key);
+
+        const group = await generateReviewLinksForApplicant(inf, {
+          regenerate: false,
+        });
+
+        const existingCount = group.links.filter(
+          (item) => item.isExistingLink
+        ).length;
+        const newCount = group.links.length - existingCount;
+
+        await showSuccess(
+          existingCount > 0 && newCount === 0
+            ? `Existing review link${group.links.length === 1 ? "" : "s"} ready for ${group.influencerName}. You can copy them now.`
+            : `Review link${group.links.length === 1 ? "" : "s"} ready for ${group.influencerName}. You can copy them now.`
+        );
+      } catch (err: any) {
+        await showErr(
+          err?.response?.data?.message ||
+            err?.message ||
+            "Failed to get review links."
+        );
+      } finally {
+        setReviewGeneratingKey("");
+      }
+    },
+    [generateReviewLinksForApplicant]
+  );
+
+  const handleRegenerateReviewLink = useCallback(
+    async (group: GeneratedReviewGroup, link: GeneratedReviewLink) => {
+      const key = `${group.influencerId}:${link.reviewType}`;
+
+      try {
+        setReviewRegeneratingKey(key);
+
+        await generateReviewLinksForApplicant(
+          {
+            influencerId: group.influencerId,
+            name: group.influencerName,
+          },
+          {
+            regenerate: true,
+            reviewTypes: [link.reviewType],
+          }
+        );
+
+        await showSuccess("New review link regenerated. Old link is no longer valid.");
+      } catch (err: any) {
+        await showErr(
+          err?.response?.data?.message ||
+            err?.message ||
+            "Failed to regenerate review link."
+        );
+      } finally {
+        setReviewRegeneratingKey("");
+      }
+    },
+    [generateReviewLinksForApplicant]
+  );
+
+  const handleGenerateReviewLinksForAllVisible = useCallback(async () => {
+    const reviewableApplicants = visibleApplicants.filter(
+      canGenerateReviewLinkForApplicant
+    );
+
+    if (!reviewableApplicants.length) {
+      await showErr("No active influencers available for review link generation.");
+      return;
+    }
+
+    try {
+      setReviewBulkGenerating(true);
+
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (const inf of reviewableApplicants) {
+        try {
+          await generateReviewLinksForApplicant(inf, {
+            regenerate: false,
+          });
+          successCount += 1;
+        } catch (err) {
+          console.error("Failed to get review links:", err);
+          failedCount += 1;
+        }
+      }
+
+      if (successCount > 0) {
+        await showSuccess(
+          `Review links ready for ${successCount} influencer${successCount === 1 ? "" : "s"}${failedCount ? `. ${failedCount} failed.` : "."} Scroll up to copy/share them.`
+        );
+      } else {
+        await showErr("Failed to get review links.");
+      }
+    } finally {
+      setReviewBulkGenerating(false);
+    }
+  }, [
+    visibleApplicants,
+    canGenerateReviewLinkForApplicant,
+    generateReviewLinksForApplicant,
+  ]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-stone-50 p-4">
@@ -2843,12 +3304,12 @@ export default function ViewCampaignPage() {
               </div>
 
               <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-                <div className="flex flex-col gap-2 border-b border-stone-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 border-b border-stone-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <p className="text-sm font-semibold text-stone-800">
+                    <p className="text-sm font-semibold text-stone-900">
                       Active Influencers
                     </p>
-                    <p className="text-xs text-stone-400">
+                    <p className="mt-1 text-xs text-stone-500">
                       Showing {visibleApplicants.length} result
                       {visibleApplicants.length === 1 ? "" : "s"} on this page
                       {statusCounts.active !== undefined
@@ -2856,9 +3317,28 @@ export default function ViewCampaignPage() {
                         : statusCounts.total !== undefined
                           ? ` • ${statusCounts.total} total`
                           : ""}
-                      .
+                      . Generate both review links when the campaign work is ready for feedback.
                     </p>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGenerateReviewLinksForAllVisible}
+                    disabled={
+                      reviewBulkGenerating ||
+                      !visibleApplicants.some(canGenerateReviewLinkForApplicant)
+                    }
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-stone-900 bg-stone-900 px-4 text-xs font-semibold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:border-stone-300 disabled:bg-stone-200 disabled:text-stone-500"
+                  >
+                    {reviewBulkGenerating ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Link2 className="h-4 w-4" />
+                    )}
+                    {reviewBulkGenerating
+                      ? "Generating..."
+                      : `Generate Review Links (${visibleApplicants.filter(canGenerateReviewLinkForApplicant).length})`}
+                  </button>
                 </div>
 
                 {applicantError ? (
@@ -2866,6 +3346,14 @@ export default function ViewCampaignPage() {
                     {applicantError}
                   </div>
                 ) : null}
+
+                <GeneratedReviewLinksPanel
+                  groups={generatedReviewGroups}
+                  onCopy={copyReviewLink}
+                  onClear={() => setGeneratedReviewGroups([])}
+                  onRegenerate={handleRegenerateReviewLink}
+                  regeneratingKey={reviewRegeneratingKey}
+                />
 
                 <div className="overflow-x-auto">
                   <Table className="min-w-[1180px]">
@@ -3028,6 +3516,28 @@ export default function ViewCampaignPage() {
                                         <ChevronDown className="h-3.5 w-3.5" />
                                       )}
                                     </button>
+                                    {canGenerateReviewLinkForApplicant(inf) ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleGenerateReviewLinks(inf)}
+                                        disabled={
+                                          reviewGeneratingKey ===
+                                          String(inf.influencerId || inf.handle || inf.name || "review")
+                                        }
+                                        className="inline-flex items-center gap-1.5 rounded-[10px] border border-stone-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {reviewGeneratingKey ===
+                                          String(inf.influencerId || inf.handle || inf.name || "review") ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Link2 className="h-3.5 w-3.5" />
+                                        )}
+                                        {reviewGeneratingKey ===
+                                          String(inf.influencerId || inf.handle || inf.name || "review")
+                                          ? "Generating..."
+                                          : "Review Links"}
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </TableCell>
                               </TableRow>

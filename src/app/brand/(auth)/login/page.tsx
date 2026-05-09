@@ -431,7 +431,7 @@ function BrandLoginContentInner() {
     setLoading(true);
 
     try {
-      await runRecaptchaCheck(executeRecaptcha, "brand_login");
+      //await runRecaptchaCheck(executeRecaptcha, "brand_login");
 
       clearClientAuthStorage();
 
