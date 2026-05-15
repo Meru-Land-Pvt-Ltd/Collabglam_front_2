@@ -1514,6 +1514,106 @@ export async function apiGetPayoutDetailsByInfluencer(
   );
 }
 
+
+export type SubmitDeliverableLinkPayload = {
+  label?: string;
+  url: string;
+};
+
+export type SubmitDeliverablePayload = {
+  influencerId: string;
+  milestoneId: string;
+  milestoneHistoryId: string;
+  deliverableId: string;
+  deliverableLinks: SubmitDeliverableLinkPayload[];
+};
+
+export type SubmitDeliverableResponse = {
+  success: boolean;
+  message: string;
+  milestoneId: string;
+  milestoneHistoryId: string;
+  deliverableId: string;
+  deliverable: {
+    deliverableId: string;
+    deliverableName: string;
+    deliveries: string[];
+    aspectRatio?: string;
+    platforms: string[];
+    quantity: number;
+    deliverableLinks: Array<{
+      linkId?: string;
+      label?: string;
+      url: string;
+    }>;
+    status: "pending" | "submitted" | "approved" | "revision" | string;
+    submittedAt?: string | null;
+    comments?: string;
+    approvedRole?: string;
+    approvalId?: string;
+    approvedAt?: string | null;
+    revisionRequestedAt?: string | null;
+    updatedAt?: string | null;
+  };
+};
+
+export async function apiSubmitDeliverable(
+  payload: SubmitDeliverablePayload,
+  token?: string
+) {
+  const influencerId = String(payload.influencerId || "").trim();
+  const milestoneId = String(payload.milestoneId || "").trim();
+  const milestoneHistoryId = String(payload.milestoneHistoryId || "").trim();
+  const deliverableId = String(payload.deliverableId || "").trim();
+
+  const deliverableLinks = (payload.deliverableLinks || [])
+    .map((item, index) => ({
+      label:
+        String(item.label || "").trim() ||
+        `Deliverable Link ${index + 1}`,
+      url: String(item.url || "").trim(),
+    }))
+    .filter((item) => item.url);
+
+  if (!influencerId) {
+    throw new Error("influencerId is required");
+  }
+
+  if (!milestoneId) {
+    throw new Error("milestoneId is required");
+  }
+
+  if (!milestoneHistoryId) {
+    throw new Error("milestoneHistoryId is required");
+  }
+
+  if (!deliverableId) {
+    throw new Error("deliverableId is required");
+  }
+
+  if (!deliverableLinks.length) {
+    throw new Error("At least one deliverable link is required");
+  }
+
+  return apiPost<SubmitDeliverableResponse>(
+    `${MILESTONE_BASE}/submitDeliverable`,
+    {
+      influencerId,
+      milestoneId,
+      milestoneHistoryId,
+      deliverableId,
+      deliverableLinks,
+    },
+    token
+      ? {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      : undefined
+  );
+}
+
 /** -------------------------
  *  PAYMENT DETAILS
  *  Base: /payment

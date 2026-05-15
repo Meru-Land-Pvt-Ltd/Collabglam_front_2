@@ -12,7 +12,7 @@ import {
     apiGetAllDeliverablesByMilestone,
     apiGetMilestonesByCampaign,
     apiReleaseMilestone,
-    apiUpdateMilestoneDeliverableApprovalStatus,
+    apiApproveDeliverable,
 } from "../../services/brandApi";
 
 const NA = "N/A";
@@ -950,6 +950,7 @@ function ViewDeliverableSidebar({
     onClose,
     onApprove,
     onRaiseRevision,
+    onEditMilestone,
 }: {
     open: boolean;
     milestone: any;
@@ -958,7 +959,9 @@ function ViewDeliverableSidebar({
     onClose: () => void;
     onApprove: (deliverable: any) => void;
     onRaiseRevision: (milestone: any, deliverable: any) => void;
+    onEditMilestone: (milestone: any) => void;
 }) {
+    const [copiedLinkIndex, setCopiedLinkIndex] = useState<number | null>(null);
     useEffect(() => {
         if (!open) return;
 
@@ -1006,10 +1009,8 @@ function ViewDeliverableSidebar({
         ? rawDeliverable.revisions
         : [];
 
-    const handleCopyLink = async () => {
-        const firstLink = links[0]?.url || "";
-
-        if (!firstLink) {
+    const handleCopySingleLink = async (url: string, index: number) => {
+        if (!url) {
             toast({
                 icon: "warning",
                 title: "No link found",
@@ -1018,7 +1019,13 @@ function ViewDeliverableSidebar({
             return;
         }
 
-        await navigator.clipboard.writeText(firstLink);
+        await navigator.clipboard.writeText(url);
+
+        setCopiedLinkIndex(index);
+
+        setTimeout(() => {
+            setCopiedLinkIndex((current) => (current === index ? null : current));
+        }, 1200);
 
         toast({
             icon: "success",
@@ -1026,6 +1033,8 @@ function ViewDeliverableSidebar({
             text: "Submission link copied to clipboard.",
         });
     };
+
+
 
     return (
         <div
@@ -1057,6 +1066,10 @@ function ViewDeliverableSidebar({
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
+                            onClick={() => {
+                                onClose();
+                                onEditMilestone(milestone);
+                            }}
                             className="flex h-8 items-center justify-center gap-2 rounded-[0.75rem] border border-[#E6E6E6] px-3 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:bg-[#F9F9F9]"
                         >
                             Edit
@@ -1074,18 +1087,10 @@ function ViewDeliverableSidebar({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                    <div className="mb-6 flex items-center justify-between">
+                    <div className="mb-6 flex items-center">
                         <h3 className="font-['Inter'] text-base font-semibold leading-6 text-[#1A1A1A]">
                             Submissions
                         </h3>
-
-                        <button
-                            type="button"
-                            onClick={handleCopyLink}
-                            className="font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:underline"
-                        >
-                            Copy Link
-                        </button>
                     </div>
 
                     <div className="flex flex-col gap-5">
@@ -1162,18 +1167,45 @@ function ViewDeliverableSidebar({
 
                         <DetailRow label="Submission Link">
                             {links.length > 0 ? (
-                                <div className="flex flex-col gap-1">
-                                    {links.map((link: any, index: number) => (
-                                        <a
-                                            key={`${link.url}-${index}`}
-                                            href={link.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="w-fit font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] underline"
-                                        >
-                                            {link.label || `Deliverable Link ${index + 1}`}
-                                        </a>
-                                    ))}
+                                <div className="flex flex-col gap-2">
+                                    {links.map((link: any, index: number) => {
+                                        const label = link.label || `Deliverable Link ${index + 1}`;
+                                        const isCopied = copiedLinkIndex === index;
+
+                                        return (
+                                            <div
+                                                key={`${link.url}-${index}`}
+                                                className="flex min-w-0 items-center gap-3"
+                                            >
+                                                <a
+                                                    href={link.url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="line-clamp-1 w-fit max-w-[24rem] cursor-pointer font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] underline"
+                                                    title={link.url}
+                                                >
+                                                    {label}
+                                                </a>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCopySingleLink(link.url, index)}
+                                                    className="flex cursor-pointer items-center gap-1 shrink-0 font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] underline transition hover:text-[#000]"
+                                                >
+                                                    {isCopied ? (
+                                                        <span className="inline-flex items-center gap-1 text-[#28A745] no-underline animate-[copyTick_220ms_ease-out]">
+                                                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#EAF6EC] text-[0.625rem] leading-none">
+                                                                ✓
+                                                            </span>
+                                                            Copied
+                                                        </span>
+                                                    ) : (
+                                                        "Copy"
+                                                    )}
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             ) : (
                                 NA
@@ -1187,8 +1219,8 @@ function ViewDeliverableSidebar({
                         </h3>
 
                         <div className="overflow-hidden rounded-[0.75rem] border border-[#D6D6D6] bg-white">
-                            <div className="grid grid-cols-[5.5rem_6.25rem_4.75rem_6rem_7.25rem_1fr] border-b border-[#D6D6D6]">
-                                {["Name", "Submitted on", "Link", "Status", "Notes", "Actions"].map(
+                            <div className="grid grid-cols-[1.05fr_1.15fr_0.75fr_1.15fr_1.9fr] border-b border-[#D6D6D6]">
+                                {["Name", "Due Date", "Link", "Status", "Notes"].map(
                                     (heading, index, arr) => (
                                         <div
                                             key={heading}
@@ -1199,7 +1231,7 @@ function ViewDeliverableSidebar({
                                                     : "",
                                             ].join(" ")}
                                         >
-                                            {heading}
+                                            <span className="line-clamp-1">{heading}</span>
                                         </div>
                                     )
                                 )}
@@ -1209,7 +1241,7 @@ function ViewDeliverableSidebar({
                                 revisions.map((revision: any) => (
                                     <div
                                         key={revision?.revisionId || revision?._id}
-                                        className="grid grid-cols-[5.5rem_6.25rem_4.75rem_6rem_7.25rem_1fr] border-b border-[#E6E6E6] last:border-b-0"
+                                        className="grid grid-cols-[1.05fr_1.15fr_0.75fr_1.15fr_1.9fr] border-b border-[#E6E6E6] last:border-b-0"
                                     >
                                         <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
                                             <span className="line-clamp-1">
@@ -1218,7 +1250,9 @@ function ViewDeliverableSidebar({
                                         </div>
 
                                         <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
-                                            {formatLongDate(revision?.submissionDate)}
+                                            <span className="line-clamp-1">
+                                                {formatLongDate(revision?.submissionDate)}
+                                            </span>
                                         </div>
 
                                         <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
@@ -1240,14 +1274,10 @@ function ViewDeliverableSidebar({
                                             <StatusPill status={revision?.status || "pending"} />
                                         </div>
 
-                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                        <div className="flex min-h-12 items-center px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
                                             <span className="line-clamp-2">
                                                 {textOrNA(revision?.notes)}
                                             </span>
-                                        </div>
-
-                                        <div className="flex min-h-12 items-center px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#969696]">
-                                            —
                                         </div>
                                     </div>
                                 ))
@@ -1808,11 +1838,10 @@ export default function MilestoneAndDeliverablesTab({
                 [deliverableId]: true,
             }));
 
-            const res = await apiUpdateMilestoneDeliverableApprovalStatus({
+            const res = await apiApproveDeliverable({
                 milestoneId,
                 milestoneHistoryId,
                 deliverableId,
-                status,
                 comments,
                 approvedRole: "Brand",
                 approvalId: deliverable?.approvalId || "",
@@ -2089,6 +2118,27 @@ export default function MilestoneAndDeliverablesTab({
         handleOpenAddRevision(milestone, deliverable);
     };
 
+    const handleEditMilestoneFromDeliverableView = (milestone: any) => {
+        setViewDeliverableTarget(null);
+
+        setMilestoneTargetRow({
+            id: String(
+                milestone?.raw?.influencerId ||
+                milestone?.influencerId ||
+                resolvedInfluencerId ||
+                ""
+            ),
+            name:
+                milestone?.raw?.influencerName ||
+                milestone?.influencerName ||
+                resolvedInfluencerName ||
+                "Influencer",
+            raw: milestone?.raw || milestone,
+        } as any);
+
+        setIsAddMilestoneOpen(true);
+    };
+
     const handleCloseAddRevision = () => {
         setRevisionTarget(null);
     };
@@ -2176,6 +2226,7 @@ export default function MilestoneAndDeliverablesTab({
                     handleUpdateDeliverableStatus(deliverable, "approved")
                 }
                 onRaiseRevision={handleRaiseRevisionFromView}
+                onEditMilestone={handleEditMilestoneFromDeliverableView}
             />
 
             <div className="flex w-full items-start justify-between gap-6">
@@ -2402,4 +2453,8 @@ export default function MilestoneAndDeliverablesTab({
             </div>
         </section>
     );
+}
+
+function setMilestoneTargetRow(arg0: any) {
+    throw new Error("Function not implemented.");
 }

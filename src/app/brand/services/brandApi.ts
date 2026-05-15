@@ -936,6 +936,13 @@ export type MilestoneRevision = {
   attachments?: any[];
   submissionDate?: string | null;
   status: "pending" | "submitted" | "approved" | "revision" | string;
+
+  submittedAt?: string | null;
+  approvedAt?: string | null;
+  approvedRole?: string;
+  approvalId?: string;
+  comments?: string;
+
   raisedByRole?: "Brand" | "Influencer" | "Admin" | string;
   raisedAt?: string | null;
   createdAt?: string | null;
@@ -1334,17 +1341,16 @@ export async function apiGetAllDeliverablesByMilestone(
 
 export type ApprovedRole = "Brand" | "Admin";
 
-export type UpdateMilestoneDeliverableApprovalStatusPayload = {
-  milestoneId: string;
-  milestoneHistoryId: string;
+export type ApproveDeliverablePayload = {
   deliverableId: string;
-  status: "approved" | "revision";
+  milestoneId?: string;
+  milestoneHistoryId?: string;
   comments?: string;
   approvedRole?: ApprovedRole;
   approvalId?: string;
 };
 
-export type UpdateMilestoneDeliverableApprovalStatusResponse = {
+export type ApproveDeliverableResponse = {
   success: boolean;
   message: string;
   milestoneId: string;
@@ -1353,22 +1359,30 @@ export type UpdateMilestoneDeliverableApprovalStatusResponse = {
   deliverable: MilestoneDeliverableRow;
 };
 
-export async function apiUpdateMilestoneDeliverableApprovalStatus(
-  payload: UpdateMilestoneDeliverableApprovalStatusPayload
+export async function apiApproveDeliverable(
+  payload: ApproveDeliverablePayload
 ) {
-  return apiPost<UpdateMilestoneDeliverableApprovalStatusResponse>(
-    `${MILESTONE_BASE}/updateDeliverableApprovalStatus`,
+  const deliverableId = String(payload.deliverableId || "").trim();
+  const milestoneId = String(payload.milestoneId || "").trim();
+  const milestoneHistoryId = String(payload.milestoneHistoryId || "").trim();
+
+  if (!deliverableId) {
+    throw new Error("deliverableId is required");
+  }
+
+  return apiPost<ApproveDeliverableResponse>(
+    `${MILESTONE_BASE}/approveDeliverable`,
     {
-      milestoneId: payload.milestoneId,
-      milestoneHistoryId: payload.milestoneHistoryId,
-      deliverableId: payload.deliverableId,
-      status: payload.status,
+      deliverableId,
+      milestoneId,
+      milestoneHistoryId,
       comments: payload.comments ?? "",
       approvedRole: payload.approvedRole ?? "Brand",
       approvalId: payload.approvalId ?? "",
     }
   );
 }
+
 
 export type GetAllCampaignsParams = {
   brandId?: string;

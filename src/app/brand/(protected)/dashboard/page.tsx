@@ -21,11 +21,11 @@ import {
   DotsThree,
   ArrowDownLeft,
 } from "@phosphor-icons/react";
-import { post } from "@/lib/api";
+import { post, get } from "@/lib/api";
+import { apiGetMilestonesByBrand } from "../../services/brandApi";
 
 const FULLY_MANAGED_PLAN_ID = "1f46c6f6-63ae-4c4f-943d-798d644257f9";
 const FULLY_MANAGED_PLAN_NAME = "fully_managed";
-const WALLET_API_BASE = "http://192.168.1.11:8000";
 
 /* ---------------- types ---------------- */
 
@@ -182,12 +182,60 @@ type AppliedInfluencerRow = {
   appliedAt?: string | null;
 };
 
+type MilestoneAttachment = {
+  name?: string;
+  url?: string;
+  type?: string;
+  size?: number;
+  key?: string;
+  _id?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type BrandMilestoneApiRow = {
+  _id?: string;
+  milestoneHistoryId?: string;
+  milestoneId?: string;
+  brandId?: string;
+  campaignId?: string;
+  influencerId?: string;
+  influencerName?: string;
+
+  milestoneTitle?: string;
+  milestoneDescription?: string;
+  milestoneBudget?: number;
+  amount?: number;
+
+  attachments?: MilestoneAttachment[];
+
+  startDate?: string | null;
+  endDate?: string | null;
+
+  released?: boolean;
+  releasedAt?: string | null;
+  payoutStatus?: string;
+  paidAt?: string | null;
+
+  deliverablesCount?: number;
+  paymentType?: string;
+  currency?: string;
+};
+
+type GetMilestonesByBrandResponse = {
+  message?: string;
+  milestones?: BrandMilestoneApiRow[];
+};
+
 type ReleaseMilestoneRow = {
   id: string;
   title: string;
-  campaignName: string;
-  brandName: string;
-  logoSrc?: string;
+  description: string;
+  imageUrl?: string;
+  campaignName?: string;
+  influencerName?: string;
+  amount?: number;
+  currency?: string;
 };
 
 type CampaignListRow = {
@@ -209,6 +257,7 @@ type PaymentHistoryRow = {
   amount: number;
   walletBalance: number;
 };
+
 /* ---------------- helpers ---------------- */
 
 const fmtDate = (d: string | null | undefined, fmt = "MMM d, yyyy") => {
@@ -386,6 +435,7 @@ export default function BrandDashboardHome() {
   const [data, setData] = useState<BrandDashboardHomePayload | null>(null);
   const [brandAppliedData, setBrandAppliedData] = useState<BrandCampaignsAppliedBrand | null>(null);
   const [walletData, setWalletData] = useState<WalletData | null>(null);
+  const [brandMilestones, setBrandMilestones] = useState<BrandMilestoneApiRow[]>([]);
   const [walletView, setWalletView] = useState<WalletTab>("used");
 
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -459,18 +509,14 @@ export default function BrandDashboardHome() {
       if (!brandId) return;
 
       try {
-        const walletRes = await fetch(`${WALLET_API_BASE}/wallet?brandId=${encodeURIComponent(brandId)}`, {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          cache: "no-store",
+        const walletJson = await get<WalletApiResponse>("/wallet", {
+          brandId,
         });
-
-        if (!walletRes.ok) throw new Error("Could not load wallet");
-
-        const walletJson = (await walletRes.json()) as WalletApiResponse;
 
         if (walletJson?.success && walletJson?.data) {
           setWalletData(walletJson.data);
+        } else {
+          setWalletData(null);
         }
       } catch {
         setWalletData(null);
@@ -494,6 +540,22 @@ export default function BrandDashboardHome() {
       }
     };
 
+    const fetchBrandMilestones = async () => {
+      if (!brandId) return;
+
+      try {
+        const res = await apiGetMilestonesByBrand({
+          brandId,
+        });
+
+        const payload = unwrap<GetMilestonesByBrandResponse>(res);
+
+        setBrandMilestones(Array.isArray(payload?.milestones) ? payload.milestones : []);
+      } catch {
+        setBrandMilestones([]);
+      }
+    };
+
     (async () => {
       setInboxError(null);
       setInboxLoading(!fullyManaged);
@@ -504,15 +566,19 @@ export default function BrandDashboardHome() {
       } catch (err: any) {
         setFatalError(
           err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Could not load dashboard"
+            err?.response?.data?.message ||
+            err?.message ||
+            "Could not load dashboard"
         );
         setInboxLoading(false);
         return;
       }
 
-      await Promise.all([fetchWallet(), fetchBrandAppliedCampaigns()]);
+      await Promise.all([
+        fetchWallet(),
+        fetchBrandAppliedCampaigns(),
+        fetchBrandMilestones(),
+      ]);
 
       if (fullyManaged) {
         setInbox([]);
@@ -592,31 +658,32 @@ export default function BrandDashboardHome() {
   }, [data?.campaigns]);
 
   const releaseMilestones = useMemo<ReleaseMilestoneRow[]>(() => {
-    const freezes = walletData?.freezes || [];
-
-    const rows = freezes
-      .filter((item) => {
-        const amount = Number(
-          item.currentFrozenAmount ||
-          item.totalFrozenAmount ||
-          item.freezeAmount ||
-          item.availableToAllocate ||
-          0
-        );
-
-        return amount > 0;
-      })
+    return brandMilestones
+      .filter((item) => !item.released)
       .slice(0, 5)
-      .map((item, index) => ({
-        id: item.campaignId || `milestone-${index}`,
-        title: index === 0 ? "2nd milestone" : "1st milestone",
-        campaignName: `Campaign ${String(index + 1).padStart(2, "0")}`,
-        brandName: data?.brandName || "Brand",
-        logoSrc: "",
-      }));
+      .map((item, index) => {
+        const firstImage =
+          item.attachments?.find((attachment) =>
+            String(attachment.type || "").toLowerCase().startsWith("image/")
+          ) ||
+          item.attachments?.[0];
 
-    return rows;
-  }, [walletData?.freezes, data?.brandName]);
+        return {
+          id:
+            item.milestoneHistoryId ||
+            item.milestoneId ||
+            item._id ||
+            `milestone-${index}`,
+          title: item.milestoneTitle || `Milestone ${index + 1}`,
+          description: item.milestoneDescription || "No description added.",
+          imageUrl: firstImage?.url || "",
+          campaignName: item.campaignId || "",
+          influencerName: item.influencerName || "",
+          amount: Number(item.amount || item.milestoneBudget || 0),
+          currency: item.currency || "USD",
+        };
+      });
+  }, [brandMilestones]);
 
   const paymentHistoryRows = useMemo(() => {
     return getPaymentHistoryRows(walletData);
@@ -705,7 +772,7 @@ export default function BrandDashboardHome() {
     {
       label: "Raise Dispute",
       icon: <Question size={18} weight="bold" className="text-[#B6ADA5]" />,
-      onClick: () => router.push("/brand/dispute"),
+      onClick: () => router.push("/brand/disputes"),
     },
   ];
 
@@ -896,8 +963,9 @@ const DashboardMetricCard = ({
                 e.stopPropagation();
                 tabs.onChange("used");
               }}
-              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${tabs.value === "used" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
-                }`}
+              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${
+                tabs.value === "used" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
+              }`}
             >
               Used
             </button>
@@ -908,8 +976,9 @@ const DashboardMetricCard = ({
                 e.stopPropagation();
                 tabs.onChange("available");
               }}
-              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${tabs.value === "available" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
-                }`}
+              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${
+                tabs.value === "available" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
+              }`}
             >
               Available
             </button>
@@ -1100,24 +1169,29 @@ const ReleaseMilestoneSection = ({ rows }: { rows: ReleaseMilestoneRow[] }) => {
               {rows.map((row) => (
                 <div
                   key={row.id}
-                  className="flex w-full flex-col items-start gap-3 border-b border-[#E6E6E6] pb-3 [&:not(:first-child)]:pt-3"
+                  className="flex w-full flex-col items-start gap-3 border-b border-[#E6E6E6] pb-3 pr-3 [&:not(:first-child)]:pt-3"
                 >
                   <div className="flex w-full min-w-0 items-start gap-2">
-                    <AvatarBox
-                      src={row.logoSrc}
-                      name={row.title}
-                      sizeClass="h-9 w-9"
-                      darkFallback
-                    />
+                    <MilestoneImageBox src={row.imageUrl} title={row.title} />
 
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-inter text-[0.875rem] font-semibold leading-5 text-[#1A1A1A]">
                         {row.title}
                       </p>
 
-                      <p className="truncate font-inter text-[0.75rem] font-normal leading-4 text-[#B8B8B8]">
-                        {row.campaignName} · {row.brandName}
+                      <p className="line-clamp-1 font-inter text-[0.75rem] font-normal leading-4 text-[#B8B8B8]">
+                        {row.description}
                       </p>
+
+                      {(row.influencerName || row.amount) ? (
+                        <p className="mt-1 truncate font-inter text-[0.6875rem] font-normal leading-4 text-[#969696]">
+                          {row.influencerName ? row.influencerName : ""}
+                          {row.influencerName && row.amount ? " · " : ""}
+                          {row.amount
+                            ? `${row.currency || "USD"} ${Number(row.amount).toLocaleString()}`
+                            : ""}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1355,14 +1429,8 @@ const CampaignStatusBadge = ({
 }) => {
   return (
     <span className="flex shrink-0 items-center gap-1 rounded-3xl bg-[#F9F9F9] px-2 py-1 font-inter text-[0.75rem] font-medium leading-4">
-      <span
-        className={`flex rounded-2xl p-0.5 ${active ? "bg-[#EAF6EC]" : "bg-[#F2F2F2]"
-          }`}
-      >
-        <span
-          className={`h-2 w-2 rounded-full ${active ? "bg-[#19B36B]" : "bg-[#969696]"
-            }`}
-        />
+      <span className={`flex rounded-2xl p-0.5 ${active ? "bg-[#EAF6EC]" : "bg-[#F2F2F2]"}`}>
+        <span className={`h-2 w-2 rounded-full ${active ? "bg-[#19B36B]" : "bg-[#969696]"}`} />
       </span>
 
       <span className={active ? "text-[#19B36B]" : "text-[#969696]"}>
@@ -1468,8 +1536,9 @@ const PaymentHistorySection = ({ rows }: { rows: PaymentHistoryRow[] }) => {
 
                   <div className="shrink-0 text-right">
                     <p
-                      className={`font-inter text-[0.875rem] font-semibold leading-5 ${isCredit ? "text-[#19B36B]" : "text-[#1A1A1A]"
-                        }`}
+                      className={`font-inter text-[0.875rem] font-semibold leading-5 ${
+                        isCredit ? "text-[#19B36B]" : "text-[#1A1A1A]"
+                      }`}
                     >
                       {isCredit ? "+" : "-"}${Math.abs(row.amount).toLocaleString()}
                     </p>
@@ -1485,6 +1554,32 @@ const PaymentHistorySection = ({ rows }: { rows: PaymentHistoryRow[] }) => {
         </div>
       </div>
     </section>
+  );
+};
+
+const MilestoneImageBox = ({
+  src,
+  title,
+}: {
+  src?: string;
+  title: string;
+}) => {
+  const initial = (title || "M").trim().slice(0, 1).toUpperCase();
+
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={title}
+        className="h-9 w-9 shrink-0 rounded-lg border border-white/30 bg-black object-cover"
+      />
+    );
+  }
+
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/30 bg-[#1A1A1A] font-inter text-[0.75rem] font-semibold text-white">
+      {initial}
+    </div>
   );
 };
 
@@ -1508,17 +1603,20 @@ const AvatarBox = ({
       <img
         src={src}
         alt={name}
-        className={`${sizeClass} shrink-0 object-cover ${roundedFull ? "rounded-full" : "rounded-lg"
-          } border border-white/30 bg-black`}
+        className={`${sizeClass} shrink-0 object-cover ${
+          roundedFull ? "rounded-full" : "rounded-lg"
+        } border border-white/30 bg-black`}
       />
     );
   }
 
   return (
     <div
-      className={`${sizeClass} shrink-0 ${roundedFull ? "rounded-full" : "rounded-lg"
-        } flex items-center justify-center border border-white/30 ${darkFallback ? "bg-[#1A1A1A] text-white" : "bg-[#F2F2F2] text-[#1A1A1A]"
-        } font-inter text-[0.625rem] font-semibold`}
+      className={`${sizeClass} shrink-0 ${
+        roundedFull ? "rounded-full" : "rounded-lg"
+      } flex items-center justify-center border border-white/30 ${
+        darkFallback ? "bg-[#1A1A1A] text-white" : "bg-[#F2F2F2] text-[#1A1A1A]"
+      } font-inter text-[0.625rem] font-semibold`}
     >
       {initial}
     </div>
