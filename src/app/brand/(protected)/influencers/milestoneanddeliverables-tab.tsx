@@ -275,14 +275,9 @@ const areAllMilestoneDeliverablesApproved = (
         return false;
     }
 
-    return deliverables.every((deliverable: any) => {
-        const status = getDeliverableStatus(deliverable);
-
-        return (
-            isApprovedDeliverableStatus(status) &&
-            areDeliverableRevisionsApproved(deliverable)
-        );
-    });
+    return deliverables.every((deliverable: any) =>
+        isApprovedDeliverableStatus(getDeliverableStatus(deliverable))
+    );
 };
 
 const isReleasedMilestone = (milestone: any) => {
@@ -1854,6 +1849,17 @@ export default function MilestoneAndDeliverablesTab({
                 comments
             );
 
+            const finalUpdatedDeliverable = {
+                ...deliverable,
+                ...updatedDeliverable,
+                status: "approved",
+                comments,
+                approvedAt:
+                    updatedDeliverable?.approvedAt ||
+                    updatedDeliverable?.data?.approvedAt ||
+                    new Date().toISOString(),
+            };
+
             setDeliverablesByRow((prev) => {
                 const next = { ...prev };
 
@@ -1865,14 +1871,61 @@ export default function MilestoneAndDeliverablesTab({
 
                         return {
                             ...item,
-                            ...updatedDeliverable,
-                            status,
-                            comments,
+                            ...finalUpdatedDeliverable,
                         };
                     });
                 });
 
                 return next;
+            });
+
+            setApiMilestones((prev) =>
+                prev.map((milestoneItem) => {
+                    const raw = milestoneItem?.raw || milestoneItem;
+                    const milestoneDeliverables = Array.isArray(raw?.deliverables)
+                        ? raw.deliverables
+                        : [];
+
+                    const hasTargetDeliverable = milestoneDeliverables.some(
+                        (item: any) => getDeliverableId(item) === deliverableId
+                    );
+
+                    if (!hasTargetDeliverable) return milestoneItem;
+
+                    const updatedDeliverables = milestoneDeliverables.map((item: any) => {
+                        if (getDeliverableId(item) !== deliverableId) return item;
+
+                        return {
+                            ...item,
+                            ...finalUpdatedDeliverable,
+                        };
+                    });
+
+                    return {
+                        ...milestoneItem,
+                        deliverables: updatedDeliverables,
+                        raw: {
+                            ...raw,
+                            deliverables: updatedDeliverables,
+                        },
+                    };
+                })
+            );
+
+            setViewDeliverableTarget((prev) => {
+                if (!prev) return prev;
+
+                const currentDeliverableId = getDeliverableId(prev.deliverable);
+
+                if (currentDeliverableId !== deliverableId) return prev;
+
+                return {
+                    ...prev,
+                    deliverable: {
+                        ...prev.deliverable,
+                        ...finalUpdatedDeliverable,
+                    },
+                };
             });
 
             toast({
@@ -1893,7 +1946,6 @@ export default function MilestoneAndDeliverablesTab({
             );
 
             console.error("Failed to update deliverable approval status", err);
-            updateDeliverableStatusInCache(deliverable, status, comments);
 
             toast({
                 icon: "error",

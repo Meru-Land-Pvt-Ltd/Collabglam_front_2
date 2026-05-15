@@ -249,13 +249,51 @@ type CampaignListRow = {
   activeInfluencers: ActiveInfluencerRow[];
 };
 
+type PaymentHistoryApiRow = {
+  paymentType: "plan" | "milestone" | string;
+  orderId?: string;
+  paymentId?: string;
+  userId?: string;
+  role?: string;
+  planId?: string;
+  planName?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  receipt?: string;
+  invoiceNumber?: string;
+  invoiceIssuedAt?: string | null;
+  invoiceFilePath?: string;
+  paidAt?: string | null;
+  createdAt?: string | null;
+  subtotalCents?: number;
+  discountCents?: number;
+  taxCents?: number;
+  totalCents?: number;
+};
+
+type PaymentHistoryResponse = {
+  success: boolean;
+  message?: string;
+  userId?: string;
+  role?: string;
+  counts?: {
+    plans?: number;
+    milestones?: number;
+    total?: number;
+  };
+  history?: PaymentHistoryApiRow[];
+};
+
 type PaymentHistoryRow = {
   id: string;
   title: string;
   transactionId: string;
   dateLabel: string;
   amount: number;
-  walletBalance: number;
+  currency: string;
+  status: string;
+  paymentType: string;
 };
 
 /* ---------------- helpers ---------------- */
@@ -364,61 +402,39 @@ const getDaysLeft = (endAt?: string | null) => {
   return `${days} days left`;
 };
 
-const getPaymentHistoryRows = (walletData: WalletData | null): PaymentHistoryRow[] => {
-  const freezes = walletData?.freezes || [];
+const getPaymentHistoryRows = (
+  history: PaymentHistoryApiRow[]
+): PaymentHistoryRow[] => {
+  return (history || []).map((item, index) => {
+    const totalCents = Number(item.totalCents || 0);
+    const rawAmount = Number(item.amount || 0);
 
-  const rows = freezes
-    .filter((item) => Number(item.totalReleasedAmount || item.freezeAmount || 0) > 0)
-    .slice(0, 6)
-    .map((item, index) => {
-      const amount = Number(item.totalReleasedAmount || item.freezeAmount || 0);
+    const amount =
+      totalCents > 0
+        ? totalCents / 100
+        : item.paymentType === "plan" && rawAmount > 1000
+          ? rawAmount / 100
+          : rawAmount;
 
-      return {
-        id: `${item.campaignId || "payment"}-${index}`,
-        title: "Milestone Payment",
-        transactionId: item.campaignId || "1254461491661",
-        dateLabel: "Jan 20, 2026 20:20 PM",
-        amount,
-        walletBalance: Number(walletData?.walletBalance || 0),
-      };
-    });
+    const paymentType = String(item.paymentType || "payment");
+    const planName = String(item.planName || "").trim();
 
-  if (rows.length) return rows;
+    const title =
+      paymentType === "plan"
+        ? `${planName || "Plan"} Payment`
+        : "Milestone Payment";
 
-  return [
-    {
-      id: "payment-1",
-      title: "Milestone Payment",
-      transactionId: "1254461491661",
-      dateLabel: "Jan 20, 2026 20:20 PM",
-      amount: 2000,
-      walletBalance: 1500,
-    },
-    {
-      id: "payment-2",
-      title: "Milestone Payment",
-      transactionId: "1254461491661",
-      dateLabel: "Jan 20, 2026 20:20 PM",
-      amount: -2000,
-      walletBalance: 2000,
-    },
-    {
-      id: "payment-3",
-      title: "Milestone Payment",
-      transactionId: "1254461491661",
-      dateLabel: "Jan 20, 2026 20:20 PM",
-      amount: 2000,
-      walletBalance: 2000,
-    },
-    {
-      id: "payment-4",
-      title: "Milestone Payment",
-      transactionId: "1254461491661",
-      dateLabel: "Jan 20, 2026 20:20 PM",
-      amount: 2000,
-      walletBalance: 2000,
-    },
-  ];
+    return {
+      id: item.paymentId || item.orderId || item.receipt || `payment-${index}`,
+      title,
+      transactionId: item.receipt || item.invoiceNumber || item.orderId || "NA",
+      dateLabel: fmtDate(item.paidAt || item.createdAt, "MMM d, yyyy hh:mm a"),
+      amount,
+      currency: item.currency || "USD",
+      status: item.status || "created",
+      paymentType,
+    };
+  });
 };
 
 const isCampaignActive = (campaign: CampaignRow) => {
@@ -436,6 +452,7 @@ export default function BrandDashboardHome() {
   const [brandAppliedData, setBrandAppliedData] = useState<BrandCampaignsAppliedBrand | null>(null);
   const [walletData, setWalletData] = useState<WalletData | null>(null);
   const [brandMilestones, setBrandMilestones] = useState<BrandMilestoneApiRow[]>([]);
+  const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryApiRow[]>([]);
   const [walletView, setWalletView] = useState<WalletTab>("used");
 
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -556,6 +573,24 @@ export default function BrandDashboardHome() {
       }
     };
 
+    const fetchPaymentHistory = async () => {
+      if (!brandId) return;
+
+      try {
+        const res = await post<PaymentHistoryResponse>("/payment/history", {
+          userId: brandId,
+          role: "Brand",
+          status: "all",
+        });
+
+        const payload = unwrap<PaymentHistoryResponse>(res);
+
+        setPaymentHistory(Array.isArray(payload?.history) ? payload.history : []);
+      } catch {
+        setPaymentHistory([]);
+      }
+    };
+
     (async () => {
       setInboxError(null);
       setInboxLoading(!fullyManaged);
@@ -566,9 +601,9 @@ export default function BrandDashboardHome() {
       } catch (err: any) {
         setFatalError(
           err?.response?.data?.error ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Could not load dashboard"
+          err?.response?.data?.message ||
+          err?.message ||
+          "Could not load dashboard"
         );
         setInboxLoading(false);
         return;
@@ -578,8 +613,8 @@ export default function BrandDashboardHome() {
         fetchWallet(),
         fetchBrandAppliedCampaigns(),
         fetchBrandMilestones(),
+        fetchPaymentHistory(),
       ]);
-
       if (fullyManaged) {
         setInbox([]);
         setInboxLoading(false);
@@ -686,8 +721,8 @@ export default function BrandDashboardHome() {
   }, [brandMilestones]);
 
   const paymentHistoryRows = useMemo(() => {
-    return getPaymentHistoryRows(walletData);
-  }, [walletData]);
+    return getPaymentHistoryRows(paymentHistory);
+  }, [paymentHistory]);
 
   if (fatalError) {
     return (
@@ -963,9 +998,8 @@ const DashboardMetricCard = ({
                 e.stopPropagation();
                 tabs.onChange("used");
               }}
-              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${
-                tabs.value === "used" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
-              }`}
+              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${tabs.value === "used" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
+                }`}
             >
               Used
             </button>
@@ -976,9 +1010,8 @@ const DashboardMetricCard = ({
                 e.stopPropagation();
                 tabs.onChange("available");
               }}
-              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${
-                tabs.value === "available" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
-              }`}
+              className={`flex flex-1 self-stretch items-center justify-center rounded-xl px-2 font-inter text-[0.625rem] font-medium transition ${tabs.value === "available" ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6A6A6A]"
+                }`}
             >
               Available
             </button>
@@ -1327,7 +1360,7 @@ const CampaignListSection = ({
   onOpenCampaign: (id: string) => void;
 }) => {
   return (
-    <section className="flex w-full self-start rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3">
+    <section className="flex w-full self-start rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3 pr-1">
       <div className="flex w-full min-w-0 flex-col gap-6">
         <div className="flex w-full items-center justify-between gap-4">
           <h3 className="font-inter text-[1rem] font-medium leading-6 tracking-[0] text-[#1A1A1A]">
@@ -1337,7 +1370,7 @@ const CampaignListSection = ({
           <button
             type="button"
             onClick={onViewAll}
-            className="font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2"
+            className="font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2 pr-2"
           >
             View campaigns
           </button>
@@ -1489,7 +1522,7 @@ const ActiveInfluencerAvatarStack = ({
 
 const PaymentHistorySection = ({ rows }: { rows: PaymentHistoryRow[] }) => {
   return (
-    <section className="flex w-full rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3">
+    <section className="flex w-full rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3 pr-1">
       <div className="flex w-full min-w-0 flex-col gap-6">
         <div className="flex w-full items-center justify-between gap-4">
           <h3 className="font-inter text-[1rem] font-medium leading-6 tracking-[0] text-[#1A1A1A]">
@@ -1498,59 +1531,70 @@ const PaymentHistorySection = ({ rows }: { rows: PaymentHistoryRow[] }) => {
 
           <button
             type="button"
-            className="font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2"
+            className="font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2 pr-2"
           >
             View transactions
           </button>
         </div>
 
         <div className={`${dashboardScrollbarClass} max-h-[18rem] w-full`}>
-          <div className="flex w-full flex-col">
-            {rows.map((row) => {
-              const isCredit = row.amount >= 0;
+          {!rows.length ? (
+            <div className="py-10 text-center font-inter text-[0.875rem] text-[#969696]">
+              No payment history found.
+            </div>
+          ) : (
+            <div className="flex w-full flex-col">
+              {rows.map((row) => {
+                const isPaid = String(row.status).toLowerCase() === "paid";
+                const isCredit = row.amount >= 0;
 
-              return (
-                <div
-                  key={row.id}
-                  className="flex w-full items-center justify-between gap-4 border-b border-[#E6E6E6] py-4 last:border-b-0"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-6 w-6 items-center justify-center text-[#1A1A1A]">
-                      <ArrowDownLeft
-                        size={18}
-                        weight="bold"
-                        className={isCredit ? "rotate-0" : "rotate-180"}
-                      />
-                    </span>
+                return (
+                  <div
+                    key={row.id}
+                    className="flex w-full items-center justify-between gap-4 border-b border-[#E6E6E6] py-4 last:border-b-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-6 w-6 items-center justify-center text-[#1A1A1A]">
+                        <ArrowDownLeft
+                          size={18}
+                          weight="bold"
+                          className={isCredit ? "rotate-0" : "rotate-180"}
+                        />
+                      </span>
 
-                    <div className="min-w-0">
-                      <p className="truncate font-inter text-[0.875rem] font-semibold leading-5 text-[#1A1A1A]">
-                        {row.title}
+                      <div className="min-w-0">
+                        <p className="truncate font-inter text-[0.875rem] font-semibold leading-5 text-[#1A1A1A]">
+                          {row.title}
+                        </p>
+
+                        <p className="truncate font-inter text-[0.75rem] font-normal leading-4 text-[#B8B8B8]">
+                          ID {row.transactionId}
+                          {row.dateLabel ? <span className="mx-2">|</span> : null}
+                          {row.dateLabel}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-right">
+                      <p
+                        className={`font-inter text-[0.875rem] font-semibold leading-5 ${isPaid ? "text-[#19B36B]" : "text-[#1A1A1A]"
+                          }`}
+                      >
+                        {row.currency} {Math.abs(row.amount).toLocaleString()}
                       </p>
 
-                      <p className="truncate font-inter text-[0.75rem] font-normal leading-4 text-[#B8B8B8]">
-                        ID {row.transactionId} <span className="mx-2">|</span> {row.dateLabel}
+                      <p
+                        className={`font-inter text-[0.75rem] font-medium leading-4 ${isPaid ? "text-[#19B36B]" : "text-[#969696]"
+                          }`}
+                      >
+                        {row.status}
                       </p>
                     </div>
                   </div>
-
-                  <div className="shrink-0 text-right">
-                    <p
-                      className={`font-inter text-[0.875rem] font-semibold leading-5 ${
-                        isCredit ? "text-[#19B36B]" : "text-[#1A1A1A]"
-                      }`}
-                    >
-                      {isCredit ? "+" : "-"}${Math.abs(row.amount).toLocaleString()}
-                    </p>
-
-                    <p className="font-inter text-[0.75rem] font-normal leading-4 text-[#B8B8B8]">
-                      Wallet Balance: ${Number(row.walletBalance || 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -1603,20 +1647,17 @@ const AvatarBox = ({
       <img
         src={src}
         alt={name}
-        className={`${sizeClass} shrink-0 object-cover ${
-          roundedFull ? "rounded-full" : "rounded-lg"
-        } border border-white/30 bg-black`}
+        className={`${sizeClass} shrink-0 object-cover ${roundedFull ? "rounded-full" : "rounded-lg"
+          } border border-white/30 bg-black`}
       />
     );
   }
 
   return (
     <div
-      className={`${sizeClass} shrink-0 ${
-        roundedFull ? "rounded-full" : "rounded-lg"
-      } flex items-center justify-center border border-white/30 ${
-        darkFallback ? "bg-[#1A1A1A] text-white" : "bg-[#F2F2F2] text-[#1A1A1A]"
-      } font-inter text-[0.625rem] font-semibold`}
+      className={`${sizeClass} shrink-0 ${roundedFull ? "rounded-full" : "rounded-lg"
+        } flex items-center justify-center border border-white/30 ${darkFallback ? "bg-[#1A1A1A] text-white" : "bg-[#F2F2F2] text-[#1A1A1A]"
+        } font-inter text-[0.625rem] font-semibold`}
     >
       {initial}
     </div>
