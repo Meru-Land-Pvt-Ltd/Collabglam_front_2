@@ -31,7 +31,7 @@ export type FloatingDateInputProps = Omit<
 
   required?: boolean;
   optional?: boolean;
-info?: React.ReactNode;
+  info?: React.ReactNode;
   hint?: boolean;
   hintText?: string;
 
@@ -70,21 +70,54 @@ info?: React.ReactNode;
    Timezone helpers (IP + GMT offset)
 ----------------------------- */
 async function fetchTimezoneFromIP(): Promise<string | null> {
+  const browserTimezone =
+    Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  if (browserTimezone) {
+    return browserTimezone;
+  }
+
   try {
-    const r = await fetch("https://ipapi.co/json/", { cache: "no-store" });
-    if (r.ok) {
-      const j = await r.json();
-      if (typeof j?.timezone === "string" && j.timezone.trim())
-        return j.timezone.trim();
+    const cachedTimezone = sessionStorage.getItem("app_timezone");
+
+    if (cachedTimezone) {
+      return cachedTimezone;
     }
   } catch { }
 
   try {
-    const r = await fetch("https://ipwho.is/", { cache: "no-store" });
+    const r = await fetch("https://ipapi.co/json/", {
+      cache: "force-cache",
+    });
+
     if (r.ok) {
       const j = await r.json();
-      if (typeof j?.timezone?.id === "string" && j.timezone.id.trim())
+
+      if (typeof j?.timezone === "string" && j.timezone.trim()) {
+        try {
+          sessionStorage.setItem("app_timezone", j.timezone.trim());
+        } catch { }
+
+        return j.timezone.trim();
+      }
+    }
+  } catch { }
+
+  try {
+    const r = await fetch("https://ipwho.is/", {
+      cache: "force-cache",
+    });
+
+    if (r.ok) {
+      const j = await r.json();
+
+      if (typeof j?.timezone?.id === "string" && j.timezone.id.trim()) {
+        try {
+          sessionStorage.setItem("app_timezone", j.timezone.id.trim());
+        } catch { }
+
         return j.timezone.id.trim();
+      }
     }
   } catch { }
 
@@ -1029,7 +1062,7 @@ export const FloatingDateInput = React.forwardRef<
 
       suffixText,
       suffixClassName,
-info,
+      info,
       disabled,
       value,
       defaultValue,
@@ -1485,11 +1518,11 @@ info,
 
               {optional ? <span className="ml-xs text-tx-tertiary">(optional)</span> : null}
 
-                  {info ? (
-      <span className="ml-1 inline-flex pointer-events-auto">
-        <FieldInfoIcon content={info} />
-      </span>
-    ) : null}
+              {info ? (
+                <span className="ml-1 inline-flex pointer-events-auto">
+                  <FieldInfoIcon content={info} />
+                </span>
+              ) : null}
 
             </span>
           </label>

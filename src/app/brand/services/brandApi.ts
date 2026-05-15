@@ -11,7 +11,6 @@ const WALLET_BASE = "/wallet";
 const INVITATION_BASE = "/invitation";
 const APPLY_BASE = "/apply-campaign";
 const MILESTONE_BASE = "/milestone";
-const DELIVERABLE_BASE = "/deliverable";
 const CAMPAIGN_INVITATION_BASE = "/campaign-invitation";
 const Apply_Base = "/apply";
 const CONTRACT_BASE = "/contract";
@@ -919,35 +918,139 @@ export async function apiCampaignUpdateManual(payload: UpdateCampaignManualPaylo
 /** -------------------------
  *  ✅ MILESTONE APIs
  *  ------------------------*/
+export type MilestoneDeliverableLink = {
+  linkId?: string;
+  label?: string;
+  url: string;
+};
+
+export type MilestoneRevision = {
+  revisionId: string;
+  deliverableId: string;
+  issueName: string;
+  revisionType: "free" | "paid";
+  revisionBudget: number;
+  deliveryName: string;
+  issueDeliverableLink: string;
+  notes?: string;
+  attachments?: any[];
+  submissionDate?: string | null;
+  status: "pending" | "submitted" | "approved" | "revision" | string;
+  raisedByRole?: "Brand" | "Influencer" | "Admin" | string;
+  raisedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
+export type CreateMilestoneDeliverablePayload = {
+  deliverableName: string;
+  deliveries: string[];
+  aspectRatio?: string;
+  platforms: string[];
+  quantity: number;
+};
+
+export type CreateMilestoneAttachmentPayload = {
+  name?: string;
+  url?: string;
+  type?: string;
+  size?: number;
+  key?: string;
+};
+
 export type CreateMilestonePayload = {
   brandId: string;
   influencerId: string;
   campaignId: string;
+  contractId: string;
+
   milestoneTitle: string;
-  amount: number;
+  milestoneBudget: number;
+
+  // kept for backward compatibility because backend release logic uses amount
+  amount?: number;
+
   milestoneDescription?: string;
+
+  attachments?: CreateMilestoneAttachmentPayload[] | any[];
+  productImages?: CreateMilestoneAttachmentPayload[] | any[];
+  references?: CreateMilestoneAttachmentPayload[] | any[];
+
+  deliverables: CreateMilestoneDeliverablePayload[];
+  submissionLink?: string;
+
+  startDate?: string;
+  endDate?: string;
+  graceDays?: number;
+
+  needDraftFirst?: boolean;
+  draftDate?: string;
 };
 
 export type CreateMilestoneResponse = {
   message: string;
   milestoneId: string;
+  milestoneHistoryId?: string;
   totalAmount: number;
+
+  influencerBudget?: number;
+  usedInfluencerBudget?: number;
+  remainingInfluencerBudget?: number;
+
   entry: {
     milestoneHistoryId: string;
     influencerId: string;
     campaignId: string;
+    contractId?: string;
+
     milestoneTitle: string;
-    amount: number;
     milestoneDescription: string;
+
+    milestoneBudget?: number;
+    amount: number;
+
+    attachments?: any[];
+    deliverables?: Array<{
+      deliverableId: string;
+      deliverableName: string;
+      deliveries: string[];
+      aspectRatio?: string;
+      platforms: string[];
+      quantity: number;
+      deliverableLinks?: MilestoneDeliverableLink[];
+      submittedAt?: string | null;
+      status?: "pending" | "submitted" | "approved" | "revision" | string;
+      revisions?: MilestoneRevision[];
+    }>;
+
+    startDate?: string | null;
+    endDate?: string | null;
+    graceDays?: number;
+    submissionLink?: string;
+    needDraftFirst?: boolean;
+    draftDate?: string | null;
+
     released: boolean;
     payoutStatus: "pending" | "initiated" | "paid";
     createdAt: string;
   };
+
   wallet: {
     walletBalance: number;
     frozenBalance: number;
     usableBalance: number;
   };
+
+  campaignWallet?: {
+    campaignId: string;
+    totalFrozenAmount: number;
+    currentFrozenAmount: number;
+    totalAllocatedAmount: number;
+    totalReleasedAmount: number;
+    availableToAllocate: number;
+    influencerAllocations: any[];
+  };
+
   contractStatus: string | null;
   milestonesCreatedAt: string | null;
 };
@@ -957,9 +1060,27 @@ export async function apiCreateMilestone(payload: CreateMilestonePayload) {
     brandId: payload.brandId,
     influencerId: payload.influencerId,
     campaignId: payload.campaignId,
+    contractId: payload.contractId,
+
     milestoneTitle: payload.milestoneTitle,
-    amount: payload.amount,
+    milestoneBudget: payload.milestoneBudget,
+    amount: payload.amount ?? payload.milestoneBudget,
+
     milestoneDescription: payload.milestoneDescription ?? "",
+
+    attachments: payload.attachments ?? [],
+    productImages: payload.productImages ?? [],
+    references: payload.references ?? [],
+
+    deliverables: payload.deliverables ?? [],
+    submissionLink: payload.submissionLink ?? "",
+
+    startDate: payload.startDate ?? "",
+    endDate: payload.endDate ?? "",
+    graceDays: payload.graceDays ?? 0,
+
+    needDraftFirst: Boolean(payload.needDraftFirst),
+    draftDate: payload.draftDate ?? "",
   });
 }
 
@@ -1092,67 +1213,130 @@ export async function apiGetMilestonesByCampaign(
   };
 }
 
-/** -------------------------
- *  ✅ DELIVERABLE APIs
- *  ------------------------*/
-/** -------------------------
- *  ✅ DELIVERABLE APIs
- *  ------------------------*/
-export type DeliverableStatus =
-  | "pending"
-  | "submitted"
-  | "approved"
-  | "revision";
+export type EditMilestonePayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
 
-export type ApprovedRole = "Brand" | "Admin";
+  milestoneTitle: string;
+  milestoneBudget: number;
+  amount?: number;
+  milestoneDescription?: string;
 
-export type DeliverableInfluencer = {
-  _id: string;
-  name: string;
+  attachments?: any[];
+  productImages?: any[];
+  references?: any[];
+
+  deliverables: CreateMilestoneDeliverablePayload[];
+
+  submissionLink?: string;
+  startDate?: string;
+  endDate?: string;
+  graceDays?: number;
+  needDraftFirst?: boolean;
+  draftDate?: string;
 };
 
-export type DeliverableRow = {
-  _id?: string;
-  deliverableId?: string;
-  delieverableApprovalId?: string; // keep legacy typo if backend ever sends it
-  campaignId: string;
-  influencerId: string;
-  milestoneId?: string;
-  milestoneHistoryId?: string;
+export async function apiEditMilestone(payload: EditMilestonePayload) {
+  return apiPost(`${MILESTONE_BASE}/edit`, {
+    milestoneId: payload.milestoneId,
+    milestoneHistoryId: payload.milestoneHistoryId,
 
-  title?: string;
-  description?: string;
-  fileUrl?: string;
-  link?: string;
+    milestoneTitle: payload.milestoneTitle,
+    milestoneBudget: payload.milestoneBudget,
+    amount: payload.amount ?? payload.milestoneBudget,
 
-  status?: DeliverableStatus | string;
-  comments?: string;
-  approvalId?: string;
-  approvedRole?: ApprovedRole;
+    milestoneDescription: payload.milestoneDescription ?? "",
 
-  createdAt?: string;
-  updatedAt?: string;
+    attachments: payload.attachments ?? [],
+    productImages: payload.productImages ?? [],
+    references: payload.references ?? [],
+
+    deliverables: payload.deliverables ?? [],
+
+    // Submission link is separate.
+    submissionLink: payload.submissionLink ?? "",
+
+    startDate: payload.startDate ?? "",
+    endDate: payload.endDate ?? "",
+    graceDays: payload.graceDays ?? 0,
+
+    needDraftFirst: Boolean(payload.needDraftFirst),
+    draftDate: payload.draftDate ?? "",
+  });
+}
+
+export type GetAllDeliverablesByMilestonePayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
+};
+
+export type MilestoneDeliverableRow = {
+  deliverableId: string;
+
+  milestoneId: string;
+  milestoneHistoryId: string;
+
+  brandId?: string;
+  influencerId?: string;
+  campaignId?: string;
 
   milestoneTitle?: string;
-  influencerName?: string;
-  influencer?: DeliverableInfluencer | null;
 
-  [key: string]: any;
+  deliverableName: string;
+  title?: string;
+
+  deliveries: string[];
+  aspectRatio?: string;
+  platforms: string[];
+  quantity: number;
+
+  deliverableLinks: MilestoneDeliverableLink[];
+  url: MilestoneDeliverableLink[];
+
+  status: "pending" | "submitted" | "approved" | "revision" | string;
+  submittedAt?: string | null;
+
+  comments?: string;
+  approvedRole?: string;
+  approvalId?: string;
+  approvedAt?: string | null;
+  revisionRequestedAt?: string | null;
+
+  revisions?: MilestoneRevision[];
+
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
-export async function apiListDeliverablesByCampaign(params: {
-  campaignId: string;
-  status?: string;
-}) {
-  return apiGet<DeliverableRow[]>(
-    `${DELIVERABLE_BASE}/campaign/${params.campaignId}`,
+export type GetAllDeliverablesByMilestoneResponse = {
+  success: boolean;
+  message: string;
+  total: number;
+  count: number;
+  data: MilestoneDeliverableRow[];
+  filters: {
+    milestoneId: string;
+    milestoneHistoryId: string;
+  };
+};
+
+export async function apiGetAllDeliverablesByMilestone(
+  payload: GetAllDeliverablesByMilestonePayload
+) {
+  return apiPost<GetAllDeliverablesByMilestoneResponse>(
+    `${MILESTONE_BASE}/getAllDeliverables`,
     {
-      status: params.status,
+      milestoneId: payload.milestoneId,
+      milestoneHistoryId: payload.milestoneHistoryId,
     }
   );
 }
 
-export type UpdateDeliverableApprovalStatusPayload = {
+export type ApprovedRole = "Brand" | "Admin";
+
+export type UpdateMilestoneDeliverableApprovalStatusPayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
   deliverableId: string;
   status: "approved" | "revision";
   comments?: string;
@@ -1160,16 +1344,28 @@ export type UpdateDeliverableApprovalStatusPayload = {
   approvalId?: string;
 };
 
-export async function apiUpdateDeliverableApprovalStatus(
-  payload: UpdateDeliverableApprovalStatusPayload
+export type UpdateMilestoneDeliverableApprovalStatusResponse = {
+  success: boolean;
+  message: string;
+  milestoneId: string;
+  milestoneHistoryId: string;
+  deliverableId: string;
+  deliverable: MilestoneDeliverableRow;
+};
+
+export async function apiUpdateMilestoneDeliverableApprovalStatus(
+  payload: UpdateMilestoneDeliverableApprovalStatusPayload
 ) {
-  return apiPost<DeliverableRow>(
-    `${DELIVERABLE_BASE}/${payload.deliverableId}/approval-status`,
+  return apiPost<UpdateMilestoneDeliverableApprovalStatusResponse>(
+    `${MILESTONE_BASE}/updateDeliverableApprovalStatus`,
     {
+      milestoneId: payload.milestoneId,
+      milestoneHistoryId: payload.milestoneHistoryId,
+      deliverableId: payload.deliverableId,
       status: payload.status,
-      comments: payload.comments,
-      approvedRole: payload.approvedRole,
-      approvalId: payload.approvalId,
+      comments: payload.comments ?? "",
+      approvedRole: payload.approvedRole ?? "Brand",
+      approvalId: payload.approvalId ?? "",
     }
   );
 }
@@ -1768,103 +1964,6 @@ export async function apiGetMilestonesByInfluencerAndCampaign(
   );
 }
 
-export type GetDeliverablesByBrandPayload = {
-  brandId: string;
-  status?: string;
-  campaignId?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-};
-
-export type GetDeliverablesByMilestonePayload = {
-  milestoneId: string;
-  brandId?: string;
-  influencerId?: string;
-  campaignId?: string;
-  status?: string;
-  page?: number;
-  limit?: number;
-};
-
-export type GetDeliverablesListResponse = {
-  success: boolean;
-  message: string;
-  page: number;
-  limit: number;
-  total: number;
-  count: number;
-  data: DeliverableRow[];
-  filters?: {
-    brandId?: string;
-    milestoneId?: string;
-    milestoneHistoryId?: string;
-    influencerId?: string;
-    campaignId?: string;
-    status?: string;
-    search?: string;
-  };
-};
-
-export type GetDeliverablesByMilestoneHistoryPayload = {
-  milestoneId: string;
-  milestoneHistoryId: string;
-  campaignId: string;
-  influencerId: string;
-  status?: string;
-  page?: number;
-  limit?: number;
-};
-
-export async function apiGetDeliverablesByBrand(
-  payload: GetDeliverablesByBrandPayload
-) {
-  return apiPost<GetDeliverablesListResponse>(
-    `${DELIVERABLE_BASE}/by-brand`,
-    {
-      brandId: payload.brandId,
-      status: payload.status,
-      campaignId: payload.campaignId,
-      search: payload.search,
-      page: payload.page ?? 1,
-      limit: payload.limit ?? 20,
-    }
-  );
-}
-
-export async function apiGetDeliverablesByMilestone(
-  payload: GetDeliverablesByMilestonePayload
-) {
-  return apiPost<GetDeliverablesListResponse>(
-    `${DELIVERABLE_BASE}/by-milestone`,
-    {
-      milestoneId: payload.milestoneId,
-      brandId: payload.brandId,
-      influencerId: payload.influencerId,
-      campaignId: payload.campaignId,
-      status: payload.status,
-      page: payload.page ?? 1,
-      limit: payload.limit ?? 20,
-    }
-  );
-}
-
-export async function apiGetDeliverablesByMilestoneHistoryId(
-  payload: GetDeliverablesByMilestoneHistoryPayload
-) {
-  return apiPost<GetDeliverablesListResponse>(
-    `${DELIVERABLE_BASE}/by-milestonehistoryId`,
-    {
-      milestoneId: payload.milestoneId,
-      milestoneHistoryId: payload.milestoneHistoryId,
-      campaignId: payload.campaignId,
-      influencerId: payload.influencerId,
-      status: payload.status,
-      page: payload.page ?? 1,
-      limit: payload.limit ?? 20,
-    }
-  );
-}
 
 /** -------- Public Campaign Share APIs -------- */
 
@@ -2340,4 +2439,138 @@ export async function apiGetInfluencerMatchScore(
       influencerId,
     }
   );
+}
+
+
+export type AddRevisionAttachmentPayload = {
+  name?: string;
+  url?: string;
+  type?: string;
+  size?: number;
+  key?: string;
+};
+
+export type AddRevisionPayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
+  deliverableId: string;
+
+  issueName: string;
+  revisionType: "free" | "paid";
+  revisionBudget?: number;
+
+  deliveryName: string;
+  issueDeliverableLink: string;
+  notes?: string;
+
+  attachments?: AddRevisionAttachmentPayload[] | any[];
+  productImages?: AddRevisionAttachmentPayload[] | any[];
+  references?: AddRevisionAttachmentPayload[] | any[];
+
+  submissionDate: string;
+  raisedByRole?: "Brand" | "Influencer" | "Admin";
+};
+
+export type AddRevisionResponse = {
+  success: boolean;
+  message: string;
+
+  milestoneId: string;
+  milestoneHistoryId: string;
+  deliverableId: string;
+
+  revision: MilestoneRevision;
+
+  deliverable: {
+    deliverableId: string;
+    deliverableName: string;
+    status: string;
+    revisionRequestedAt: string;
+    comments: string;
+  };
+
+  budget?: {
+    influencerBudget: number;
+    usedMilestoneBudget: number;
+    usedPaidRevisionBudget: number;
+    totalUsedBudget: number;
+    remainingBudget: number;
+  };
+};
+
+export async function apiAddRevision(payload: AddRevisionPayload) {
+  const milestoneId = String(payload.milestoneId || "").trim();
+  const milestoneHistoryId = String(payload.milestoneHistoryId || "").trim();
+  const deliverableId = String(payload.deliverableId || "").trim();
+
+  const issueName = String(payload.issueName || "").trim();
+  const revisionType = String(payload.revisionType || "free").toLowerCase() as
+    | "free"
+    | "paid";
+
+  const deliveryName = String(payload.deliveryName || "").trim();
+  const issueDeliverableLink = String(payload.issueDeliverableLink || "").trim();
+  const submissionDate = String(payload.submissionDate || "").trim();
+
+  if (!milestoneId) {
+    throw new Error("milestoneId is required");
+  }
+
+  if (!milestoneHistoryId) {
+    throw new Error("milestoneHistoryId is required");
+  }
+
+  if (!deliverableId) {
+    throw new Error("deliverableId is required");
+  }
+
+  if (!issueName) {
+    throw new Error("issueName is required");
+  }
+
+  if (!["free", "paid"].includes(revisionType)) {
+    throw new Error("revisionType must be free or paid");
+  }
+
+  if (revisionType === "paid") {
+    const revisionBudget = Number(payload.revisionBudget || 0);
+
+    if (!Number.isFinite(revisionBudget) || revisionBudget <= 0) {
+      throw new Error("revisionBudget is required when revisionType is paid");
+    }
+  }
+
+  if (!deliveryName) {
+    throw new Error("deliveryName is required");
+  }
+
+  if (!issueDeliverableLink) {
+    throw new Error("issueDeliverableLink is required");
+  }
+
+  if (!submissionDate) {
+    throw new Error("submissionDate is required");
+  }
+
+  return apiPost<AddRevisionResponse>(`${MILESTONE_BASE}/addRevision`, {
+    milestoneId,
+    milestoneHistoryId,
+    deliverableId,
+
+    issueName,
+    revisionType,
+    revisionBudget:
+      revisionType === "paid" ? Number(payload.revisionBudget || 0) : 0,
+
+    deliveryName,
+    issueDeliverableLink,
+    notes: payload.notes ?? "",
+
+    attachments: payload.attachments ?? [],
+    productImages: payload.productImages ?? [],
+    references: payload.references ?? [],
+
+    submissionDate,
+    raisedByRole: payload.raisedByRole ?? "Brand",
+  });
 }

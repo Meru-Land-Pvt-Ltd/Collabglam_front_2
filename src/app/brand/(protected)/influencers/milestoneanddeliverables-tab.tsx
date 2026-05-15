@@ -5,12 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import { toast, ToastStyles } from "@/components/ui/toast";
+import AddRevision from "@/components/ui/brand/AddRevision";
+import AddMilestoneCard from "@/components/ui/brand/AddMilestoneCard";
 import { InfluencerViewModel } from "./utils";
 import {
-    apiGetDeliverablesByMilestoneHistoryId,
+    apiGetAllDeliverablesByMilestone,
     apiGetMilestonesByCampaign,
     apiReleaseMilestone,
-    apiUpdateDeliverableApprovalStatus,
+    apiUpdateMilestoneDeliverableApprovalStatus,
 } from "../../services/brandApi";
 
 const NA = "N/A";
@@ -77,17 +79,15 @@ const formatDate = (value: any) => {
 };
 
 const formatMoneyOrQty = (item: any) => {
-    const currency = item?.currency || "";
-    const amount = item?.amount;
+    if (
+        item?.deliverablesCount !== undefined &&
+        item?.deliverablesCount !== null
+    ) {
+        return String(item.deliverablesCount);
+    }
 
-    if (amount !== undefined && amount !== null && amount !== "") {
-        const num = Number(amount);
-
-        if (Number.isFinite(num)) {
-            return currency ? `${currency} ${num}` : String(num);
-        }
-
-        return String(amount);
+    if (Array.isArray(item?.deliverables)) {
+        return String(item.deliverables.length);
     }
 
     return (
@@ -110,19 +110,188 @@ const humanizeStatus = (value: any) => {
         .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-const isLockedDeliverableStatus = (status: any) => {
-    const normalized = String(status || "").toLowerCase();
+const humanizeText = (value: any) => {
+    const text = textOrNA(value);
 
-    return normalized.includes("approved") || normalized.includes("revision");
+    if (text === NA) return NA;
+
+    return String(text)
+        .replace(/_/g, " ")
+        .replace(/-/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const formatDeliveries = (value: any) => {
+    const list = Array.isArray(value) ? value : value ? [value] : [];
+
+    if (list.length === 0) return NA;
+
+    return list.map((item) => humanizeText(item)).join(", ");
+};
+
+const normalizePlatforms = (item: any, defaultPlatform = "") => {
+    const platforms = item?.platforms;
+
+    if (Array.isArray(platforms) && platforms.length > 0) {
+        return platforms.map((platform) => String(platform)).filter(Boolean);
+    }
+
+    const singlePlatform =
+        item?.platform ||
+        item?.platformName ||
+        item?.socialPlatform ||
+        item?.deliverablePlatform ||
+        item?.contentPlatform ||
+        defaultPlatform ||
+        "";
+
+    return singlePlatform ? [String(singlePlatform)] : [];
+};
+
+const normalizeMilestonePlatforms = (item: any, defaultPlatform = "") => {
+    const deliverablePlatforms = Array.isArray(item?.deliverables)
+        ? item.deliverables.flatMap((deliverable: any) => {
+            if (
+                Array.isArray(deliverable?.platforms) &&
+                deliverable.platforms.length > 0
+            ) {
+                return deliverable.platforms;
+            }
+
+            return [
+                deliverable?.platform,
+                deliverable?.platformName,
+                deliverable?.socialPlatform,
+                deliverable?.deliverablePlatform,
+                deliverable?.contentPlatform,
+            ].filter(Boolean);
+        })
+        : [];
+
+    const directPlatforms = normalizePlatforms(item, defaultPlatform);
+
+    const finalPlatforms =
+        deliverablePlatforms.length > 0 ? deliverablePlatforms : directPlatforms;
+
+    return Array.from(
+        new Set(finalPlatforms.map((platform: any) => String(platform)).filter(Boolean))
+    );
+};
+
+const isLockedDeliverableStatus = (status: any) => {
+    return (
+        isApprovedDeliverableStatus(status) ||
+        isRevisionDeliverableStatus(status)
+    );
+};
+
+const getNormalizedStatus = (status: any) =>
+    String(status || "").trim().toLowerCase();
+
+const isSubmittedDeliverableStatus = (status: any) => {
+    return getNormalizedStatus(status) === "submitted";
+};
+
+const isApprovedDeliverableStatus = (status: any) => {
+    return getNormalizedStatus(status) === "approved";
+};
+
+const isRevisionDeliverableStatus = (status: any) => {
+    return getNormalizedStatus(status) === "revision";
+};
+
+const getDeliverableStatus = (item: any) => {
+    return (
+        item?.status ||
+        item?.raw?.status ||
+        item?.deliverableStatus ||
+        item?.raw?.deliverableStatus ||
+        ""
+    );
+};
+
+const isDeliverableActionLocked = (item: any) => {
+    const status = getDeliverableStatus(item);
+
+    return (
+        isApprovedDeliverableStatus(status) ||
+        isRevisionDeliverableStatus(status)
+    );
+};
+
+const getMilestoneDeliverablesForRelease = (
+    milestone: any,
+    rowId: string,
+    deliverablesByRow: Record<string, any[]>
+) => {
+    const cachedDeliverables = deliverablesByRow[rowId];
+
+    if (Array.isArray(cachedDeliverables) && cachedDeliverables.length > 0) {
+        return cachedDeliverables;
+    }
+
+    const raw = milestone?.raw || milestone;
+
+    if (Array.isArray(raw?.deliverables)) {
+        return raw.deliverables;
+    }
+
+    if (Array.isArray(milestone?.deliverables)) {
+        return milestone.deliverables;
+    }
+
+    return [];
+};
+
+const areDeliverableRevisionsApproved = (deliverable: any) => {
+    const revisions =
+        deliverable?.revisions ||
+        deliverable?.raw?.revisions ||
+        deliverable?.revision ||
+        [];
+
+    if (!Array.isArray(revisions) || revisions.length === 0) {
+        return true;
+    }
+
+    return revisions.every((revision: any) =>
+        isApprovedDeliverableStatus(revision?.status)
+    );
+};
+
+const areAllMilestoneDeliverablesApproved = (
+    milestone: any,
+    rowId: string,
+    deliverablesByRow: Record<string, any[]>
+) => {
+    const deliverables = getMilestoneDeliverablesForRelease(
+        milestone,
+        rowId,
+        deliverablesByRow
+    );
+
+    if (!Array.isArray(deliverables) || deliverables.length === 0) {
+        return false;
+    }
+
+    return deliverables.every((deliverable: any) => {
+        const status = getDeliverableStatus(deliverable);
+
+        return (
+            isApprovedDeliverableStatus(status) &&
+            areDeliverableRevisionsApproved(deliverable)
+        );
+    });
 };
 
 const isReleasedMilestone = (milestone: any) => {
     const status = String(
         milestone?.status ||
-            milestone?.payoutStatus ||
-            milestone?.raw?.payoutStatus ||
-            milestone?.raw?.status ||
-            ""
+        milestone?.payoutStatus ||
+        milestone?.raw?.payoutStatus ||
+        milestone?.raw?.status ||
+        ""
     ).toLowerCase();
 
     return (
@@ -210,33 +379,33 @@ const getDefaultPlatformFromView = (view: InfluencerViewModel) => {
 const getResolvedMilestoneId = (item: any) => {
     return String(
         item?.milestoneId ||
-            item?.raw?.milestoneId ||
-            item?._id ||
-            item?.id ||
-            item?.milestoneHistoryId ||
-            ""
+        item?.raw?.milestoneId ||
+        item?._id ||
+        item?.id ||
+        item?.milestoneHistoryId ||
+        ""
     );
 };
 
 const getResolvedMilestoneHistoryId = (item: any) => {
     return String(
         item?.milestoneHistoryId ||
-            item?.raw?.milestoneHistoryId ||
-            item?._id ||
-            item?.raw?._id ||
-            ""
+        item?.raw?.milestoneHistoryId ||
+        item?._id ||
+        item?.raw?._id ||
+        ""
     );
 };
 
 const getDeliverableId = (item: any) => {
     return String(
         item?.deliverableId ||
-            item?._id ||
-            item?.id ||
-            item?.raw?.deliverableId ||
-            item?.raw?._id ||
-            item?.raw?.id ||
-            ""
+        item?._id ||
+        item?.id ||
+        item?.raw?.deliverableId ||
+        item?.raw?._id ||
+        item?.raw?.id ||
+        ""
     );
 };
 
@@ -245,9 +414,93 @@ const getFirstUrl = (item: any) => {
         return item.url[0]?.url || item.url[0]?.link || "";
     }
 
+    if (Array.isArray(item?.deliverableLinks) && item.deliverableLinks.length > 0) {
+        return item.deliverableLinks[0]?.url || "";
+    }
+
     if (typeof item?.url === "string") return item.url;
 
     return item?.link || "";
+};
+
+const getDeliverableLinks = (item: any) => {
+    const raw = item?.raw || item;
+
+    const fromDeliverableLinks = Array.isArray(raw?.deliverableLinks)
+        ? raw.deliverableLinks
+            .map((link: any, index: number) => ({
+                label:
+                    link?.label ||
+                    link?.name ||
+                    `Deliverable Link ${index + 1}`,
+                url: link?.url || link?.link || "",
+            }))
+            .filter((link: any) => link.url)
+        : [];
+
+    if (fromDeliverableLinks.length > 0) return fromDeliverableLinks;
+
+    const fromUrlArray = Array.isArray(raw?.url)
+        ? raw.url
+            .map((link: any, index: number) => ({
+                label:
+                    link?.label ||
+                    link?.name ||
+                    `Deliverable Link ${index + 1}`,
+                url: link?.url || link?.link || "",
+            }))
+            .filter((link: any) => link.url)
+        : [];
+
+    if (fromUrlArray.length > 0) return fromUrlArray;
+
+    const singleUrl =
+        typeof raw?.url === "string"
+            ? raw.url
+            : raw?.link || raw?.fileUrl || "";
+
+    return singleUrl
+        ? [
+            {
+                label: "Deliverable Link 1",
+                url: singleUrl,
+            },
+        ]
+        : [];
+};
+
+const formatLongDate = (value: any) => {
+    if (!value) return NA;
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return textOrNA(value);
+
+    return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric",
+    }).format(date);
+};
+
+const formatMoney = (value: any, currency = "") => {
+    const num = Number(value || 0);
+
+    if (!Number.isFinite(num) || num <= 0) return NA;
+
+    const prefix = currency ? `${currency} ` : "";
+
+    return `${prefix}$${num.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    })}`;
+};
+
+const getLatestRevision = (deliverable: any) => {
+    const revisions = deliverable?.revisions || deliverable?.raw?.revisions || [];
+
+    if (!Array.isArray(revisions) || revisions.length === 0) return null;
+
+    return revisions[revisions.length - 1];
 };
 
 const normalizeMilestoneRow = (
@@ -255,14 +508,7 @@ const normalizeMilestoneRow = (
     index: number,
     defaultPlatform = ""
 ) => {
-    const platform =
-        item?.platform ||
-        item?.platformName ||
-        item?.socialPlatform ||
-        item?.deliverablePlatform ||
-        item?.contentPlatform ||
-        defaultPlatform ||
-        "";
+    const platforms = normalizeMilestonePlatforms(item, defaultPlatform);
 
     const description =
         item?.milestoneDescription ||
@@ -293,9 +539,9 @@ const normalizeMilestoneRow = (
     return {
         id: String(
             item?._id ||
-                item?.id ||
-                item?.milestoneHistoryId ||
-                `${item?.milestoneId || "milestone"}-${index}`
+            item?.id ||
+            item?.milestoneHistoryId ||
+            `${item?.milestoneId || "milestone"}-${index}`
         ),
         milestoneId: String(item?.milestoneId || item?._id || item?.id || ""),
         milestoneHistoryId: String(
@@ -303,13 +549,14 @@ const normalizeMilestoneRow = (
         ),
         name: textOrNA(
             item?.milestoneTitle ||
-                item?.name ||
-                item?.milestoneName ||
-                item?.title ||
-                item?.deliverable
+            item?.name ||
+            item?.milestoneName ||
+            item?.title ||
+            item?.deliverable
         ),
         format: textOrNA(description),
-        platform: textOrNA(platform),
+        platform: textOrNA(platforms[0] || ""),
+        platforms,
         status: textOrNA(status),
         qty: textOrNA(formatMoneyOrQty(item)),
         deadline: formatDate(deadline),
@@ -322,21 +569,14 @@ const normalizeDeliverableRow = (
     index: number,
     defaultPlatform = ""
 ) => {
-    const platform =
-        item?.platform ||
-        item?.platformName ||
-        item?.socialPlatform ||
-        item?.deliverablePlatform ||
-        item?.contentPlatform ||
-        defaultPlatform ||
-        "";
+    const platforms = normalizePlatforms(item, defaultPlatform);
 
     const status =
         item?.status ||
         item?.deliverableStatus ||
         item?.approvalStatus ||
         item?.state ||
-        "In Progress";
+        "pending";
 
     const resolution =
         item?.resolution ||
@@ -366,22 +606,23 @@ const normalizeDeliverableRow = (
         serial: index + 1,
         name: textOrNA(
             item?.title ||
-                item?.deliverableTitle ||
-                item?.deliverableName ||
-                item?.name ||
-                item?.contentTitle ||
-                "Deliverable"
+            item?.deliverableTitle ||
+            item?.deliverableName ||
+            item?.name ||
+            item?.contentTitle ||
+            "Deliverable"
         ),
+        deliveriesText: formatDeliveries(item?.deliveries),
         format: textOrNA(description),
         resolution: textOrNA(resolution),
-        platform: textOrNA(platform),
+        platforms,
         status: textOrNA(status),
         qty: textOrNA(
             item?.qty ||
-                item?.quantity ||
-                item?.deliverableQty ||
-                item?.count ||
-                1
+            item?.quantity ||
+            item?.deliverableQty ||
+            item?.count ||
+            1
         ),
         url: getFirstUrl(item),
         raw: item,
@@ -397,12 +638,12 @@ const isDeliverableLikeArray = (value: any[]) => {
 
         return Boolean(
             item.deliverableId ||
-                item.title ||
-                item.description ||
-                item.status ||
-                item.milestoneHistoryId ||
-                item.campaignId ||
-                item.influencerId
+            item.title ||
+            item.description ||
+            item.status ||
+            item.milestoneHistoryId ||
+            item.campaignId ||
+            item.influencerId
         );
     });
 };
@@ -514,24 +755,55 @@ function PlatformBadgeIcon({ platform }: { platform: string }) {
     );
 }
 
+function PlatformBadgeIcons({ platforms }: { platforms: string[] }) {
+    const list = Array.isArray(platforms) ? platforms.filter(Boolean) : [];
+
+    if (list.length === 0) {
+        return <PlatformBadgeIcon platform={NA} />;
+    }
+
+    return (
+        <div className="flex items-center justify-center -space-x-1">
+            {list.map((platform) => (
+                <PlatformBadgeIcon key={platform} platform={platform} />
+            ))}
+        </div>
+    );
+}
+
 function StatusPill({ status }: { status: string }) {
     const safeStatus = humanizeStatus(status);
     const styles = getStatusStyles(status);
 
     return (
-        <span
-            className="inline-flex items-center gap-1 rounded-2xl px-2 py-1 font-['Inter'] text-sm font-normal leading-5"
-            style={{
-                backgroundColor: styles.bg,
-                color: styles.text,
-            }}
-        >
-            <span className="flex items-center gap-2.5 rounded-2xl p-0.5">
+        <span className="inline-flex items-center gap-1 rounded-[0.75rem] bg-[#F9F9F9] px-2 py-1 font-['Inter'] text-[0.875rem] font-medium leading-[1.25rem] tracking-[0] text-[#969696]">
+            <span
+                className="flex items-center gap-2.5 rounded-2xl p-[0.125rem]"
+                style={{
+                    backgroundColor:
+                        String(status || "").toLowerCase().includes("approved") ||
+                            String(status || "").toLowerCase().includes("paid") ||
+                            String(status || "").toLowerCase().includes("released") ||
+                            String(status || "").toLowerCase().includes("completed") ||
+                            String(status || "").toLowerCase().includes("progress")
+                            ? "#EAF6EC"
+                            : String(status || "").toLowerCase().includes("revision") ||
+                                String(status || "").toLowerCase().includes("pending")
+                                ? "#FFF8E6"
+                                : String(status || "").toLowerCase().includes("rejected") ||
+                                    String(status || "").toLowerCase().includes("failed")
+                                    ? "#FDECEC"
+                                    : "#F5F5F5",
+                }}
+            >
                 <span
                     className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: styles.dot }}
+                    style={{
+                        backgroundColor: styles.dot,
+                    }}
                 />
             </span>
+
             {safeStatus}
         </span>
     );
@@ -577,7 +849,14 @@ function DeliverableActionButtons({
     onReleasePayment: (item: any) => void;
     onAddRevision: (item: any) => void;
 }) {
-    const locked = isLockedDeliverableStatus(item?.status);
+    const status = getDeliverableStatus(item);
+    const isSubmitted = isSubmittedDeliverableStatus(status);
+    const isApproved = isApprovedDeliverableStatus(status);
+    const isRevision = isRevisionDeliverableStatus(status);
+    const locked = isApproved || isRevision;
+
+    const canAct = isSubmitted && !locked && !isUpdating;
+    const showRevisionButton = isSubmitted || locked;
 
     const buttonClass =
         "flex h-[2.375rem] w-[8.25rem] shrink-0 items-center justify-center gap-1 rounded-lg border border-[#E6E6E6] bg-white px-3 text-center font-['Inter'] text-xs font-medium leading-4 text-[#3A3A3A] transition hover:bg-[#F9F9F9] disabled:cursor-not-allowed disabled:bg-[#F9F9F9] disabled:text-[#969696] disabled:opacity-60";
@@ -586,21 +865,432 @@ function DeliverableActionButtons({
         <div className="flex h-[5.5rem] min-w-0 items-center justify-center gap-2 px-1 py-2.5">
             <button
                 type="button"
-                disabled={isUpdating || locked}
+                disabled={!canAct}
                 onClick={() => onReleasePayment(item)}
                 className={buttonClass}
             >
-                <span className="whitespace-nowrap">Release Payment</span>
+                <span className="whitespace-nowrap">
+                    {isApproved ? "Approved" : "Approve"}
+                </span>
             </button>
 
-            <button
-                type="button"
-                disabled={isUpdating || locked}
-                onClick={() => onAddRevision(item)}
-                className={buttonClass}
+            {showRevisionButton ? (
+                <button
+                    type="button"
+                    disabled={!canAct}
+                    onClick={() => onAddRevision(item)}
+                    className={buttonClass}
+                >
+                    <span className="whitespace-nowrap">
+                        {isRevision ? "Revision Added" : "Add Revision"}
+                    </span>
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function DetailRow({
+    label,
+    children,
+}: {
+    label: string;
+    children: ReactNode;
+}) {
+    return (
+        <div className="grid grid-cols-[9rem_1fr] items-start gap-5">
+            <p className="font-['Inter'] text-sm font-medium leading-5 text-[#969696]">
+                {label}
+            </p>
+
+            <div className="min-w-0 font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A]">
+                {children}
+            </div>
+        </div>
+    );
+}
+function RevisionEmptySkeleton() {
+    const SkeletonCard = ({ offset = false }: { offset?: boolean }) => (
+        <div
+            className={[
+                "flex h-[1.67763rem] w-[15.97356rem] items-center gap-[0.39113rem] rounded-[0.27244rem] border-[0.272px] border-[#D6D6D6] bg-white px-[0.39113rem] py-[0.27331rem] shadow-[0_3.755px_2.503px_-2.503px_rgba(0,0,0,0.08),0_0_1.252px_0_rgba(0,0,0,0.08)]",
+                offset ? "-ml-[4.25rem]" : "ml-[3.75rem]",
+            ].join(" ")}
+        >
+            <span className="h-[0.80031rem] w-[0.80031rem] shrink-0 rounded-[0.15644rem] bg-[#E6E6E6]" />
+
+            <span className="flex w-[2.2rem] shrink-0 flex-col gap-[0.156rem]">
+                <span className="h-[0.23838rem] w-[1.92rem] rounded-[0.06813rem] bg-[#E6E6E6]" />
+                <span className="h-[0.23838rem] w-[1.192rem] rounded-[0.06813rem] bg-[#E6E6E6]" />
+            </span>
+
+            <span className="h-[0.31288rem] w-[0.93869rem] shrink-0 rounded-[0.40869rem] bg-[#E6E6E6]" />
+            <span className="h-[0.31288rem] w-[1.1rem] shrink-0 rounded-[0.40869rem] bg-[#E6E6E6]" />
+            <span className="h-[0.31288rem] w-[1.26rem] shrink-0 rounded-[0.40869rem] bg-[#E6E6E6]" />
+            <span className="h-[0.31288rem] w-[1.1rem] shrink-0 rounded-[0.40869rem] bg-[#E6E6E6]" />
+            <span className="h-[0.31288rem] w-[1.36rem] shrink-0 rounded-[0.40869rem] bg-[#E6E6E6]" />
+
+            <span className="h-[0.45975rem] flex-1 rounded-[0.68113rem] bg-[#E6E6E6]" />
+        </div>
+    );
+
+    return (
+        <div className="mb-7 flex flex-col items-center gap-3">
+            <SkeletonCard />
+            <SkeletonCard offset />
+        </div>
+    );
+}
+
+function ViewDeliverableSidebar({
+    open,
+    milestone,
+    deliverable,
+    isUpdating,
+    onClose,
+    onApprove,
+    onRaiseRevision,
+}: {
+    open: boolean;
+    milestone: any;
+    deliverable: any;
+    isUpdating: boolean;
+    onClose: () => void;
+    onApprove: (deliverable: any) => void;
+    onRaiseRevision: (milestone: any, deliverable: any) => void;
+}) {
+    useEffect(() => {
+        if (!open) return;
+
+        const handleEscape = (event: KeyboardEvent) => {
+            if (event.key === "Escape") onClose();
+        };
+
+        document.body.style.overflow = "hidden";
+        window.addEventListener("keydown", handleEscape);
+
+        return () => {
+            document.body.style.overflow = "";
+            window.removeEventListener("keydown", handleEscape);
+        };
+    }, [open, onClose]);
+
+    if (!open) return null;
+
+    const rawMilestone = milestone?.raw || milestone || {};
+    const rawDeliverable = deliverable?.raw || deliverable || {};
+
+    const deliverableName =
+        rawDeliverable?.deliverableName ||
+        rawDeliverable?.title ||
+        deliverable?.name ||
+        "Deliverable";
+
+    const milestoneTitle =
+        rawMilestone?.milestoneTitle ||
+        milestone?.name ||
+        rawDeliverable?.milestoneTitle ||
+        NA;
+
+    const links = getDeliverableLinks(rawDeliverable);
+    const latestRevision = getLatestRevision(rawDeliverable);
+    const status = getDeliverableStatus(rawDeliverable);
+
+    const isSubmitted = isSubmittedDeliverableStatus(status);
+    const isApproved = isApprovedDeliverableStatus(status);
+    const isRevision = isRevisionDeliverableStatus(status);
+    const locked = isApproved || isRevision;
+    const canAct = isSubmitted && !locked && !isUpdating;
+
+    const revisions = Array.isArray(rawDeliverable?.revisions)
+        ? rawDeliverable.revisions
+        : [];
+
+    const handleCopyLink = async () => {
+        const firstLink = links[0]?.url || "";
+
+        if (!firstLink) {
+            toast({
+                icon: "warning",
+                title: "No link found",
+                text: "There is no submission link to copy.",
+            });
+            return;
+        }
+
+        await navigator.clipboard.writeText(firstLink);
+
+        toast({
+            icon: "success",
+            title: "Link copied",
+            text: "Submission link copied to clipboard.",
+        });
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-50 flex h-screen items-center justify-end overflow-hidden bg-[rgba(1,1,1,0.30)] px-3 py-3"
+            onClick={onClose}
+        >
+            <aside
+                className="flex h-[calc(100vh-1.5rem)] w-[55.75rem] max-w-[calc(100vw-1.5rem)] animate-[slideInRight_220ms_ease-out] flex-col overflow-hidden rounded-[1rem] bg-white shadow-[0_24px_40px_-4px_rgba(0,0,0,0.16),0_0_12px_0_rgba(0,0,0,0.08)]"
+                onClick={(e) => e.stopPropagation()}
             >
-                <span className="whitespace-nowrap">Add Revision</span>
-            </button>
+                <style jsx global>{`
+                    @keyframes slideInRight {
+                        from {
+                            opacity: 0;
+                            transform: translateX(32px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateX(0);
+                        }
+                    }
+                `}</style>
+
+                <div className="flex shrink-0 rounder-[1rem] items-center justify-between border-b border-[#E6E6E6] px-6 py-5">
+                    <h2 className="line-clamp-1 font-['Inter'] text-xl font-semibold leading-7 text-[#1A1A1A]">
+                        {deliverableName}
+                    </h2>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            className="flex h-8 items-center justify-center gap-2 rounded-[0.75rem] border border-[#E6E6E6] px-3 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:bg-[#F9F9F9]"
+                        >
+                            Edit
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#1A1A1A] hover:bg-[#F9F9F9]"
+                            aria-label="Close"
+                        >
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                    <div className="mb-6 flex items-center justify-between">
+                        <h3 className="font-['Inter'] text-base font-semibold leading-6 text-[#1A1A1A]">
+                            Submissions
+                        </h3>
+
+                        <button
+                            type="button"
+                            onClick={handleCopyLink}
+                            className="font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:underline"
+                        >
+                            Copy Link
+                        </button>
+                    </div>
+
+                    <div className="flex flex-col gap-5">
+                        <DetailRow label="Deliverable Name">
+                            {textOrNA(deliverableName)}
+                        </DetailRow>
+
+                        <DetailRow label="Submission Date">
+                            {formatLongDate(rawDeliverable?.submittedAt)}
+                        </DetailRow>
+
+                        <DetailRow label="Platform">
+                            <PlatformBadgeIcons
+                                platforms={normalizePlatforms(rawDeliverable)}
+                            />
+                        </DetailRow>
+
+                        <DetailRow label="Quantity">
+                            {String(rawDeliverable?.quantity || 1).padStart(2, "0")}
+                        </DetailRow>
+
+                        <DetailRow label="Content Format">
+                            {formatDeliveries(rawDeliverable?.deliveries)}
+                        </DetailRow>
+
+                        <DetailRow label="Revision Type">
+                            {latestRevision
+                                ? humanizeText(latestRevision?.revisionType)
+                                : NA}
+                        </DetailRow>
+
+                        <DetailRow label="Revision Payout">
+                            {latestRevision?.revisionType === "paid"
+                                ? formatMoney(latestRevision?.revisionBudget)
+                                : NA}
+                        </DetailRow>
+
+                        <DetailRow label="Aspect Ratio">
+                            {textOrNA(rawDeliverable?.aspectRatio)}
+                        </DetailRow>
+
+                        <DetailRow label="Status">
+                            <StatusPill status={status || "pending"} />
+                        </DetailRow>
+
+                        <DetailRow label="Under Milestone">
+                            {textOrNA(milestoneTitle)}
+                        </DetailRow>
+
+                        <DetailRow label="Milestone Description">
+                            <p className="max-w-[28rem]">
+                                {textOrNA(rawMilestone?.milestoneDescription)}
+                            </p>
+                        </DetailRow>
+
+                        <DetailRow label="Milestone Payout">
+                            {formatMoney(
+                                rawMilestone?.milestoneBudget || rawMilestone?.amount,
+                                rawMilestone?.currency || ""
+                            )}
+                        </DetailRow>
+
+                        <DetailRow label="Grace Period">
+                            {Number(rawMilestone?.graceDays || 0) > 0 ? "YES" : "NO"}
+                        </DetailRow>
+
+                        <DetailRow label="Grace Period Days">
+                            {Number(rawMilestone?.graceDays || 0) || NA}
+                        </DetailRow>
+
+                        <DetailRow label="Deadline">
+                            {formatLongDate(rawMilestone?.endDate)}
+                        </DetailRow>
+
+                        <DetailRow label="Submission Link">
+                            {links.length > 0 ? (
+                                <div className="flex flex-col gap-1">
+                                    {links.map((link: any, index: number) => (
+                                        <a
+                                            key={`${link.url}-${index}`}
+                                            href={link.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="w-fit font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] underline"
+                                        >
+                                            {link.label || `Deliverable Link ${index + 1}`}
+                                        </a>
+                                    ))}
+                                </div>
+                            ) : (
+                                NA
+                            )}
+                        </DetailRow>
+                    </div>
+
+                    <div className="mt-8">
+                        <h3 className="mb-3 font-['Inter'] text-base font-semibold leading-6 text-[#1A1A1A]">
+                            Revision History
+                        </h3>
+
+                        <div className="overflow-hidden rounded-[0.75rem] border border-[#D6D6D6] bg-white">
+                            <div className="grid grid-cols-[5.5rem_6.25rem_4.75rem_6rem_7.25rem_1fr] border-b border-[#D6D6D6]">
+                                {["Name", "Submitted on", "Link", "Status", "Notes", "Actions"].map(
+                                    (heading, index, arr) => (
+                                        <div
+                                            key={heading}
+                                            className={[
+                                                "flex h-12 items-center gap-2 bg-white px-4 py-2.5 font-['Inter'] text-xs font-semibold leading-4 text-[#1A1A1A]",
+                                                index !== arr.length - 1
+                                                    ? "border-r border-[#D6D6D6]"
+                                                    : "",
+                                            ].join(" ")}
+                                        >
+                                            {heading}
+                                        </div>
+                                    )
+                                )}
+                            </div>
+
+                            {revisions.length > 0 ? (
+                                revisions.map((revision: any) => (
+                                    <div
+                                        key={revision?.revisionId || revision?._id}
+                                        className="grid grid-cols-[5.5rem_6.25rem_4.75rem_6rem_7.25rem_1fr] border-b border-[#E6E6E6] last:border-b-0"
+                                    >
+                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                            <span className="line-clamp-1">
+                                                {textOrNA(revision?.issueName)}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                            {formatLongDate(revision?.submissionDate)}
+                                        </div>
+
+                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                            {revision?.issueDeliverableLink ? (
+                                                <a
+                                                    href={revision.issueDeliverableLink}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="underline"
+                                                >
+                                                    Open
+                                                </a>
+                                            ) : (
+                                                NA
+                                            )}
+                                        </div>
+
+                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5">
+                                            <StatusPill status={revision?.status || "pending"} />
+                                        </div>
+
+                                        <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                            <span className="line-clamp-2">
+                                                {textOrNA(revision?.notes)}
+                                            </span>
+                                        </div>
+
+                                        <div className="flex min-h-12 items-center px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#969696]">
+                                            —
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="flex h-[18.75rem] flex-col items-center justify-center">
+                                    <RevisionEmptySkeleton />
+
+                                    <p className="font-['Inter'] text-sm font-semibold leading-5 text-[#1A1A1A]">
+                                        No Revision History found
+                                    </p>
+
+                                    <p className="mt-2 font-['Inter'] text-xs font-normal leading-4 text-[#B8B8B8]">
+                                        Revisions History will be shown after raising a revision
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex shrink-0 justify-end gap-2 border-t border-[#E6E6E6] px-6 py-4">
+                    <button
+                        type="button"
+                        disabled={!canAct}
+                        onClick={() => {
+                            onClose();
+                            onRaiseRevision(milestone, rawDeliverable);
+                        }}
+                        className="flex h-10 min-w-[7.5rem] items-center justify-center rounded-lg border border-[#E6E6E6] bg-white px-5 font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] hover:bg-[#F9F9F9] disabled:cursor-not-allowed disabled:bg-[#F9F9F9] disabled:text-[#969696]"
+                    >
+                        Raise Revision
+                    </button>
+
+                    <button
+                        type="button"
+                        disabled={!canAct}
+                        onClick={() => onApprove(rawDeliverable)}
+                        className="flex h-10 min-w-[7.5rem] items-center justify-center rounded-lg bg-[#1A1A1A] px-5 font-['Inter'] text-sm font-medium leading-5 text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-[#F5F5F5] disabled:text-[#969696]"
+                    >
+                        {isUpdating ? "Approving..." : isApproved ? "Approved" : "Approve"}
+                    </button>
+                </div>
+            </aside>
         </div>
     );
 }
@@ -611,16 +1301,20 @@ function DeliverablesPanel({
     error,
     defaultPlatform,
     updatingDeliverableIds,
+    milestone,
     onReleasePayment,
     onAddRevision,
+    onViewDeliverable,
 }: {
     deliverables: any[];
     loading: boolean;
     error: string;
     defaultPlatform: string;
     updatingDeliverableIds: Record<string, boolean>;
+    milestone: any;
     onReleasePayment: (item: any) => void;
-    onAddRevision: (item: any) => void;
+    onAddRevision: (milestone: any, item: any) => void;
+    onViewDeliverable: (milestone: any, item: any) => void;
 }) {
     const rows = deliverables.map((item, index) =>
         normalizeDeliverableRow(item, index, defaultPlatform)
@@ -655,26 +1349,19 @@ function DeliverablesPanel({
                                 </div>
 
                                 <div className="flex h-[5.5rem] items-center px-4 py-2.5">
-                                    {item.url ? (
-                                        <a
-                                            href={item.url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="line-clamp-2 font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A] hover:underline"
-                                            title={item.name}
-                                        >
-                                            {item.name}
-                                        </a>
-                                    ) : (
-                                        <p className="line-clamp-2 font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A]">
-                                            {item.name}
-                                        </p>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => onViewDeliverable(milestone, item.raw)}
+                                        className="line-clamp-1 text-left font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A] hover:underline"
+                                        title={item.name}
+                                    >
+                                        {item.name}
+                                    </button>
                                 </div>
 
                                 <div className="flex h-[5.5rem] items-center px-4 py-2.5">
-                                    <p className="line-clamp-2 font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A]">
-                                        {item.format}
+                                    <p className="mt-1 line-clamp-1 font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A]">
+                                        {item.deliveriesText}
                                     </p>
                                 </div>
 
@@ -683,7 +1370,7 @@ function DeliverablesPanel({
                                 </div>
 
                                 <div className="flex h-[5.5rem] items-center justify-center px-4 py-2.5">
-                                    <PlatformBadgeIcon platform={item.platform} />
+                                    <PlatformBadgeIcons platforms={item.platforms} />
                                 </div>
 
                                 <div className="flex h-[5.5rem] items-center justify-center px-4 py-2.5">
@@ -700,7 +1387,9 @@ function DeliverablesPanel({
                                         updatingDeliverableIds[item.deliverableId]
                                     )}
                                     onReleasePayment={onReleasePayment}
-                                    onAddRevision={onAddRevision}
+                                    onAddRevision={(deliverable) =>
+                                        onAddRevision(milestone, deliverable)
+                                    }
                                 />
                             </div>
 
@@ -732,6 +1421,18 @@ export default function MilestoneAndDeliverablesTab({
     const [apiMilestones, setApiMilestones] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
+    const [isAddMilestoneOpen, setIsAddMilestoneOpen] = useState(false);
+    const [revisionTarget, setRevisionTarget] = useState<{
+        milestone: any;
+        deliverable: any;
+    } | null>(null);
+
+    const [viewDeliverableTarget, setViewDeliverableTarget] = useState<{
+        milestone: any;
+        deliverable: any;
+    } | null>(null);
+
+    const [milestoneRefreshKey, setMilestoneRefreshKey] = useState(0);
 
     const [deliverablesByRow, setDeliverablesByRow] = useState<
         Record<string, any[]>
@@ -772,7 +1473,20 @@ export default function MilestoneAndDeliverablesTab({
         (view as any)?.raw?.contract?.content?.brand?._id ||
         (view as any)?.contract?.content?.brand?._id ||
         getLocalBrandId();
+    const resolvedContractId =
+        searchParams.get("contractId") ||
+        (view as any)?.raw?.contract?.contractId ||
+        (view as any)?.contract?.contractId ||
+        (view as any)?.raw?.contractId ||
+        (view as any)?.contractId ||
+        "";
 
+    const resolvedInfluencerName =
+        (view as any)?.profileName ||
+        (view as any)?.header?.profileName ||
+        (view as any)?.raw?.influencer?.name ||
+        (view as any)?.influencer?.name ||
+        "";
     const defaultPlatform = getDefaultPlatformFromView(view);
 
     useEffect(() => {
@@ -807,10 +1521,10 @@ export default function MilestoneAndDeliverablesTab({
 
                 const filteredMilestones = resolvedInfluencerId
                     ? nextMilestones.filter(
-                          (item: any) =>
-                              String(item?.influencerId || "") ===
-                              String(resolvedInfluencerId)
-                      )
+                        (item: any) =>
+                            String(item?.influencerId || "") ===
+                            String(resolvedInfluencerId)
+                    )
                     : nextMilestones;
 
                 setApiMilestones(filteredMilestones);
@@ -844,11 +1558,11 @@ export default function MilestoneAndDeliverablesTab({
         return () => {
             isMounted = false;
         };
-    }, [resolvedCampaignId, resolvedBrandId, resolvedInfluencerId]);
+    }, [resolvedCampaignId, resolvedBrandId, resolvedInfluencerId, milestoneRefreshKey]);
 
     const fallbackMilestones =
         Array.isArray((view as any)?.milestones) &&
-        (view as any).milestones.length > 0
+            (view as any).milestones.length > 0
             ? (view as any).milestones
             : Array.isArray((view as any)?.milestonesTab?.milestones)
                 ? (view as any).milestonesTab.milestones
@@ -862,6 +1576,63 @@ export default function MilestoneAndDeliverablesTab({
             item?.raw ? item : normalizeMilestoneRow(item, index, defaultPlatform)
         );
     }, [apiMilestones, fallbackMilestones, defaultPlatform]);
+
+    const selectedContractMeta = useMemo(() => {
+        return (
+            (view as any)?.raw?.contract ||
+            (view as any)?.contract ||
+            (view as any)?.raw?.contractData ||
+            null
+        );
+    }, [view]);
+
+    const firstMilestoneForCurrentInfluencer = useMemo(() => {
+        return milestones.find(
+            (item: any) =>
+                String(item?.raw?.influencerId || item?.influencerId || "") ===
+                String(resolvedInfluencerId || "")
+        );
+    }, [milestones, resolvedInfluencerId]);
+
+    const selectedInfluencerBudget = useMemo(() => {
+        const commercial =
+            (selectedContractMeta as any)?.content?.scheduleA?.commercial ||
+            (selectedContractMeta as any)?.scheduleA?.commercial ||
+            {};
+
+        return Number(
+            commercial?.totalCampaignFee ||
+            commercial?.influencerBudget ||
+            commercial?.feeAmount ||
+            (selectedContractMeta as any)?.totalCampaignFee ||
+            (selectedContractMeta as any)?.influencerBudget ||
+            (selectedContractMeta as any)?.amount ||
+            firstMilestoneForCurrentInfluencer?.raw?.totalCampaignFee ||
+            firstMilestoneForCurrentInfluencer?.totalCampaignFee ||
+            0
+        );
+    }, [selectedContractMeta, firstMilestoneForCurrentInfluencer]);
+
+    const selectedInfluencerUsedMilestoneBudget = useMemo(() => {
+        return milestones
+            .filter(
+                (item: any) =>
+                    String(item?.raw?.influencerId || item?.influencerId || "") ===
+                    String(resolvedInfluencerId || "")
+            )
+            .reduce(
+                (sum: number, item: any) =>
+                    sum +
+                    Number(
+                        item?.raw?.milestoneBudget ||
+                        item?.milestoneBudget ||
+                        item?.raw?.amount ||
+                        item?.amount ||
+                        0
+                    ),
+                0
+            );
+    }, [milestones, resolvedInfluencerId]);
 
     const fetchDeliverablesForMilestone = async (
         milestone: any,
@@ -898,13 +1669,9 @@ export default function MilestoneAndDeliverablesTab({
                 [rowId]: "",
             }));
 
-            const res = await apiGetDeliverablesByMilestoneHistoryId({
+            const res = await apiGetAllDeliverablesByMilestone({
                 milestoneId,
                 milestoneHistoryId,
-                influencerId: resolvedInfluencerId || "",
-                campaignId: resolvedCampaignId || "",
-                page: 1,
-                limit: 20,
             });
 
             const nextDeliverables = extractDeliverablesFromResponse(res);
@@ -919,7 +1686,7 @@ export default function MilestoneAndDeliverablesTab({
                 "Failed to load deliverables."
             );
 
-            console.error("Failed to fetch deliverables by milestone history id", err);
+            console.error("Failed to fetch deliverables for this Milestone", err);
 
             setDeliverablesErrorByRow((prev) => ({
                 ...prev,
@@ -997,6 +1764,15 @@ export default function MilestoneAndDeliverablesTab({
             return;
         }
 
+        if (!isSubmittedDeliverableStatus(deliverable?.status)) {
+            toast({
+                icon: "warning",
+                title: "Action unavailable",
+                text: "Only submitted deliverables can be approved.",
+            });
+            return;
+        }
+
         const promptValue =
             status === "revision"
                 ? window.prompt("Add revision comment", deliverable?.comments || "")
@@ -1004,8 +1780,27 @@ export default function MilestoneAndDeliverablesTab({
 
         if (status === "revision" && promptValue === null) return;
 
+        const milestoneId =
+            deliverable?.milestoneId ||
+            deliverable?.raw?.milestoneId ||
+            "";
+
+        const milestoneHistoryId =
+            deliverable?.milestoneHistoryId ||
+            deliverable?.raw?.milestoneHistoryId ||
+            "";
+
         const comments =
             status === "revision" ? promptValue || "" : promptValue || "";
+
+        if (!milestoneId || !milestoneHistoryId) {
+            toast({
+                icon: "warning",
+                title: "Action unavailable",
+                text: "Missing milestone id or milestone history id.",
+            });
+            return;
+        }
 
         try {
             setUpdatingDeliverableIds((prev) => ({
@@ -1013,7 +1808,9 @@ export default function MilestoneAndDeliverablesTab({
                 [deliverableId]: true,
             }));
 
-            const res = await apiUpdateDeliverableApprovalStatus({
+            const res = await apiUpdateMilestoneDeliverableApprovalStatus({
+                milestoneId,
+                milestoneHistoryId,
                 deliverableId,
                 status,
                 comments,
@@ -1180,6 +1977,63 @@ export default function MilestoneAndDeliverablesTab({
         }
     };
 
+    const handleOpenAddMilestone = () => {
+        if (!resolvedCampaignId) {
+            toast({
+                icon: "warning",
+                title: "Cannot add milestone",
+                text: "Missing campaign id.",
+            });
+            return;
+        }
+
+        if (!resolvedBrandId) {
+            toast({
+                icon: "warning",
+                title: "Cannot add milestone",
+                text: "Missing brand id.",
+            });
+            return;
+        }
+
+        if (!resolvedInfluencerId) {
+            toast({
+                icon: "warning",
+                title: "Cannot add milestone",
+                text: "Missing influencer id.",
+            });
+            return;
+        }
+
+        if (!resolvedContractId) {
+            toast({
+                icon: "warning",
+                title: "Cannot add milestone",
+                text: "Missing contract id.",
+            });
+            return;
+        }
+
+        setIsAddMilestoneOpen(true);
+    };
+
+
+
+    const handleCloseAddMilestone = () => {
+        setIsAddMilestoneOpen(false);
+    };
+
+    const handleAddMilestoneSubmit = async () => {
+        setIsAddMilestoneOpen(false);
+        setMilestoneRefreshKey((prev) => prev + 1);
+
+        toast({
+            icon: "success",
+            title: "Milestone added",
+            text: "The milestone list has been refreshed.",
+        });
+    };
+
     const handleToggleMilestone = async (milestone: any, rowId: string) => {
         const isCurrentlyExpanded = expandedRowId === rowId;
 
@@ -1192,9 +2046,137 @@ export default function MilestoneAndDeliverablesTab({
         await fetchDeliverablesForMilestone(milestone, rowId);
     };
 
+    const handleOpenAddRevision = (milestone: any, deliverable: any) => {
+        const status = getDeliverableStatus(deliverable);
+
+        if (isLockedDeliverableStatus(status)) {
+            toast({
+                icon: "info",
+                title: "Action locked",
+                text: "This deliverable has already been approved or moved to revision.",
+            });
+            return;
+        }
+
+        if (!isSubmittedDeliverableStatus(status)) {
+            toast({
+                icon: "warning",
+                title: "Revision unavailable",
+                text: "Revision can be raised only after the deliverable is submitted.",
+            });
+            return;
+        }
+
+        setRevisionTarget({
+            milestone,
+            deliverable,
+        });
+    };
+
+    const handleOpenViewDeliverable = (milestone: any, deliverable: any) => {
+        setViewDeliverableTarget({
+            milestone,
+            deliverable,
+        });
+    };
+
+    const handleCloseViewDeliverable = () => {
+        setViewDeliverableTarget(null);
+    };
+
+    const handleRaiseRevisionFromView = (milestone: any, deliverable: any) => {
+        setViewDeliverableTarget(null);
+        handleOpenAddRevision(milestone, deliverable);
+    };
+
+    const handleCloseAddRevision = () => {
+        setRevisionTarget(null);
+    };
+
+    const handleRaiseRevisionSubmit = async ({
+        requestPayload,
+        response,
+    }: any) => {
+        const updatedDeliverable =
+            response?.deliverable ||
+            response?.data?.deliverable ||
+            response?.data?.data?.deliverable ||
+            null;
+
+        const targetDeliverableId =
+            updatedDeliverable?.deliverableId || requestPayload?.deliverableId;
+
+        setDeliverablesByRow((prev) => {
+            const next = { ...prev };
+
+            Object.keys(next).forEach((rowId) => {
+                next[rowId] = next[rowId].map((item) => {
+                    const itemId = getDeliverableId(item);
+
+                    if (String(itemId) !== String(targetDeliverableId)) {
+                        return item;
+                    }
+
+                    return {
+                        ...item,
+                        status: updatedDeliverable?.status || "revision",
+                        comments:
+                            updatedDeliverable?.comments ||
+                            requestPayload?.notes ||
+                            item?.comments ||
+                            "",
+                        revisionRequestedAt:
+                            updatedDeliverable?.revisionRequestedAt ||
+                            new Date().toISOString(),
+                    };
+                });
+            });
+
+            return next;
+        });
+
+        setRevisionTarget(null);
+        setMilestoneRefreshKey((prev) => prev + 1);
+    };
+
+
     return (
         <section className="flex w-full flex-col px-4 py-5">
             <ToastStyles />
+            <AddMilestoneCard
+                open={isAddMilestoneOpen}
+                onClose={handleCloseAddMilestone}
+                brandId={resolvedBrandId || ""}
+                contractId={resolvedContractId || ""}
+                campaignId={resolvedCampaignId || ""}
+                influencerId={resolvedInfluencerId || ""}
+                influencerName={resolvedInfluencerName || "Influencer"}
+                influencerBudget={selectedInfluencerBudget}
+                usedMilestoneBudget={selectedInfluencerUsedMilestoneBudget}
+                onSubmit={handleAddMilestoneSubmit}
+            />
+            <AddRevision
+                open={Boolean(revisionTarget)}
+                onClose={handleCloseAddRevision}
+                milestone={revisionTarget?.milestone}
+                deliverable={revisionTarget?.deliverable}
+                onSubmit={handleRaiseRevisionSubmit}
+            />
+            <ViewDeliverableSidebar
+                open={Boolean(viewDeliverableTarget)}
+                onClose={handleCloseViewDeliverable}
+                milestone={viewDeliverableTarget?.milestone}
+                deliverable={viewDeliverableTarget?.deliverable}
+                isUpdating={Boolean(
+                    updatingDeliverableIds[
+                    getDeliverableId(viewDeliverableTarget?.deliverable || {})
+                    ]
+                )}
+                onApprove={(deliverable) =>
+                    handleUpdateDeliverableStatus(deliverable, "approved")
+                }
+                onRaiseRevision={handleRaiseRevisionFromView}
+            />
 
             <div className="flex w-full items-start justify-between gap-6">
                 <div className="min-w-0 flex-1">
@@ -1210,6 +2192,7 @@ export default function MilestoneAndDeliverablesTab({
                 <div className="flex shrink-0 items-center gap-2">
                     <button
                         type="button"
+                        onClick={handleOpenAddMilestone}
                         className="flex h-8 items-center justify-center gap-1 rounded-lg border border-[#E6E6E6] bg-white px-3 font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] transition hover:bg-[#F9F9F9]"
                     >
                         Add Milestone
@@ -1269,6 +2252,21 @@ export default function MilestoneAndDeliverablesTab({
                                 const milestoneHistoryId =
                                     getResolvedMilestoneHistoryId(item);
 
+
+                                const allDeliverablesApproved =
+                                    areAllMilestoneDeliverablesApproved(
+                                        item,
+                                        rowId,
+                                        deliverablesByRow
+                                    );
+
+                                const milestoneReleased = isReleasedMilestone(item);
+
+                                const releaseDisabled =
+                                    Boolean(releasingMilestoneIds[milestoneHistoryId]) ||
+                                    milestoneReleased ||
+                                    !allDeliverablesApproved;
+
                                 return (
                                     <div
                                         key={rowId}
@@ -1294,10 +2292,12 @@ export default function MilestoneAndDeliverablesTab({
                                             </RowCell>
 
                                             <RowCell align="center">
-                                                <PlatformBadgeIcon
-                                                    platform={textOrNA(
-                                                        item?.platform
-                                                    )}
+                                                <PlatformBadgeIcons
+                                                    platforms={
+                                                        Array.isArray(item?.platforms)
+                                                            ? item.platforms
+                                                            : normalizeMilestonePlatforms(item?.raw || item, defaultPlatform)
+                                                    }
                                                 />
                                             </RowCell>
 
@@ -1325,32 +2325,22 @@ export default function MilestoneAndDeliverablesTab({
                                                 <div className="flex h-[5.5rem] items-center justify-center gap-2">
                                                     <button
                                                         type="button"
-                                                        disabled={
-                                                            Boolean(
-                                                                releasingMilestoneIds[
-                                                                    milestoneHistoryId
-                                                                ]
-                                                            ) ||
-                                                            isReleasedMilestone(
-                                                                item
-                                                            )
+                                                        disabled={releaseDisabled}
+                                                        title={
+                                                            !allDeliverablesApproved && !milestoneReleased
+                                                                ? "All deliverables and revisions must be approved before release."
+                                                                : undefined
                                                         }
-                                                        onClick={() =>
-                                                            handleReleaseMilestone(
-                                                                item
-                                                            )
-                                                        }
+                                                        onClick={() => handleReleaseMilestone(item)}
                                                         className="flex h-10 min-w-[4.625rem] items-center justify-center rounded-lg bg-[#1A1A1A] px-5 font-['Inter'] text-sm font-medium leading-5 text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#F5F5F5] disabled:text-[#969696]"
                                                     >
-                                                        {releasingMilestoneIds[
-                                                            milestoneHistoryId
-                                                        ]
-                                                            ? "Approving..."
-                                                            : isReleasedMilestone(
-                                                                  item
-                                                              )
-                                                                ? "Approved"
-                                                                : "Approve"}
+                                                        {releasingMilestoneIds[milestoneHistoryId]
+                                                            ? "Releasing..."
+                                                            : milestoneReleased
+                                                                ? "Released"
+                                                                : allDeliverablesApproved
+                                                                    ? "Release"
+                                                                    : "Release"}
                                                     </button>
 
                                                     <button
@@ -1386,40 +2376,17 @@ export default function MilestoneAndDeliverablesTab({
 
                                         {isExpanded ? (
                                             <DeliverablesPanel
-                                                deliverables={
-                                                    deliverablesByRow[rowId] ||
-                                                    []
+                                                deliverables={deliverablesByRow[rowId] || []}
+                                                loading={Boolean(deliverablesLoadingByRow[rowId])}
+                                                error={deliverablesErrorByRow[rowId] || ""}
+                                                defaultPlatform={defaultPlatform}
+                                                updatingDeliverableIds={updatingDeliverableIds}
+                                                milestone={item}
+                                                onReleasePayment={(deliverable) =>
+                                                    handleUpdateDeliverableStatus(deliverable, "approved")
                                                 }
-                                                loading={Boolean(
-                                                    deliverablesLoadingByRow[
-                                                        rowId
-                                                    ]
-                                                )}
-                                                error={
-                                                    deliverablesErrorByRow[
-                                                        rowId
-                                                    ] || ""
-                                                }
-                                                defaultPlatform={
-                                                    defaultPlatform
-                                                }
-                                                updatingDeliverableIds={
-                                                    updatingDeliverableIds
-                                                }
-                                                onReleasePayment={(
-                                                    deliverable
-                                                ) =>
-                                                    handleUpdateDeliverableStatus(
-                                                        deliverable,
-                                                        "approved"
-                                                    )
-                                                }
-                                                onAddRevision={(deliverable) =>
-                                                    handleUpdateDeliverableStatus(
-                                                        deliverable,
-                                                        "revision"
-                                                    )
-                                                }
+                                                onAddRevision={handleOpenAddRevision}
+                                                onViewDeliverable={handleOpenViewDeliverable}
                                             />
                                         ) : null}
                                     </div>

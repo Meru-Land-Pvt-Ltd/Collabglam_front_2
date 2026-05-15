@@ -1,14 +1,30 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import { X, Wallet, AlertCircle } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { PencilSimpleLine } from "@phosphor-icons/react";
+import {
+  AlertCircle,
+  ChevronDown,
+  Minus,
+  Paperclip,
+  Plus,
+  Trash2,
+  Wallet,
+  X,
+} from "lucide-react";
 
-import { LabeledTextarea } from "@/components/ui/textAreaComp";
 import { Button } from "@/components/ui/buttonComp";
 import { FloatingInput } from "@/components/ui/floatingInput";
+import { FloatingDateInput } from "@/components/ui/date";
+import { LabeledTextarea } from "@/components/ui/textAreaComp";
+import { ProductImagesUpload } from "@/components/ui/upload-card";
+import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
+import { toast, ToastStyles } from "@/components/ui/toast";
 
 import {
   apiCreateMilestone,
+  apiEditMilestone,
   apiBrandWalletTopup,
   getApiErrorMessage,
 } from "@/app/brand/services/brandApi";
@@ -22,6 +38,14 @@ type AddMilestoneCardProps = {
   influencerId?: string;
   influencerName?: string;
   onSubmit?: () => void;
+
+  influencerBudget?: number;
+  usedMilestoneBudget?: number;
+
+  mode?: "create" | "edit";
+  milestoneId?: string;
+  milestoneHistoryId?: string;
+  milestoneData?: any;
 };
 
 type WalletShortfallState = {
@@ -30,6 +54,466 @@ type WalletShortfallState = {
   frozenBalance?: number;
   usableBalance?: number;
 };
+
+type Option = {
+  label: string;
+  value: string;
+  icon?: string;
+};
+
+type DeliverableRow = {
+  id: string;
+  name: string;
+  deliveries: string[];
+  aspectRatio: string;
+  platforms: string[];
+  quantity: number;
+};
+
+const DELIVERY_OPTIONS: Option[] = [
+  { label: "Static post", value: "static_post" },
+  { label: "Reel / short video", value: "reel_short_video" },
+  { label: "Carousel", value: "carousel" },
+  { label: "Blog / Article", value: "blog_article" },
+  { label: "TikTok video", value: "tiktok_video" },
+  { label: "YouTube video", value: "youtube_video" },
+];
+
+const ASPECT_RATIO_OPTIONS: Option[] = [
+  { label: "1080 × 1080", value: "1080x1080" },
+  { label: "9:16", value: "9:16" },
+  { label: "16:9", value: "16:9" },
+  { label: "4:5", value: "4:5" },
+  { label: "1:1", value: "1:1" },
+];
+
+const PLATFORM_OPTIONS: Option[] = [
+  {
+    label: "YouTube",
+    value: "youtube",
+    icon: "/logos_youtube-icon.svg",
+  },
+  {
+    label: "Instagram",
+    value: "instagram",
+    icon: "/skill-icons_instagram.svg",
+  },
+  {
+    label: "TikTok",
+    value: "tiktok",
+    icon: "/ic_baseline-tiktok.svg",
+  },
+];
+
+const GRACE_DAY_OPTIONS: Option[] = [
+  { label: "Add grace days", value: "" },
+  { label: "1 day", value: "1" },
+  { label: "2 days", value: "2" },
+  { label: "3 days", value: "3" },
+  { label: "5 days", value: "5" },
+  { label: "7 days", value: "7" },
+];
+
+const labelClass =
+  "font-['Inter'] text-xs font-normal leading-4 text-[#969696]";
+
+const getPlatformIcon = (platform: string) => {
+  const normalized = String(platform || "").toLowerCase();
+
+  if (normalized.includes("youtube")) return "/logos_youtube-icon.svg";
+  if (normalized.includes("instagram")) return "/skill-icons_instagram.svg";
+  if (normalized.includes("tiktok") || normalized.includes("tik tok")) {
+    return "/ic_baseline-tiktok.svg";
+  }
+
+  return "";
+};
+
+const getOptionLabel = (options: Option[], value: string) => {
+  return options.find((item) => item.value === value)?.label || value;
+};
+
+const safeMoney = (value: number) => {
+  if (!Number.isFinite(value)) return "0.00";
+  return value.toFixed(2);
+};
+
+const normalizeAttachmentForPayload = (item: any) => {
+  if (!item) return null;
+
+  if (typeof File !== "undefined" && item instanceof File) {
+    return {
+      name: item.name,
+      type: item.type,
+      size: item.size,
+      url: "",
+      key: "",
+    };
+  }
+
+  if (typeof item === "string") {
+    return {
+      name: "",
+      url: item,
+      type: "",
+      size: 0,
+      key: "",
+    };
+  }
+
+  return {
+    name: item?.name || item?.fileName || item?.label || "",
+    url: item?.url || item?.link || item?.path || "",
+    type: item?.type || item?.mimeType || "",
+    size: Number(item?.size || 0),
+    key: item?.key || "",
+  };
+};
+
+function PlatformIcon({ platform }: { platform: string }) {
+  const icon = getPlatformIcon(platform);
+
+  return (
+    <span className="flex h-[1.6875rem] w-[1.6875rem] shrink-0 items-center justify-center gap-2.5 rounded-[2.5rem] border border-[#E6E6E6] bg-white px-2 py-3">
+      {icon ? (
+        <img
+          src={icon}
+          alt={`${platform} icon`}
+          className="h-4 w-4 object-contain"
+          draggable={false}
+        />
+      ) : (
+        <span className="font-['Inter'] text-[0.625rem] font-semibold text-[#1A1A1A]">
+          {platform ? platform.slice(0, 1).toUpperCase() : "?"}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function DropdownShell({
+  label,
+  required,
+  valueText,
+  children,
+  open,
+  onToggle,
+  onClose,
+  variant = "default",
+}: {
+  label: string;
+  required?: boolean;
+  valueText: string;
+  children: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  variant?: "default" | "grace";
+}) {
+  const isGrace = variant === "grace";
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
+
+  useEffect(() => {
+    if (!open || !buttonRef.current) return;
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const menuWidth = isGrace ? 288 : Math.max(rect.width, 288);
+
+      const left = isGrace
+        ? Math.max(12, rect.right - menuWidth)
+        : Math.min(rect.left, window.innerWidth - menuWidth - 12);
+
+      setDropdownStyle({
+        position: "fixed",
+        top: rect.bottom + 8,
+        left,
+        width: menuWidth,
+        zIndex: 9999,
+      });
+    };
+
+    updatePosition();
+
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open, isGrace]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+
+      if (buttonRef.current?.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
+
+      onClose();
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener("touchstart", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+      document.removeEventListener("touchstart", handleOutsideClick);
+    };
+  }, [open, onClose]);
+
+  return (
+    <div
+      className={[
+        "relative flex flex-col items-start gap-1",
+        isGrace ? "h-[4.2rem] w-full shrink-0" : "h-[3.875rem] flex-1",
+      ].join(" ")}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={onToggle}
+        className={[
+          "flex h-full w-full bg-white text-left",
+          isGrace
+            ? "items-center justify-between rounded-[0.75rem] border border-[#1A1A1A] px-[1.125rem] py-5"
+            : "flex-col items-start justify-between rounded-[0.75rem] border border-[#D6D6D6] bg-white px-2.5 py-2.5",
+        ].join(" ")}
+      >
+        {isGrace ? (
+          <>
+            <span className="flex items-center gap-2 font-['Inter'] text-base font-medium leading-6 tracking-[0] text-[#1A1A1A]">
+              {valueText || label}
+              <AlertCircle className="h-4 w-4 text-[#969696]" />
+            </span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-[#1A1A1A]" />
+          </>
+        ) : (
+          <>
+            <span className={labelClass}>
+              {label}
+              {required ? <span className="text-[#E35141]"> *</span> : null}
+            </span>
+
+            <span className="flex w-full items-center gap-0.5">
+              <span className="line-clamp-1 flex-1 font-['Inter'] text-sm font-normal leading-5 text-[#1A1A1A]">
+                {valueText || label}
+              </span>
+              <ChevronDown className="h-4 w-4 shrink-0 text-[#969696]" />
+            </span>
+          </>
+        )}
+      </button>
+
+      {open && typeof document !== "undefined"
+        ? createPortal(
+          <div
+            ref={dropdownRef}
+            style={dropdownStyle}
+            className="overflow-hidden rounded-[0.75rem] border border-[#E6E6E6] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </div>,
+          document.body
+        )
+        : null}
+    </div>
+  );
+}
+
+function MultiSelectDropdown({
+  label,
+  required,
+  options,
+  value,
+  onChange,
+  searchable = true,
+  withIcons = false,
+  placeholder = "Search...",
+}: {
+  label: string;
+  required?: boolean;
+  options: Option[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  searchable?: boolean;
+  withIcons?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const selectedText = value.length
+    ? value.map((item) => getOptionLabel(options, item)).join(", ")
+    : label;
+
+  const filteredOptions = options.filter((item) =>
+    item.label.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const toggleValue = (nextValue: string) => {
+    onChange(
+      value.includes(nextValue)
+        ? value.filter((item) => item !== nextValue)
+        : [...value, nextValue]
+    );
+  };
+
+  return (
+    <DropdownShell
+      label={label}
+      required={required}
+      valueText={selectedText}
+      open={open}
+      onToggle={() => setOpen((prev) => !prev)}
+      onClose={() => setOpen(false)}
+    >
+      {searchable ? (
+        <div className="flex h-14 items-center gap-2 self-stretch border-b border-[#F0F0F0] px-2 py-5">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={placeholder}
+            className="w-full bg-transparent font-['Inter'] text-sm font-normal leading-5 text-[#1A1A1A] outline-none placeholder:text-[#B8B8B8]"
+          />
+        </div>
+      ) : null}
+
+      <div className="max-h-[16rem] overflow-y-auto p-1">
+        {filteredOptions.length > 0 ? (
+          filteredOptions.map((item) => {
+            const checked = value.includes(item.value);
+
+            return (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => toggleValue(item.value)}
+                className="flex h-[3.125rem] w-full items-center gap-3 self-stretch rounded-lg bg-white px-4 py-5 text-left transition hover:bg-[#EDEDED]"
+              >
+                <span className="flex aspect-square w-4 shrink-0 items-center gap-2.5 self-stretch p-1">
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => toggleValue(item.value)}
+                    className="h-4 w-4"
+                  />
+                </span>
+
+                {withIcons ? <PlatformIcon platform={item.value} /> : null}
+
+                <span className="font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A]">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })
+        ) : (
+          <div className="px-4 py-4 font-['Inter'] text-sm text-[#969696]">
+            No results found.
+          </div>
+        )}
+      </div>
+    </DropdownShell>
+  );
+}
+
+function SingleSelectDropdown({
+  label,
+  options,
+  value,
+  onChange,
+  withIcons = false,
+  variant = "default",
+}: {
+  label: string;
+  options: Option[];
+  value: string;
+  onChange: (value: string) => void;
+  withIcons?: boolean;
+  variant?: "default" | "grace";
+}) {
+  const [open, setOpen] = useState(false);
+
+  const selected = options.find((item) => item.value === value);
+
+  return (
+    <DropdownShell
+      label={label}
+      valueText={selected?.label || label}
+      open={open}
+      variant={variant}
+      onToggle={() => setOpen((prev) => !prev)}
+      onClose={() => setOpen(false)}
+    >
+      <div
+        className={[
+          "p-1",
+          options.length > 6
+            ? "max-h-[16rem] overflow-y-auto"
+            : "overflow-visible",
+        ].join(" ")}
+      >
+        {options.map((item) => (
+          <button
+            key={item.value || item.label}
+            type="button"
+            onClick={() => {
+              onChange(item.value);
+              setOpen(false);
+            }}
+            className="flex h-[3.125rem] w-full items-center gap-3 rounded-lg bg-white px-4 py-5 text-left transition hover:bg-[#EDEDED]"
+          >
+            {withIcons ? <PlatformIcon platform={item.value} /> : null}
+
+            <span className="font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A]">
+              {item.label}
+            </span>
+          </button>
+        ))}
+      </div>
+    </DropdownShell>
+  );
+}
+
+function QuantityStepper({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  return (
+    <div className="flex h-[3.875rem] w-20 shrink-0 items-center justify-center rounded-[0.75rem] border border-[#D6D6D6] bg-white">
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(1, value - 1))}
+        className="flex h-full w-6 items-center justify-center text-[#1A1A1A]"
+      >
+        <Minus className="h-4 w-4" />
+      </button>
+
+      <span className="flex-1 text-center font-['Inter'] text-base font-medium leading-6 text-[#1A1A1A]">
+        {value}
+      </span>
+
+      <button
+        type="button"
+        onClick={() => onChange(value + 1)}
+        className="flex h-full w-6 items-center justify-center text-[#1A1A1A]"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
 
 function WalletTopupModal({
   open,
@@ -57,32 +541,35 @@ function WalletTopupModal({
 }) {
   const [amount, setAmount] = useState(String(defaultAmount || ""));
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     if (open) {
       setAmount(String(defaultAmount || ""));
       setSubmitting(false);
-      setError("");
     }
   }, [open, defaultAmount]);
 
   if (!open) return null;
 
-
   const handleTopup = async () => {
     try {
-      setError("");
-
       const amountNum = Number(amount);
 
       if (!brandId) {
-        setError("Brand ID is missing.");
+        toast({
+          icon: "warning",
+          title: "Brand ID missing",
+          text: "Brand ID is required to add wallet balance.",
+        });
         return;
       }
 
       if (!amount || Number.isNaN(amountNum) || amountNum <= 0) {
-        setError("Please enter a valid top-up amount greater than 0.");
+        toast({
+          icon: "warning",
+          title: "Invalid amount",
+          text: "Please enter a valid top-up amount greater than 0.",
+        });
         return;
       }
 
@@ -110,7 +597,11 @@ function WalletTopupModal({
         amount: amountNum,
       });
     } catch (err) {
-      setError(getApiErrorMessage(err, "Failed to top up wallet"));
+      toast({
+        icon: "error",
+        title: "Wallet top-up failed",
+        text: getApiErrorMessage(err, "Failed to top up wallet"),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +609,7 @@ function WalletTopupModal({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex h-screen items-center justify-end overflow-hidden bg-[rgba(1,1,1,0.30)] px-3 py-3"
       onClick={() => {
         if (!submitting) onClose();
       }}
@@ -166,7 +657,7 @@ function WalletTopupModal({
                 <div className="mt-1">
                   Minimum suggested top-up:{" "}
                   <span className="font-semibold">
-                    ₹{Number(defaultAmount || 0).toFixed(2)}
+                    ₹{safeMoney(Number(defaultAmount || 0))}
                   </span>
                 </div>
               </div>
@@ -178,19 +669,21 @@ function WalletTopupModal({
               <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
                 <div className="text-[11px] text-[#777777]">Wallet</div>
                 <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${Number(walletInfo.walletBalance || 0).toFixed(2)}
+                  ${safeMoney(Number(walletInfo.walletBalance || 0))}
                 </div>
               </div>
+
               <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
                 <div className="text-[11px] text-[#777777]">Frozen</div>
                 <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${Number(walletInfo.frozenBalance || 0).toFixed(2)}
+                  ${safeMoney(Number(walletInfo.frozenBalance || 0))}
                 </div>
               </div>
+
               <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
                 <div className="text-[11px] text-[#777777]">Usable</div>
                 <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${Number(walletInfo.usableBalance || 0).toFixed(2)}
+                  ${safeMoney(Number(walletInfo.usableBalance || 0))}
                 </div>
               </div>
             </div>
@@ -206,12 +699,6 @@ function WalletTopupModal({
               setAmount(e.target.value)
             }
           />
-
-          {error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </div>
-          ) : null}
         </div>
 
         <div className="flex flex-col-reverse gap-3 border-t border-[#EFEFEF] px-5 py-4 sm:flex-row sm:justify-end">
@@ -246,19 +733,51 @@ export default function AddMilestoneCard({
   campaignId,
   influencerId,
   influencerName,
+  contractId,
   onSubmit,
+  influencerBudget = 0,
+  usedMilestoneBudget = 0,
+  mode = "create",
+  milestoneId = "",
+  milestoneHistoryId = "",
+  milestoneData = null,
 }: AddMilestoneCardProps) {
-  const [milestoneTitle, setMilestoneTitle] = useState("");
+  const [milestoneName, setMilestoneName] = useState("");
   const [milestoneDescription, setMilestoneDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [topupSuccess, setTopupSuccess] = useState("");
+  const [milestoneBudget, setMilestoneBudget] = useState("");
+  const [milestoneBudgetError, setMilestoneBudgetError] = useState("");
+  const [attachments, setAttachments] = useState<File[]>([]);
 
+  const [deliverableName, setDeliverableName] = useState("");
+  const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState("");
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  const [quantity, setQuantity] = useState(1);
+  const [deliverables, setDeliverables] = useState<DeliverableRow[]>([]);
+
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [graceDays, setGraceDays] = useState("");
+  const [submissionLink, setSubmissionLink] = useState("");
+  const [needDraftFirst, setNeedDraftFirst] = useState(false);
+  const [draftDate, setDraftDate] = useState("");
+
+  const [submitting, setSubmitting] = useState(false);
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [walletShortfall, setWalletShortfall] =
     useState<WalletShortfallState | null>(null);
 
+
+  const isEditMode = mode === "edit";
+
+  const isAccepted =
+    Number(
+      milestoneData?.isAccepted ??
+      milestoneData?.raw?.isAccepted ??
+      0
+    ) === 1;
+
+  const isFormLocked = isEditMode && isAccepted;
   useEffect(() => {
     if (!open) return;
 
@@ -279,88 +798,448 @@ export default function AddMilestoneCard({
 
   useEffect(() => {
     if (!open) {
-      setMilestoneTitle("");
+      setMilestoneName("");
       setMilestoneDescription("");
-      setAmount("");
-      setError("");
-      setTopupSuccess("");
+      setMilestoneBudget("");
+      setAttachments([]);
+      setDeliverableName("");
+      setMilestoneBudgetError("");
+      setSelectedDeliveries([]);
+      setSelectedAspectRatio("");
+      setSelectedPlatforms([]);
+      setQuantity(1);
+      setDeliverables([]);
+      setStartDate("");
+      setEndDate("");
+      setGraceDays("");
+      setSubmissionLink("");
+      setNeedDraftFirst(false);
+      setDraftDate("");
       setSubmitting(false);
       setWalletModalOpen(false);
       setWalletShortfall(null);
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !isEditMode || !milestoneData) return;
+
+    const raw = milestoneData?.raw || milestoneData;
+
+    setMilestoneName(raw?.milestoneTitle || milestoneData?.name || "");
+    setMilestoneDescription(
+      raw?.milestoneDescription || milestoneData?.format || ""
+    );
+
+    setMilestoneBudget(
+      String(raw?.milestoneBudget || raw?.amount || milestoneData?.qty || "")
+    );
+
+    setAttachments(Array.isArray(raw?.attachments) ? raw.attachments : []);
+
+    const mappedDeliverables = Array.isArray(raw?.deliverables)
+      ? raw.deliverables.map((item: any) => ({
+        id: String(item?._id || item?.deliverableId || Date.now()),
+        name: item?.deliverableName || item?.name || "",
+        deliveries: Array.isArray(item?.deliveries) ? item.deliveries : [],
+        aspectRatio: item?.aspectRatio || "",
+        platforms: Array.isArray(item?.platforms) ? item.platforms : [],
+        quantity: Number(item?.quantity || 1),
+      }))
+      : [];
+
+    setDeliverables(mappedDeliverables);
+
+    setStartDate(raw?.startDate ? String(raw.startDate).slice(0, 10) : "");
+    setEndDate(raw?.endDate ? String(raw.endDate).slice(0, 10) : "");
+    setGraceDays(raw?.graceDays ? String(raw.graceDays) : "");
+    setSubmissionLink(raw?.submissionLink || "");
+    setNeedDraftFirst(Boolean(raw?.needDraftFirst));
+    setDraftDate(raw?.draftDate ? String(raw.draftDate).slice(0, 10) : "");
+  }, [open, isEditMode, milestoneData]);
+
   const modalSubtitle = useMemo(() => {
     if (!influencerName) return "";
     return `for ${influencerName}`;
   }, [influencerName]);
 
-  const primaryButtonLabel = submitting ? "Creating..." : "Create Milestone";
+  const safeInfluencerBudget = Number(influencerBudget || 0);
+  const safeUsedMilestoneBudget = Number(usedMilestoneBudget || 0);
 
-  const openTopupModalFromShortfall = () => {
-    if (!walletShortfall) return;
-    setWalletModalOpen(true);
+  const remainingInfluencerBudget =
+    safeInfluencerBudget > 0
+      ? Math.max(0, safeInfluencerBudget - safeUsedMilestoneBudget)
+      : 0;
+
+  const milestoneBudgetNum = Number(milestoneBudget || 0);
+
+  const isMilestoneBudgetOverLimit =
+    safeInfluencerBudget > 0 &&
+    milestoneBudgetNum > remainingInfluencerBudget;
+
+  const isMilestoneBudgetInvalid =
+    Boolean(milestoneBudgetError) || isMilestoneBudgetOverLimit;
+
+  const formatBudget = (value: number) =>
+    Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+
+  const showMilestoneBudgetLimitToast = () => {
+    toast({
+      icon: "warning",
+      title: "Milestone budget cannot be greater than influencer budget",
+      text: `Influencer budget: $${formatBudget(
+        safeInfluencerBudget
+      )}. Already used: $${formatBudget(
+        safeUsedMilestoneBudget
+      )}. Remaining budget: $${formatBudget(remainingInfluencerBudget)}.`,
+    });
+  };
+
+  const handleMilestoneBudgetChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const nextValue = e.target.value;
+
+    setMilestoneBudget(nextValue);
+    setMilestoneBudgetError("");
+
+    const nextNumber = Number(nextValue || 0);
+
+    if (
+      safeInfluencerBudget > 0 &&
+      nextValue &&
+      Number.isFinite(nextNumber) &&
+      nextNumber > remainingInfluencerBudget
+    ) {
+      setMilestoneBudgetError(
+        `Remaining influencer budget is $${formatBudget(
+          remainingInfluencerBudget
+        )}.`
+      );
+    }
+  };
+
+  const handleMilestoneBudgetBlur = () => {
+    const nextNumber = Number(milestoneBudget || 0);
+
+    if (
+      safeInfluencerBudget > 0 &&
+      milestoneBudget &&
+      Number.isFinite(nextNumber) &&
+      nextNumber > remainingInfluencerBudget
+    ) {
+      setMilestoneBudgetError(
+        `Remaining influencer budget is $${formatBudget(
+          remainingInfluencerBudget
+        )}.`
+      );
+
+      showMilestoneBudgetLimitToast();
+    }
+  };
+
+  const handleAddDeliverable = () => {
+    if (!deliverableName.trim()) {
+      toast({
+        icon: "warning",
+        title: "Deliverable name required",
+        text: "Please enter a deliverable name before adding it.",
+      });
+      return;
+    }
+
+    if (selectedDeliveries.length === 0) {
+      toast({
+        icon: "warning",
+        title: "Delivery type required",
+        text: "Please select at least one delivery type.",
+      });
+      return;
+    }
+
+    if (!selectedAspectRatio) {
+      toast({
+        icon: "warning",
+        title: "Aspect ratio required",
+        text: "Please select an aspect ratio.",
+      });
+      return;
+    }
+
+    if (selectedPlatforms.length === 0) {
+      toast({
+        icon: "warning",
+        title: "Platform required",
+        text: "Please select at least one platform.",
+      });
+      return;
+    }
+
+    setDeliverables((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name: deliverableName.trim(),
+        deliveries: selectedDeliveries,
+        aspectRatio: selectedAspectRatio,
+        platforms: selectedPlatforms,
+        quantity,
+      },
+    ]);
+
+    setDeliverableName("");
+    setSelectedDeliveries([]);
+    setSelectedAspectRatio("");
+    setSelectedPlatforms([]);
+    setQuantity(1);
+  };
+
+  const handleRemoveDeliverable = (id: string) => {
+    setDeliverables((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const validateForm = () => {
+
+    if (isFormLocked) {
+      toast({
+        icon: "warning",
+        title: "Milestone locked",
+        text: "This milestone has been accepted and cannot be edited.",
+      });
+      return false;
+    }
+    if (!brandId) {
+      toast({
+        icon: "warning",
+        title: "Brand ID missing",
+        text: "Brand ID is required to create a milestone.",
+      });
+      return false;
+    }
+
+    if (!campaignId) {
+      toast({
+        icon: "warning",
+        title: "Campaign ID missing",
+        text: "Campaign ID is required to create a milestone.",
+      });
+      return false;
+    }
+
+    if (!influencerId) {
+      toast({
+        icon: "warning",
+        title: "Influencer ID missing",
+        text: "Influencer ID is required to create a milestone.",
+      });
+      return false;
+    }
+
+    if (!contractId) {
+      toast({
+        icon: "warning",
+        title: "Contract ID missing",
+        text: "Contract ID is required to create a milestone.",
+      });
+      return false;
+    }
+
+    if (!milestoneName.trim()) {
+      toast({
+        icon: "warning",
+        title: "Milestone name required",
+        text: "Please enter a milestone name.",
+      });
+      return false;
+    }
+
+    const milestoneBudgetNum = Number(milestoneBudget);
+
+    if (
+      !milestoneBudget ||
+      Number.isNaN(milestoneBudgetNum) ||
+      milestoneBudgetNum <= 0
+    ) {
+      setMilestoneBudgetError("Please enter a valid milestone budget greater than 0.");
+
+      toast({
+        icon: "warning",
+        title: "Milestone budget required",
+        text: "Please enter a valid milestone budget greater than 0.",
+      });
+
+      return false;
+    }
+
+    if (
+      safeInfluencerBudget > 0 &&
+      milestoneBudgetNum > remainingInfluencerBudget
+    ) {
+      setMilestoneBudgetError(
+        `Remaining influencer budget is $${formatBudget(
+          remainingInfluencerBudget
+        )}.`
+      );
+
+      showMilestoneBudgetLimitToast();
+
+      return false;
+    }
+
+    if (deliverables.length === 0) {
+      toast({
+        icon: "warning",
+        title: "Add at least one deliverable",
+        text: "Please add one deliverable before creating the milestone.",
+      });
+      return false;
+    }
+
+    if (!startDate) {
+      toast({
+        icon: "warning",
+        title: "Start date required",
+        text: "Please select a start date.",
+      });
+      return false;
+    }
+
+    if (!endDate) {
+      toast({
+        icon: "warning",
+        title: "End date required",
+        text: "Please select an end date.",
+      });
+      return false;
+    }
+
+    if (new Date(endDate).getTime() < new Date(startDate).getTime()) {
+      toast({
+        icon: "warning",
+        title: "Invalid date range",
+        text: "End date cannot be before start date.",
+      });
+      return false;
+    }
+
+    if (needDraftFirst && !draftDate) {
+      toast({
+        icon: "warning",
+        title: "Draft date required",
+        text: "Please select a draft date or uncheck draft first.",
+      });
+      return false;
+    }
+
+    if (
+      needDraftFirst &&
+      draftDate &&
+      startDate &&
+      new Date(draftDate).getTime() < new Date(startDate).getTime()
+    ) {
+      toast({
+        icon: "warning",
+        title: "Invalid draft date",
+        text: "Draft date cannot be before the start date.",
+      });
+      return false;
+    }
+
+    return true;
   };
 
   const handleCreateMilestone = async () => {
     try {
-      setError("");
-      setTopupSuccess("");
-
       if (walletShortfall) {
-        openTopupModalFromShortfall();
+        setWalletModalOpen(true);
         return;
       }
 
-      if (!brandId) {
-        setError("Brand ID is missing.");
-        return;
-      }
+      if (!validateForm()) return;
 
-      if (!campaignId) {
-        setError("Campaign ID is missing.");
-        return;
-      }
+      const milestoneBudgetNum = Number(milestoneBudget);
 
-      if (!influencerId) {
-        setError("Influencer ID is missing.");
-        return;
-      }
+      const payloadAttachments = attachments
+        .map(normalizeAttachmentForPayload)
+        .filter(Boolean);
 
-      if (!milestoneTitle.trim()) {
-        setError("Milestone title is required.");
-        return;
-      }
-
-      const amountNum = Number(amount);
-
-      if (!amount || Number.isNaN(amountNum) || amountNum <= 0) {
-        setError("Please enter a valid amount greater than 0.");
-        return;
-      }
+      const payloadDeliverables = deliverables.map((item) => ({
+        deliverableName: item.name.trim(),
+        deliveries: item.deliveries,
+        aspectRatio: item.aspectRatio,
+        platforms: item.platforms,
+        quantity: Number(item.quantity || 1),
+      }));
 
       setSubmitting(true);
 
-      await apiCreateMilestone({
-        brandId,
-        campaignId,
-        influencerId,
-        milestoneTitle: milestoneTitle.trim(),
-        amount: amountNum,
+      const commonPayload = {
+        milestoneTitle: milestoneName.trim(),
+        milestoneBudget: milestoneBudgetNum,
+        amount: milestoneBudgetNum,
         milestoneDescription: milestoneDescription.trim(),
-      });
+
+        attachments: payloadAttachments,
+
+        deliverables: payloadDeliverables,
+
+        // Submission link is separate and optional.
+        submissionLink: submissionLink.trim(),
+
+        startDate,
+        endDate,
+        graceDays: graceDays ? Number(graceDays) : 0,
+
+        needDraftFirst,
+        draftDate: needDraftFirst ? draftDate : "",
+      };
+
+      if (isEditMode) {
+        await apiEditMilestone({
+          milestoneId,
+          milestoneHistoryId,
+          ...commonPayload,
+        });
+
+        toast({
+          icon: "success",
+          title: "Milestone updated",
+          text: "The milestone has been updated successfully.",
+        });
+      } else {
+        await apiCreateMilestone({
+          brandId,
+          campaignId: campaignId || "",
+          influencerId: influencerId || "",
+          contractId: contractId || "",
+          ...commonPayload,
+        });
+
+        toast({
+          icon: "success",
+          title: "Milestone created",
+          text: "The milestone has been created successfully.",
+        });
+      }
 
       setWalletShortfall(null);
       onSubmit?.();
       onClose();
     } catch (err: any) {
-      const message = getApiErrorMessage(err, "Failed to create milestone");
+      const message = getApiErrorMessage(
+        err,
+        isEditMode ? "Failed to update milestone" : "Failed to create milestone"
+      );
+
       const apiData = err?.response?.data || {};
       const needToAdd = Number(apiData?.needToAdd || 0);
 
       if (
         typeof message === "string" &&
-        message.toLowerCase().includes("insufficient wallet balance")
+        message.toLowerCase().includes("insufficient")
       ) {
         setWalletShortfall({
           needToAdd,
@@ -368,10 +1247,13 @@ export default function AddMilestoneCard({
           frozenBalance: Number(apiData?.frozenBalance || 0),
           usableBalance: Number(apiData?.usableBalance || 0),
         });
-        setError(message);
-      } else {
-        setError(message);
       }
+
+      toast({
+        icon: "error",
+        title: isEditMode ? "Milestone not updated" : "Milestone not created",
+        text: message,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -386,118 +1268,362 @@ export default function AddMilestoneCard({
   }) => {
     setWalletModalOpen(false);
     setWalletShortfall(null);
-    setError("");
-    setTopupSuccess(
-      `Wallet balance added successfully. ₹${Number(payload.amount || 0).toFixed(
-        2
-      )} was added. You can now create the milestone.`
-    );
+
+    toast({
+      icon: "success",
+      title: "Wallet balance added",
+      text: `₹${safeMoney(Number(payload.amount || 0))} was added. You can now create the milestone.`,
+    });
   };
 
   if (!open) return null;
 
   return (
     <>
+      <ToastStyles />
+
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-3 sm:p-4 md:p-6"
+        className="fixed inset-0 z-50 flex h-screen items-center justify-end overflow-hidden bg-[rgba(1,1,1,0.30)] px-5 py-3"
         onClick={() => {
           if (!submitting) onClose();
         }}
       >
         <div
-          className="flex max-h-[90vh] w-full max-w-[32rem] flex-col overflow-hidden rounded-[1rem] bg-white shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]"
+          className="flex h-[calc(100vh-1.5rem)] w-[64rem] max-w-[calc(100vw-2.5rem)] animate-[slideInRight_220ms_ease-out] flex-col items-start gap-8 overflow-hidden rounded-[1rem] bg-white px-7 py-5 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.16),0_0_12px_0_rgba(0,0,0,0.08)]"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex w-full items-center justify-between border-b border-[#F0F0F0] px-4 py-4 sm:px-5 md:px-7">
+          <style jsx global>{`
+            @keyframes slideInRight {
+              from {
+                opacity: 0;
+                transform: translateX(32px);
+              }
+              to {
+                opacity: 1;
+                transform: translateX(0);
+              }
+            }
+          `}</style>
+
+          <div className="flex w-full shrink-0 items-center justify-between self-stretch border-b border-[#E6E6E6] pb-4">
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold leading-7 text-[#1A1A1A] sm:text-[1.25rem]">
-                Create Milestone
+              <h2 className="font-['Inter'] text-xl font-semibold leading-7 tracking-[0] text-[#1A1A1A]">
+                Milestone
               </h2>
+
               {modalSubtitle ? (
-                <p className="mt-1 truncate text-xs text-[#7A7A7A]">
+                <p className="mt-0.5 truncate font-['Inter'] text-xs font-normal leading-4 text-[#969696]">
                   {modalSubtitle}
                 </p>
               ) : null}
             </div>
 
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={onClose}
-              disabled={submitting}
-              className="ml-3 shrink-0 rounded-md p-1 text-[#666666] transition hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+            <div className="flex h-8 shrink-0 items-center gap-2">
+              <button
+                type="button"
+                className="flex h-full items-center justify-center gap-2 rounded-xl px-2 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] transition hover:bg-[#F5F5F5]"
+              >
+                Edit
+                <PencilSimpleLine size={14} weight="regular" />
+              </button>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 md:px-7">
-            <div className="space-y-4">
-              <FloatingInput
-                label="Milestone Title *"
-                value={milestoneTitle}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setMilestoneTitle(e.target.value)
-                }
-              />
-
-              <LabeledTextarea
-                label="Description"
-                placeholder="Enter milestone description"
-                rows={5}
-                maxLength={500}
-                showCharCount
-                value={milestoneDescription}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                  setMilestoneDescription(e.target.value)
-                }
-              />
-
-              <FloatingInput
-                label="Amount *"
-                type="number"
-                min="0"
-                step="0.01"
-                value={amount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setAmount(e.target.value)
-                }
-              />
-
-              {walletShortfall ? (
-                <div className="rounded-xl border border-[#F1D7A8] bg-[#FFF8EB] px-4 py-3 text-sm text-[#7A5718]">
-                  <div className="font-medium">Insufficient wallet balance</div>
-                  <div className="mt-1">
-                    Please add{" "}
-                    <span className="font-semibold">
-                      ₹{Number(walletShortfall.needToAdd || 0).toFixed(2)}
-                    </span>{" "}
-                    to continue.
-                  </div>
-                </div>
-              ) : null}
-
-              {topupSuccess ? (
-                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-                  {topupSuccess}
-                </div>
-              ) : null}
-
-              {error ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
-                  {error}
-                </div>
-              ) : null}
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={onClose}
+                disabled={submitting}
+                className="flex h-8 w-8 items-center justify-center gap-2 rounded-lg text-[#1A1A1A] transition hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
-          <div className="flex flex-col-reverse gap-3 border-t border-[#F0F0F0] px-4 py-4 sm:flex-row sm:justify-end sm:px-5 md:px-7">
+          <div className="min-h-0 w-full flex-1 overflow-y-auto px-1">
+            <div className="flex w-full flex-col items-start gap-4">
+              <FloatingInput
+                label="Milestone Name"
+                required
+                value={milestoneName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setMilestoneName(e.target.value)
+                }
+                disabled={isFormLocked}
+                className="min-h-[3.875rem] w-full rounded-xl border-[#D6D6D6]"
+              />
+
+              <div className="relative w-full">
+                <LabeledTextarea
+                  label="Description"
+                  placeholder="Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's"
+                  rows={6}
+                  maxLength={500}
+                  showCharCount
+                  value={milestoneDescription}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setMilestoneDescription(e.target.value)
+                  }
+                  className="min-h-[9.5rem] rounded-xl border-[#D6D6D6]"
+                />
+
+                <button
+                  type="button"
+                  className="absolute right-3 top-3 flex items-center gap-1 font-['Inter'] text-[0.6875rem] font-medium leading-4 text-[#1A1A1A]"
+                >
+                  <Paperclip className="h-3 w-3" />
+                  Attachment
+                </button>
+              </div>
+
+              <div className="w-full">
+                <FloatingInput
+                  label="Milestone Budget"
+                  required
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={milestoneBudget}
+                  onChange={handleMilestoneBudgetChange}
+                  onBlur={handleMilestoneBudgetBlur}
+                  disabled={isFormLocked}
+                  className={[
+                    "min-h-[3.875rem] w-full rounded-xl",
+                    isMilestoneBudgetInvalid
+                      ? "border-[#E35141] focus-within:border-[#E35141]"
+                      : "border-[#D6D6D6]",
+                  ].join(" ")}
+                />
+
+                {safeInfluencerBudget > 0 ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-['Inter'] text-xs leading-4">
+                    <span className="text-[#969696]">
+                      Influencer budget:{" "}
+                      <span className="font-medium text-[#1A1A1A]">
+                        ${formatBudget(safeInfluencerBudget)}
+                      </span>
+                    </span>
+
+                    <span className="text-[#969696]">
+                      Used:{" "}
+                      <span className="font-medium text-[#1A1A1A]">
+                        ${formatBudget(safeUsedMilestoneBudget)}
+                      </span>
+                    </span>
+
+                    <span
+                      className={
+                        remainingInfluencerBudget <= 0
+                          ? "font-medium text-[#E35141]"
+                          : "text-[#969696]"
+                      }
+                    >
+                      Remaining:{" "}
+                      <span
+                        className={
+                          remainingInfluencerBudget <= 0
+                            ? "font-medium text-[#E35141]"
+                            : "font-medium text-[#1A1A1A]"
+                        }
+                      >
+                        ${formatBudget(remainingInfluencerBudget)}
+                      </span>
+                    </span>
+                  </div>
+                ) : null}
+
+                {isMilestoneBudgetInvalid ? (
+                  <p className="mt-1 font-['Inter'] text-xs font-medium leading-4 text-[#E35141]">
+                    Milestone budget cannot be greater than remaining influencer budget.
+                    {milestoneBudgetError ? ` ${milestoneBudgetError}` : ""}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="w-full">
+                <div className="mt-3">
+                  <ProductImagesUpload
+                    files={attachments}
+                    onFilesChange={(files) => setAttachments(files)}
+                    title="Upload an Image"
+                    helperTypes="SVG, PNG, JPG or PDF under (max 5mb)"
+                  />
+                </div>
+              </div>
+
+              <FloatingInput
+                label="Deliverable name"
+                required
+                value={deliverableName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setDeliverableName(e.target.value)
+                }
+                disabled={isFormLocked}
+                className="min-h-[3.875rem] w-full rounded-xl border-[#D6D6D6]"
+              />
+
+              <div className="flex w-full items-stretch gap-2">
+                <MultiSelectDropdown
+                  label="Deliveries"
+                  required
+                  options={DELIVERY_OPTIONS}
+                  value={selectedDeliveries}
+                  onChange={setSelectedDeliveries}
+                />
+
+                <SingleSelectDropdown
+                  label="Aspect ratio"
+                  options={ASPECT_RATIO_OPTIONS}
+                  value={selectedAspectRatio}
+                  onChange={setSelectedAspectRatio}
+                />
+
+                <MultiSelectDropdown
+                  label="Platform"
+                  options={PLATFORM_OPTIONS}
+                  value={selectedPlatforms}
+                  onChange={setSelectedPlatforms}
+                  withIcons
+                  searchable={false}
+                />
+
+                <QuantityStepper value={quantity} onChange={setQuantity} />
+              </div>
+
+              <div className="flex w-full justify-end">
+                <button
+                  type="button"
+                  onClick={handleAddDeliverable}
+                  className="flex w-28 shrink-0 items-center justify-center gap-1 self-stretch rounded-lg border border-[#E6E6E6] bg-white px-2 py-2 font-['Inter'] text-xs font-medium leading-4 text-[#3A3A3A] transition hover:bg-[#F9F9F9]"
+                >
+                  Add Deliverable
+                </button>
+              </div>
+
+              {deliverables.length > 0 ? (
+                <div className="flex w-full flex-col gap-2">
+                  {deliverables.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="flex h-11 items-center justify-between self-stretch rounded-lg border border-[#E6E6E6] px-2.5 py-4"
+                    >
+                      <div className="flex min-w-0 flex-1 items-center gap-3">
+                        <span className="w-5 shrink-0 font-['Inter'] text-xs font-medium text-[#1A1A1A]">
+                          {index + 1}.
+                        </span>
+
+                        <span className="line-clamp-1 min-w-[6rem] flex-1 font-['Inter'] text-xs font-semibold text-[#1A1A1A]">
+                          {item.deliveries
+                            .map((delivery) =>
+                              getOptionLabel(DELIVERY_OPTIONS, delivery)
+                            )
+                            .join(", ")}
+                        </span>
+
+                        <span className="line-clamp-1 min-w-[5rem] flex-1 font-['Inter'] text-xs font-semibold text-[#1A1A1A]">
+                          {getOptionLabel(
+                            ASPECT_RATIO_OPTIONS,
+                            item.aspectRatio
+                          )}
+                        </span>
+
+                        <span className="flex min-w-[5rem] items-center gap-1">
+                          {item.platforms.map((platform) => (
+                            <PlatformIcon key={platform} platform={platform} />
+                          ))}
+                        </span>
+
+                        <span className="w-8 text-center font-['Inter'] text-xs font-semibold text-[#1A1A1A]">
+                          {item.quantity}
+                        </span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDeliverable(item.id)}
+                        className="ml-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[#1A1A1A] hover:bg-[#F5F5F5]"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="flex w-full flex-nowrap items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <FloatingDateInput
+                    id="milestone-start-date"
+                    label="Start Date"
+                    required
+                    type="date"
+                    value={startDate}
+                    onValueChange={(value) => setStartDate(value)}
+                  />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <FloatingDateInput
+                    id="milestone-end-date"
+                    label="End Date"
+                    required
+                    type="date"
+                    value={endDate}
+                    min={startDate}
+                    onValueChange={(value) => setEndDate(value)}
+                  />
+                </div>
+
+                <div className="w-[12.8125rem] shrink-0 pt-2">
+                  <SingleSelectDropdown
+                    label="Add grace days"
+                    options={GRACE_DAY_OPTIONS}
+                    value={graceDays}
+                    onChange={setGraceDays}
+                    variant="grace"
+                  />
+                </div>
+              </div>
+
+              <FloatingInput
+                label="Submission link"
+                value={submissionLink}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setSubmissionLink(e.target.value)
+                }
+                disabled={isFormLocked}
+                className="min-h-[3.875rem] w-full rounded-xl border-[#D6D6D6]"
+              />
+
+              <label className="flex items-center gap-2 font-['Inter'] text-xs font-normal leading-4 text-[#B8B8B8]">
+                <Checkbox
+                  checked={needDraftFirst}
+                  onCheckedChange={(checked) =>
+                    setNeedDraftFirst(Boolean(checked))
+                  }
+                  className="h-4 w-4"
+                />
+                I need a draft first
+              </label>
+
+              <FloatingDateInput
+                id="milestone-draft-date"
+                label={needDraftFirst ? "Add draft date *" : "Add draft date"}
+                type="date"
+                value={draftDate}
+                min={startDate}
+                onValueChange={(value) => setDraftDate(value)}
+                disabled={isFormLocked}
+              />
+            </div>
+          </div>
+
+          <div className="flex w-full shrink-0 justify-end gap-2 border-t border-[#F0F0F0] pt-3">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
               disabled={submitting}
-              className="h-10 w-full rounded-lg px-4 text-sm font-medium text-[#4D4D4D] hover:bg-[#F5F5F5] sm:w-auto"
+              className="h-10 rounded-lg px-7 text-sm font-medium text-[#4D4D4D] hover:bg-[#F5F5F5]"
             >
               Discard
             </Button>
@@ -506,9 +1632,15 @@ export default function AddMilestoneCard({
               type="button"
               onClick={handleCreateMilestone}
               disabled={submitting}
-              className="h-10 w-full rounded-lg bg-[#1A1A1A] px-4 text-sm font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              className="h-10 rounded-lg bg-[#1A1A1A] px-7 text-sm font-medium text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {primaryButtonLabel}
+              {isEditMode
+                ? submitting
+                  ? "Updating..."
+                  : "Update Milestone"
+                : submitting
+                  ? "Creating..."
+                  : "Create Milestone"}
             </Button>
           </div>
         </div>
