@@ -1,1119 +1,1241 @@
-"use client";
+"use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
-import {
-  CheckCircle2,
-  Loader2,
-  Send,
-  Star,
-  XCircle,
-  Award,
-  Clock,
-  User,
-  Tag,
-  Lock,
-  FileText,
-  ChevronRight,
-} from "lucide-react";
+import * as React from "react"
+import { AnimatePresence, motion } from "framer-motion"
+import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react"
+import { useParams, useRouter } from "next/navigation"
 
-/* ─── Types ─────────────────────────────────────────────── */
+import api, { getApiErrorMessage } from "@/lib/api"
+import { Button } from "@/components/ui/buttonComp"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { cn } from "@/lib/utils"
 
-type ReviewType = "brand_to_influencer" | "influencer_to_brand";
+type ReviewType = "brand_to_influencer" | "influencer_to_brand"
+type AnswerType = "emoji_rating" | "single_select" | "multi_select" | "text"
+type ReviewStatus = "pending" | "submitted" | "skipped" | "expired" | "revoked"
+type ReviewerRole = "brand" | "influencer"
+type HeroVariant = "creator" | "brand"
+type Answers = Record<string, unknown>
 
-type PublicReview = {
-  _id: string;
-  reviewRequestId?: string;
-  reviewType: ReviewType;
-  reviewerRole: "brand" | "influencer";
-  revieweeRole: "brand" | "influencer";
-  status: string;
-  tokenExpiresAt?: string;
-
-  campaign?: { _id?: string; name?: string };
-  brand?: { _id?: string; name?: string; email?: string };
-  influencer?: {
-    _id?: string;
-    name?: string;
-    email?: string;
-    handle?: string;
-  };
-};
-
-type PublicResponse = {
-  success?: boolean;
-  message?: string;
-  data?: PublicReview;
-};
-
-type SubmitResponse = { success?: boolean; message?: string; data?: any };
-
-/* ─── API helpers ────────────────────────────────────────── */
-
-const API_BASE = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  ""
-).replace(/\/+$/, "");
-
-function apiUrl(path = "") {
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
-  return `${API_BASE}${cleanPath}`;
+type QuestionnaireOption = {
+  value: string | number
+  emoji?: string
+  label: string
+  score?: number
 }
 
-async function apiRequest<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
+type QuestionnaireQuestion = {
+  key: string
+  label: string
+  type: AnswerType
+  required: boolean
+  description?: string
+  placeholder?: string
+  maxLength?: number
+  options?: QuestionnaireOption[]
+  noteStarRating?: {
+    enabled: boolean
+    key: string
+    label: string
+    required: boolean
+    min: number
+    max: number
+    options?: QuestionnaireOption[]
+  }
+}
 
-  const payload = await response.json().catch(() => ({}));
+type Questionnaire = {
+  version: number
+  reviewType: ReviewType
+  title: string
+  description: string
+  questions: QuestionnaireQuestion[]
+}
 
-  if (!response.ok || payload?.success === false) {
-    throw new Error(payload?.message || "Request failed");
+type ReviewPayload = {
+  _id: string
+  reviewRequestId: string
+  reviewType: ReviewType
+  reviewerRole: ReviewerRole
+  revieweeRole: ReviewerRole
+  status: ReviewStatus
+  rating?: number | null
+  noteStarRating?: number | null
+  responses?: Array<{ questionKey: string; value: unknown }>
+  responseMap?: Record<string, { value: unknown; score?: number | null }>
+  campaign?: { _id: string; name: string }
+  brand?: {
+    _id: string
+    name: string
+    email?: string
+    logo?: string
+    image?: string
+    avatar?: string
+    profileImage?: string
+    brandLogo?: string
+    profilePic?: string
+    picture?: string
+  }
+  influencer?: {
+    _id: string
+    name: string
+    email?: string
+    handle?: string
+    image?: string
+    avatar?: string
+    profileImage?: string
+    profilePicture?: string
+    profilePic?: string
+    picture?: string
+  }
+  questionnaire: Questionnaire
+}
+
+type PublicReviewResponse = {
+  success: boolean
+  message?: string
+  canUpdate?: boolean
+  canSubmit?: boolean
+  data: ReviewPayload
+}
+
+type SubmitResponse = {
+  success: boolean
+  message?: string
+  data?: unknown
+}
+
+const API_PREFIX = "/campaign-reviews"
+const NOTO_EMOJI_GIF_BASE = "https://fonts.gstatic.com/s/e/notoemoji/latest"
+
+const FALLBACK_EMOJI_OPTIONS: QuestionnaireOption[] = [
+  { value: 5, emoji: "😍", label: "Amazing", score: 5 },
+  { value: 4, emoji: "😊", label: "Smooth", score: 4 },
+  { value: 3, emoji: "🙂", label: "Good", score: 3 },
+  { value: 2, emoji: "😐", label: "Average", score: 2 },
+  { value: 1, emoji: "😕", label: "Difficult", score: 1 },
+]
+
+const EMOJI_CODEPOINTS: Record<string, string> = {
+  "😍": "1f60d",
+  "😊": "1f60a",
+  "🙂": "1f642",
+  "😐": "1f610",
+  "😕": "1f615",
+  "👏": "1f44f",
+}
+
+const CREATOR_HERO_GRADIENT =
+  "linear-gradient(109deg, #FAFAFA 30.17%, rgba(255, 191, 0, 0.83) 50%, #F6BB2A 57.65%, #F3584E 74.04%, #E078D1 84.62%), #F9F9F9"
+
+const BRAND_HERO_GRADIENT =
+  "var(--Gradient-Brand-Primary-Radial, radial-gradient(100% 100% at 50% 0%, #FF8C01 0%, #FFBF00 37.94%, #FFFFFF 90.87%))"
+
+const CREATOR_FLOATERS = [
+  { icon: "▶️", className: "left-[52px] top-[34px] rotate-[-8deg] text-[18px]" },
+  { icon: "✨", className: "left-[92px] top-[76px] text-[10px]" },
+  { icon: "🌟", className: "left-[120px] top-[28px] text-[16px]" },
+  { icon: "✨", className: "left-[158px] top-[34px] text-[9px]" },
+  { icon: "✌️", className: "left-[128px] top-[106px] rotate-[-14deg] text-[38px]" },
+  { icon: "💚", className: "left-[218px] top-[18px] text-[34px]" },
+  { icon: "🎬", className: "left-[268px] top-[26px] rotate-[-16deg] text-[15px]" },
+  { icon: "🔥", className: "left-[302px] top-[50px] text-[18px]" },
+  { icon: "🌟", className: "right-[46px] top-[56px] text-[22px]" },
+  { icon: "🤝", className: "left-[202px] top-[96px] text-[15px]" },
+  { icon: "😻", className: "right-[98px] top-[116px] rotate-[14deg] text-[42px]" },
+]
+
+const BRAND_STARS = [
+  "left-[18px] top-[15px] text-[24px]",
+  "left-[54px] top-[92px] text-[17px]",
+  "left-[123px] top-[105px] text-[30px]",
+  "left-[232px] top-[43px] text-[22px]",
+  "left-[342px] top-[94px] text-[18px]",
+  "right-[31px] top-[138px] text-[28px]",
+  "right-[39px] top-[5px] text-[18px]",
+]
+
+function getNotoEmojiGifUrl(emoji?: string) {
+  const codepoint = emoji ? EMOJI_CODEPOINTS[emoji] : ""
+  return codepoint ? `${NOTO_EMOJI_GIF_BASE}/${codepoint}/512.gif` : ""
+}
+
+export default function RatingReviewTokenPage() {
+  const params = useParams<{ token?: string }>()
+  const router = useRouter()
+  const token = String(params?.token || "")
+
+  const [loading, setLoading] = React.useState(true)
+  const [submitting, setSubmitting] = React.useState(false)
+  const [error, setError] = React.useState("")
+  const [review, setReview] = React.useState<ReviewPayload | null>(null)
+  const [canSubmit, setCanSubmit] = React.useState(false)
+  const [canUpdate, setCanUpdate] = React.useState(false)
+  const [started, setStarted] = React.useState(false)
+  const [step, setStep] = React.useState(0)
+  const [answers, setAnswers] = React.useState<Answers>({})
+  const [submitted, setSubmitted] = React.useState(false)
+
+  React.useEffect(() => {
+    let isMounted = true
+
+    async function loadReview() {
+      if (!token) {
+        setError("Review token is missing.")
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      setError("")
+
+      try {
+        const res = await api.get<PublicReviewResponse>(`${API_PREFIX}/public/${token}`)
+        const payload = res.data?.data
+
+        if (!isMounted) return
+
+        setReview(payload)
+        setCanSubmit(Boolean(res.data?.canSubmit))
+        setCanUpdate(Boolean(res.data?.canUpdate))
+        setAnswers(buildInitialAnswers(payload))
+      } catch (err) {
+        if (!isMounted) return
+        setError(await getApiErrorMessage(err, "Failed to load this review link."))
+      } finally {
+        if (isMounted) setLoading(false)
+      }
+    }
+
+    loadReview()
+
+    return () => {
+      isMounted = false
+    }
+  }, [token])
+
+  const questions = React.useMemo(
+    () => review?.questionnaire?.questions || [],
+    [review?.questionnaire?.questions]
+  )
+
+  const currentQuestion = questions[step]
+  const targetName = getTargetName(review)
+  const targetAvatarSrc = getTargetAvatarSrc(review)
+  const heroVariant: HeroVariant = review?.reviewType === "influencer_to_brand" ? "brand" : "creator"
+  const reviewerLabel = review?.reviewerRole === "brand" ? "Brand Feedback" : "Influencer Feedback"
+  const isLastQuestion = step === questions.length - 1
+  const submittedRating = getSubmittedRating(answers)
+
+  const canGoNext = currentQuestion
+    ? currentQuestion.key === "note"
+      ? Number(answers.note_star_rating || 0) >= 1
+      : currentQuestion.required
+        ? isQuestionAnswered(currentQuestion, answers[currentQuestion.key])
+        : true
+    : false
+
+  const updateAnswer = React.useCallback((key: string, value: unknown) => {
+    setAnswers((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const submitReview = React.useCallback(async () => {
+    if (!review?.questionnaire) return
+
+    const missingQuestion = questions.find(
+      (question) => question.required && !isQuestionAnswered(question, answers[question.key])
+    )
+
+    if (missingQuestion) {
+      setStep(Math.max(0, questions.findIndex((question) => question.key === missingQuestion.key)))
+      setError(`${missingQuestion.label} is required.`)
+      return
+    }
+
+    if (Number(answers.note_star_rating || 0) < 1) {
+      const noteIndex = questions.findIndex((question) => question.key === "note")
+      if (noteIndex >= 0) setStep(noteIndex)
+      setError("Please select a star rating before continuing.")
+      return
+    }
+
+    setSubmitting(true)
+    setError("")
+
+    try {
+      await api.post<SubmitResponse>(`${API_PREFIX}/public/${token}`, {
+        answers: buildSubmitAnswers(answers, questions),
+      })
+      setSubmitted(true)
+    } catch (err) {
+      setError(await getApiErrorMessage(err, "Failed to submit review."))
+    } finally {
+      setSubmitting(false)
+    }
+  }, [answers, questions, review?.questionnaire, token])
+
+  const handleNext = React.useCallback(async () => {
+    if (!currentQuestion) return
+
+    if (currentQuestion.key === "note" && Number(answers.note_star_rating || 0) < 1) {
+      setError("Please select a star rating before continuing.")
+      return
+    }
+
+    if (currentQuestion.required && !isQuestionAnswered(currentQuestion, answers[currentQuestion.key])) {
+      setError("Please answer this question before continuing.")
+      return
+    }
+
+    setError("")
+
+    if (!isLastQuestion) {
+      setStep((prev) => prev + 1)
+      return
+    }
+
+    await submitReview()
+  }, [answers, currentQuestion, isLastQuestion, submitReview])
+
+  const handleSkip = React.useCallback(async () => {
+    if (currentQuestion?.key === "note" && Number(answers.note_star_rating || 0) < 1) {
+      setError("Please select a star rating before continuing.")
+      return
+    }
+
+    setError("")
+
+    if (!isLastQuestion) {
+      setStep((prev) => prev + 1)
+      return
+    }
+
+    await submitReview()
+  }, [answers.note_star_rating, currentQuestion?.key, isLastQuestion, submitReview])
+
+  const handleBack = React.useCallback(() => {
+    setError("")
+    if (step === 0) setStarted(false)
+    else setStep((prev) => Math.max(0, prev - 1))
+  }, [step])
+
+  if (loading) {
+    return <CenteredState icon="loading" title="Loading review" description="Please wait while we open this review link." />
   }
 
-  return payload as T;
-}
+  if (error && !review) {
+    return (
+      <CenteredState
+        icon="error"
+        title="Review link unavailable"
+        description={error}
+        actionLabel="Go back"
+        onAction={() => router.back()}
+      />
+    )
+  }
 
-/* ─── Utils ──────────────────────────────────────────────── */
+  if (!review?.questionnaire || questions.length === 0) {
+    return (
+      <CenteredState
+        icon="error"
+        title="Review not found"
+        description="We could not find a valid questionnaire for this review link."
+        actionLabel="Go back"
+        onAction={() => router.back()}
+      />
+    )
+  }
 
-function cx(...classes: Array<string | false | null | undefined>) {
-  return classes.filter(Boolean).join(" ");
-}
+  if (!canSubmit) {
+    return (
+      <CenteredState
+        icon="error"
+        title="Review cannot be submitted"
+        description="This review link is no longer active."
+        actionLabel="Close"
+        onAction={() => router.back()}
+      />
+    )
+  }
 
-function getTokenFromParams(value: string | string[] | undefined) {
-  if (Array.isArray(value)) return value[0] || "";
-  return String(value || "");
-}
-
-function formatDate(value?: string) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function getReviewTitle(review: PublicReview | null) {
-  if (!review) return "Campaign Review";
-  return review.reviewType === "brand_to_influencer"
-    ? `Review for ${review.influencer?.name || "Influencer"}`
-    : `Review for ${review.brand?.name || "Brand"}`;
-}
-
-function getReviewDescription(review: PublicReview | null) {
-  if (!review) return "";
-  return review.reviewType === "brand_to_influencer"
-    ? `Share your experience working with ${review.influencer?.name || "this influencer"
-    } for ${review.campaign?.name || "this campaign"}.`
-    : `Share your experience working with ${review.brand?.name || "this brand"
-    } for ${review.campaign?.name || "this campaign"}.`;
-}
-
-function getReviewerLabel(review: PublicReview | null) {
-  if (!review) return "";
-  return review.reviewerRole === "brand"
-    ? review.brand?.name || "Brand"
-    : review.influencer?.name || "Influencer";
-}
-
-function getRevieweeLabel(review: PublicReview | null) {
-  if (!review) return "";
-  return review.revieweeRole === "brand"
-    ? review.brand?.name || "Brand"
-    : review.influencer?.name || "Influencer";
-}
-
-/* ─── Rating label helper ────────────────────────────────── */
-
-function ratingLabel(value: number) {
-  return ["", "Poor", "Fair", "Good", "Great", "Excellent"][value] ?? "";
-}
-
-/* ─── RatingInput ────────────────────────────────────────── */
-
-function RatingInput({
-  value,
-  onChange,
-  size = "md",
-}: {
-  value: number;
-  onChange: (value: number) => void;
-  size?: "sm" | "md" | "lg";
-}) {
-  const [hovered, setHovered] = useState(0);
-  const iconSize =
-    size === "lg" ? "h-9 w-9" : size === "sm" ? "h-5 w-5" : "h-7 w-7";
-  const active = hovered || value;
+  if (submitted) {
+    return (
+      <SubmitSuccessScreen
+        rating={submittedRating}
+        targetName={targetName}
+        avatarSrc={targetAvatarSrc}
+        avatarVariant={heroVariant}
+      />
+    )
+  }
 
   return (
-    <div className="flex items-center gap-1">
-      {Array.from({ length: 5 }).map((_, index) => {
-        const starValue = index + 1;
-        const lit = starValue <= active;
-
-        return (
-          <button
-            key={starValue}
-            type="button"
-            onClick={() => onChange(starValue)}
-            onMouseEnter={() => setHovered(starValue)}
-            onMouseLeave={() => setHovered(0)}
-            className="rounded-lg p-0.5 transition-transform hover:scale-110 focus:outline-none"
-            aria-label={`${starValue} star`}
-          >
-            <Star
-              className={cx(
-                iconSize,
-                "transition-colors duration-150",
-                lit
-                  ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.5)]"
-                  : "text-stone-300"
-              )}
+    <main className="flex min-h-screen items-center justify-center bg-white px-0 sm:bg-[#F4F4F4] sm:px-5">
+      <section className="relative min-h-screen w-full overflow-hidden bg-white shadow-none sm:min-h-[560px] sm:max-w-[444px] sm:rounded-[24px] sm:shadow-[0_22px_70px_rgba(0,0,0,0.10)]">
+        <AnimatePresence mode="wait">
+          {!started ? (
+            <IntroScreen
+              key="intro"
+              targetName={targetName}
+              campaignName={review.campaign?.name || "Campaign"}
+              // reviewerLabel={reviewerLabel}
+              canUpdate={canUpdate}
+              avatarSrc={targetAvatarSrc}
+              heroVariant={heroVariant}
+              onClose={() => router.back()}
+              onStart={() => setStarted(true)}
             />
-          </button>
-        );
-      })}
+          ) : (
+            <QuestionScreen
+              key={currentQuestion?.key || step}
+              question={currentQuestion}
+              value={answers[currentQuestion.key]}
+              answers={answers}
+              step={step}
+              total={questions.length}
+              error={error}
+              submitting={submitting}
+              canGoNext={canGoNext}
+              onChange={(value) => updateAnswer(currentQuestion.key, value)}
+              onMetaChange={updateAnswer}
+              onBack={handleBack}
+              onClose={() => router.back()}
+              onNext={handleNext}
+              onSkip={handleSkip}
+            />
+          )}
+        </AnimatePresence>
+      </section>
+    </main>
+  )
+}
 
-      {size === "lg" && active > 0 && (
-        <span className="ml-2 text-sm font-semibold text-amber-600">
-          {ratingLabel(active)}
+function IntroScreen({
+  targetName,
+  campaignName,
+  // reviewerLabel,
+  canUpdate,
+  avatarSrc,
+  heroVariant,
+  onClose,
+  onStart,
+}: {
+  targetName: string
+  campaignName: string
+  // reviewerLabel: string
+  canUpdate: boolean
+  avatarSrc?: string
+  heroVariant: HeroVariant
+  onClose: () => void
+  onStart: () => void
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.2 }}
+      className="relative flex min-h-screen flex-col bg-white sm:min-h-[560px]"
+    >
+      <div className="relative h-[188px] overflow-visible">
+        <HeroBanner variant={heroVariant} />
+
+        <button
+          type="button"
+          aria-label="Close rating page"
+          onClick={onClose}
+          className="absolute right-[18px] top-[18px] z-40 flex size-9 items-center justify-center rounded-full bg-white text-[#1C1C1C] shadow-sm transition hover:scale-105"
+        >
+          <X className="size-5" strokeWidth={2.5} />
+        </button>
+
+        <AvatarCircle
+          name={targetName}
+          src={avatarSrc}
+          variant={heroVariant}
+          className="absolute bottom-[-36px] left-1/2 z-40 -translate-x-1/2"
+        />
+      </div>
+
+      <div className="relative z-20 flex flex-1 flex-col px-5 pb-5 pt-[62px] text-center">
+        {/* <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-[#9A9A9A]">
+          {reviewerLabel}
+        </p> */}
+
+        <h1 className="mx-auto max-w-[365px] text-[18px] font-bold leading-[1.25] tracking-[-0.01em] text-[#222222]">
+          How was working with {targetName}?
+        </h1>
+
+        <p className="mx-auto mt-3 max-w-[322px] text-[14px] leading-[1.35] text-[#A0A0A0]">
+          Share your campaign experience for {campaignName}. Your feedback helps creators grow, build stronger partnerships, and stand out through meaningful collaborations.
+        </p>
+
+        <div className="mt-auto space-y-3 pt-10">
+          <Button
+            className="h-[48px] w-full rounded-[12px] bg-[#1C1C1C] text-[14px] font-semibold text-white hover:bg-[#111111]"
+            onClick={onStart}
+          >
+            {canUpdate ? "Update Review" : "Rate Now"}
+          </Button>
+
+          <button type="button" className="h-10 text-[13px] font-medium text-[#9A9A9A]" onClick={onClose}>
+            Remind me later
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function HeroBanner({ variant }: { variant: HeroVariant }) {
+  if (variant === "brand") return <BrandHeroBanner />
+
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-[#F9F9F9]" style={{ background: CREATOR_HERO_GRADIENT }}>
+      <CreatorHeroBeams />
+      <CreatorHeroFloaters />
+      <CreatorHeroClouds />
+    </div>
+  )
+}
+
+function BrandHeroBanner() {
+  return (
+    <div className="absolute inset-0 overflow-hidden bg-white" style={{ background: BRAND_HERO_GRADIENT }}>
+      <BrandHeroBeams />
+      <BrandHeroStars />
+      <div className="pointer-events-none absolute inset-x-0 bottom-[-1px] z-[3] h-[78px] bg-[linear-gradient(180deg,rgba(255,255,255,0)_0%,#FFFFFF_72%)]" />
+    </div>
+  )
+}
+
+function CreatorHeroBeams() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" aria-hidden="true">
+      <svg
+        className="absolute left-[4.1rem] top-[-0.65rem]"
+        style={{ width: "3.09375rem", height: "11.4375rem", transform: "rotate(-2.992deg)" }}
+        viewBox="0 0 50 89"
+        fill="none"
+        preserveAspectRatio="none"
+      >
+        <path d="M1.43813 -94.66L21.9102 -95.7299L49.4364 86.0813L0.00385993 88.6647L1.43813 -94.66Z" fill="url(#hero_beam_left)" />
+        <defs>
+          <linearGradient id="hero_beam_left" x1="15.1694" y1="-95.3776" x2="24.7201" y2="87.373" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FFE28A" />
+            <stop offset="1" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+
+      <svg
+        className="absolute left-[11.7rem] top-[-0.65rem]"
+        style={{ width: "4.0715rem", height: "11.4375rem", transform: "rotate(-12.304deg)" }}
+        viewBox="0 0 89 97"
+        fill="none"
+        preserveAspectRatio="none"
+      >
+        <path d="M0.00328702 -85.202L26.3624 -90.951L88.5029 82.798L24.8553 96.6797L0.00328702 -85.202Z" fill="url(#hero_beam_middle)" />
+        <defs>
+          <linearGradient id="hero_beam_middle" x1="17.6832" y1="-89.058" x2="56.6791" y2="89.7389" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FFEBB0" />
+            <stop offset="0.865385" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+
+      <svg
+        className="absolute right-[4.25rem] top-[-0.65rem]"
+        style={{ width: "3.48131rem", height: "11.4375rem", transform: "rotate(13.204deg)" }}
+        viewBox="0 0 77 76"
+        fill="none"
+        preserveAspectRatio="none"
+      >
+        <path d="M53.8477 -112.173L76.306 -106.903L54.2247 75.8852L-0.00381671 63.162L53.8477 -112.173Z" fill="url(#hero_beam_right)" />
+        <defs>
+          <linearGradient id="hero_beam_right" x1="68.9112" y1="-108.638" x2="27.1105" y2="69.5236" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#FFEBB0" />
+            <stop offset="0.889423" stopColor="white" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  )
+}
+
+function CreatorHeroFloaters() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[2]">
+      {CREATOR_FLOATERS.map((item, index) => (
+        <span key={`${item.icon}-${index}`} className={cn("absolute drop-shadow-sm", item.className)}>
+          {item.icon}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function CreatorHeroClouds() {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[3] h-[72px]">
+      <div className="absolute bottom-0 left-[-34px] h-[36px] w-[90px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 left-[32px] h-[46px] w-[92px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 left-[104px] h-[28px] w-[82px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 left-[154px] h-[35px] w-[86px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 left-[204px] h-[31px] w-[96px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 right-[48px] h-[54px] w-[116px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 right-[-28px] h-[66px] w-[132px] rounded-t-full bg-white" />
+      <div className="absolute bottom-0 left-0 right-0 h-[22px] bg-white" />
+    </div>
+  )
+}
+
+function BrandHeroBeams() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" aria-hidden="true">
+      <div className="absolute left-[58px] top-[-28px] h-[190px] w-[54px] rotate-[-8deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.72)_0%,rgba(255,255,255,0)_88%)]" />
+      <div className="absolute left-[176px] top-[-34px] h-[190px] w-[64px] rotate-[-13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.58)_0%,rgba(255,255,255,0)_86%)]" />
+      <div className="absolute right-[72px] top-[-30px] h-[190px] w-[58px] rotate-[13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.62)_0%,rgba(255,255,255,0)_89%)]" />
+    </div>
+  )
+}
+
+function BrandHeroStars() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[2]">
+      {BRAND_STARS.map((className, index) => (
+        <span key={index} className={cn("absolute drop-shadow-sm", className)}>
+          🌟
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function AvatarCircle({
+  name,
+  src,
+  variant,
+  className,
+  size = "large",
+}: {
+  name: string
+  src?: string
+  variant: HeroVariant
+  className?: string
+  size?: "large" | "small"
+}) {
+  const isBrand = variant === "brand"
+  const isSmall = size === "small"
+
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full border-white shadow-[0_12px_34px_rgba(0,0,0,0.13)]",
+        isBrand ? "bg-black" : "bg-[#FFD2DD]",
+        isSmall ? "size-5 border" : "size-[108px] border-[6px]",
+        className
+      )}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={name}
+          className={cn("h-full w-full object-cover", isBrand && !isSmall && "object-contain p-3")}
+        />
+      ) : (
+        <span
+          className={cn(
+            "font-bold uppercase",
+            isBrand ? "text-white" : "text-[#1C1C1C]",
+            isSmall ? "text-[8px]" : "text-[34px]"
+          )}
+        >
+          {getInitials(name)}
         </span>
       )}
     </div>
-  );
+  )
 }
 
-/* ─── Fonts (injected as a style tag) ────────────────────── */
-
-const fontStyle = `
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Outfit:wght@300;400;500;600;700&display=swap');
-
-  *, *::before, *::after { box-sizing: border-box; }
-
-  .review-root {
-    font-family: 'Outfit', sans-serif;
-  }
-  .review-display {
-    font-family: 'Cormorant Garamond', Georgia, serif;
-  }
-
-  .field-input {
-    width: 100%;
-    background: #FAFAF9;
-    border: 1.5px solid #E7E5E4;
-    border-radius: 14px;
-    padding: 0 18px;
-    font-family: 'Outfit', sans-serif;
-    font-size: 14px;
-    font-weight: 500;
-    color: #1C1917;
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-  }
-  .field-input:focus {
-    border-color: #92400E;
-    box-shadow: 0 0 0 3px rgba(120, 53, 15, 0.08);
-    background: #fff;
-  }
-  .field-input::placeholder { color: #A8A29E; font-weight: 400; }
-
-  .field-textarea {
-    width: 100%;
-    background: #FAFAF9;
-    border: 1.5px solid #E7E5E4;
-    border-radius: 14px;
-    padding: 14px 18px;
-    font-family: 'Outfit', sans-serif;
-    font-size: 14px;
-    font-weight: 500;
-    line-height: 1.7;
-    color: #1C1917;
-    outline: none;
-    resize: none;
-    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-  }
-  .field-textarea:focus {
-    border-color: #92400E;
-    box-shadow: 0 0 0 3px rgba(120, 53, 15, 0.08);
-    background: #fff;
-  }
-  .field-textarea::placeholder { color: #A8A29E; font-weight: 400; }
-
-  .submit-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    width: 100%;
-    height: 52px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #292524 0%, #1C1917 100%);
-    color: #fff;
-    font-family: 'Outfit', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    border: none;
-    cursor: pointer;
-    transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-  }
-  .submit-btn:hover:not(:disabled) {
-    opacity: 0.9;
-    transform: translateY(-1px);
-    box-shadow: 0 8px 28px rgba(0,0,0,0.22);
-  }
-  .submit-btn:active:not(:disabled) { transform: translateY(0); }
-  .submit-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-
-  .meta-pill {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 18px;
-    padding: 16px;
-    backdrop-filter: blur(4px);
-  }
-  .meta-pill-label {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: rgba(255,255,255,0.45);
-  }
-  .meta-pill-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .cat-card {
-    border-radius: 18px;
-    border: 1.5px solid #F5F5F4;
-    background: #FAFAF9;
-    padding: 16px;
-    transition: border-color 0.2s, background 0.2s;
-  }
-  .cat-card:has([aria-label]:focus) {
-    border-color: #D6D3D1;
-    background: #fff;
-  }
-
-  .section-divider {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #E7E5E4, transparent);
-    margin: 0;
-    border: none;
-  }
-
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(12px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .animate-fade-up {
-    animation: fadeUp 0.45s ease both;
-  }
-  .delay-100 { animation-delay: 0.10s; }
-  .delay-200 { animation-delay: 0.20s; }
-  .delay-300 { animation-delay: 0.30s; }
-  .delay-400 { animation-delay: 0.40s; }
-`;
-
-/* ─── Page ───────────────────────────────────────────────── */
-
-export default function PublicRatingReviewPage() {
-  const params = useParams();
-  const token = getTokenFromParams(params?.token as any);
-
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [review, setReview] = useState<PublicReview | null>(null);
-  const [error, setError] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-
-  const [rating, setRating] = useState(0);
-  const [ratings, setRatings] = useState({
-    workQuality: 0,
-    communication: 0,
-    timeliness: 0,
-    professionalism: 0,
-    wouldRecommend: 0,
-  });
-
-  const [reviewTitle, setReviewTitle] = useState("");
-  const [reviewText, setReviewText] = useState("");
-  const [privateFeedback, setPrivateFeedback] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
-
-  const categoryLabels = useMemo(
-    () => [
-      {
-        key: "workQuality",
-        label:
-          review?.reviewType === "brand_to_influencer"
-            ? "Work Quality"
-            : "Collaboration Quality",
-      },
-      { key: "communication", label: "Communication" },
-      { key: "timeliness", label: "Timeliness" },
-      { key: "professionalism", label: "Professionalism" },
-      { key: "wouldRecommend", label: "Would Recommend" },
-    ],
-    [review?.reviewType]
-  );
-
-  const loadReview = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
-      if (!token) throw new Error("Review token is missing");
-
-      const payload = await apiRequest<PublicResponse>(
-        `/campaign-reviews/public/${encodeURIComponent(token)}`
-      );
-      setReview(payload.data || null);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load review link.");
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  useEffect(() => { void loadReview(); }, [loadReview]);
-
-  function updateCategoryRating(key: keyof typeof ratings, value: number) {
-    setRatings((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleSubmit() {
-    try {
-      if (!rating) throw new Error("Please select an overall rating.");
-      if (!reviewText.trim()) throw new Error("Please write your review.");
-
-      setSubmitting(true);
-      setError("");
-
-      const tags = tagsInput
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean);
-
-      const payload = await apiRequest<SubmitResponse>(
-        `/campaign-reviews/public/${encodeURIComponent(token)}`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            rating,
-            ratings: {
-              workQuality: ratings.workQuality || null,
-              communication: ratings.communication || null,
-              timeliness: ratings.timeliness || null,
-              professionalism: ratings.professionalism || null,
-              wouldRecommend: ratings.wouldRecommend || null,
-            },
-            reviewTitle: reviewTitle.trim(),
-            reviewText: reviewText.trim(),
-            privateFeedback: privateFeedback.trim(),
-            tags,
-          }),
-        }
-      );
-
-      if (payload?.success === false) {
-        throw new Error(payload?.message || "Failed to submit review.");
-      }
-
-      setSubmitted(true);
-    } catch (err: any) {
-      setError(err?.message || "Failed to submit review.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  /* ── Loading ── */
-  if (loading) {
-    return (
-      <>
-        <style>{fontStyle}</style>
-        <main
-          className="review-root"
-          style={{
-            minHeight: "100vh",
-            background: "#F7F6F3",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-          }}
-        >
-          <div style={{ textAlign: "center" }}>
-            <Loader2
-              className="animate-spin"
-              style={{
-                width: 32,
-                height: 32,
-                color: "#A8A29E",
-                margin: "0 auto",
-              }}
-            />
-            <p
-              style={{
-                marginTop: 16,
-                fontSize: 14,
-                fontWeight: 500,
-                color: "#A8A29E",
-                letterSpacing: "0.01em",
-              }}
-            >
-              Loading your review…
-            </p>
-          </div>
-        </main>
-      </>
-    );
-  }
-
-  /* ── Error (no review) ── */
-  if (error && !review) {
-    return (
-      <>
-        <style>{fontStyle}</style>
-        <main
-          className="review-root"
-          style={{
-            minHeight: "100vh",
-            background: "#F7F6F3",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-          }}
-        >
-          <div
-            className="animate-fade-up"
-            style={{
-              width: "100%",
-              maxWidth: 480,
-              background: "#fff",
-              borderRadius: 28,
-              border: "1.5px solid #FEE2E2",
-              padding: "48px 40px",
-              textAlign: "center",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.06)",
-            }}
-          >
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "#FEF2F2",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto",
-              }}
-            >
-              <XCircle style={{ width: 28, height: 28, color: "#EF4444" }} />
-            </div>
-
-            <h1
-              className="review-display"
-              style={{
-                marginTop: 24,
-                fontSize: 28,
-                fontWeight: 600,
-                color: "#1C1917",
-                lineHeight: 1.2,
-              }}
-            >
-              Link unavailable
-            </h1>
-
-            <p
-              style={{
-                marginTop: 12,
-                fontSize: 14,
-                lineHeight: 1.7,
-                color: "#78716C",
-              }}
-            >
-              {error}
-            </p>
-          </div>
-        </main>
-      </>
-    );
-  }
-
-  /* ── Submitted ── */
-  if (submitted) {
-    return (
-      <>
-        <style>{fontStyle}</style>
-        <main
-          className="review-root"
-          style={{
-            minHeight: "100vh",
-            background: "#F7F6F3",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-          }}
-        >
-          <div
-            className="animate-fade-up"
-            style={{
-              width: "100%",
-              maxWidth: 480,
-              background: "#fff",
-              borderRadius: 28,
-              border: "1.5px solid #D1FAE5",
-              padding: "48px 40px",
-              textAlign: "center",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.06)",
-            }}
-          >
-            <div
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                background: "#ECFDF5",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                margin: "0 auto",
-              }}
-            >
-              <CheckCircle2
-                style={{ width: 28, height: 28, color: "#10B981" }}
-              />
-            </div>
-
-            <h1
-              className="review-display"
-              style={{
-                marginTop: 24,
-                fontSize: 32,
-                fontWeight: 600,
-                color: "#1C1917",
-                lineHeight: 1.2,
-              }}
-            >
-              Review submitted
-            </h1>
-
-            <p
-              style={{
-                marginTop: 12,
-                fontSize: 15,
-                lineHeight: 1.7,
-                color: "#78716C",
-              }}
-            >
-              Your feedback has been recorded. Thank you for taking the time to
-              share your experience.
-            </p>
-
-            <div
-              style={{
-                marginTop: 32,
-                display: "flex",
-                gap: 4,
-                justifyContent: "center",
-              }}
-            >
-              {[1, 2, 3, 4, 5].map((n) => (
-                <Star
-                  key={n}
-                  style={{
-                    width: 22,
-                    height: 22,
-                    fill: "#FCD34D",
-                    color: "#FCD34D",
-                  }}
-                />
-              ))}
-            </div>
-          </div>
-        </main>
-      </>
-    );
-  }
-
-  /* ── Main form ── */
-  return (
-    <>
-      <style>{fontStyle}</style>
-
-      <main
-        className="review-root"
-        style={{
-          minHeight: "100vh",
-          background: "#F7F6F3",
-          padding: "40px 16px 80px",
-        }}
-      >
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
-
-          {/* ── Card ── */}
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 32,
-              border: "1.5px solid #E7E5E4",
-              overflow: "hidden",
-              boxShadow: "0 12px 48px rgba(0,0,0,0.07)",
-            }}
-          >
-
-            {/* ── Hero header ── */}
-            <div
-              className="animate-fade-up"
-              style={{
-                background:
-                  "linear-gradient(145deg, #1C1917 0%, #292524 55%, #3B1F0E 100%)",
-                padding: "40px 40px 36px",
-                position: "relative",
-                overflow: "hidden",
-              }}
-            >
-              {/* Decorative orb */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: -60,
-                  right: -60,
-                  width: 240,
-                  height: 240,
-                  borderRadius: "50%",
-                  background:
-                    "radial-gradient(circle, rgba(251,191,36,0.12) 0%, transparent 70%)",
-                  pointerEvents: "none",
-                }}
-              />
-
-              {/* Badge */}
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "rgba(251,191,36,0.12)",
-                  border: "1px solid rgba(251,191,36,0.25)",
-                  borderRadius: 100,
-                  padding: "4px 12px",
-                  marginBottom: 20,
-                }}
-              >
-                <Award
-                  style={{ width: 13, height: 13, color: "#FCD34D" }}
-                />
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    color: "#FCD34D",
-                  }}
-                >
-                  Campaign Review
-                </span>
-              </div>
-
-              <h1
-                className="review-display"
-                style={{
-                  fontSize: "clamp(26px, 4vw, 36px)",
-                  fontWeight: 600,
-                  color: "#FAFAF9",
-                  lineHeight: 1.15,
-                  letterSpacing: "-0.01em",
-                  marginBottom: 12,
-                }}
-              >
-                {getReviewTitle(review)}
-              </h1>
-
-              <p
-                style={{
-                  fontSize: 14,
-                  lineHeight: 1.7,
-                  color: "rgba(255,255,255,0.55)",
-                  maxWidth: 520,
-                  marginBottom: 28,
-                }}
-              >
-                {getReviewDescription(review)}
-              </p>
-
-              {/* Meta pills */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-                  gap: 10,
-                }}
-              >
-                <div className="meta-pill">
-                  <span className="meta-pill-label">Campaign</span>
-                  <span className="meta-pill-value">
-                    {review?.campaign?.name || "—"}
-                  </span>
-                </div>
-
-                <div className="meta-pill">
-                  <span className="meta-pill-label">Reviewer</span>
-                  <span className="meta-pill-value">
-                    {getReviewerLabel(review)}
-                  </span>
-                </div>
-
-                <div className="meta-pill">
-                  <span className="meta-pill-label">Reviewing</span>
-                  <span className="meta-pill-value">
-                    {getRevieweeLabel(review)}
-                  </span>
-                </div>
-              </div>
-
-              {review?.tokenExpiresAt && (
-                <p
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    marginTop: 16,
-                    fontSize: 12,
-                    color: "rgba(255,255,255,0.35)",
-                    fontWeight: 500,
-                  }}
-                >
-                  <Clock style={{ width: 12, height: 12 }} />
-                  Expires&nbsp;{formatDate(review.tokenExpiresAt)}
-                </p>
-              )}
-            </div>
-
-            {/* ── Form body ── */}
-            <div style={{ padding: "36px 40px", display: "flex", flexDirection: "column", gap: 32 }}>
-
-              {/* Error banner */}
-              {error && (
-                <div
-                  style={{
-                    borderRadius: 14,
-                    background: "#FEF2F2",
-                    border: "1.5px solid #FECACA",
-                    padding: "14px 18px",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "#DC2626",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <XCircle style={{ width: 16, height: 16, flexShrink: 0 }} />
-                  {error}
-                </div>
-              )}
-
-              {/* ── Overall rating ── */}
-              <div className="animate-fade-up delay-100">
-                <div
-                  style={{
-                    background: "linear-gradient(135deg, #FFFBEB, #FEF3C7)",
-                    border: "1.5px solid #FDE68A",
-                    borderRadius: 20,
-                    padding: "24px 28px",
-                  }}
-                >
-                  <p
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                      color: "#92400E",
-                      marginBottom: 6,
-                    }}
-                  >
-                    Overall Rating <span style={{ color: "#EF4444" }}>*</span>
-                  </p>
-
-                  <p
-                    className="review-display"
-                    style={{
-                      fontSize: 20,
-                      fontWeight: 600,
-                      color: "#1C1917",
-                      marginBottom: 16,
-                    }}
-                  >
-                    How was your overall experience?
-                  </p>
-
-                  <RatingInput value={rating} onChange={setRating} size="lg" />
-                </div>
-              </div>
-
-              {/* ── Category ratings ── */}
-              <div className="animate-fade-up delay-200">
-                <SectionLabel icon={<Star style={{ width: 14, height: 14 }} />}>
-                  Category Ratings
-                </SectionLabel>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-                    gap: 12,
-                    marginTop: 14,
-                  }}
-                >
-                  {categoryLabels.map((item) => (
-                    <div key={item.key} className="cat-card">
-                      <p
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: "#44403C",
-                          marginBottom: 10,
-                        }}
-                      >
-                        {item.label}
-                      </p>
-
-                      <RatingInput
-                        value={ratings[item.key as keyof typeof ratings]}
-                        onChange={(v) =>
-                          updateCategoryRating(item.key as keyof typeof ratings, v)
-                        }
-                        size="sm"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <hr className="section-divider" />
-
-              {/* ── Review title ── */}
-              <div className="animate-fade-up delay-200">
-                <SectionLabel icon={<FileText style={{ width: 14, height: 14 }} />}>
-                  Review Title
-                </SectionLabel>
-
-                <input
-                  className="field-input"
-                  style={{ height: 48, marginTop: 10 }}
-                  value={reviewTitle}
-                  onChange={(e) => setReviewTitle(e.target.value)}
-                  maxLength={160}
-                  placeholder="e.g. Great collaboration, highly recommend"
-                />
-              </div>
-
-              {/* ── Public review ── */}
-              <div className="animate-fade-up delay-200">
-                <SectionLabel
-                  icon={<User style={{ width: 14, height: 14 }} />}
-                  required
-                >
-                  Public Review
-                </SectionLabel>
-
-                <p style={{ fontSize: 12, color: "#A8A29E", marginBottom: 10, marginTop: 4, fontWeight: 500 }}>
-                  This will be visible to others on the platform.
-                </p>
-
-                <textarea
-                  className="field-textarea"
-                  rows={6}
-                  value={reviewText}
-                  onChange={(e) => setReviewText(e.target.value)}
-                  maxLength={3000}
-                  placeholder="Describe your experience — what went well, what could be improved, and whether you'd work together again…"
-                />
-
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    marginTop: 6,
-                  }}
-                >
-                  <span style={{ fontSize: 11, color: "#D6D3D1", fontWeight: 500 }}>
-                    {reviewText.length}/3000
-                  </span>
-                </div>
-              </div>
-
-              <hr className="section-divider" />
-
-              {/* ── Private feedback ── */}
-              <div className="animate-fade-up delay-300">
-                <SectionLabel icon={<Lock style={{ width: 14, height: 14 }} />}>
-                  Private Feedback
-                </SectionLabel>
-
-                <p style={{ fontSize: 12, color: "#A8A29E", marginBottom: 10, marginTop: 4, fontWeight: 500 }}>
-                  Visible only to administrators — not public.
-                </p>
-
-                <textarea
-                  className="field-textarea"
-                  rows={4}
-                  value={privateFeedback}
-                  onChange={(e) => setPrivateFeedback(e.target.value)}
-                  maxLength={3000}
-                  placeholder="Optional private notes for the admin team…"
-                />
-              </div>
-
-              {/* ── Tags ── */}
-              <div className="animate-fade-up delay-300">
-                <SectionLabel icon={<Tag style={{ width: 14, height: 14 }} />}>
-                  Tags
-                </SectionLabel>
-
-                <input
-                  className="field-input"
-                  style={{ height: 48, marginTop: 10 }}
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
-                  placeholder="on-time, professional, creative, responsive"
-                />
-
-                <p style={{ marginTop: 8, fontSize: 12, color: "#A8A29E", fontWeight: 500 }}>
-                  Separate tags with commas.
-                </p>
-
-                {tagsInput.trim() && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
-                    {tagsInput
-                      .split(",")
-                      .map((t) => t.trim())
-                      .filter(Boolean)
-                      .map((tag) => (
-                        <span
-                          key={tag}
-                          style={{
-                            fontSize: 12,
-                            fontWeight: 600,
-                            background: "#F5F5F4",
-                            border: "1.5px solid #E7E5E4",
-                            borderRadius: 100,
-                            padding: "3px 12px",
-                            color: "#57534E",
-                          }}
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                  </div>
-                )}
-              </div>
-
-              <hr className="section-divider" />
-
-              {/* ── Submit ── */}
-              <div className="animate-fade-up delay-400">
-                <button
-                  className="submit-btn"
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                >
-                  {submitting ? (
-                    <Loader2 className="animate-spin" style={{ width: 16, height: 16 }} />
-                  ) : (
-                    <Send style={{ width: 16, height: 16 }} />
-                  )}
-                  {submitting ? "Submitting…" : "Submit Review"}
-                  {!submitting && (
-                    <ChevronRight style={{ width: 16, height: 16, marginLeft: -2 }} />
-                  )}
-                </button>
-
-                <p
-                  style={{
-                    marginTop: 14,
-                    fontSize: 12,
-                    color: "#A8A29E",
-                    textAlign: "center",
-                    fontWeight: 400,
-                  }}
-                >
-                  By submitting, you confirm this review reflects your genuine experience.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </main>
-    </>
-  );
-}
-
-/* ─── Section label helper component ────────────────────── */
-
-function SectionLabel({
-  icon,
-  children,
-  required,
+function QuestionScreen({
+  question,
+  value,
+  answers,
+  step,
+  total,
+  error,
+  submitting,
+  canGoNext,
+  onChange,
+  onMetaChange,
+  onBack,
+  onClose,
+  onNext,
+  onSkip,
 }: {
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-  required?: boolean;
+  question: QuestionnaireQuestion
+  value: unknown
+  answers: Answers
+  step: number
+  total: number
+  error: string
+  submitting: boolean
+  canGoNext: boolean
+  onChange: (value: unknown) => void
+  onMetaChange: (key: string, value: unknown) => void
+  onBack: () => void
+  onClose: () => void
+  onNext: () => void
+  onSkip: () => void
 }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-      }}
+    <motion.div
+      initial={{ opacity: 0, x: 16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -16 }}
+      transition={{ duration: 0.18 }}
+      className="flex min-h-screen flex-col bg-white px-[18px] py-[18px] sm:min-h-[560px]"
     >
-      {icon && (
-        <span style={{ color: "#A8A29E", display: "flex" }}>{icon}</span>
-      )}
-      <span
-        style={{
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: "0.01em",
-          color: "#1C1917",
-        }}
-      >
-        {children}
-      </span>
-      {required && (
-        <span style={{ color: "#EF4444", fontSize: 14 }}>*</span>
-      )}
+      <div className="flex items-center justify-between">
+        <button type="button" className="text-[13px] font-medium text-[#B9B9B9]" onClick={onBack}>
+          Back
+        </button>
+
+        <button
+          type="button"
+          aria-label="Close rating page"
+          onClick={onClose}
+          className="flex size-9 items-center justify-center rounded-full bg-[#FAFAFA] text-black transition hover:bg-[#F3F3F3]"
+        >
+          <X className="size-5" strokeWidth={2.4} />
+        </button>
+      </div>
+
+      <div className="mt-3 border-b border-[#E8E8E8] pb-4">
+        <h2 className="max-w-[380px] text-[18px] font-bold leading-[1.22] tracking-[-0.015em] text-[#1F1F1F]">
+          {question.label}
+        </h2>
+        <p className="mt-2 text-[13px] leading-[1.25] text-[#8D8D8D]">{getQuestionHint(question)}</p>
+      </div>
+
+      <div className="flex flex-1 flex-col">
+        <QuestionInput
+          question={question}
+          value={value}
+          answers={answers}
+          onChange={onChange}
+          onMetaChange={onMetaChange}
+        />
+
+        {error ? (
+          <div className="mt-3 flex items-start gap-2 rounded-xl bg-red-50 px-3 py-2 text-[13px] font-medium text-red-600">
+            <AlertCircle className="mt-0.5 size-4 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-between pb-1 pt-4">
+        <span className="text-[13px] font-bold text-[#1F1F1F]">
+          {step + 1} to {total}
+        </span>
+
+        <div className="flex items-center gap-8">
+          <button type="button" className="text-[13px] font-semibold text-[#A5A5A5]" onClick={onSkip} disabled={submitting}>
+            Skip
+          </button>
+          <Button
+            disabled={!canGoNext || submitting}
+            className="h-10 min-w-[104px] rounded-[10px] bg-[#1C1C1C] px-8 text-[13px] font-bold text-white hover:bg-[#111111] disabled:opacity-40"
+            onClick={onNext}
+          >
+            {submitting ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="size-4 animate-spin" />
+                Saving
+              </span>
+            ) : (
+              "Next"
+            )}
+          </Button>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function QuestionInput({
+  question,
+  value,
+  answers,
+  onChange,
+  onMetaChange,
+}: {
+  question: QuestionnaireQuestion
+  value: unknown
+  answers: Answers
+  onChange: (value: unknown) => void
+  onMetaChange: (key: string, value: unknown) => void
+}) {
+  if (question.type === "emoji_rating") {
+    return <EmojiRating options={question.options?.length ? question.options : FALLBACK_EMOJI_OPTIONS} value={value} onChange={onChange} />
+  }
+
+  if (question.type === "single_select") {
+    return <SingleSelectQuestion options={question.options || []} value={value} onChange={onChange} />
+  }
+
+  if (question.type === "multi_select") {
+    return <MultiSelectQuestion options={question.options || []} value={value} onChange={onChange} />
+  }
+
+  if (question.key === "note") {
+    return (
+      <NoteQuestion
+        question={question}
+        value={value}
+        starRating={Number(answers.note_star_rating || 0)}
+        onChange={onChange}
+        onStarChange={(rating) => onMetaChange("note_star_rating", rating)}
+      />
+    )
+  }
+
+  return <TextQuestion question={question} value={value} onChange={onChange} />
+}
+
+function EmojiRating({
+  options,
+  value,
+  onChange,
+}: {
+  options: QuestionnaireOption[]
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  return (
+    <div className="flex flex-1 items-center justify-between gap-3 px-4 pb-14 pt-20">
+      {options.map((option) => {
+        const optionValue = String(option.value)
+        const isSelected = String(value || "") === optionValue
+        const gifUrl = getNotoEmojiGifUrl(option.emoji)
+
+        return (
+          <div key={optionValue} className="group relative flex flex-col items-center">
+            <div
+              className={cn(
+                "pointer-events-none absolute -top-[54px] left-1/2 z-20 -translate-x-1/2 rounded-[10px] bg-[#1C1C1C] px-4 py-2 text-[14px] font-semibold text-white opacity-0 shadow-[0_10px_24px_rgba(0,0,0,0.18)] transition-all duration-200",
+                "after:absolute after:left-1/2 after:top-full after:size-0 after:-translate-x-1/2 after:border-x-[9px] after:border-t-[9px] after:border-x-transparent after:border-t-[#1C1C1C]",
+                "group-hover:-top-[58px] group-hover:opacity-100",
+                isSelected && "-top-[58px] opacity-100"
+              )}
+            >
+              {option.label}
+            </div>
+
+            <button
+              type="button"
+              aria-label={option.label || `Rating ${optionValue}`}
+              aria-pressed={isSelected}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex size-[58px] items-center justify-center rounded-2xl border bg-white transition-all duration-200",
+                "hover:-translate-y-0.5 hover:border-[#1C1C1C] hover:bg-[#F8F8F8] hover:shadow-[0_8px_22px_rgba(0,0,0,0.08)]",
+                isSelected
+                  ? "scale-110 border-[#1C1C1C] bg-[#F3F3F3] shadow-[0_10px_24px_rgba(0,0,0,0.10)]"
+                  : "border-transparent"
+              )}
+            >
+              {gifUrl ? (
+                <img
+                  src={gifUrl}
+                  alt={option.emoji || option.label || `Rating ${optionValue}`}
+                  className="size-11 object-contain"
+                  loading="eager"
+                />
+              ) : (
+                <span className="text-[34px]">{option.emoji || option.value}</span>
+              )}
+            </button>
+          </div>
+        )
+      })}
     </div>
-  );
+  )
+}
+
+function SingleSelectQuestion({
+  options,
+  value,
+  onChange,
+}: {
+  options: QuestionnaireOption[]
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  return (
+    <div className="flex-1 px-0 pt-9">
+      <RadioGroup value={String(value || "")} onValueChange={onChange} className="gap-5">
+        {options.map((option) => (
+          <label
+            key={String(option.value)}
+            className="flex cursor-pointer items-center gap-[18px] text-[20px] font-semibold leading-tight text-[#1F1F1F]"
+          >
+            <RadioGroupItem value={String(option.value)} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </RadioGroup>
+    </div>
+  )
+}
+
+function MultiSelectQuestion({
+  options,
+  value,
+  onChange,
+}: {
+  options: QuestionnaireOption[]
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const selected = Array.isArray(value) ? value.map(String) : []
+
+  return (
+    <div className="flex-1 px-0 pt-7">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-3">
+        {options.map((option) => {
+          const optionValue = String(option.value)
+          const checked = selected.includes(optionValue)
+
+          return (
+            <button
+              key={optionValue}
+              type="button"
+              aria-pressed={checked}
+              onClick={() => {
+                onChange(checked ? selected.filter((item) => item !== optionValue) : [...selected, optionValue])
+              }}
+              className={cn(
+                "inline-flex h-[28px] max-w-full items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold leading-none transition-all duration-200",
+                checked
+                  ? "bg-[#1C1C1C] text-white shadow-[0_6px_16px_rgba(0,0,0,0.14)]"
+                  : "bg-[#F8F8F8] text-[#1F1F1F] hover:bg-[#EFEFEF]"
+              )}
+            >
+              {checked ? (
+                <span className="flex size-[14px] items-center justify-center rounded-full bg-white text-[#1C1C1C]">
+                  <CheckCircle2 className="size-[10px]" strokeWidth={3} />
+                </span>
+              ) : null}
+              <span className="truncate">{option.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function NoteQuestion({
+  question,
+  value,
+  starRating,
+  onChange,
+  onStarChange,
+}: {
+  question: QuestionnaireQuestion
+  value: unknown
+  starRating: number
+  onChange: (value: unknown) => void
+  onStarChange: (rating: number) => void
+}) {
+  const text = String(value || "")
+  const maxLength = question.maxLength || 3000
+
+  return (
+    <div className="flex-1 pt-7">
+      <StarRating value={starRating} onChange={onStarChange} className="mb-4" />
+      <textarea
+        value={text}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={question.placeholder || "Add Notes"}
+        className="min-h-[166px] w-full resize-none rounded-[var(--Border-Radius-M,0.75rem)] border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-[var(--Light-Background-Subtle,#F9F9F9)] px-4 py-3 text-[13px] font-medium leading-relaxed text-[#1F1F1F] outline-none transition placeholder:text-[#B8B8B8] focus:border-[#1C1C1C] focus:bg-white focus:ring-4 focus:ring-black/5"
+      />
+    </div>
+  )
+}
+
+function TextQuestion({
+  question,
+  value,
+  onChange,
+}: {
+  question: QuestionnaireQuestion
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const text = String(value || "")
+  const maxLength = question.maxLength || 3000
+
+  return (
+    <div className="flex-1 pt-7">
+      <textarea
+        value={text}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={question.placeholder || "Write your feedback here..."}
+        className="min-h-[174px] w-full resize-none rounded-[var(--Border-Radius-M,0.75rem)] border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-[var(--Light-Background-Subtle,#F9F9F9)] px-4 py-3 text-[15px] font-medium leading-relaxed text-[#1F1F1F] outline-none transition placeholder:text-[#B0B0B0] focus:border-[#1C1C1C] focus:bg-white focus:ring-4 focus:ring-black/5"
+      />
+      <div className="mt-2 text-right text-[12px] font-medium text-[#A0A0A0]">
+        {text.length}/{maxLength}
+      </div>
+    </div>
+  )
+}
+
+function StarRating({
+  value,
+  onChange,
+  className,
+  readOnly = false,
+}: {
+  value: number
+  onChange?: (value: number) => void
+  className?: string
+  readOnly?: boolean
+}) {
+  return (
+    <div className={cn("flex items-center gap-1.5", className)}>
+      {[1, 2, 3, 4, 5].map((star) => {
+        const active = star <= value
+
+        return (
+          <button
+            key={star}
+            type="button"
+            disabled={readOnly}
+            aria-label={`${star} star`}
+            onClick={() => onChange?.(star)}
+            className={cn(
+              "text-[22px] leading-none transition-transform",
+              readOnly ? "cursor-default" : "hover:scale-110",
+              active ? "text-[#FFB800]" : "text-[#F1F1F1]"
+            )}
+          >
+            ★
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function SubmitSuccessScreen({
+  rating,
+  targetName,
+  avatarSrc,
+  avatarVariant,
+}: {
+  rating: number
+  targetName: string
+  avatarSrc?: string
+  avatarVariant: HeroVariant
+}) {
+  const clapGifUrl = getNotoEmojiGifUrl("👏")
+  const starText = rating === 1 ? "star" : "stars"
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-white px-0 sm:bg-[#F4F4F4] sm:px-5">
+      <section className="flex min-h-screen w-full max-w-[444px] flex-col items-center justify-center bg-white px-8 text-center sm:min-h-[560px] sm:rounded-[24px] sm:shadow-[0_22px_70px_rgba(0,0,0,0.10)]">
+        {clapGifUrl ? (
+          <img src={clapGifUrl} alt="Clapping hands" className="size-[142px] object-contain" loading="eager" />
+        ) : (
+          <div className="text-[110px] leading-none">👏</div>
+        )}
+
+        <StarRating value={rating} readOnly className="mt-8 justify-center" />
+
+        <h1 className="mt-5 flex flex-wrap items-center justify-center gap-1.5 text-[18px] font-bold leading-snug text-[#1F1F1F]">
+          <span>
+            You have rated {rating} {starText} to
+          </span>
+          <AvatarCircle name={targetName} src={avatarSrc} variant={avatarVariant} size="small" />
+          <span>{targetName}</span>
+        </h1>
+
+        <p className="mx-auto mt-3 max-w-[285px] text-[13px] leading-[1.35] text-[#B0B0B0]">
+          Your feedback helps creators grow, build stronger partnerships, and stand out through meaningful collaborations.
+        </p>
+      </section>
+    </main>
+  )
+}
+
+function CenteredState({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: "loading" | "success" | "error"
+  title: string
+  description: string
+  actionLabel?: string
+  onAction?: () => void
+}) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-white px-5 sm:bg-[#F5F5F5]">
+      <section className="w-full max-w-[444px] rounded-[22px] bg-white px-6 py-10 text-center shadow-none sm:shadow-[0_20px_60px_rgba(0,0,0,0.10)]">
+        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[#F7F7F7] text-[#1C1C1C]">
+          {icon === "loading" ? (
+            <Loader2 className="size-7 animate-spin" />
+          ) : icon === "success" ? (
+            <CheckCircle2 className="size-7" />
+          ) : (
+            <AlertCircle className="size-7" />
+          )}
+        </div>
+        <h1 className="mt-5 text-[22px] font-bold tracking-[-0.02em] text-[#1F1F1F]">{title}</h1>
+        <p className="mx-auto mt-2 max-w-[330px] text-[14px] leading-relaxed text-[#8D8D8D]">{description}</p>
+        {actionLabel && onAction ? (
+          <Button
+            className="mt-7 h-[42px] w-full rounded-[10px] bg-[#1C1C1C] text-[14px] font-semibold text-white hover:bg-[#111111]"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </Button>
+        ) : null}
+      </section>
+    </main>
+  )
+}
+
+function getQuestionHint(question: QuestionnaireQuestion) {
+  if (question.description) return question.description
+  if (question.key === "standout_qualities") return "Creative alignment with your campaign"
+  if (question.key === "content_vision_match") return "Tell us how closely the final output matched the brief."
+  if (question.key === "note") return "Share a quick appreciation, feedback, or memorable takeaway from this collaboration."
+  return "Share your overall collaboration experience with the creator."
+}
+
+function buildInitialAnswers(review?: ReviewPayload | null): Answers {
+  if (!review) return {}
+
+  const answers: Answers = {}
+
+  for (const [key, answer] of Object.entries(review.responseMap || {})) {
+    answers[key] = answer?.value
+  }
+
+  for (const response of review.responses || []) {
+    if (answers[response.questionKey] === undefined) {
+      answers[response.questionKey] = response.value
+    }
+  }
+
+  if (review.noteStarRating && answers.note_star_rating === undefined) {
+    answers.note_star_rating = review.noteStarRating
+  }
+
+  return answers
+}
+
+function getSubmittedRating(answers: Answers) {
+  const rating = Number(answers.note_star_rating || answers.working_feel_rating || 5)
+  if (!Number.isFinite(rating)) return 5
+  return Math.min(Math.max(Math.round(rating), 1), 5)
+}
+
+function buildSubmitAnswers(answers: Answers, questions: QuestionnaireQuestion[]) {
+  const cleaned = cleanAnswers(answers, questions)
+  const noteStarRating = Number(answers.note_star_rating || 0)
+
+  if (Number.isFinite(noteStarRating) && noteStarRating >= 1 && noteStarRating <= 5) {
+    cleaned.note_star_rating = Math.round(noteStarRating)
+  }
+
+  return cleaned
+}
+
+function cleanAnswers(answers: Answers, questions: QuestionnaireQuestion[]) {
+  return questions.reduce<Answers>((acc, question) => {
+    const value = answers[question.key]
+
+    if (!isQuestionAnswered(question, value)) return acc
+
+    if (question.type === "emoji_rating") {
+      acc[question.key] = Number(value)
+      return acc
+    }
+
+    if (question.type === "multi_select") {
+      acc[question.key] = Array.isArray(value) ? value : []
+      return acc
+    }
+
+    acc[question.key] = value
+    return acc
+  }, {})
+}
+
+function isQuestionAnswered(question: QuestionnaireQuestion, value: unknown) {
+  if (value === undefined || value === null || value === "") return false
+  if (question.type === "emoji_rating" && Number(value) === 0) return false
+  if (question.type === "multi_select") return Array.isArray(value) && value.length > 0
+  if (question.type === "text") return String(value || "").trim().length > 0
+  return true
+}
+
+function getTargetName(review?: ReviewPayload | null) {
+  if (!review) return "the creator"
+
+  if (review.reviewType === "brand_to_influencer") {
+    return review.influencer?.name || review.influencer?.handle || "the creator"
+  }
+
+  return review.brand?.name || "the brand"
+}
+
+function getTargetAvatarSrc(review?: ReviewPayload | null) {
+  if (!review) return ""
+
+  if (review.reviewType === "influencer_to_brand") {
+    return (
+      review.brand?.profilePic ||
+      review.brand?.logo ||
+      review.brand?.brandLogo ||
+      review.brand?.image ||
+      review.brand?.avatar ||
+      review.brand?.profileImage ||
+      review.brand?.picture ||
+      ""
+    )
+  }
+
+  return (
+    review.influencer?.image ||
+    review.influencer?.avatar ||
+    review.influencer?.profileImage ||
+    review.influencer?.profilePicture ||
+    review.influencer?.profilePic ||
+    review.influencer?.picture ||
+    ""
+  )
+}
+
+function getInitials(name = "") {
+  const parts = String(name || "")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+
+  if (!parts.length) return "CG"
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
 }

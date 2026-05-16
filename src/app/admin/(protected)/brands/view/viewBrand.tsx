@@ -37,6 +37,7 @@ import { BrandInvoicesTab } from "./invoices-tab";
 import { BrandActivityTab } from "./activity-tab";
 import { BrandSettingsTab } from "./settings-tab";
 import { BrandCouponsTab } from "./coupon-tab";
+import { BrandRatingsTab } from "./brand-ratings-tab";
 
 const BrandInvoicesTabWithProps = BrandInvoicesTab as React.ComponentType<{
   brandId: string;
@@ -456,6 +457,10 @@ export default function ViewBrandPage() {
             sortAsc={sortAsc}
             toggleSort={toggleSort}
           />
+        ) : null}
+
+        {activeTab === "ratings" ? (
+          <BrandRatingsTab brandId={brand._id} brandName={brand.brandName || brand.name} />
         ) : null}
 
         {activeTab === "invoices" ? <BrandInvoicesTabWithProps brandId={brand._id} /> : null}

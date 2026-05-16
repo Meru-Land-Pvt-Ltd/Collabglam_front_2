@@ -1475,37 +1475,69 @@ export default function AdminCampaignsPage() {
                         </p>
                       </div>
 
-                      <div
-                        className={`flex h-11 w-11 items-center justify-center rounded-2xl ${card.iconWrapClassName}`}
-                      >
-                        <Icon className="h-5 w-5" />
-                      </div>
+                    <div
+                      className={`flex h-11 w-11 items-center justify-center rounded-2xl ${card.iconWrapClassName}`}
+                    >
+                      <Icon className="h-5 w-5" />
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {assignmentErr ? (
+          <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+            {assignmentErr}
+          </div>
+        ) : null}
+
+        {assignmentMsg ? (
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+            {assignmentMsg}
+          </div>
+        ) : null}
+
+        <div className="mb-4 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Campaign Controls
+              </p>
+              <h2 className="mt-1 text-[22px] font-semibold tracking-[-0.03em] text-slate-950 md:text-[26px]">
+                Search & Filters
+              </h2>
+            </div>
+
+            <div className="inline-flex w-fit rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+              {totalVisibleItems} visible campaigns
             </div>
           </div>
 
-          <div className="mb-4 overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 via-white to-white px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-[26px] font-semibold tracking-[-0.03em] text-slate-950">
-                  Search & Filters
-                </h2>
-              </div>
+          <div className="px-4 py-4 md:px-5 md:py-5">
+            <div className="mb-3 flex items-center justify-between gap-3 xl:hidden">
+              <p className="text-xs font-medium text-slate-500">
+                Swipe horizontally to view all filters.
+              </p>
 
-              <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
-                {totalVisibleItems} visible campaigns
-              </div>
+              {hasActiveFilters ? (
+                <button
+                  type="button"
+                  onClick={resetFilters}
+                  className="text-xs font-semibold text-slate-700 underline underline-offset-4"
+                >
+                  Clear
+                </button>
+              ) : null}
             </div>
 
-            <div className="px-5 py-6">
+            <div className="-mx-4 overflow-x-auto px-4 pb-2 md:-mx-5 md:px-5 xl:mx-0 xl:overflow-visible xl:px-0 xl:pb-0">
               <div
-                className={`grid grid-cols-1 gap-4 xl:items-end ${
+                className={`grid min-w-[900px] gap-3 xl:min-w-0 xl:items-end ${
                   canUseCampaignTypeStatusFilters
-                    ? "xl:grid-cols-[minmax(320px,1.5fr)_520px_220px_220px_auto]"
-                    : "xl:grid-cols-[minmax(320px,1.5fr)_240px_auto]"
+                    ? "grid-cols-[minmax(280px,1.4fr)_minmax(440px,auto)_minmax(190px,220px)_minmax(180px,210px)_110px]"
+                    : "grid-cols-[minmax(300px,1.4fr)_minmax(190px,240px)_110px]"
                 }`}
               >
                 <div className="space-y-2">
@@ -1515,7 +1547,7 @@ export default function AdminCampaignsPage() {
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
                     <Input
-                      placeholder="Search .."
+                      placeholder="Search campaign name, brand, goal..."
                       value={search}
                       onChange={(e) => {
                         setSearch(e.target.value);
@@ -1530,7 +1562,7 @@ export default function AdminCampaignsPage() {
                   <div className="space-y-2">
                     <p className={filterLabelClass}>Campaign Type</p>
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex min-w-max items-center gap-2 rounded-[14px] border border-slate-200 bg-slate-50 p-1">
                       {quickFilterOptions.map((option) => {
                         const active = quickFilter === option.value;
 
@@ -1543,10 +1575,10 @@ export default function AdminCampaignsPage() {
                               setQuickFilter(option.value);
                               setPage(1);
                             }}
-                            className={`${filterButtonBaseClass} ${
+                            className={`h-9 whitespace-nowrap rounded-[10px] border px-3 text-xs font-semibold shadow-none transition focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
                               active
-                                ? filterButtonActiveClass
-                                : filterButtonInactiveClass
+                                ? "border-black bg-black text-white hover:!bg-black/90 hover:!text-white"
+                                : "border-transparent bg-transparent text-slate-600 hover:!bg-white hover:!text-slate-900"
                             }`}
                           >
                             {option.label}
@@ -1573,7 +1605,7 @@ export default function AdminCampaignsPage() {
                       <SelectValue placeholder="All Time" />
                     </SelectTrigger>
 
-                    <SelectContent className="bg-white">
+                    <SelectContent className="max-h-[280px] overflow-y-auto bg-white">
                       {datePresetOptions.map((opt) => (
                         <SelectItem
                           key={opt.value}
@@ -1604,7 +1636,7 @@ export default function AdminCampaignsPage() {
                         <SelectValue placeholder="All Status" />
                       </SelectTrigger>
 
-                      <SelectContent className="bg-white">
+                      <SelectContent className="max-h-[280px] overflow-y-auto bg-white">
                         {statusOptions.map((opt) => (
                           <SelectItem
                             key={opt.value}
@@ -1619,20 +1651,49 @@ export default function AdminCampaignsPage() {
                   </div>
                 ) : null}
 
-                <div className="flex xl:justify-end">
+                <div className="flex items-end justify-end">
                   <Button
                     type="button"
                     variant="outline"
                     onClick={resetFilters}
                     disabled={!hasActiveFilters}
-                    className={`${filterButtonBaseClass} ${filterButtonInactiveClass} disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none`}
+                    className={`${filterButtonBaseClass} w-full ${filterButtonInactiveClass} disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none`}
                   >
                     Reset
                   </Button>
                 </div>
               </div>
             </div>
+
+            {hasActiveFilters ? (
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {search.trim() ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                    Search: {search.trim()}
+                  </span>
+                ) : null}
+
+                {canUseCampaignTypeStatusFilters && quickFilter !== "all" ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                    Type: {quickFilterOptions.find((item) => item.value === quickFilter)?.label || "Custom"}
+                  </span>
+                ) : null}
+
+                {datePreset !== "all_time" ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                    Date: {datePresetOptions.find((item) => item.value === datePreset)?.label || "Custom"}
+                  </span>
+                ) : null}
+
+                {canUseCampaignTypeStatusFilters && statusFilter !== 0 ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                    Status: {statusOptions.find((item) => item.value === statusFilter)?.label || "Custom"}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+        </div>
 
           <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 bg-gradient-to-r from-white via-slate-50 to-white px-4 py-4 md:px-5">

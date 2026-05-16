@@ -183,6 +183,12 @@ export const ADMIN_MODULES: AdminModule[] = [
     href: "/admin/new-leads",
     icon: UsersRound,
   },
+    {
+    key: "rating-reviews",
+    label: "Rating & Reviews",
+    href: "/admin/rating-reviews",
+    icon: Scale,
+  },
   {
     key: "Brand Intelligence Tool",
     label: "Brand Intelligence Tool",

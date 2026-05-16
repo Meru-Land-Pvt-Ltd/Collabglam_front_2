@@ -29,6 +29,9 @@ import {
   PaperPlaneTilt,
   Signature,
 } from "@phosphor-icons/react";
+import BrandInfluencerRateReviewModal, {
+  type BrandInfluencerReviewTarget,
+} from "@/components/common/BrandInfluencerRateReviewModal";
 
 import {
   apiGetListByCampaign,
@@ -42,8 +45,6 @@ import ContractSidebarExtracted from "./ContractSidebar";
 import { useInfluencerCounts } from "./InfluencerCountsContext";
 
 const EMAIL_API_BASE = "/emails";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 type Tab = "all" | "applied" | "active" | "shortlisted" | "undecided" | "rejected";
 
@@ -88,10 +89,6 @@ export const PAYMENT_TYPE = {
 
 export type PaymentType = (typeof PAYMENT_TYPE)[keyof typeof PAYMENT_TYPE];
 
-type PanelMode = "send" | "edit" | "bulk-send";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
 const CONTRACT_STATUS = {
   DRAFT: "DRAFT",
   BRAND_SENT_DRAFT: "BRAND_SENT_DRAFT",
@@ -108,8 +105,6 @@ const CONTRACT_STATUS = {
 
 const PAGE_LIMIT = 20;
 
-// ─── Payment type helpers ─────────────────────────────────────────────────────
-
 const normalizePaymentType = (raw?: string | null): PaymentType => {
   const v = String(raw || "").trim().toLowerCase();
   if (["fixed", "fixed_payment", "fixed-payment"].includes(v)) return PAYMENT_TYPE.FIXED;
@@ -117,8 +112,6 @@ const normalizePaymentType = (raw?: string | null): PaymentType => {
   if (["gifting", "product_gifting", "product-gifting"].includes(v)) return PAYMENT_TYPE.GIFTING;
   return PAYMENT_TYPE.FIXED;
 };
-
-// ─── Route helpers ────────────────────────────────────────────────────────────
 
 function getTabFromPath(pathname: string | null): Tab {
   const p = pathname ?? "";
@@ -129,8 +122,6 @@ function getTabFromPath(pathname: string | null): Tab {
   if (p.includes("/brand/influ/rejected")) return "rejected";
   return "all";
 }
-
-// ─── Applicant display helpers ────────────────────────────────────────────────
 
 function toHandle(v: unknown) {
   const s = String(v ?? "").trim();
@@ -192,7 +183,6 @@ function buildAvailablePlatforms(a: any): InfluencerRow["platforms"] {
     result.push({
       platform,
       followers: Number(followersValue ?? 0) || 0,
-      // engagement: toEngagementPercent(engagementValue),
     });
   };
 
@@ -222,12 +212,12 @@ function mapAcceptedAdminCreatedInfluencerToRow(a: any): InfluencerRow {
   const platform = normalizePlatformType(a?.platform);
   const platforms = platform
     ? [
-      {
-        platform,
-        followers: Number(a?.maxFollowers ?? a?.minFollowers ?? 0) || 0,
-        engagement: 0,
-      },
-    ]
+        {
+          platform,
+          followers: Number(a?.maxFollowers ?? a?.minFollowers ?? 0) || 0,
+          engagement: 0,
+        },
+      ]
     : [];
 
   return {
@@ -259,7 +249,7 @@ function mapApplicantToRow(a: any): InfluencerRow {
   const appliedDate = createdAtRaw ? createdAtRaw.slice(0, 10) : "—";
   const platforms = buildAvailablePlatforms(a);
 
-  const row: any = {
+  return {
     id: influencerId,
     profile: {
       name,
@@ -275,12 +265,8 @@ function mapApplicantToRow(a: any): InfluencerRow {
     budget: Number(a?.feeAmount ?? 0) > 0 ? String(a.feeAmount) : "—",
     __source: "applicant",
     __raw: a,
-  };
-
-  return row as InfluencerRow;
+  } as InfluencerRow;
 }
-
-// ─── Contract status helpers ──────────────────────────────────────────────────
 
 function isRejectedMeta(meta?: ContractMeta | null) {
   if (!meta) return false;
@@ -296,9 +282,9 @@ function isRejectedMeta(meta?: ContractMeta | null) {
 function hasExistingContract(raw: any, meta?: ContractMeta | null) {
   return Boolean(
     meta?.contractId ||
-    raw?.contractId ||
-    Number(raw?.isAssigned) === 1 ||
-    Number(raw?.isContracted) === 1
+      raw?.contractId ||
+      Number(raw?.isAssigned) === 1 ||
+      Number(raw?.isContracted) === 1
   );
 }
 
@@ -311,10 +297,7 @@ function canSignNow(meta?: ContractMeta | null) {
 }
 
 function isLockedStatus(status?: string | null) {
-  return (
-    status === CONTRACT_STATUS.CONTRACT_SIGNED ||
-    status === CONTRACT_STATUS.MILESTONES_CREATED
-  );
+  return status === CONTRACT_STATUS.CONTRACT_SIGNED || status === CONTRACT_STATUS.MILESTONES_CREATED;
 }
 
 function isEditableStatus(status?: string | null) {
@@ -337,10 +320,7 @@ function hasMilestonesCreated(meta?: ContractMeta | null) {
   );
 }
 
-function getProfessionalContractStatusMessage(
-  raw: any,
-  meta?: ContractMeta | null
-): string {
+function getProfessionalContractStatusMessage(raw: any, meta?: ContractMeta | null): string {
   const status = String(meta?.status || raw?.lifecycleStatusRaw || "").toUpperCase();
 
   if (!hasExistingContract(raw, meta)) {
@@ -354,37 +334,26 @@ function getProfessionalContractStatusMessage(
   switch (status) {
     case CONTRACT_STATUS.DRAFT:
       return "Draft Saved";
-
     case CONTRACT_STATUS.BRAND_SENT_DRAFT:
       return "Contract Sent";
-
     case CONTRACT_STATUS.BRAND_EDITED:
       return "Updated by Brand";
-
     case CONTRACT_STATUS.INFLUENCER_EDITED:
       return "Changes Requested by Influencer";
-
     case CONTRACT_STATUS.BRAND_ACCEPTED:
       return "Accepted by Brand";
-
     case CONTRACT_STATUS.INFLUENCER_ACCEPTED:
       return "Accepted by Influencer";
-
     case CONTRACT_STATUS.READY_TO_SIGN:
       return "Ready for Signature";
-
     case CONTRACT_STATUS.CONTRACT_SIGNED:
       return "Contract Signed";
-
     case CONTRACT_STATUS.MILESTONES_CREATED:
       return "Milestones Created";
-
     case CONTRACT_STATUS.REJECTED:
       return "Contract Declined";
-
     case CONTRACT_STATUS.SUPERSEDED:
       return "Superseded";
-
     default:
       return "Contract in Progress";
   }
@@ -401,12 +370,9 @@ function getPrimaryAction(raw: any, meta?: ContractMeta | null): { label: string
   return { label: "View Contract", viewOnly: true };
 }
 
-/** Whether a row is eligible for bulk contract sending (no existing contract, or rejected). */
 function isBulkSelectableRow(raw: any, meta?: ContractMeta | null): boolean {
   return !hasExistingContract(raw, meta) || isRejectedMeta(meta);
 }
-
-// ─── Toast / confirm helpers ──────────────────────────────────────────────────
 
 const toast = (opts: { icon: "success" | "error" | "info"; title: string; text?: string }) =>
   Swal.fire({
@@ -431,8 +397,6 @@ const askConfirm = async (title: string, text?: string) => {
   });
   return result.isConfirmed;
 };
-
-// ─── ActionButtons ────────────────────────────────────────────────────────────
 
 function ActionButtons({
   primaryLabel,
@@ -471,17 +435,6 @@ function ActionButtons({
         {primaryLabel}
       </button>
 
-      {/* {showAccept && onAccept ? (
-        <button
-          type="button"
-          onClick={onAccept}
-          className="inline-flex h-8 items-center justify-center gap-1 rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]"
-        >
-          <SealCheck size={14} weight="fill" className="text-emerald-600" />
-          Accept
-        </button>
-      ) : null} */}
-
       {showSign && onSign ? (
         <button
           type="button"
@@ -506,9 +459,10 @@ function ActionButtons({
           onClick={onViewContract}
           className="inline-flex h-8 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]"
         >
-          {isViewContractLoading ? "Opening…" : "View Contract"}  {/* ← use own flag */}
+          {isViewContractLoading ? "Opening…" : "View Contract"}
         </button>
       ) : null}
+
       <button
         type="button"
         onClick={onMail}
@@ -527,8 +481,6 @@ function ActionButtons({
   );
 }
 
-// ─── ActiveMilestoneActions ───────────────────────────────────────────────────
-
 function ActiveMilestoneActions({
   onAddMilestone,
   showViewMilestone,
@@ -543,6 +495,7 @@ function ActiveMilestoneActions({
   isAdminCreatedCampaign = false,
   showViewContract,
   onViewContract,
+  onRateReview,
 }: {
   onAddMilestone: () => void;
   showViewMilestone: boolean;
@@ -557,6 +510,7 @@ function ActiveMilestoneActions({
   isAdminCreatedCampaign?: boolean;
   showViewContract?: boolean;
   onViewContract?: () => void;
+  onRateReview?: () => void;
 }) {
   return (
     <div className="flex items-start gap-2">
@@ -600,18 +554,17 @@ function ActiveMilestoneActions({
             View Contract
           </button>
         ) : null}
-      </div>
 
-      {/* {showAccept && onAccept ? (
-        <button
-          type="button"
-          onClick={onAccept}
-          className="inline-flex h-8 items-center gap-2 justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]"
-        >
-          <span>Final Edit</span>
-          <PencilSimpleIcon size={16} />
-        </button>
-      ) : null} */}
+        {onRateReview ? (
+          <button
+            type="button"
+            onClick={onRateReview}
+            className="inline-flex h-8 items-center justify-center rounded-[0.5rem] border border-[#1A1A1A] bg-white px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]"
+          >
+            Rate & Review
+          </button>
+        ) : null}
+      </div>
 
       {showSign && onSign ? (
         <button
@@ -649,8 +602,6 @@ function ActiveMilestoneActions({
     </div>
   );
 }
-
-// ─── SignatureModal ───────────────────────────────────────────────────────────
 
 function SignatureModal({
   isOpen,
@@ -705,11 +656,13 @@ function SignatureModal({
 
     if (!/image\/(png|jpeg)/i.test(file.type)) {
       setSigDataUrl("");
-      return setError("Please upload a PNG or JPG image.");
+      setError("Please upload a PNG or JPG image.");
+      return;
     }
     if (file.size > 50 * 1024) {
       setSigDataUrl("");
-      return setError("Signature must be 50 KB or less.");
+      setError("Signature must be 50 KB or less.");
+      return;
     }
 
     const reader = new FileReader();
@@ -722,10 +675,35 @@ function SignatureModal({
     const el = dropRef.current;
     if (!el) return;
 
-    const onDragOver = (e: DragEvent) => { if (!isSubmitting) { e.preventDefault(); e.stopPropagation(); setIsDragging(true); } };
-    const onDragEnter = (e: DragEvent) => { if (!isSubmitting) { e.preventDefault(); e.stopPropagation(); setIsDragging(true); } };
-    const onDragLeave = (e: DragEvent) => { if (!isSubmitting) { e.preventDefault(); e.stopPropagation(); if (e.target === el) setIsDragging(false); } };
-    const onDrop = (e: DragEvent) => { if (!isSubmitting) { e.preventDefault(); e.stopPropagation(); setIsDragging(false); handleFile(e.dataTransfer?.files?.[0]); } };
+    const onDragOver = (e: DragEvent) => {
+      if (!isSubmitting) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+      }
+    };
+    const onDragEnter = (e: DragEvent) => {
+      if (!isSubmitting) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+      }
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!isSubmitting) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.target === el) setIsDragging(false);
+      }
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!isSubmitting) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        handleFile(e.dataTransfer?.files?.[0]);
+      }
+    };
 
     el.addEventListener("dragover", onDragOver);
     el.addEventListener("dragenter", onDragEnter);
@@ -743,7 +721,10 @@ function SignatureModal({
 
   const handleSignClick = async () => {
     if (isSubmitting) return;
-    if (!sigDataUrl) { setError("Please select a signature image first."); return; }
+    if (!sigDataUrl) {
+      setError("Please select a signature image first.");
+      return;
+    }
     try {
       setIsSubmitting(true);
       await onSigned(sigDataUrl);
@@ -773,7 +754,9 @@ function SignatureModal({
               onClick={() => !isSubmitting && onClose()}
               disabled={isSubmitting}
               aria-label="Close"
-            >✕</button>
+            >
+              ✕
+            </button>
           </div>
         </div>
 
@@ -820,9 +803,16 @@ function SignatureModal({
                   <button
                     type="button"
                     disabled={isSubmitting}
-                    onClick={() => { setSigDataUrl(""); setFileName(""); setFileSize(null); setError(""); }}
+                    onClick={() => {
+                      setSigDataUrl("");
+                      setFileName("");
+                      setFileSize(null);
+                      setError("");
+                    }}
                     className="text-[11px] text-gray-500 underline hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >Clear</button>
+                  >
+                    Clear
+                  </button>
                 </div>
                 <div className="flex items-center justify-center rounded-lg border bg-white px-3 py-2">
                   <img src={sigDataUrl} alt="Signature preview" className="max-h-14 object-contain" />
@@ -842,8 +832,6 @@ function SignatureModal({
     </div>
   );
 }
-
-// ─── InfluencerList ───────────────────────────────────────────────────────────
 
 export default function InfluencerList() {
   const pathname = usePathname();
@@ -892,21 +880,21 @@ export default function InfluencerList() {
   const [milestoneCreatedMap, setMilestoneCreatedMap] = useState<Record<string, boolean>>({});
   const [milestoneTargetRow, setMilestoneTargetRow] = useState<InfluencerRow | null>(null);
 
-  // ── Bulk selection state ────────────────────────────────────────────────────
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
   const [bulkInfluencerNames, setBulkInfluencerNames] = useState<string[]>([]);
 
-  // ── Payout type dialog state ────────────────────────────────────────────────
   const [isPayoutTypeDialogOpen, setIsPayoutTypeDialogOpen] = useState(false);
   const [payoutDialogMode, setPayoutDialogMode] = useState<"bulk" | "single" | null>(null);
   const [pendingInfluencerForContract, setPendingInfluencerForContract] = useState<any | null>(null);
   const [campaignPayoutType, setCampaignPayoutType] = useState<string>("");
   const campaignPayoutTypeRef = useRef<string>("");
 
-  // ── Bulk sidebar state ──────────────────────────────────────────────────────
   const [bulkSidebarOpen, setBulkSidebarOpen] = useState(false);
   const [bulkTargets, setBulkTargets] = useState<any[]>([]);
   const [bulkForcedPaymentType, setBulkForcedPaymentType] = useState<PaymentType | undefined>(undefined);
+
+  const [rateReviewOpen, setRateReviewOpen] = useState(false);
+  const [rateReviewTarget, setRateReviewTarget] = useState<BrandInfluencerReviewTarget | null>(null);
 
   const signerName =
     (typeof window !== "undefined" &&
@@ -927,7 +915,6 @@ export default function InfluencerList() {
     return "default";
   }, [tab]);
 
-  // ── Init brand id & saved payout type ─────────────────────────────────────
   useEffect(() => {
     const id =
       localStorage.getItem("brandId") ||
@@ -964,9 +951,7 @@ export default function InfluencerList() {
 
         setIsAdminCreatedCampaign(createdByRole === "admin");
       } catch {
-        if (!cancelled) {
-          setIsAdminCreatedCampaign(false);
-        }
+        if (!cancelled) setIsAdminCreatedCampaign(false);
       }
     };
 
@@ -977,12 +962,10 @@ export default function InfluencerList() {
     };
   }, [brandId, campaignId]);
 
-  // ── Reset pagination on tab / search change ────────────────────────────────
   useEffect(() => {
     setVisibleCount(PAGE_LIMIT);
   }, [tab, search]);
 
-  // ── Fetch campaign summary ─────────────────────────────────────────────────
   useEffect(() => {
     if (!campaignId) return;
     (async () => {
@@ -995,11 +978,12 @@ export default function InfluencerList() {
         setCampaignTitle(campaignName);
         if (!Number.isNaN(budgetNum)) setCampaignBudget(budgetNum);
         if (data.timeline) setCampaignTimeline(data.timeline);
-      } catch { /* ignore */ }
+      } catch {
+        // ignore summary errors
+      }
     })();
   }, [campaignId]);
 
-  // ── Filter / sort helpers ──────────────────────────────────────────────────
   function getFilterStatusFromTab(tab: Tab): "all" | "applied" | "active" | "shortlisted" | "undecided" | "rejected" {
     if (tab === "applied") return "applied";
     if (tab === "active") return "active";
@@ -1075,7 +1059,52 @@ export default function InfluencerList() {
     return 0;
   }
 
-  // ── Fetch applicants ───────────────────────────────────────────────────────
+  const openRateReviewModal = useCallback(
+    (
+      row: InfluencerRow,
+      source?: {
+        sourceEntityType?: string;
+        sourceEntityId?: string;
+      }
+    ) => {
+      const raw = (row as any)?.__raw ?? {};
+      const influencerId = String(raw?.influencerId || row.id || "").trim();
+
+      if (!campaignId) {
+        toast({ icon: "error", title: "Campaign missing", text: "Campaign ID is required to submit a review." });
+        return;
+      }
+
+      if (!brandId) {
+        toast({ icon: "error", title: "Brand missing", text: "Brand ID is required to submit a review." });
+        return;
+      }
+
+      if (!influencerId) {
+        toast({ icon: "error", title: "Influencer missing", text: "Influencer ID is required to submit a review." });
+        return;
+      }
+
+      setRateReviewTarget({
+        campaignId,
+        brandId,
+        influencerId,
+        influencerName: row.profile?.name || raw?.name || "Influencer",
+        influencerAvatarUrl:
+          row.profile?.avatarUrl ||
+          raw?.modashProfile?.picture ||
+          raw?.modashProfiles?.[0]?.picture ||
+          "",
+        campaignTitle,
+        sourceEntityType: source?.sourceEntityType || "campaign",
+        sourceEntityId: source?.sourceEntityId || "",
+      });
+
+      setRateReviewOpen(true);
+    },
+    [campaignId, brandId, campaignTitle]
+  );
+
   const fetchApplicants = useCallback(async () => {
     if (!campaignId) {
       setApplicantRows([]);
@@ -1089,11 +1118,8 @@ export default function InfluencerList() {
     try {
       const trimmedSearch = search.trim();
 
-      // Fully managed campaign + Active tab -> use /apply/list API
       if (tab === "active" && isAdminCreatedCampaign) {
-        const selectedCategoryIds = (filters.Category || []).filter(
-          (v) => v && v !== "All"
-        );
+        const selectedCategoryIds = (filters.Category || []).filter((v) => v && v !== "All");
 
         const payload: any = {
           campaignId,
@@ -1111,11 +1137,8 @@ export default function InfluencerList() {
           sortOrder: getApiSortOrder(sortValue),
         };
 
-        if (selectedCategoryIds.length === 1) {
-          payload.categoryId = selectedCategoryIds[0];
-        } else if (selectedCategoryIds.length > 1) {
-          payload.categoryIds = selectedCategoryIds;
-        }
+        if (selectedCategoryIds.length === 1) payload.categoryId = selectedCategoryIds[0];
+        else if (selectedCategoryIds.length > 1) payload.categoryIds = selectedCategoryIds;
 
         const res: any = await apiGetListByCampaign(payload);
 
@@ -1127,7 +1150,6 @@ export default function InfluencerList() {
 
         const mapped = influencers
           .map((inf: any) => {
-            // If backend returns normal applicant shape
             if (inf?.name || inf?.modashProfile || inf?.modashProfiles) {
               return mapApplicantToRow({
                 ...inf,
@@ -1135,8 +1157,6 @@ export default function InfluencerList() {
                 lifecycleStatusRaw: inf?.lifecycleStatusRaw || "INFLUENCER_ACCEPTED",
               });
             }
-
-            // Fallback for old admin-created influencer shape
             return mapAcceptedAdminCreatedInfluencerToRow(inf);
           })
           .filter((r: InfluencerRow) => String((r as any)?.id ?? "").trim());
@@ -1163,8 +1183,7 @@ export default function InfluencerList() {
         return;
       }
 
-      // Existing flow for normal campaigns / other tabs
-      const tabStatus = getFilterStatusFromTab(tab);  // "applied" | "active" | "shortlisted" | "undecided" | "rejected" | "all"
+      const tabStatus = getFilterStatusFromTab(tab);
       const influencerTypeStatus = getFilterStatusFromInfluencerType(filters["Influencer Type"]);
       const effectiveFilterStatus = tab === "all" ? (influencerTypeStatus ?? "all") : tabStatus;
       const selectedCategoryIds = (filters.Category || []).filter((v) => v && v !== "All");
@@ -1230,13 +1249,12 @@ export default function InfluencerList() {
     } finally {
       setLoadingApplicants(false);
     }
-  }, [campaignId, search, tab, filters, sortValue, setCounts, brandId, isAdminCreatedCampaign]);
+  }, [campaignId, search, tab, filters, sortValue, setCounts, isAdminCreatedCampaign]);
 
   useEffect(() => {
     fetchApplicants();
   }, [fetchApplicants]);
 
-  // ── Contract meta helpers ──────────────────────────────────────────────────
   const getLatestContractForApplicant = useCallback(
     async (rawApplicant: any): Promise<ContractMeta | null> => {
       if (!brandId || !campaignId || !rawApplicant?.influencerId) return null;
@@ -1256,11 +1274,12 @@ export default function InfluencerList() {
     [brandId, campaignId]
   );
 
-
-
   const loadContractMeta = useCallback(
     async (rows: InfluencerRow[]) => {
-      if (!brandId || !campaignId || !rows.length) { setContractMetaMap({}); return; }
+      if (!brandId || !campaignId || !rows.length) {
+        setContractMetaMap({});
+        return;
+      }
 
       setLoadingContractMeta(true);
       try {
@@ -1272,7 +1291,9 @@ export default function InfluencerList() {
           })
         );
         const nextMap: Record<string, ContractMeta | null> = {};
-        results.forEach((item) => { nextMap[item.influencerId] = item.meta; });
+        results.forEach((item) => {
+          nextMap[item.influencerId] = item.meta;
+        });
         setContractMetaMap(nextMap);
       } finally {
         setLoadingContractMeta(false);
@@ -1285,7 +1306,9 @@ export default function InfluencerList() {
     loadContractMeta(applicantRows);
   }, [applicantRows, loadContractMeta]);
 
-  // ── Bulk selection helpers ─────────────────────────────────────────────────
+  const visibleRows = useMemo(() => applicantRows.slice(0, visibleCount), [applicantRows, visibleCount]);
+  const hasMore = visibleCount < applicantRows.length;
+
   const isBulkSelectable = useCallback(
     (row: InfluencerRow): boolean => {
       const raw = (row as any)?.__raw ?? {};
@@ -1309,22 +1332,15 @@ export default function InfluencerList() {
       if (allSelected) return prev.filter((id) => !eligibleIds.includes(id));
       return Array.from(new Set([...prev, ...eligibleIds]));
     });
-  }, [applicantRows, isBulkSelectable, selectedBulkIds]);
+  }, [visibleRows, isBulkSelectable, selectedBulkIds]);
 
   const clearBulkSelection = useCallback(() => {
     setSelectedBulkIds([]);
   }, []);
 
-  // ── Payout type dialog helpers ─────────────────────────────────────────────
   const openBulkPayoutTypeDialog = useCallback(() => {
     setPayoutDialogMode("bulk");
     setPendingInfluencerForContract(null);
-    setIsPayoutTypeDialogOpen(true);
-  }, []);
-
-  const openSinglePayoutTypeDialog = useCallback((raw: any) => {
-    setPayoutDialogMode("single");
-    setPendingInfluencerForContract(raw);
     setIsPayoutTypeDialogOpen(true);
   }, []);
 
@@ -1338,7 +1354,6 @@ export default function InfluencerList() {
       setIsPayoutTypeDialogOpen(false);
 
       if (payoutDialogMode === "bulk") {
-        // Gather eligible targets
         const targets = applicantRows
           .filter(isBulkSelectable)
           .filter((row) => selectedBulkIds.includes(row.id))
@@ -1351,13 +1366,10 @@ export default function InfluencerList() {
 
         setBulkTargets(targets);
         setBulkForcedPaymentType(type);
-
-        // Prefill sidebar using first target
         setContractTarget(targets[0]);
         setContractTargetMeta(null);
         setBulkSidebarOpen(true);
 
-        // Fetch names for the header
         try {
           const res: any = await apiGetfetchBulkInfleuncerId(selectedBulkIds);
           const list = res?.influencers || res?.data?.influencers || res?.data || [];
@@ -1374,27 +1386,14 @@ export default function InfluencerList() {
       setPendingInfluencerForContract(null);
       setPayoutDialogMode(null);
     },
-    [
-      payoutDialogMode,
-      pendingInfluencerForContract,
-      applicantRows,
-      isBulkSelectable,
-      selectedBulkIds,
-      contractMetaMap,
-    ]
+    [payoutDialogMode, pendingInfluencerForContract, applicantRows, isBulkSelectable, selectedBulkIds, contractMetaMap]
   );
 
-  // ── Decision status handler ────────────────────────────────────────────────
-  // ── Decision status handler ────────────────────────────────────────────────
-  const handleApplicantDecision = async (
-    row: InfluencerRow,
-    action: ApplicantDecisionField
-  ) => {
+  const handleApplicantDecision = async (row: InfluencerRow, action: ApplicantDecisionField) => {
     const source = String((row as any)?.__source ?? "");
     if (source !== "applicant") return;
     if (!campaignId || !row.id) return;
 
-    // Map action field → tab path
     const actionToTab: Partial<Record<ApplicantDecisionField, string>> = {
       isRejected: "rejected",
       isUndicided: "undecided",
@@ -1433,12 +1432,8 @@ export default function InfluencerList() {
         })
       );
 
-      // ── Navigate to the corresponding tab ──────────────────────────────
       const targetTab = actionToTab[action];
-      if (targetTab) {
-        router.push(`/brand/influ/${targetTab}?campaignId=${campaignId}`);
-      }
-
+      if (targetTab) router.push(`/brand/influ/${targetTab}?campaignId=${campaignId}`);
     } catch (e) {
       alert(getApiErrorMessage(e, "Failed to update applicant status"));
     } finally {
@@ -1446,10 +1441,8 @@ export default function InfluencerList() {
     }
   };
 
-  // ── View contract PDF ──────────────────────────────────────────────────────
   const handleViewContractPdf = useCallback(
     async (row: InfluencerRow) => {
-      console.log("handleViewContractPdf", row)
       const meta = contractMetaMap[row.id] ?? null;
       const contractDocId = meta?._id ?? null;
 
@@ -1460,12 +1453,7 @@ export default function InfluencerList() {
 
       setViewingPdfForId(row.id);
       try {
-        const res = await api.post(
-          "/contract/viewPdf",
-          { contractId: contractDocId }, // or { _id: contractDocId } if backend expects that key
-          { responseType: "blob" }
-        );
-
+        const res = await api.post("/contract/viewPdf", { contractId: contractDocId }, { responseType: "blob" });
         const url = URL.createObjectURL(res.data);
         window.open(url, "_blank");
         setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -1482,7 +1470,6 @@ export default function InfluencerList() {
     [contractMetaMap]
   );
 
-  // ── Brand accept handler ───────────────────────────────────────────────────
   const handleBrandAccept = useCallback(
     async (row: InfluencerRow) => {
       const meta = contractMetaMap[row.id] ?? null;
@@ -1504,7 +1491,6 @@ export default function InfluencerList() {
     [contractMetaMap, fetchApplicants]
   );
 
-  // ── Sign modal opener ──────────────────────────────────────────────────────
   const openSignModal = useCallback((meta: ContractMeta | null) => {
     if (!meta?.contractId) {
       toast({ icon: "error", title: "No contract", text: "No contract found." });
@@ -1514,7 +1500,6 @@ export default function InfluencerList() {
     setSignOpen(true);
   }, []);
 
-  // ── Contract sidebar opener ────────────────────────────────────────────────
   const openContractSidebar = useCallback(
     (row: InfluencerRow) => {
       const raw = (row as any)?.__raw ?? null;
@@ -1609,20 +1594,12 @@ export default function InfluencerList() {
       const influencerName = raw?.name || row.profile?.name || "Influencer";
 
       if (!brandId) {
-        toast({
-          icon: "error",
-          title: "Brand not found",
-          text: "Please sign in again.",
-        });
+        toast({ icon: "error", title: "Brand not found", text: "Please sign in again." });
         return;
       }
 
       if (!influencerId) {
-        toast({
-          icon: "error",
-          title: "Influencer not found",
-          text: "Could not identify the influencer for this thread.",
-        });
+        toast({ icon: "error", title: "Influencer not found", text: "Could not identify the influencer for this thread." });
         return;
       }
 
@@ -1634,34 +1611,21 @@ export default function InfluencerList() {
           subject: campaignTitle || `Conversation with ${influencerName}`,
         });
 
-        const threadId =
-          threadRes?.threadId ||
-          null;
+        const threadId = threadRes?.threadId || null;
+        if (!threadId) throw new Error("Thread ID not returned from server.");
 
-        if (!threadId) {
-          throw new Error("Thread ID not returned from server.");
-        }
-
-        router.push(
-          `/brand/inbox/${threadId}${campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : ""
-          }`
-        );
+        router.push(`/brand/inbox/${threadId}${campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : ""}`);
       } catch (e: any) {
         toast({
           icon: "error",
           title: "Inbox open failed",
-          text:
-            e?.response?.data?.error ||
-            e?.response?.data?.message ||
-            e?.message ||
-            "Could not create/open the inbox thread.",
+          text: e?.response?.data?.error || e?.response?.data?.message || e?.message || "Could not create/open the inbox thread.",
         });
       }
     },
     [brandId, router, campaignId, campaignTitle]
   );
 
-  // ── Milestone handlers ─────────────────────────────────────────────────────
   const handleOpenMilestoneModal = useCallback((row: InfluencerRow) => {
     setMilestoneTargetRow(row);
   }, []);
@@ -1680,11 +1644,7 @@ export default function InfluencerList() {
   const handleViewMilestone = useCallback(
     (row: InfluencerRow) => {
       if (!campaignId) {
-        toast({
-          icon: "error",
-          title: "Campaign missing",
-          text: "Campaign id not found in URL.",
-        });
+        toast({ icon: "error", title: "Campaign missing", text: "Campaign id not found in URL." });
         return;
       }
 
@@ -1693,11 +1653,7 @@ export default function InfluencerList() {
 
       if (isAdminCreatedCampaign) {
         router.push(
-          `/brand/milestone-history?campaignId=${encodeURIComponent(
-            campaignId
-          )}&influencerId=${encodeURIComponent(
-            influencerId
-          )}&brandId=${encodeURIComponent(brandId || "")}`
+          `/brand/milestone-history?campaignId=${encodeURIComponent(campaignId)}&influencerId=${encodeURIComponent(influencerId)}&brandId=${encodeURIComponent(brandId || "")}`
         );
         return;
       }
@@ -1705,30 +1661,16 @@ export default function InfluencerList() {
       const meta = contractMetaMap[row.id] ?? null;
 
       if (!meta?.contractId) {
-        toast({
-          icon: "error",
-          title: "Contract missing",
-          text: "No contract found for this influencer.",
-        });
+        toast({ icon: "error", title: "Contract missing", text: "No contract found for this influencer." });
         return;
       }
 
       router.push(
-        `/brand/influ/view-milestone?contractId=${encodeURIComponent(
-          meta.contractId
-        )}&campaignId=${encodeURIComponent(
-          campaignId
-        )}&influencerId=${encodeURIComponent(
-          influencerId
-        )}&brandId=${encodeURIComponent(brandId || "")}`
+        `/brand/influ/view-milestone?contractId=${encodeURIComponent(meta.contractId)}&campaignId=${encodeURIComponent(campaignId)}&influencerId=${encodeURIComponent(influencerId)}&brandId=${encodeURIComponent(brandId || "")}`
       );
     },
     [campaignId, brandId, contractMetaMap, router, isAdminCreatedCampaign]
   );
-
-  // ── Visible rows ───────────────────────────────────────────────────────────
-  const visibleRows = useMemo(() => applicantRows.slice(0, visibleCount), [applicantRows, visibleCount]);
-  const hasMore = visibleCount < applicantRows.length;
 
   const loadMore = async () => {
     if (!hasMore || loadingMore) return;
@@ -1743,26 +1685,20 @@ export default function InfluencerList() {
   const loading = loadingApplicants;
   const err = errApplicants;
   const showLoadMore = !loading && !err && visibleRows.length > 0 && hasMore;
-  // ── All-tab contract-aware renderer ───────────────────────────────────────────
+
   const renderAllTabActions = useCallback(
     (row: InfluencerRow) => {
       const raw = (row as any)?.__raw ?? {};
       const meta = contractMetaMap[row.id] ?? null;
 
-      // ── No contract → render null so DefaultTable falls back to X/? /✓ ActionGroup
-      // AFTER
       const isShortlisted = Number(raw?.isShortlisted) === 1;
       const isUndicided = Number(raw?.isUndicided) === 1;
       const isRejected = Number(raw?.isRejected) === 1;
       const isActive = Number(raw?.isAccepted) === 1;
       const hasDecision = isShortlisted || isUndicided || isRejected || isActive;
 
-      // Pure "Applied" with no contract → fall back to X / ? / ✓
-      // AFTER
-      // Pure "Applied" → fall back to default X / ? / ✓
       if (!hasExistingContract(raw, meta) && !hasDecision) return null;
 
-      // Undecided with no contract → ? disabled
       if (!hasExistingContract(raw, meta) && isUndicided) {
         return (
           <ActionGroup
@@ -1774,7 +1710,6 @@ export default function InfluencerList() {
         );
       }
 
-      // Rejected with no contract → X disabled
       if (!hasExistingContract(raw, meta) && isRejected) {
         return (
           <ActionGroup
@@ -1793,8 +1728,6 @@ export default function InfluencerList() {
       const isLoading = viewingPdfForId === row.id;
       const { label: primaryLabel, viewOnly } = getPrimaryAction(raw, meta);
 
-
-      // Active influencers → milestone-style actions
       if (isActive) {
         return (
           <ActiveMilestoneActions
@@ -1803,6 +1736,7 @@ export default function InfluencerList() {
             onViewMilestone={() => handleViewMilestone(row)}
             onManage={() => handleManage(row)}
             onMail={() => handleMail(row)}
+            onRateReview={() => openRateReviewModal(row)}
             moreMenu={
               <InfluencerContextMenu
                 type="active"
@@ -1826,13 +1760,10 @@ export default function InfluencerList() {
         );
       }
 
-      // Has contract but not active → Send Contract / View Contract + Manage
       return (
         <ActionButtons
           primaryLabel={isLoading && viewOnly ? "Opening…" : primaryLabel}
-          onPrimary={() =>
-            viewOnly ? handleViewContractPdf(row) : openContractSidebar(row)
-          }
+          onPrimary={() => (viewOnly ? handleViewContractPdf(row) : openContractSidebar(row))}
           onManage={() => handleManage(row)}
           onMail={() => handleMail(row)}
           moreMenu={
@@ -1868,9 +1799,10 @@ export default function InfluencerList() {
       openContractSidebar,
       handleBrandAccept,
       openSignModal,
+      openRateReviewModal,
     ]
   );
-  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <>
       <InfluencerFilter
@@ -1893,33 +1825,27 @@ export default function InfluencerList() {
               rows={visibleRows}
               variant={tableVariant}
               onActionClick={handleApplicantDecision}
-              // ── Bulk selection props ────────────────────────────────────
               selectable
               selectedIds={selectedBulkIds}
               onToggleRow={toggleBulkRow}
               onToggleAll={toggleBulkAllVisible}
               onClearSelection={clearBulkSelection}
               isRowSelectable={(row) => isBulkSelectable(row as InfluencerRow)}
-              // ── Bulk header banner ──────────────────────────────────────
               renderBulkHeader={({ selectedIds, clearSelection }) => (
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-[#F2F2F2] px-8 py-3">
                   <div className="text-sm font-medium text-gray-800">
                     {selectedIds.length} influencer{selectedIds.length > 1 ? "s" : ""} selected
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={clearSelection}>
-                      Clear
-                    </Button>
+                    <Button variant="outline" onClick={clearSelection}>Clear</Button>
                     <Button onClick={openBulkPayoutTypeDialog}>
                       <PaperPlaneTilt className="mr-2 h-4 w-4" />
                       Bulk Send Contract
                     </Button>
                   </div>
                 </div>
-
               )}
               renderDefaultActions={renderAllTabActions}
-              // ── Per-row action renderers ────────────────────────────────
               renderShortlistedActions={(row) => {
                 const meta = contractMetaMap[row.id] ?? null;
                 const raw = (row as any)?.__raw ?? {};
@@ -1932,9 +1858,7 @@ export default function InfluencerList() {
                 return (
                   <ActionButtons
                     primaryLabel={isLoading ? "Opening…" : primaryLabel}
-                    onPrimary={() =>
-                      viewOnly ? handleViewContractPdf(row) : openContractSidebar(row)
-                    }
+                    onPrimary={() => (viewOnly ? handleViewContractPdf(row) : openContractSidebar(row))}
                     onManage={() => handleManage(row)}
                     onMail={() => handleMail(row)}
                     moreMenu={
@@ -1962,8 +1886,7 @@ export default function InfluencerList() {
                 const statusStr = String(meta?.status || "");
                 const showAccept = needsBrandAcceptance(statusStr);
                 const showSign = canSignNow(meta);
-                const showViewMilestone =
-                  isAdminCreatedCampaign || milestoneCreatedMap[row.id] || hasMilestonesCreated(meta);
+                const showViewMilestone = isAdminCreatedCampaign || milestoneCreatedMap[row.id] || hasMilestonesCreated(meta);
 
                 return (
                   <ActiveMilestoneActions
@@ -1972,6 +1895,7 @@ export default function InfluencerList() {
                     onViewMilestone={() => handleViewMilestone(row)}
                     onManage={() => handleManage(row)}
                     onMail={() => handleMail(row)}
+                    onRateReview={() => openRateReviewModal(row)}
                     isAdminCreatedCampaign={isAdminCreatedCampaign}
                     moreMenu={
                       <InfluencerContextMenu
@@ -1981,9 +1905,7 @@ export default function InfluencerList() {
                         onAddMilestone={() => handleOpenMilestoneModal(row)}
                         onAssignDeliverables={() => console.log("assign deliverables", row.id)}
                         onSaveToHub={(hubId) => console.log("save to hub", row.id, hubId)}
-                        onMoveToWorkspace={(workspaceId) =>
-                          console.log("move to workspace", row.id, workspaceId)
-                        }
+                        onMoveToWorkspace={(workspaceId) => console.log("move to workspace", row.id, workspaceId)}
                         onRaiseDispute={() => console.log("raise dispute", row.id)}
                         onDelete={() => console.log("remove", row.id)}
                       />
@@ -1992,6 +1914,8 @@ export default function InfluencerList() {
                     onAccept={() => openContractSidebar(row)}
                     showSign={isAdminCreatedCampaign ? false : showSign}
                     onSign={() => openSignModal(meta)}
+                    showViewContract={hasExistingContract((row as any)?.__raw ?? {}, meta)}
+                    onViewContract={() => handleViewContractPdf(row)}
                   />
                 );
               }}
@@ -2039,7 +1963,6 @@ export default function InfluencerList() {
         </div>
       </div>
 
-      {/* ── Single influencer contract sidebar ─────────────────────────────── */}
       <ContractSidebarExtracted
         open={contractOpen}
         onClose={() => {
@@ -2060,7 +1983,6 @@ export default function InfluencerList() {
         }}
       />
 
-      {/* ── Bulk contract sidebar (uses same component with bulk props) ──────── */}
       <ContractSidebarExtracted
         open={bulkSidebarOpen}
         onClose={() => {
@@ -2080,9 +2002,6 @@ export default function InfluencerList() {
         campaignBudget={campaignBudget}
         campaignTimeline={campaignTimeline}
         forcedPaymentType={bulkForcedPaymentType}
-        // bulkInfluencerIds={selectedBulkIds}
-        // bulkInfluencerNames={bulkInfluencerNames}
-        // isBulk
         onSuccess={async () => {
           await fetchApplicants();
           setSelectedBulkIds([]);
@@ -2091,7 +2010,6 @@ export default function InfluencerList() {
         }}
       />
 
-      {/* ── Add Milestone modal ───────────────────────────────────────────────── */}
       <AddMilestoneCard
         open={Boolean(milestoneTargetRow)}
         onClose={handleCloseMilestoneModal}
@@ -2103,10 +2021,25 @@ export default function InfluencerList() {
         onSubmit={handleMilestoneSubmit}
       />
 
-      {/* ── Signature modal ───────────────────────────────────────────────────── */}
+      <BrandInfluencerRateReviewModal
+        open={rateReviewOpen}
+        target={rateReviewTarget}
+        onClose={() => setRateReviewOpen(false)}
+        onSkipped={() => {
+          toast({ icon: "info", title: "Review skipped" });
+        }}
+        onSubmitted={async () => {
+          toast({ icon: "success", title: "Review submitted" });
+          await fetchApplicants();
+        }}
+      />
+
       <SignatureModal
         isOpen={signOpen}
-        onClose={() => { setSignOpen(false); setSignTargetMeta(null); }}
+        onClose={() => {
+          setSignOpen(false);
+          setSignTargetMeta(null);
+        }}
         onSigned={async (sigDataUrl) => {
           if (!signTargetMeta?.contractId) return;
           try {
@@ -2127,7 +2060,6 @@ export default function InfluencerList() {
         }}
       />
 
-      {/* ── Payout type selection dialog ──────────────────────────────────────── */}
       <Dialog open={isPayoutTypeDialogOpen} onOpenChange={setIsPayoutTypeDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -2145,9 +2077,7 @@ export default function InfluencerList() {
               className="rounded-xl border border-gray-200 p-4 text-left transition hover:bg-gray-50"
             >
               <div className="text-sm font-semibold text-gray-900">Fixed</div>
-              <div className="mt-1 text-sm text-gray-500">
-                One fixed payout amount for the entire campaign.
-              </div>
+              <div className="mt-1 text-sm text-gray-500">One fixed payout amount for the entire campaign.</div>
             </button>
 
             <button
@@ -2156,9 +2086,7 @@ export default function InfluencerList() {
               className="rounded-xl border border-gray-200 p-4 text-left transition hover:bg-gray-50"
             >
               <div className="text-sm font-semibold text-gray-900">Milestone</div>
-              <div className="mt-1 text-sm text-gray-500">
-                Payment is released in stages based on deliverables.
-              </div>
+              <div className="mt-1 text-sm text-gray-500">Payment is released in stages based on deliverables.</div>
             </button>
           </div>
         </DialogContent>
