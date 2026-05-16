@@ -7,6 +7,7 @@ import {
   FolderKanban,
   Layers3,
   Settings2,
+  Star,
 } from "lucide-react";
 import type { BrandDetail, BrandTab, BrandTabItem } from "./types";
 
@@ -14,6 +15,7 @@ export const BRAND_TABS: BrandTabItem[] = [
   { id: "overview", label: "Overview", icon: Layers3 },
   { id: "subscription", label: "Subscription", icon: CreditCard },
   { id: "campaigns", label: "Campaigns", icon: FolderKanban },
+  { id: "ratings", label: "Ratings", icon: Star },
   // { id: "invoices", label: "Invoices", icon: FileText },
   // { id: "activity", label: "Activity Log", icon: Activity },
   // { id: "settings", label: "Settings", icon: Settings2 },
@@ -45,6 +47,7 @@ export function isBrandTab(value: string | null): value is BrandTab {
     value === "overview" ||
     value === "subscription" ||
     value === "campaigns" ||
+    value === "ratings" ||
     value === "invoices" ||
     value === "activity" ||
     value === "settings" ||

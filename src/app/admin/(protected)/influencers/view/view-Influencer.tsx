@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { get, post } from "@/lib/api";
 import {
@@ -8,7 +9,7 @@ import {
   CheckCircle2, ChevronLeft, CreditCard, ExternalLink, Globe, Hash,
   Heart, Info, Mail, MapPin, MessageCircle, Sparkles, Tag, TrendingUp,
   Users, Wallet, Eye, PlayCircle, Star, Layers3, ChevronUp, ChevronDown,
-  Activity, Zap, Shield,
+  Activity, Zap, Shield, ArrowRight, X, MessageSquareText,
 } from "lucide-react";
 
 import AdminTable, { type AdminTableColumn } from "../../../components/table";
@@ -137,6 +138,515 @@ interface NormalizedSocialProfile {
   bio?: string; categories?: ModashCategory[]; hashtags?: TagWeight[];
   mentions?: TagWeight[]; brandAffinity?: BrandAffinityItem[]; audience?: AudienceData;
 }
+
+
+/* -------------------------------------------------------------------------- */
+/*                              Ratings Types                                 */
+/* -------------------------------------------------------------------------- */
+type RatingReviewType =
+  | "brand_to_influencer"
+  | "influencer_to_brand"
+  | "brand_to_platform"
+  | "influencer_to_platform";
+
+type RatingReviewStatus = "pending" | "submitted" | "skipped" | "expired" | "revoked";
+type RatingReviewRole = "brand" | "influencer" | "platform" | "admin";
+type InfluencerRatingScope = "all" | "submitted_by_influencer" | "given_to_influencer" | "platform";
+
+type RatingMiniEntity = {
+  _id?: string;
+  key?: string;
+  name?: string;
+  title?: string;
+  campaignTitle?: string;
+  productOrServiceName?: string;
+  brandName?: string;
+  companyName?: string;
+  influencerName?: string;
+  fullName?: string;
+  username?: string;
+  handle?: string;
+  email?: string;
+  image?: string;
+  avatar?: string;
+  profilePic?: string;
+  profileImage?: string;
+  profilePicture?: string;
+  logo?: string;
+  brandLogo?: string;
+  picture?: string;
+};
+
+type RatingReviewMetrics = {
+  workQuality?: number;
+  communication?: number;
+  timeliness?: number;
+  professionalism?: number;
+  valueForMoney?: number;
+  platformExperience?: number;
+  supportExperience?: number;
+  wouldRecommend?: number;
+};
+
+type RatingReviewAnswer = {
+  questionKey?: string;
+  questionLabel?: string;
+  answerType?: string;
+  value?: unknown;
+  displayValue?: unknown;
+  score?: number | null;
+};
+
+type RatingReviewSnapshot = {
+  role?: RatingReviewRole;
+  entityId?: string;
+  name?: string;
+  email?: string;
+  handle?: string;
+  image?: string;
+};
+
+type RatingReviewItem = {
+  _id: string;
+  reviewType: RatingReviewType;
+  reviewerRole?: RatingReviewRole;
+  revieweeRole?: RatingReviewRole;
+  status: RatingReviewStatus;
+  submittedVia?: string;
+  rating?: number | null;
+  noteStarRating?: number | null;
+  reviewTitle?: string;
+  reviewText?: string;
+  privateFeedback?: string;
+  tags?: string[];
+  metrics?: RatingReviewMetrics;
+  ratings?: RatingReviewMetrics;
+  responses?: RatingReviewAnswer[];
+  responseMap?: Record<string, RatingReviewAnswer>;
+  firstSubmittedAt?: string;
+  submittedAt?: string;
+  createdAt?: string;
+  campaign?: RatingMiniEntity | null;
+  brand?: RatingMiniEntity | null;
+  influencer?: RatingMiniEntity | null;
+  platform?: RatingMiniEntity | null;
+  reviewer?: RatingReviewSnapshot | null;
+  reviewee?: RatingReviewSnapshot | null;
+  campaignId?: RatingMiniEntity | string | null;
+};
+
+type RatingListResponse = {
+  success?: boolean;
+  data?: RatingReviewItem[];
+  total?: number;
+  page?: number;
+  limit?: number;
+  message?: string;
+};
+
+type RatingSubmittedAnswer = { question: string; answer: string; score?: number | null };
+
+const RATING_REVIEW_TYPE_LABEL: Record<RatingReviewType, string> = {
+  brand_to_influencer: "Brand → Influencer",
+  influencer_to_brand: "Influencer → Brand",
+  brand_to_platform: "Brand → Platform",
+  influencer_to_platform: "Influencer → Platform",
+};
+
+const RATING_METRIC_LABELS: Array<[keyof RatingReviewMetrics, string]> = [
+  ["workQuality", "Work Quality"],
+  ["communication", "Communication"],
+  ["timeliness", "Timeliness"],
+  ["professionalism", "Professionalism"],
+  ["valueForMoney", "Value for Money"],
+  ["platformExperience", "Platform Experience"],
+  ["supportExperience", "Support Experience"],
+  ["wouldRecommend", "Would Recommend"],
+];
+
+const INFLUENCER_RATING_SCOPE_ITEMS: Array<{
+  id: InfluencerRatingScope;
+  label: string;
+  hint: string;
+  icon: typeof MessageSquareText;
+}> = [
+  {
+    id: "all",
+    label: "All",
+    hint: "Every submitted rating",
+    icon: MessageSquareText,
+  },
+  {
+    id: "submitted_by_influencer",
+    label: "Influencer to Brand",
+    hint: "Ratings submitted by influencer",
+    icon: Users,
+  },
+  {
+    id: "given_to_influencer",
+    label: "Brand to Influencer",
+    hint: "Ratings given to influencer",
+    icon: Building2,
+  },
+  {
+    id: "platform",
+    label: "Platform Feedback",
+    hint: "Influencer feedback for CollabGlam",
+    icon: Globe,
+  },
+];
+
+function rrSafeNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function rrRound1(value: unknown): string {
+  return rrSafeNumber(value).toFixed(1);
+}
+
+function rrNormalizeText(value = ""): string {
+  return String(value).split("_").join(" ");
+}
+
+function rrFormatDate(value?: string | null): string {
+  if (!value) return "—";
+  const d = new Date(value);
+
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
+
+function rrStringifyAnswer(value: unknown): string {
+  if (value === undefined || value === null || value === "") return "—";
+  if (Array.isArray(value)) {
+    return value.map((item: unknown): string => rrStringifyAnswer(item)).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  return String(value);
+}
+
+function rrBuildQuery(params: Record<string, string | number | undefined | null>): string {
+  const q = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      q.set(key, String(value).trim());
+    }
+  });
+
+  return q.toString();
+}
+
+function rrGetEntityName(value?: RatingMiniEntity | RatingReviewSnapshot | string | null, fallback = "—"): string {
+  if (!value) return fallback;
+  if (typeof value === "string") return value;
+
+  return (
+    value.name ||
+    ("campaignTitle" in value ? value.campaignTitle : "") ||
+    ("productOrServiceName" in value ? value.productOrServiceName : "") ||
+    ("title" in value ? value.title : "") ||
+    ("brandName" in value ? value.brandName : "") ||
+    ("companyName" in value ? value.companyName : "") ||
+    ("influencerName" in value ? value.influencerName : "") ||
+    ("fullName" in value ? value.fullName : "") ||
+    ("username" in value ? value.username : "") ||
+    value.email ||
+    ("key" in value ? value.key : "") ||
+    fallback
+  );
+}
+
+function rrGetEntityImage(value?: RatingMiniEntity | RatingReviewSnapshot | null): string {
+  if (!value) return "";
+
+  return (
+    value.image ||
+    ("avatar" in value ? value.avatar : "") ||
+    ("profilePic" in value ? value.profilePic : "") ||
+    ("profileImage" in value ? value.profileImage : "") ||
+    ("profilePicture" in value ? value.profilePicture : "") ||
+    ("logo" in value ? value.logo : "") ||
+    ("brandLogo" in value ? value.brandLogo : "") ||
+    ("picture" in value ? value.picture : "") ||
+    ""
+  );
+}
+
+function rrGetInitials(name = "?"): string {
+  const parts = String(name || "?")
+    .replace(/[@._-]/g, " ")
+    .split(" ")
+    .filter(Boolean);
+
+  return (
+    parts
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "?"
+  );
+}
+
+function rrGetReviewTypeLabel(type?: RatingReviewType | string): string {
+  return RATING_REVIEW_TYPE_LABEL[type as RatingReviewType] || "Review";
+}
+
+function rrGetReviewer(review: RatingReviewItem): RatingMiniEntity | RatingReviewSnapshot | null {
+  if (review.reviewer) return review.reviewer;
+  if (review.reviewerRole === "brand") return review.brand || null;
+  if (review.reviewerRole === "influencer") return review.influencer || null;
+  return review.platform || null;
+}
+
+function rrGetReviewee(review: RatingReviewItem): RatingMiniEntity | RatingReviewSnapshot | null {
+  if (review.reviewee) return review.reviewee;
+  if (review.revieweeRole === "brand") return review.brand || null;
+  if (review.revieweeRole === "influencer") return review.influencer || null;
+  return review.platform || { name: "CollabGlam" };
+}
+
+function rrGetCampaignEntity(review: RatingReviewItem): RatingMiniEntity | null {
+  return review.campaign || (typeof review.campaignId === "object" ? review.campaignId : null);
+}
+
+function rrGetCampaignName(review: RatingReviewItem): string {
+  return rrGetEntityName(rrGetCampaignEntity(review), "Platform / No campaign");
+}
+
+function rrGetSubmittedAt(review: RatingReviewItem): string | undefined {
+  return review.submittedAt || review.firstSubmittedAt || review.createdAt;
+}
+
+function rrGetSubmittedAnswers(review: RatingReviewItem): RatingSubmittedAnswer[] {
+  const answers: RatingSubmittedAnswer[] = [];
+  const seen = new Set<string>();
+
+  const pushAnswer = (question: string, answer: unknown, score?: number | null) => {
+    const label = question || "Question";
+    const value = rrStringifyAnswer(answer);
+    const key = `${label}:${value}`;
+
+    if (value === "—" || seen.has(key)) return;
+
+    seen.add(key);
+    answers.push({ question: label, answer: value, score });
+  };
+
+  if (Array.isArray(review.responses)) {
+    review.responses.forEach((item) => {
+      pushAnswer(
+        item.questionLabel || item.questionKey || "Question",
+        item.displayValue ?? item.value,
+        item.score
+      );
+    });
+  }
+
+  if (review.responseMap && typeof review.responseMap === "object") {
+    Object.entries(review.responseMap).forEach(([key, item]) => {
+      pushAnswer(
+        item.questionLabel || item.questionKey || rrNormalizeText(key),
+        item.displayValue ?? item.value,
+        item.score
+      );
+    });
+  }
+
+  if (!answers.length) {
+    pushAnswer("Overall rating", review.rating || review.noteStarRating);
+    pushAnswer("Review text", review.reviewText);
+    pushAnswer("Private feedback", review.privateFeedback);
+    pushAnswer("Tags submitted", review.tags?.length ? review.tags.map(rrNormalizeText).join(", ") : "");
+
+    const metrics = review.metrics || review.ratings || {};
+    RATING_METRIC_LABELS.forEach(([key, label]) => {
+      if (rrSafeNumber(metrics[key]) > 0) {
+        pushAnswer(label, `${rrSafeNumber(metrics[key]).toFixed(1)} / 5`);
+      }
+    });
+  }
+
+  return answers;
+}
+
+function rrAverageByType(rows: RatingReviewItem[], reviewType: RatingReviewType): string {
+  const values = rows
+    .filter((item) => item.reviewType === reviewType)
+    .map((item) => rrSafeNumber(item.rating || item.noteStarRating))
+    .filter((value) => value > 0);
+
+  if (!values.length) return "—";
+
+  return (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1);
+}
+
+function rrGetScopeQuery(scope: InfluencerRatingScope): Record<string, string> {
+  if (scope === "submitted_by_influencer") {
+    return {
+      reviewerRole: "influencer",
+      reviewType: "influencer_to_brand",
+    };
+  }
+
+  if (scope === "given_to_influencer") {
+    return {
+      revieweeRole: "influencer",
+      reviewType: "brand_to_influencer",
+    };
+  }
+
+  if (scope === "platform") {
+    return {
+      reviewerRole: "influencer",
+      revieweeRole: "platform",
+      reviewType: "influencer_to_platform",
+    };
+  }
+
+  return {};
+}
+
+function RatingAvatar({ entity, role }: { entity?: RatingMiniEntity | RatingReviewSnapshot | null; role?: string }) {
+  const name = rrGetEntityName(entity, "User");
+  const image = rrGetEntityImage(entity);
+  const Icon = role === "brand" ? Building2 : role === "influencer" ? Users : Globe;
+
+  return (
+    <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[18px] bg-black/[0.04] text-sm font-black text-[#1a1a1a]">
+      {image ? (
+        <img src={image} alt={name} className="h-full w-full object-cover" />
+      ) : name && name !== "—" ? (
+        rrGetInitials(name)
+      ) : (
+        <Icon size={18} />
+      )}
+    </div>
+  );
+}
+
+function RatingEntitySmall({ entity, role }: { entity?: RatingMiniEntity | RatingReviewSnapshot | null; role?: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-3">
+      <RatingAvatar entity={entity} role={role} />
+      <div className="min-w-0">
+        <p className="truncate text-sm font-black text-[#1a1a1a]">{rrGetEntityName(entity, "—")}</p>
+        <p className="mt-0.5 text-xs font-semibold capitalize text-black/45">{role || "—"}</p>
+      </div>
+    </div>
+  );
+}
+
+function RatingCampaignCell({ review }: { review: RatingReviewItem }) {
+  const campaign = rrGetCampaignEntity(review);
+  const isPlatform = review.reviewType.includes("platform");
+
+  return (
+    <div className="min-w-[210px]">
+      <div className="flex items-center gap-2">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-black/[0.04] text-black/45">
+          {isPlatform ? <Globe size={16} /> : <Calendar size={16} />}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-[#1a1a1a]">
+            {isPlatform ? "Platform Feedback" : rrGetEntityName(campaign, "No campaign")}
+          </p>
+          <p className="mt-0.5 text-xs font-semibold text-black/45">
+            {isPlatform ? "CollabGlam platform" : "Campaign review"}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RatingStars({ rating = 0 }: { rating?: number | null }) {
+  const value = Math.max(0, Math.min(5, Math.round(rrSafeNumber(rating))));
+
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <Star
+          key={index}
+          size={13}
+          className={index < value ? "fill-amber-400 text-amber-400" : "text-black/20"}
+        />
+      ))}
+    </span>
+  );
+}
+
+function RatingPillMini({ rating }: { rating?: number | null }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-black text-amber-700">
+      <RatingStars rating={rating} />
+      {rrRound1(rating)}
+    </span>
+  );
+}
+
+function RatingBadge({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "success" | "warning" | "danger" | "info" | "purple";
+}) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-slate-200 bg-slate-50 text-slate-600";
+
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold ${toneClass}`}>
+      {children}
+    </span>
+  );
+}
+
+function RatingStatusBadge({ status }: { status?: RatingReviewStatus | string }) {
+  if (status === "submitted") {
+    return (
+      <RatingBadge tone="success">
+        <CheckCircle2 size={12} /> Submitted
+      </RatingBadge>
+    );
+  }
+
+  return <RatingBadge>{status || "—"}</RatingBadge>;
+}
+
+function RatingTypeBadge({ type }: { type?: RatingReviewType | string }) {
+  return <RatingBadge>{rrGetReviewTypeLabel(type)}</RatingBadge>;
+}
+
+function RatingAnswerPreview({ review }: { review: RatingReviewItem }) {
+  const answers = rrGetSubmittedAnswers(review);
+  const firstAnswer = answers[0];
+
+  return (
+    <div className="max-w-[440px]">
+      <strong className="text-sm font-black text-[#1a1a1a]">
+        {answers.length} answer{answers.length === 1 ? "" : "s"}
+      </strong>
+      {firstAnswer ? (
+        <p className="mt-1 line-clamp-2 text-xs font-medium leading-5 text-black/50">
+          {firstAnswer.question}: {firstAnswer.answer}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs font-medium text-black/45">No answer preview available.</p>
+      )}
+    </div>
+  );
+}
+
 
 /* -------------------------------------------------------------------------- */
 /*                              Platform Theming                              */
@@ -529,6 +1039,18 @@ export default function AdminInfluencerView() {
   const [campaignError, setCampaignError] = useState<string | null>(null);
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
 
+  const [ratingScope, setRatingScope] = useState<InfluencerRatingScope>("all");
+  const [ratingPage, setRatingPage] = useState(1);
+  const [ratingLimit, setRatingLimit] = useState(20);
+  const [ratingRows, setRatingRows] = useState<RatingReviewItem[]>([]);
+  const [ratingTotal, setRatingTotal] = useState(0);
+  const [ratingLoading, setRatingLoading] = useState(false);
+  const [ratingError, setRatingError] = useState<string | null>(null);
+  const [ratingStatsRows, setRatingStatsRows] = useState<RatingReviewItem[]>([]);
+  const [ratingStatsTotal, setRatingStatsTotal] = useState(0);
+  const [ratingStatsLoading, setRatingStatsLoading] = useState(false);
+  const [selectedRatingReview, setSelectedRatingReview] = useState<RatingReviewItem | null>(null);
+
   useEffect(() => {
     if (!id) {
       setError("Missing influencer id.");
@@ -586,6 +1108,74 @@ export default function AdminInfluencerView() {
       })
       .finally(() => setCampaignLoading(false));
   }, [campaignPage, influencerId]);
+
+  const loadRatings = useCallback(async () => {
+    if (!influencerId) return;
+
+    try {
+      setRatingLoading(true);
+      setRatingError(null);
+
+      const query = rrBuildQuery({
+        page: ratingPage,
+        limit: ratingLimit,
+        influencerId,
+        status: "submitted",
+        ...rrGetScopeQuery(ratingScope),
+      });
+
+      const payload = await get<RatingListResponse>(`/campaign-reviews/admin?${query}`);
+
+      if (payload?.success === false) {
+        throw new Error(payload?.message || "Failed to load submitted ratings.");
+      }
+
+      const rows = Array.isArray(payload?.data) ? payload.data : [];
+      setRatingRows(rows);
+      setRatingTotal(payload?.total ?? rows.length);
+    } catch (err: any) {
+      setRatingError(err?.response?.data?.message || err?.message || "Failed to load submitted ratings.");
+      setRatingRows([]);
+      setRatingTotal(0);
+    } finally {
+      setRatingLoading(false);
+    }
+  }, [influencerId, ratingLimit, ratingPage, ratingScope]);
+
+  const loadRatingStats = useCallback(async () => {
+    if (!influencerId) return;
+
+    try {
+      setRatingStatsLoading(true);
+
+      const query = rrBuildQuery({
+        page: 1,
+        limit: 500,
+        influencerId,
+        status: "submitted",
+      });
+
+      const payload = await get<RatingListResponse>(`/campaign-reviews/admin?${query}`);
+      const rows = Array.isArray(payload?.data) ? payload.data : [];
+
+      setRatingStatsRows(rows);
+      setRatingStatsTotal(payload?.total ?? rows.length);
+    } catch {
+      setRatingStatsRows([]);
+      setRatingStatsTotal(0);
+    } finally {
+      setRatingStatsLoading(false);
+    }
+  }, [influencerId]);
+
+  useEffect(() => {
+    void loadRatings();
+  }, [loadRatings]);
+
+  useEffect(() => {
+    void loadRatingStats();
+  }, [loadRatingStats]);
+
 
   const platformOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -670,6 +1260,84 @@ export default function AdminInfluencerView() {
           {fmtCurrency(getCBudget(row))}
         </span>
       ),
+    },
+  ], []);
+
+
+  const ratingTotalPages = Math.max(1, Math.ceil(Math.max(ratingTotal, ratingRows.length) / ratingLimit));
+  const influencerToBrandAverage = rrAverageByType(ratingStatsRows, "influencer_to_brand");
+  const brandToInfluencerAverage = rrAverageByType(ratingStatsRows, "brand_to_influencer");
+  const influencerToBrandCount = ratingStatsRows.filter((item) => item.reviewType === "influencer_to_brand").length;
+  const brandToInfluencerCount = ratingStatsRows.filter((item) => item.reviewType === "brand_to_influencer").length;
+  const influencerPlatformCount = ratingStatsRows.filter((item) => item.reviewType === "influencer_to_platform").length;
+  const activeRatingScope = INFLUENCER_RATING_SCOPE_ITEMS.find((item) => item.id === ratingScope) || INFLUENCER_RATING_SCOPE_ITEMS[0];
+
+  const ratingScopeCounts: Record<InfluencerRatingScope, number> = {
+    all: ratingStatsTotal || ratingStatsRows.length,
+    submitted_by_influencer: influencerToBrandCount,
+    given_to_influencer: brandToInfluencerCount,
+    platform: influencerPlatformCount,
+  };
+
+  const latestRatingSubmittedAt =
+    ratingStatsRows
+      .map((item) => rrGetSubmittedAt(item))
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
+
+  const ratingColumns = useMemo<AdminTableColumn<RatingReviewItem>[]>(() => [
+    {
+      id: "campaign",
+      header: "Campaign",
+      widthClassName: "min-w-[210px]",
+      render: row => <RatingCampaignCell review={row} />,
+    },
+    {
+      id: "reviewer",
+      header: "Submitted By",
+      widthClassName: "min-w-[190px]",
+      render: row => <RatingEntitySmall entity={rrGetReviewer(row)} role={row.reviewerRole} />,
+    },
+    {
+      id: "reviewee",
+      header: "Submitted For",
+      widthClassName: "min-w-[190px]",
+      render: row => <RatingEntitySmall entity={rrGetReviewee(row)} role={row.revieweeRole} />,
+    },
+    {
+      id: "type",
+      header: "Type",
+      widthClassName: "min-w-[160px]",
+      render: row => <RatingTypeBadge type={row.reviewType} />,
+    },
+    {
+      id: "rating",
+      header: "Rating",
+      align: "center",
+      widthClassName: "min-w-[120px]",
+      render: row => <RatingPillMini rating={row.rating || row.noteStarRating} />,
+    },
+    {
+      id: "answers",
+      header: "Answers",
+      widthClassName: "min-w-[300px]",
+      render: row => <RatingAnswerPreview review={row} />,
+    },
+    {
+      id: "submitted",
+      header: "Submitted",
+      widthClassName: "min-w-[150px]",
+      render: row => (
+        <span className="text-[13px] font-semibold text-slate-500">
+          {rrFormatDate(rrGetSubmittedAt(row))}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Status",
+      widthClassName: "min-w-[120px]",
+      render: row => <RatingStatusBadge status={row.status} />,
     },
   ], []);
 
@@ -829,7 +1497,7 @@ export default function AdminInfluencerView() {
             <div className="mx-auto max-w-full px-4 py-2 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
                 <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
-                  {["overview", "demographics","campaigns", "payment details"].map(v => (
+                  {["overview", "demographics", "ratings", "campaigns", "payment details"].map(v => (
                     <TabsTrigger
                       key={v}
                       value={v}
@@ -1166,6 +1834,278 @@ export default function AdminInfluencerView() {
             ) : (
               <Empty label="No platform profile" desc="Select a connected platform above." />
             )}
+          </TabsContent>
+
+
+          <TabsContent value="ratings" className="space-y-5">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="max-w-3xl">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="flex h-9 w-9 items-center justify-center rounded-xl"
+                      style={{ background: `${theme.accent}12`, color: theme.accent }}
+                    >
+                      <Star className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                        Ratings
+                      </p>
+                      <h2 className="mt-0.5 text-xl font-bold tracking-tight text-slate-900">
+                        All Submitted Ratings
+                      </h2>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid min-w-[280px] gap-2 sm:grid-cols-2">
+                  {[
+                    {
+                      label: "Avg. Influencer → Brand",
+                      value: ratingStatsLoading ? "…" : influencerToBrandAverage,
+                      hint: `${influencerToBrandCount} rows`,
+                      icon: Users,
+                    },
+                    {
+                      label: "Avg. Brand → Influencer",
+                      value: ratingStatsLoading ? "…" : brandToInfluencerAverage,
+                      hint: `${brandToInfluencerCount} rows`,
+                      icon: Building2,
+                    },
+                  ].map((card) => {
+                    const Icon = card.icon;
+
+                    return (
+                      <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-black text-slate-400">{card.label}</p>
+                          <Icon size={14} className="text-slate-400" />
+                        </div>
+                        <div className="mt-1 flex items-end justify-between gap-2">
+                          <p className="text-lg font-black text-slate-900">{card.value}</p>
+                          <p className="text-[11px] font-semibold text-slate-400">{card.hint}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+
+            {ratingError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {ratingError}
+              </div>
+            ) : null}
+
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-[15px] font-bold text-slate-900">{activeRatingScope.label}</h3>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <RatingBadge>{ratingTotal || ratingRows.length} rows</RatingBadge>
+
+                  <div className="relative">
+                    <select
+                      value={ratingScope}
+                      onChange={(event) => {
+                        setRatingScope(event.target.value as InfluencerRatingScope);
+                        setRatingPage(1);
+                      }}
+                      className="h-10 min-w-[230px] appearance-none rounded-xl border border-slate-200 bg-white pl-4 pr-10 text-[13px] font-bold text-slate-700 outline-none transition hover:bg-slate-50"
+                    >
+                      {INFLUENCER_RATING_SCOPE_ITEMS.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label} ({ratingStatsLoading ? "…" : ratingScopeCounts[item.id]})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown
+                      size={16}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <AdminTable<RatingReviewItem>
+                data={ratingRows}
+                columns={ratingColumns}
+                rowKey={(row) => row._id}
+                loading={ratingLoading}
+                loadingRows={8}
+                emptyTitle="No submitted ratings found"
+                emptyDescription="Submitted ratings connected to this influencer will appear here."
+                onRowClick={(row) => setSelectedRatingReview(row)}
+                actions={{
+                  header: "Action",
+                  render: (row) => (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedRatingReview(row)}
+                      className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Eye size={14} />
+                      View
+                    </button>
+                  ),
+                }}
+                pagination={{
+                  page: ratingPage,
+                  totalPages: ratingTotalPages,
+                  totalItems: ratingTotal || ratingRows.length,
+                  limit: ratingLimit,
+                  onPageChange: setRatingPage,
+                  onLimitChange: (value) => {
+                    setRatingLimit(value);
+                    setRatingPage(1);
+                  },
+                  rowOptions: [10, 20, 50, 100],
+                  loading: ratingLoading,
+                }}
+                containerClassName="rounded-none border-0 shadow-none"
+              />
+            </section>
+
+            {selectedRatingReview ? createPortal(
+              <div
+                className="fixed inset-0 flex justify-end bg-slate-950/30 backdrop-blur-[2px]"
+                style={{
+                  zIndex: 2147483647,
+                  position: "fixed",
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  left: 0,
+                  width: "100vw",
+                  height: "100dvh",
+                }}
+                onClick={() => setSelectedRatingReview(null)}
+              >
+                <aside
+                  className="relative flex h-full w-full max-w-[800px] flex-col overflow-hidden bg-white shadow-2xl"
+                  style={{ zIndex: 2147483647, height: "100dvh" }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="border-b border-slate-200 bg-white p-5">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="mb-3 text-xl font-bold text-slate-900">
+                          {selectedRatingReview.reviewTitle || rrGetReviewTypeLabel(selectedRatingReview.reviewType)}
+                        </h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <RatingPillMini rating={selectedRatingReview.rating || selectedRatingReview.noteStarRating} />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRatingReview(null)}
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto bg-slate-50/70 p-5">
+                    <div className="grid gap-4">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <RatingEntitySmall entity={rrGetReviewer(selectedRatingReview)} role={selectedRatingReview.reviewerRole} />
+                          <span
+                            className="flex h-9 w-9 items-center justify-center rounded-full"
+                            style={{ background: `${theme.accent}12`, color: theme.accent }}
+                          >
+                            <ArrowRight size={17} />
+                          </span>
+                          <RatingEntitySmall entity={rrGetReviewee(selectedRatingReview)} role={selectedRatingReview.revieweeRole} />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-sm font-bold text-slate-900">Campaign</p>
+                          <p className="mt-2 text-sm font-medium leading-6 text-slate-500">{rrGetCampaignName(selectedRatingReview)}</p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-sm font-bold text-slate-900">Submitted</p>
+                          <p className="mt-2 text-sm font-medium leading-6 text-slate-500">
+                            {rrFormatDate(rrGetSubmittedAt(selectedRatingReview))}
+                          </p>
+                        </div>
+                      </div>
+
+                      {selectedRatingReview.reviewText ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-sm font-bold text-slate-900">Review Note</p>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-500">
+                            {selectedRatingReview.reviewText}
+                          </p>
+                        </div>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-base font-bold text-slate-900">Submitted Questions & Answers</h4>
+                          <RatingBadge>{rrGetSubmittedAnswers(selectedRatingReview).length} answers</RatingBadge>
+                        </div>
+
+                        <div className="mt-4 grid gap-3">
+                          {rrGetSubmittedAnswers(selectedRatingReview).length ? (
+                            rrGetSubmittedAnswers(selectedRatingReview).map((item, index) => (
+                              <div key={`${item.question}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+                                <div className="flex items-start gap-3">
+                                  <span
+                                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                                    style={{ background: `${theme.accent}12`, color: theme.accent }}
+                                  >
+                                    {index + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-bold text-slate-900">{item.question}</p>
+                                    <p className="mt-2 whitespace-pre-wrap break-words text-sm font-medium leading-6 text-slate-500">
+                                      {item.answer}
+                                    </p>
+                                    {item.score ? (
+                                      <div className="mt-3">
+                                        <RatingBadge>Score: {item.score}/5</RatingBadge>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-medium text-slate-500">
+                              This review does not include question-answer data.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {Array.isArray(selectedRatingReview.tags) && selectedRatingReview.tags.length ? (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                          <p className="text-sm font-bold text-slate-900">Tags</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {selectedRatingReview.tags.map((tag) => (
+                              <RatingBadge key={tag}>{rrNormalizeText(tag)}</RatingBadge>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </aside>
+              </div>,
+              document.body
+            ) : null}
           </TabsContent>
 
           <TabsContent value="campaigns" className="space-y-4">

@@ -4,6 +4,7 @@ export type BrandTab =
   | "overview"
   | "subscription"
   | "campaigns"
+  | "ratings"
   | "invoices"
   | "activity"
   | "settings"

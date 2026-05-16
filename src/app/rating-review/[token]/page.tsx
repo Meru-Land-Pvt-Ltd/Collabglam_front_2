@@ -129,9 +129,9 @@ const CREATOR_HERO_GRADIENT =
   "linear-gradient(109deg, #FAFAFA 30.17%, rgba(255, 191, 0, 0.83) 50%, #F6BB2A 57.65%, #F3584E 74.04%, #E078D1 84.62%), #F9F9F9"
 
 const BRAND_HERO_GRADIENT =
-  "var(--Gradient-Brand-Primary-Radial, radial-gradient(100% 100% at 50% 0%, #FF8C01 0%, #FFBF00 37.94%, #FFF 90.87%))"
+  "var(--Gradient-Brand-Primary-Radial, radial-gradient(100% 100% at 50% 0%, #FF8C01 0%, #FFBF00 37.94%, #FFFFFF 90.87%))"
 
-const CREATOR_HERO_ICONS = [
+const CREATOR_FLOATERS = [
   { icon: "▶️", className: "left-[52px] top-[34px] rotate-[-8deg] text-[18px]" },
   { icon: "✨", className: "left-[92px] top-[76px] text-[10px]" },
   { icon: "🌟", className: "left-[120px] top-[28px] text-[16px]" },
@@ -145,7 +145,7 @@ const CREATOR_HERO_ICONS = [
   { icon: "😻", className: "right-[98px] top-[116px] rotate-[14deg] text-[42px]" },
 ]
 
-const BRAND_HERO_STARS = [
+const BRAND_STARS = [
   "left-[18px] top-[15px] text-[24px]",
   "left-[54px] top-[92px] text-[17px]",
   "left-[123px] top-[105px] text-[30px]",
@@ -223,8 +223,8 @@ export default function RatingReviewTokenPage() {
   const targetName = getTargetName(review)
   const targetAvatarSrc = getTargetAvatarSrc(review)
   const heroVariant: HeroVariant = review?.reviewType === "influencer_to_brand" ? "brand" : "creator"
-  const isLastQuestion = step === questions.length - 1
   const reviewerLabel = review?.reviewerRole === "brand" ? "Brand Feedback" : "Influencer Feedback"
+  const isLastQuestion = step === questions.length - 1
   const submittedRating = getSubmittedRating(answers)
 
   const canGoNext = currentQuestion
@@ -379,7 +379,7 @@ export default function RatingReviewTokenPage() {
               key="intro"
               targetName={targetName}
               campaignName={review.campaign?.name || "Campaign"}
-              reviewerLabel={reviewerLabel}
+              // reviewerLabel={reviewerLabel}
               canUpdate={canUpdate}
               avatarSrc={targetAvatarSrc}
               heroVariant={heroVariant}
@@ -414,7 +414,7 @@ export default function RatingReviewTokenPage() {
 function IntroScreen({
   targetName,
   campaignName,
-  reviewerLabel,
+  // reviewerLabel,
   canUpdate,
   avatarSrc,
   heroVariant,
@@ -423,7 +423,7 @@ function IntroScreen({
 }: {
   targetName: string
   campaignName: string
-  reviewerLabel: string
+  // reviewerLabel: string
   canUpdate: boolean
   avatarSrc?: string
   heroVariant: HeroVariant
@@ -432,13 +432,13 @@ function IntroScreen({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.22 }}
+      exit={{ opacity: 0, y: -10 }}
+      transition={{ duration: 0.2 }}
       className="relative flex min-h-screen flex-col bg-white sm:min-h-[560px]"
     >
-      <div className="relative h-[190px] overflow-visible">
+      <div className="relative h-[188px] overflow-visible">
         <HeroBanner variant={heroVariant} />
 
         <button
@@ -450,16 +450,23 @@ function IntroScreen({
           <X className="size-5" strokeWidth={2.5} />
         </button>
 
-        <AvatarCircle name={targetName} src={avatarSrc} variant={heroVariant} className="absolute bottom-[-36px] left-1/2 z-40 -translate-x-1/2" />
+        <AvatarCircle
+          name={targetName}
+          src={avatarSrc}
+          variant={heroVariant}
+          className="absolute bottom-[-36px] left-1/2 z-40 -translate-x-1/2"
+        />
       </div>
 
       <div className="relative z-20 flex flex-1 flex-col px-5 pb-5 pt-[62px] text-center">
-        <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-[#9A9A9A]">
+        {/* <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-[#9A9A9A]">
           {reviewerLabel}
-        </p>
+        </p> */}
+
         <h1 className="mx-auto max-w-[365px] text-[18px] font-bold leading-[1.25] tracking-[-0.01em] text-[#222222]">
           How was working with {targetName}?
         </h1>
+
         <p className="mx-auto mt-3 max-w-[322px] text-[14px] leading-[1.35] text-[#A0A0A0]">
           Share your campaign experience for {campaignName}. Your feedback helps creators grow, build stronger partnerships, and stand out through meaningful collaborations.
         </p>
@@ -471,6 +478,7 @@ function IntroScreen({
           >
             {canUpdate ? "Update Review" : "Rate Now"}
           </Button>
+
           <button type="button" className="h-10 text-[13px] font-medium text-[#9A9A9A]" onClick={onClose}>
             Remind me later
           </button>
@@ -480,56 +488,13 @@ function IntroScreen({
   )
 }
 
-function AvatarCircle({
-  name,
-  src,
-  variant,
-  className,
-  size = "large",
-}: {
-  name: string
-  src?: string
-  variant: HeroVariant
-  className?: string
-  size?: "large" | "small"
-}) {
-  const isBrand = variant === "brand"
-
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-full border-white shadow-[0_12px_34px_rgba(0,0,0,0.13)]",
-        isBrand ? "bg-black" : "bg-[#FFD2DD]",
-        size === "large" ? "size-[108px] border-[6px]" : "size-5 border",
-        className
-      )}
-    >
-      {src ? (
-        <img src={src} alt={name} className={cn("h-full w-full object-cover", isBrand && "object-contain p-3")} />
-      ) : (
-        <span
-          className={cn(
-            "font-bold uppercase",
-            isBrand ? "text-white" : "text-[#1C1C1C]",
-            size === "large" ? "text-[34px]" : "text-[8px]"
-          )}
-        >
-          {getInitials(name)}
-        </span>
-      )}
-    </div>
-  )
-}
-
 function HeroBanner({ variant }: { variant: HeroVariant }) {
-  if (variant === "brand") {
-    return <BrandHeroBanner />
-  }
+  if (variant === "brand") return <BrandHeroBanner />
 
   return (
     <div className="absolute inset-0 overflow-hidden bg-[#F9F9F9]" style={{ background: CREATOR_HERO_GRADIENT }}>
-      <CreatorHeroLightBeams />
-      <CreatorHeroIcons />
+      <CreatorHeroBeams />
+      <CreatorHeroFloaters />
       <CreatorHeroClouds />
     </div>
   )
@@ -538,42 +503,14 @@ function HeroBanner({ variant }: { variant: HeroVariant }) {
 function BrandHeroBanner() {
   return (
     <div className="absolute inset-0 overflow-hidden bg-white" style={{ background: BRAND_HERO_GRADIENT }}>
-      <BrandHeroLightBeams />
+      <BrandHeroBeams />
       <BrandHeroStars />
-      <BrandHeroCloudGlow />
+      <div className="pointer-events-none absolute inset-x-0 bottom-[-1px] z-[3] h-[78px] bg-[linear-gradient(180deg,rgba(255,255,255,0)_0%,#FFFFFF_72%)]" />
     </div>
   )
 }
 
-function BrandHeroLightBeams() {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" aria-hidden="true">
-      <div className="absolute left-[58px] top-[-28px] h-[190px] w-[54px] rotate-[-8deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.72)_0%,rgba(255,255,255,0)_88%)]" />
-      <div className="absolute left-[176px] top-[-34px] h-[190px] w-[64px] rotate-[-13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.58)_0%,rgba(255,255,255,0)_86%)]" />
-      <div className="absolute right-[72px] top-[-30px] h-[190px] w-[58px] rotate-[13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.62)_0%,rgba(255,255,255,0)_89%)]" />
-    </div>
-  )
-}
-
-function BrandHeroStars() {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-[2]">
-      {BRAND_HERO_STARS.map((className, index) => (
-        <span key={index} className={cn("absolute drop-shadow-sm", className)}>
-          🌟
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function BrandHeroCloudGlow() {
-  return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[-1px] z-[3] h-[78px] bg-[linear-gradient(180deg,rgba(255,255,255,0)_0%,#FFFFFF_72%)]" />
-  )
-}
-
-function CreatorHeroLightBeams() {
+function CreatorHeroBeams() {
   return (
     <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" aria-hidden="true">
       <svg
@@ -627,10 +564,10 @@ function CreatorHeroLightBeams() {
   )
 }
 
-function CreatorHeroIcons() {
+function CreatorHeroFloaters() {
   return (
     <div className="pointer-events-none absolute inset-0 z-[2]">
-      {CREATOR_HERO_ICONS.map((item, index) => (
+      {CREATOR_FLOATERS.map((item, index) => (
         <span key={`${item.icon}-${index}`} className={cn("absolute drop-shadow-sm", item.className)}>
           {item.icon}
         </span>
@@ -650,6 +587,74 @@ function CreatorHeroClouds() {
       <div className="absolute bottom-0 right-[48px] h-[54px] w-[116px] rounded-t-full bg-white" />
       <div className="absolute bottom-0 right-[-28px] h-[66px] w-[132px] rounded-t-full bg-white" />
       <div className="absolute bottom-0 left-0 right-0 h-[22px] bg-white" />
+    </div>
+  )
+}
+
+function BrandHeroBeams() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1] overflow-hidden" aria-hidden="true">
+      <div className="absolute left-[58px] top-[-28px] h-[190px] w-[54px] rotate-[-8deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.72)_0%,rgba(255,255,255,0)_88%)]" />
+      <div className="absolute left-[176px] top-[-34px] h-[190px] w-[64px] rotate-[-13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.58)_0%,rgba(255,255,255,0)_86%)]" />
+      <div className="absolute right-[72px] top-[-30px] h-[190px] w-[58px] rotate-[13deg] bg-[linear-gradient(180deg,rgba(255,235,176,0.62)_0%,rgba(255,255,255,0)_89%)]" />
+    </div>
+  )
+}
+
+function BrandHeroStars() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[2]">
+      {BRAND_STARS.map((className, index) => (
+        <span key={index} className={cn("absolute drop-shadow-sm", className)}>
+          🌟
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function AvatarCircle({
+  name,
+  src,
+  variant,
+  className,
+  size = "large",
+}: {
+  name: string
+  src?: string
+  variant: HeroVariant
+  className?: string
+  size?: "large" | "small"
+}) {
+  const isBrand = variant === "brand"
+  const isSmall = size === "small"
+
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full border-white shadow-[0_12px_34px_rgba(0,0,0,0.13)]",
+        isBrand ? "bg-black" : "bg-[#FFD2DD]",
+        isSmall ? "size-5 border" : "size-[108px] border-[6px]",
+        className
+      )}
+    >
+      {src ? (
+        <img
+          src={src}
+          alt={name}
+          className={cn("h-full w-full object-cover", isBrand && !isSmall && "object-contain p-3")}
+        />
+      ) : (
+        <span
+          className={cn(
+            "font-bold uppercase",
+            isBrand ? "text-white" : "text-[#1C1C1C]",
+            isSmall ? "text-[8px]" : "text-[34px]"
+          )}
+        >
+          {getInitials(name)}
+        </span>
+      )}
     </div>
   )
 }
@@ -687,16 +692,17 @@ function QuestionScreen({
 }) {
   return (
     <motion.div
-      initial={{ opacity: 0, x: 18 }}
+      initial={{ opacity: 0, x: 16 }}
       animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -18 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, x: -16 }}
+      transition={{ duration: 0.18 }}
       className="flex min-h-screen flex-col bg-white px-[18px] py-[18px] sm:min-h-[560px]"
     >
       <div className="flex items-center justify-between">
         <button type="button" className="text-[13px] font-medium text-[#B9B9B9]" onClick={onBack}>
           Back
         </button>
+
         <button
           type="button"
           aria-label="Close rating page"
@@ -735,6 +741,7 @@ function QuestionScreen({
         <span className="text-[13px] font-bold text-[#1F1F1F]">
           {step + 1} to {total}
         </span>
+
         <div className="flex items-center gap-8">
           <button type="button" className="text-[13px] font-semibold text-[#A5A5A5]" onClick={onSkip} disabled={submitting}>
             Skip
@@ -962,6 +969,34 @@ function NoteQuestion({
   )
 }
 
+function TextQuestion({
+  question,
+  value,
+  onChange,
+}: {
+  question: QuestionnaireQuestion
+  value: unknown
+  onChange: (value: unknown) => void
+}) {
+  const text = String(value || "")
+  const maxLength = question.maxLength || 3000
+
+  return (
+    <div className="flex-1 pt-7">
+      <textarea
+        value={text}
+        maxLength={maxLength}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={question.placeholder || "Write your feedback here..."}
+        className="min-h-[174px] w-full resize-none rounded-[var(--Border-Radius-M,0.75rem)] border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-[var(--Light-Background-Subtle,#F9F9F9)] px-4 py-3 text-[15px] font-medium leading-relaxed text-[#1F1F1F] outline-none transition placeholder:text-[#B0B0B0] focus:border-[#1C1C1C] focus:bg-white focus:ring-4 focus:ring-black/5"
+      />
+      <div className="mt-2 text-right text-[12px] font-medium text-[#A0A0A0]">
+        {text.length}/{maxLength}
+      </div>
+    </div>
+  )
+}
+
 function StarRating({
   value,
   onChange,
@@ -999,42 +1034,6 @@ function StarRating({
   )
 }
 
-function TextQuestion({
-  question,
-  value,
-  onChange,
-}: {
-  question: QuestionnaireQuestion
-  value: unknown
-  onChange: (value: unknown) => void
-}) {
-  const text = String(value || "")
-  const maxLength = question.maxLength || 3000
-
-  return (
-    <div className="flex-1 pt-7">
-      <textarea
-        value={text}
-        maxLength={maxLength}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={question.placeholder || "Write your feedback here..."}
-        className="min-h-[174px] w-full resize-none rounded-[var(--Border-Radius-M,0.75rem)] border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-[var(--Light-Background-Subtle,#F9F9F9)] px-4 py-3 text-[15px] font-medium leading-relaxed text-[#1F1F1F] outline-none transition placeholder:text-[#B0B0B0] focus:border-[#1C1C1C] focus:bg-white focus:ring-4 focus:ring-black/5"
-      />
-      <div className="mt-2 text-right text-[12px] font-medium text-[#A0A0A0]">
-        {text.length}/{maxLength}
-      </div>
-    </div>
-  )
-}
-
-function getQuestionHint(question: QuestionnaireQuestion) {
-  if (question.description) return question.description
-  if (question.key === "standout_qualities") return "Creative alignment with your campaign"
-  if (question.key === "content_vision_match") return "Tell us how closely the final output matched the brief."
-  if (question.key === "note") return "Share a quick appreciation, feedback, or memorable takeaway from this collaboration."
-  return "Share your overall collaboration experience with the creator."
-}
-
 function SubmitSuccessScreen({
   rating,
   targetName,
@@ -1061,7 +1060,9 @@ function SubmitSuccessScreen({
         <StarRating value={rating} readOnly className="mt-8 justify-center" />
 
         <h1 className="mt-5 flex flex-wrap items-center justify-center gap-1.5 text-[18px] font-bold leading-snug text-[#1F1F1F]">
-          <span>You have rated {rating} {starText} to</span>
+          <span>
+            You have rated {rating} {starText} to
+          </span>
           <AvatarCircle name={targetName} src={avatarSrc} variant={avatarVariant} size="small" />
           <span>{targetName}</span>
         </h1>
@@ -1112,6 +1113,14 @@ function CenteredState({
       </section>
     </main>
   )
+}
+
+function getQuestionHint(question: QuestionnaireQuestion) {
+  if (question.description) return question.description
+  if (question.key === "standout_qualities") return "Creative alignment with your campaign"
+  if (question.key === "content_vision_match") return "Tell us how closely the final output matched the brief."
+  if (question.key === "note") return "Share a quick appreciation, feedback, or memorable takeaway from this collaboration."
+  return "Share your overall collaboration experience with the creator."
 }
 
 function buildInitialAnswers(review?: ReviewPayload | null): Answers {
