@@ -1846,3 +1846,39 @@ export async function apiWithdrawInfluencerDispute(input: WithdrawInfluencerDisp
     }
   );
 }
+
+export type AcceptMilestoneByInfluencerPayload = {
+  milestoneId: string;
+  milestoneHistoryId: string;
+  influencerId: string;
+};
+
+export type AcceptMilestoneByInfluencerResponse = {
+  success: boolean;
+  message: string;
+  milestoneId: string;
+  milestoneHistoryId: string;
+  isAccepted: number;
+  milestone?: any;
+};
+
+export async function apiAcceptMilestoneByInfluencer(
+  payload: AcceptMilestoneByInfluencerPayload,
+  token?: string
+) {
+  return apiPost<AcceptMilestoneByInfluencerResponse>(
+    `${MILESTONE_BASE}/acceptByInfluencer`,
+    {
+      milestoneId: payload.milestoneId,
+      milestoneHistoryId: payload.milestoneHistoryId,
+      influencerId: payload.influencerId,
+    },
+    token
+      ? {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      : undefined
+  );
+}

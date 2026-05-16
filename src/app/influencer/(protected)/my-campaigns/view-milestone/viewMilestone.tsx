@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/buttonComp";
 import { toast } from "@/components/ui/toast";
 import {
+    apiAcceptMilestoneByInfluencer,
     apiGetMilestonesByInfluencer,
     apiSubmitDeliverable,
     getApiErrorMessage,
@@ -182,6 +183,10 @@ function isReleased(row: CampaignMilestoneRow) {
     );
 }
 
+function isMilestoneAccepted(milestone?: CampaignMilestoneRow | null) {
+    return Number(milestone?.isAccepted || 0) === 1;
+}
+
 function normalizeDeliverableStatus(status: any) {
     return String(status || "pending").trim().toLowerCase();
 }
@@ -208,12 +213,36 @@ function getRequiredLinkCount(deliverable?: MilestoneDeliverableRow | null) {
 
 function getSubmittedLinks(deliverable?: MilestoneDeliverableRow | null) {
     return Array.isArray(deliverable?.deliverableLinks)
-        ? deliverable.deliverableLinks.filter((item) => String(item?.url || "").trim())
+        ? deliverable.deliverableLinks.filter((item) =>
+              String(item?.url || "").trim()
+          )
         : [];
 }
 
 function getSubmittedLinksCount(deliverable?: MilestoneDeliverableRow | null) {
     return getSubmittedLinks(deliverable).length;
+}
+
+function getPaidRevisionRows(deliverable?: MilestoneDeliverableRow | null) {
+    const revisions = Array.isArray(deliverable?.revisions)
+        ? deliverable.revisions
+        : [];
+
+    return revisions.filter(
+        (revision: any) =>
+            String(revision?.revisionType || "").toLowerCase() === "paid" &&
+            Number(revision?.revisionBudget || 0) > 0
+    );
+}
+
+function getTotalPaidRevisionBudget(
+    deliverable?: MilestoneDeliverableRow | null
+) {
+    return getPaidRevisionRows(deliverable).reduce(
+        (sum: number, revision: any) =>
+            sum + Number(revision?.revisionBudget || 0),
+        0
+    );
 }
 
 function isMilestoneTimelineOver(milestone?: CampaignMilestoneRow | null) {
@@ -388,7 +417,9 @@ function normalizeMilestone(row: any): CampaignMilestoneRow {
                   deliverableLinks: Array.isArray(item?.deliverableLinks)
                       ? item.deliverableLinks
                       : [],
-                  revisions: Array.isArray(item?.revisions) ? item.revisions : [],
+                  revisions: Array.isArray(item?.revisions)
+                      ? item.revisions
+                      : [],
               }))
             : [],
         ...row,
@@ -456,27 +487,38 @@ function DeliverableCard({
     const requiredLinks = getRequiredLinkCount(deliverable);
     const submittedLinks = getSubmittedLinksCount(deliverable);
     const timelineOver = isMilestoneTimelineOver(milestone);
+    const milestoneAccepted = isMilestoneAccepted(milestone);
 
-    const buttonMode: ModalMode = status === "revision" ? "revision" : "deliverable";
-    const buttonLabel = status === "revision" ? "Add Revision" : "Add Deliverable";
+    const paidRevisionRows = getPaidRevisionRows(deliverable);
+    const totalPaidRevisionBudget = getTotalPaidRevisionBudget(deliverable);
+    const shouldShowRevisionBudget = totalPaidRevisionBudget > 0;
+
+    const buttonMode: ModalMode =
+        status === "revision" ? "revision" : "deliverable";
+
+    const buttonLabel =
+        status === "revision" ? "Add Revision" : "Add Deliverable";
 
     const linksCompleted = submittedLinks >= requiredLinks;
 
     const isLocked =
+        !milestoneAccepted ||
         isReleased(milestone) ||
         isApprovedStatus(status) ||
         timelineOver ||
         (status !== "revision" && linksCompleted);
 
-    const lockText = timelineOver
-        ? "Timeline ended"
-        : isReleased(milestone)
-          ? "Released"
-          : isApprovedStatus(status)
-            ? "Approved"
-            : status !== "revision" && linksCompleted
-              ? "All links submitted"
-              : "";
+    const lockText = !milestoneAccepted
+        ? "Accept milestone first"
+        : timelineOver
+          ? "Timeline ended"
+          : isReleased(milestone)
+            ? "Released"
+            : isApprovedStatus(status)
+              ? "Approved"
+              : status !== "revision" && linksCompleted
+                ? "All links submitted"
+                : "";
 
     return (
         <div className="rounded-2xl border border-[#E6E6E6] bg-white p-4">
@@ -484,13 +526,22 @@ function DeliverableCard({
                 <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                         <h4 className="text-base font-semibold text-[#1A1A1A]">
-                            {deliverable.deliverableName || deliverable.title || "Deliverable"}
+                            {deliverable.deliverableName ||
+                                deliverable.title ||
+                                "Deliverable"}
                         </h4>
 
                         {statusBadge(status)}
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div
+                        className={[
+                            "mt-4 grid grid-cols-1 gap-3 md:grid-cols-2",
+                            shouldShowRevisionBudget
+                                ? "xl:grid-cols-5"
+                                : "xl:grid-cols-4",
+                        ].join(" ")}
+                    >
                         <MilestoneDetail
                             label="Content Format"
                             value={formatDeliveries(deliverable.deliveries)}
@@ -503,13 +554,38 @@ function DeliverableCard({
 
                         <MilestoneDetail
                             label="Platform"
-                            value={<PlatformBadgeIcons platforms={deliverable.platforms} />}
+                            value={
+                                <PlatformBadgeIcons
+                                    platforms={deliverable.platforms}
+                                />
+                            }
                         />
 
                         <MilestoneDetail
                             label="Quantity"
                             value={String(requiredLinks).padStart(2, "0")}
                         />
+
+                        {shouldShowRevisionBudget ? (
+                            <MilestoneDetail
+                                label={
+                                    paidRevisionRows.length > 1
+                                        ? "Paid Revision Budget"
+                                        : "Revision Budget"
+                                }
+                                value={
+                                    <span>
+                                        {formatMoney(totalPaidRevisionBudget)}
+                                        {paidRevisionRows.length > 1 ? (
+                                            <span className="ml-1 text-xs font-medium text-[#969696]">
+                                                ({paidRevisionRows.length} paid
+                                                revisions)
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                }
+                            />
+                        ) : null}
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -527,7 +603,11 @@ function DeliverableCard({
                     <div className="mt-4">
                         <MilestoneDetail
                             label="Submitted Link Details"
-                            value={<DeliverableLinksView links={deliverable.deliverableLinks} />}
+                            value={
+                                <DeliverableLinksView
+                                    links={deliverable.deliverableLinks}
+                                />
+                            }
                         />
                     </div>
 
@@ -542,7 +622,9 @@ function DeliverableCard({
                     <Button
                         type="button"
                         disabled={isLocked}
-                        onClick={() => onOpenSubmit(milestone, deliverable, buttonMode)}
+                        onClick={() =>
+                            onOpenSubmit(milestone, deliverable, buttonMode)
+                        }
                         className="h-10 rounded-lg px-4 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                         {buttonLabel}
@@ -555,7 +637,8 @@ function DeliverableCard({
                     ) : submittedLinks > 0 && status !== "revision" ? (
                         <span className="text-center text-xs text-[#969696]">
                             {requiredLinks - submittedLinks} link
-                            {requiredLinks - submittedLinks === 1 ? "" : "s"} remaining
+                            {requiredLinks - submittedLinks === 1 ? "" : "s"}{" "}
+                            remaining
                         </span>
                     ) : null}
                 </div>
@@ -601,8 +684,12 @@ function SubmitLinksModal({
     const title = mode === "revision" ? "Add Revision" : "Add Deliverable";
     const subtitle =
         mode === "revision"
-            ? `Submit exactly ${requiredLinks} revised deliverable link${requiredLinks === 1 ? "" : "s"}.`
-            : `Submit exactly ${requiredLinks} deliverable link${requiredLinks === 1 ? "" : "s"}.`;
+            ? `Submit exactly ${requiredLinks} revised deliverable link${
+                  requiredLinks === 1 ? "" : "s"
+              }.`
+            : `Submit exactly ${requiredLinks} deliverable link${
+                  requiredLinks === 1 ? "" : "s"
+              }.`;
 
     const canAddMoreRows = form.links.length < requiredLinks;
 
@@ -621,7 +708,9 @@ function SubmitLinksModal({
 
                         <p className="mt-2 truncate text-xs text-[#969696]">
                             {milestone.milestoneTitle} &gt;{" "}
-                            {deliverable.deliverableName || deliverable.title || "Deliverable"}
+                            {deliverable.deliverableName ||
+                                deliverable.title ||
+                                "Deliverable"}
                         </p>
                     </div>
 
@@ -643,7 +732,12 @@ function SubmitLinksModal({
                             </h3>
 
                             <span className="text-xs font-medium text-[#6B7280]">
-                                {form.links.filter((item) => item.url.trim()).length}/{requiredLinks}
+                                {
+                                    form.links.filter((item) =>
+                                        item.url.trim()
+                                    ).length
+                                }
+                                /{requiredLinks}
                             </span>
                         </div>
 
@@ -661,7 +755,9 @@ function SubmitLinksModal({
                                         {form.links.length > 1 ? (
                                             <button
                                                 type="button"
-                                                onClick={() => onRemoveLink(index)}
+                                                onClick={() =>
+                                                    onRemoveLink(index)
+                                                }
                                                 className="text-xs font-medium text-red-600 hover:underline"
                                             >
                                                 Remove
@@ -679,9 +775,15 @@ function SubmitLinksModal({
                                                 type="text"
                                                 value={item.label}
                                                 onChange={(e) =>
-                                                    onChangeLink(index, "label", e.target.value)
+                                                    onChangeLink(
+                                                        index,
+                                                        "label",
+                                                        e.target.value
+                                                    )
                                                 }
-                                                placeholder={`Deliverable Link ${index + 1}`}
+                                                placeholder={`Deliverable Link ${
+                                                    index + 1
+                                                }`}
                                                 className="h-11 w-full rounded-xl border border-gray-300 px-4 text-sm text-[#111827] outline-none placeholder:text-[#9CA3AF] focus:border-gray-400"
                                             />
                                         </div>
@@ -695,7 +797,11 @@ function SubmitLinksModal({
                                                 type="url"
                                                 value={item.url}
                                                 onChange={(e) =>
-                                                    onChangeLink(index, "url", e.target.value)
+                                                    onChangeLink(
+                                                        index,
+                                                        "url",
+                                                        e.target.value
+                                                    )
                                                 }
                                                 placeholder="https://drive.google.com/..."
                                                 className="h-11 w-full rounded-xl border border-gray-300 px-4 text-sm text-[#111827] outline-none placeholder:text-[#9CA3AF] focus:border-gray-400"
@@ -787,6 +893,10 @@ export default function InfluencerMilestonesPage() {
         Record<string, boolean>
     >({});
 
+    const [acceptingMilestoneIds, setAcceptingMilestoneIds] = useState<
+        Record<string, boolean>
+    >({});
+
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalMode, setModalMode] = useState<ModalMode>("deliverable");
     const [activeMilestone, setActiveMilestone] =
@@ -847,7 +957,8 @@ export default function InfluencerMilestonesPage() {
 
                 const filteredMilestones = campaignId
                     ? milestoneRows.filter(
-                          (item) => String(item.campaignId) === String(campaignId)
+                          (item) =>
+                              String(item.campaignId) === String(campaignId)
                       )
                     : milestoneRows;
 
@@ -915,6 +1026,75 @@ export default function InfluencerMilestonesPage() {
         );
     };
 
+    const handleAcceptMilestone = async (milestone: CampaignMilestoneRow) => {
+        const milestoneId = String(milestone?.milestoneId || "");
+        const milestoneHistoryId = String(milestone?.milestoneHistoryId || "");
+        const resolvedInfluencerId = String(
+            milestone?.influencerId || influencerId || ""
+        );
+
+        if (!milestoneId || !milestoneHistoryId || !resolvedInfluencerId) {
+            toast({
+                icon: "warning",
+                title: "Milestone unavailable",
+                text: "Missing milestone or influencer details.",
+            });
+            return;
+        }
+
+        if (Number(milestone?.isAccepted || 0) === 1) {
+            return;
+        }
+
+        try {
+            setAcceptingMilestoneIds((prev) => ({
+                ...prev,
+                [milestoneHistoryId]: true,
+            }));
+
+            await apiAcceptMilestoneByInfluencer(
+                {
+                    milestoneId,
+                    milestoneHistoryId,
+                    influencerId: resolvedInfluencerId,
+                },
+                token
+            );
+
+            setMilestones((prev) =>
+                prev.map((item) =>
+                    String(item.milestoneHistoryId) ===
+                    String(milestoneHistoryId)
+                        ? {
+                              ...item,
+                              isAccepted: 1,
+                          }
+                        : item
+                )
+            );
+
+            toast({
+                icon: "success",
+                title: "Milestone accepted",
+                text: "You have accepted this milestone successfully.",
+            });
+        } catch (err: any) {
+            toast({
+                icon: "error",
+                title: "Accept failed",
+                text: getApiErrorMessage(
+                    err,
+                    "Failed to accept milestone. Please try again."
+                ),
+            });
+        } finally {
+            setAcceptingMilestoneIds((prev) => ({
+                ...prev,
+                [milestoneHistoryId]: false,
+            }));
+        }
+    };
+
     const openSubmitModal = (
         milestone: CampaignMilestoneRow,
         deliverable: MilestoneDeliverableRow,
@@ -924,6 +1104,15 @@ export default function InfluencerMilestonesPage() {
         const requiredLinks = getRequiredLinkCount(deliverable);
         const submittedLinks = getSubmittedLinksCount(deliverable);
         const timelineOver = isMilestoneTimelineOver(milestone);
+
+        if (!isMilestoneAccepted(milestone)) {
+            toast({
+                icon: "warning",
+                title: "Accept milestone first",
+                text: "Please accept this milestone before submitting a deliverable.",
+            });
+            return;
+        }
 
         if (timelineOver) {
             toast({
@@ -1037,6 +1226,13 @@ export default function InfluencerMilestonesPage() {
     const handleSubmitDeliverable = async () => {
         if (!activeMilestone || !activeDeliverable) return;
 
+        if (!isMilestoneAccepted(activeMilestone)) {
+            setModalError(
+                "Please accept this milestone before submitting a deliverable."
+            );
+            return;
+        }
+
         const deliverableId = getDeliverableId(activeDeliverable);
         const requiredLinks = getRequiredLinkCount(activeDeliverable);
 
@@ -1046,7 +1242,9 @@ export default function InfluencerMilestonesPage() {
         }
 
         if (isMilestoneTimelineOver(activeMilestone)) {
-            setModalError("Milestone timeline is over. You cannot submit links now.");
+            setModalError(
+                "Milestone timeline is over. You cannot submit links now."
+            );
             return;
         }
 
@@ -1158,7 +1356,10 @@ export default function InfluencerMilestonesPage() {
                                 All Deliverables
                             </Button>
 
-                            <Button variant="outline" onClick={() => router.back()}>
+                            <Button
+                                variant="outline"
+                                onClick={() => router.back()}
+                            >
                                 <ArrowLeft className="mr-2 h-4 w-4" />
                                 Back
                             </Button>
@@ -1213,9 +1414,13 @@ export default function InfluencerMilestonesPage() {
                                                         {row.milestoneTitle}
                                                     </h3>
 
-                                                    {statusBadge(row.payoutStatus, released)}
+                                                    {statusBadge(
+                                                        row.payoutStatus,
+                                                        released
+                                                    )}
 
-                                                    {timelineOver && !released ? (
+                                                    {timelineOver &&
+                                                    !released ? (
                                                         <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700">
                                                             Timeline Ended
                                                         </span>
@@ -1225,66 +1430,128 @@ export default function InfluencerMilestonesPage() {
                                                 <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                                                     <MilestoneDetail
                                                         label="Milestone Budget"
-                                                        value={formatMoney(row.amount)}
+                                                        value={formatMoney(
+                                                            row.amount
+                                                        )}
                                                     />
 
                                                     <MilestoneDetail
                                                         label="Start Date"
-                                                        value={formatDate(row.startDate)}
+                                                        value={formatDate(
+                                                            row.startDate
+                                                        )}
                                                     />
 
                                                     <MilestoneDetail
                                                         label="End Date"
-                                                        value={formatDate(row.endDate)}
+                                                        value={formatDate(
+                                                            row.endDate
+                                                        )}
                                                     />
 
                                                     <MilestoneDetail
                                                         label="Deliverables"
-                                                        value={deliverables.length}
+                                                        value={
+                                                            deliverables.length
+                                                        }
                                                     />
                                                 </div>
 
                                                 {row.milestoneDescription ? (
                                                     <p className="mt-4 text-sm leading-6 text-[#6A6A6A]">
-                                                        {row.milestoneDescription}
+                                                        {
+                                                            row.milestoneDescription
+                                                        }
                                                     </p>
                                                 ) : null}
 
                                                 <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-[#5F5F5F]">
                                                     <span className="inline-flex items-center gap-1">
                                                         <CalendarDays className="h-4 w-4" />
-                                                        Created: {formatDate(row.createdAt)}
+                                                        Created:{" "}
+                                                        {formatDate(
+                                                            row.createdAt
+                                                        )}
                                                     </span>
 
                                                     <span className="inline-flex items-center gap-1">
                                                         <CalendarDays className="h-4 w-4" />
-                                                        Released: {formatDate(row.releasedAt)}
+                                                        Released:{" "}
+                                                        {formatDate(
+                                                            row.releasedAt
+                                                        )}
                                                     </span>
 
                                                     {row.graceDays ? (
-                                                        <span>Grace days: {row.graceDays}</span>
+                                                        <span>
+                                                            Grace days:{" "}
+                                                            {row.graceDays}
+                                                        </span>
                                                     ) : null}
                                                 </div>
                                             </div>
 
-                                            <button
-                                                type="button"
-                                                onClick={() =>
-                                                    handleToggleMilestone(row.milestoneHistoryId)
-                                                }
-                                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-[#1A1A1A] transition hover:bg-gray-50"
-                                                aria-label={
-                                                    isExpanded
-                                                        ? "Collapse milestone"
-                                                        : "Expand milestone"
-                                                }
-                                            >
-                                                {isExpanded ? (
-                                                    <ChevronUp className="h-5 w-5" />
-                                                ) : (
-                                                    <ChevronDown className="h-5 w-5" />
-                                                )}
-                                            </button>
+                                            <div className="flex shrink-0 items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    disabled={
+                                                        Number(
+                                                            row.isAccepted || 0
+                                                        ) === 1 ||
+                                                        Boolean(
+                                                            acceptingMilestoneIds[
+                                                                row
+                                                                    .milestoneHistoryId
+                                                            ]
+                                                        )
+                                                    }
+                                                    onClick={() =>
+                                                        handleAcceptMilestone(
+                                                            row
+                                                        )
+                                                    }
+                                                    className={[
+                                                        "h-10 rounded-lg px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-70",
+                                                        Number(
+                                                            row.isAccepted || 0
+                                                        ) === 1
+                                                            ? "bg-[#EAF6EC] text-[#28A745] hover:bg-[#EAF6EC]"
+                                                            : "bg-[#1A1A1A] text-white hover:bg-black",
+                                                    ].join(" ")}
+                                                >
+                                                    {acceptingMilestoneIds[
+                                                        row.milestoneHistoryId
+                                                    ]
+                                                        ? "Accepting..."
+                                                        : Number(
+                                                                row.isAccepted ||
+                                                                    0
+                                                            ) === 1
+                                                          ? "Accepted"
+                                                          : "Accept Milestone"}
+                                                </Button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        handleToggleMilestone(
+                                                            row.milestoneHistoryId
+                                                        )
+                                                    }
+                                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-[#1A1A1A] transition hover:bg-gray-50"
+                                                    aria-label={
+                                                        isExpanded
+                                                            ? "Collapse milestone"
+                                                            : "Expand milestone"
+                                                    }
+                                                >
+                                                    {isExpanded ? (
+                                                        <ChevronUp className="h-5 w-5" />
+                                                    ) : (
+                                                        <ChevronDown className="h-5 w-5" />
+                                                    )}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1292,14 +1559,22 @@ export default function InfluencerMilestonesPage() {
                                         <div className="border-t border-gray-200 bg-[#FAFAFA] px-5 py-5">
                                             {deliverables.length > 0 ? (
                                                 <div className="space-y-4">
-                                                    {deliverables.map((deliverable) => (
-                                                        <DeliverableCard
-                                                            key={getDeliverableId(deliverable)}
-                                                            milestone={row}
-                                                            deliverable={deliverable}
-                                                            onOpenSubmit={openSubmitModal}
-                                                        />
-                                                    ))}
+                                                    {deliverables.map(
+                                                        (deliverable) => (
+                                                            <DeliverableCard
+                                                                key={getDeliverableId(
+                                                                    deliverable
+                                                                )}
+                                                                milestone={row}
+                                                                deliverable={
+                                                                    deliverable
+                                                                }
+                                                                onOpenSubmit={
+                                                                    openSubmitModal
+                                                                }
+                                                            />
+                                                        )
+                                                    )}
                                                 </div>
                                             ) : (
                                                 <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center">
@@ -1308,7 +1583,9 @@ export default function InfluencerMilestonesPage() {
                                                     </div>
 
                                                     <div className="mt-1 text-sm text-[#969696]">
-                                                        Brand has not added deliverables under this milestone.
+                                                        Brand has not added
+                                                        deliverables under this
+                                                        milestone.
                                                     </div>
                                                 </div>
                                             )}

@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CaretDown, CaretUp } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, CopySimple, Check } from "@phosphor-icons/react";
 import { toast, ToastStyles } from "@/components/ui/toast";
 import AddRevision from "@/components/ui/brand/AddRevision";
 import AddMilestoneCard from "@/components/ui/brand/AddMilestoneCard";
@@ -498,6 +498,51 @@ const getLatestRevision = (deliverable: any) => {
     return revisions[revisions.length - 1];
 };
 
+const getRevisionRowsFromDeliverables = (deliverables: any[] = []) => {
+    return deliverables.flatMap((deliverable: any) => {
+        const rawDeliverable = deliverable?.raw || deliverable || {};
+
+        const revisions = Array.isArray(rawDeliverable?.revisions)
+            ? rawDeliverable.revisions
+            : [];
+
+        const deliverableName =
+            rawDeliverable?.deliverableName ||
+            rawDeliverable?.title ||
+            rawDeliverable?.name ||
+            "Deliverable";
+
+        return revisions.map((revision: any, index: number) => ({
+            revisionId: String(
+                revision?.revisionId ||
+                revision?._id ||
+                `${getDeliverableId(rawDeliverable)}-${index}`
+            ),
+            deliverableId: String(
+                revision?.deliverableId ||
+                rawDeliverable?.deliverableId ||
+                rawDeliverable?._id ||
+                ""
+            ),
+            deliverableName,
+            issueName: revision?.issueName || revision?.name || "",
+            submittedOn:
+                revision?.submittedAt ||
+                revision?.submissionDate ||
+                revision?.createdAt ||
+                "",
+            link:
+                revision?.issueDeliverableLink ||
+                revision?.deliverableLink ||
+                revision?.link ||
+                "",
+            status: revision?.status || "pending",
+            notes: revision?.notes || revision?.comments || "",
+            raw: revision,
+        }));
+    });
+};
+
 const normalizeMilestoneRow = (
     item: any,
     index: number,
@@ -750,15 +795,35 @@ function PlatformBadgeIcon({ platform }: { platform: string }) {
     );
 }
 
-function PlatformBadgeIcons({ platforms }: { platforms: string[] }) {
+function PlatformBadgeIcons({
+    platforms,
+    align = "center",
+}: {
+    platforms: string[];
+    align?: "left" | "center";
+}) {
     const list = Array.isArray(platforms) ? platforms.filter(Boolean) : [];
 
     if (list.length === 0) {
-        return <PlatformBadgeIcon platform={NA} />;
+        return (
+            <div
+                className={[
+                    "flex items-center -space-x-1",
+                    align === "left" ? "justify-start" : "justify-center",
+                ].join(" ")}
+            >
+                <PlatformBadgeIcon platform={NA} />
+            </div>
+        );
     }
 
     return (
-        <div className="flex items-center justify-center -space-x-1">
+        <div
+            className={[
+                "flex items-center -space-x-1",
+                align === "left" ? "justify-start" : "justify-center",
+            ].join(" ")}
+        >
             {list.map((platform) => (
                 <PlatformBadgeIcon key={platform} platform={platform} />
             ))}
@@ -937,6 +1002,144 @@ function RevisionEmptySkeleton() {
     );
 }
 
+function MainRevisionHistoryTable({
+    revisions,
+}: {
+    revisions: any[];
+}) {
+    const columns =
+        "minmax(7rem,1fr) minmax(8rem,1.1fr) minmax(8rem,1fr) minmax(5rem,0.7fr) minmax(7rem,1fr) minmax(10rem,1.4fr) minmax(6rem,0.8fr)";
+
+    return (
+        <div className="border-t border-[#E6E6E6] px-4 pb-4 pt-5">
+            <h3 className="font-['Inter'] text-xl font-semibold leading-7 text-[#1A1A1A]">
+                Revision History
+            </h3>
+
+            <p className="mt-1 font-['Inter'] text-sm font-normal leading-5 text-[#B8B8B8]">
+                Explore the list of Revision History across all the Deliveries
+            </p>
+
+            <div className="mt-4 overflow-x-auto rounded-[0.75rem] border border-[#D6D6D6] bg-white">
+                <div
+                    className="grid min-w-[64rem] border-b border-[#D6D6D6]"
+                    style={{ gridTemplateColumns: columns }}
+                >
+                    {[
+                        "Name",
+                        "Under Delivery",
+                        "Submitted on",
+                        "Link",
+                        "Status",
+                        "Notes",
+                        "Actions",
+                    ].map((heading, index, arr) => (
+                        <div
+                            key={heading}
+                            className={[
+                                "flex h-12 items-center bg-white px-4 py-2.5 font-['Inter'] text-xs font-semibold leading-4 text-[#1A1A1A]",
+                                index !== arr.length - 1
+                                    ? "border-r border-[#D6D6D6]"
+                                    : "",
+                            ].join(" ")}
+                        >
+                            <span className="line-clamp-1">{heading}</span>
+                        </div>
+                    ))}
+                </div>
+
+                {revisions.length > 0 ? (
+                    revisions.map((revision: any) => (
+                        <div
+                            key={revision.revisionId}
+                            className="grid min-w-[64rem] border-b border-[#E6E6E6] last:border-b-0"
+                            style={{ gridTemplateColumns: columns }}
+                        >
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+                                    {textOrNA(revision.issueName)}
+                                </span>
+                            </div>
+
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+                                    {textOrNA(revision.deliverableName)}
+                                </span>
+                            </div>
+
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                <span className="line-clamp-1">
+                                    {formatLongDate(revision.submittedOn)}
+                                </span>
+                            </div>
+
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                {revision.link ? (
+                                    <a
+                                        href={revision.link}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="cursor-pointer underline"
+                                    >
+                                        Open
+                                    </a>
+                                ) : (
+                                    NA
+                                )}
+                            </div>
+
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5">
+                                <StatusPill status={revision.status || "pending"} />
+                            </div>
+
+                            <div className="flex min-h-12 items-center border-r border-[#E6E6E6] px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A]">
+                                <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+                                    {textOrNA(revision.notes)}
+                                </span>
+                            </div>
+
+                            <div className="flex min-h-12 items-center px-4 py-2.5 font-['Inter'] text-xs font-medium leading-4 text-[#969696]">
+                                —
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="flex h-[18.75rem] min-w-[64rem] flex-col items-center justify-center">
+                        <RevisionEmptySkeleton />
+
+                        <p className="font-['Inter'] text-sm font-semibold leading-5 text-[#1A1A1A]">
+                            No Revision History found
+                        </p>
+
+                        <p className="mt-2 font-['Inter'] text-xs font-normal leading-4 text-[#B8B8B8]">
+                            Revisions History will be shown after raising a revision
+                        </p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+const isMilestoneEditLocked = (milestone: any) => {
+    const raw = milestone?.raw || milestone || {};
+
+    const payoutStatus = String(
+        raw?.payoutStatus ||
+        milestone?.payoutStatus ||
+        ""
+    )
+        .trim()
+        .toLowerCase();
+
+    const isAccepted = Number(
+        raw?.isAccepted ??
+        milestone?.isAccepted ??
+        0
+    ) === 1;
+
+    return payoutStatus === "initiated" || isAccepted;
+};
+
 function ViewDeliverableSidebar({
     open,
     milestone,
@@ -976,6 +1179,7 @@ function ViewDeliverableSidebar({
     if (!open) return null;
 
     const rawMilestone = milestone?.raw || milestone || {};
+    const editLocked = isMilestoneEditLocked(rawMilestone);
     const rawDeliverable = deliverable?.raw || deliverable || {};
 
     const deliverableName =
@@ -1061,11 +1265,26 @@ function ViewDeliverableSidebar({
                     <div className="flex items-center gap-2">
                         <button
                             type="button"
+                            disabled={editLocked}
+                            title={
+                                editLocked
+                                    ? "This milestone cannot be edited because payout is initiated or influencer has accepted it."
+                                    : "Edit milestone"
+                            }
                             onClick={() => {
+                                if (editLocked) {
+                                    toast({
+                                        icon: "info",
+                                        title: "Edit locked",
+                                        text: "This milestone cannot be edited because payout is initiated or influencer has accepted it.",
+                                    });
+                                    return;
+                                }
+
                                 onClose();
                                 onEditMilestone(milestone);
                             }}
-                            className="flex h-8 items-center justify-center gap-2 rounded-[0.75rem] border border-[#E6E6E6] px-3 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:bg-[#F9F9F9]"
+                            className="flex h-8 items-center justify-center gap-2 rounded-[0.75rem] border border-[#E6E6E6] px-3 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] hover:bg-[#F9F9F9] disabled:cursor-not-allowed disabled:bg-[#F5F5F5] disabled:text-[#969696]"
                         >
                             Edit
                         </button>
@@ -1100,6 +1319,7 @@ function ViewDeliverableSidebar({
                         <DetailRow label="Platform">
                             <PlatformBadgeIcons
                                 platforms={normalizePlatforms(rawDeliverable)}
+                                align="left"
                             />
                         </DetailRow>
 
@@ -1136,7 +1356,7 @@ function ViewDeliverableSidebar({
                         </DetailRow>
 
                         <DetailRow label="Milestone Description">
-                            <p className="max-w-[28rem]">
+                            <p className="max-w-[36rem] whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
                                 {textOrNA(rawMilestone?.milestoneDescription)}
                             </p>
                         </DetailRow>
@@ -1184,18 +1404,20 @@ function ViewDeliverableSidebar({
 
                                                 <button
                                                     type="button"
+                                                    aria-label={isCopied ? "Copied" : "Copy link"}
+                                                    title={isCopied ? "Copied" : "Copy link"}
                                                     onClick={() => handleCopySingleLink(link.url, index)}
-                                                    className="flex cursor-pointer items-center gap-1 shrink-0 font-['Inter'] text-sm font-medium leading-5 text-[#1A1A1A] underline transition hover:text-[#000]"
+                                                    className={[
+                                                        "flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition",
+                                                        isCopied
+                                                            ? "bg-[#EAF6EC] text-[#28A745] animate-[copyTick_220ms_ease-out]"
+                                                            : "text-[#1A1A1A] hover:bg-[#F5F5F5]",
+                                                    ].join(" ")}
                                                 >
                                                     {isCopied ? (
-                                                        <span className="inline-flex items-center gap-1 text-[#28A745] no-underline animate-[copyTick_220ms_ease-out]">
-                                                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[#EAF6EC] text-[0.625rem] leading-none">
-                                                                ✓
-                                                            </span>
-                                                            Copied
-                                                        </span>
+                                                        <Check size={14} weight="bold" />
                                                     ) : (
-                                                        "Copy"
+                                                        <CopySimple size={14} />
                                                     )}
                                                 </button>
                                             </div>
@@ -1351,7 +1573,7 @@ function DeliverablesPanel({
                 Deliverables
             </h3>
 
-            <div className="mt-1 overflow-x-auto rounded-xl border border-[#E6E6E6] bg-white">
+            <div className="mt-1 overflow-x-auto rounded-[0.75rem] border border-[#E6E6E6] bg-white">
                 {loading ? (
                     <div className="flex min-h-[5.5rem] items-center justify-center font-['Inter'] text-sm text-[#969696]">
                         Loading deliverables...
@@ -1447,6 +1669,7 @@ export default function MilestoneAndDeliverablesTab({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [isAddMilestoneOpen, setIsAddMilestoneOpen] = useState(false);
+    const [milestoneTargetRow, setMilestoneTargetRow] = useState<any | null>(null);
     const [revisionTarget, setRevisionTarget] = useState<{
         milestone: any;
         deliverable: any;
@@ -2095,6 +2318,7 @@ export default function MilestoneAndDeliverablesTab({
             return;
         }
 
+        setMilestoneTargetRow(null);
         setIsAddMilestoneOpen(true);
     };
 
@@ -2102,6 +2326,7 @@ export default function MilestoneAndDeliverablesTab({
 
     const handleCloseAddMilestone = () => {
         setIsAddMilestoneOpen(false);
+        setMilestoneTargetRow(null);
     };
 
     const handleAddMilestoneSubmit = async () => {
@@ -2171,22 +2396,33 @@ export default function MilestoneAndDeliverablesTab({
     };
 
     const handleEditMilestoneFromDeliverableView = (milestone: any) => {
+        const rawMilestone = milestone?.raw || milestone || {};
+
+        if (isMilestoneEditLocked(rawMilestone)) {
+            toast({
+                icon: "info",
+                title: "Edit locked",
+                text: "This milestone cannot be edited because payout is initiated or influencer has accepted it.",
+            });
+            return;
+        }
+
         setViewDeliverableTarget(null);
 
         setMilestoneTargetRow({
             id: String(
-                milestone?.raw?.influencerId ||
+                rawMilestone?.influencerId ||
                 milestone?.influencerId ||
                 resolvedInfluencerId ||
                 ""
             ),
             name:
-                milestone?.raw?.influencerName ||
+                rawMilestone?.influencerName ||
                 milestone?.influencerName ||
                 resolvedInfluencerName ||
                 "Influencer",
-            raw: milestone?.raw || milestone,
-        } as any);
+            raw: rawMilestone,
+        });
 
         setIsAddMilestoneOpen(true);
     };
@@ -2241,6 +2477,19 @@ export default function MilestoneAndDeliverablesTab({
         setMilestoneRefreshKey((prev) => prev + 1);
     };
 
+    const allRevisionRows = useMemo(() => {
+        return milestones.flatMap((item: any, index: number) => {
+            const rowId = String(item?.id || item?._id || index);
+
+            const milestoneDeliverables = getMilestoneDeliverablesForRelease(
+                item,
+                rowId,
+                deliverablesByRow
+            );
+
+            return getRevisionRowsFromDeliverables(milestoneDeliverables);
+        });
+    }, [milestones, deliverablesByRow]);
 
     return (
         <section className="flex w-full flex-col px-4 py-5">
@@ -2255,6 +2504,18 @@ export default function MilestoneAndDeliverablesTab({
                 influencerName={resolvedInfluencerName || "Influencer"}
                 influencerBudget={selectedInfluencerBudget}
                 usedMilestoneBudget={selectedInfluencerUsedMilestoneBudget}
+                mode={milestoneTargetRow?.raw ? "edit" : "create"}
+                milestoneId={
+                    milestoneTargetRow?.raw
+                        ? getResolvedMilestoneId(milestoneTargetRow.raw)
+                        : ""
+                }
+                milestoneHistoryId={
+                    milestoneTargetRow?.raw
+                        ? getResolvedMilestoneHistoryId(milestoneTargetRow.raw)
+                        : ""
+                }
+                milestoneData={milestoneTargetRow?.raw || null}
                 onSubmit={handleAddMilestoneSubmit}
             />
             <AddRevision
@@ -2322,7 +2583,7 @@ export default function MilestoneAndDeliverablesTab({
             <div className="mt-10 w-full overflow-x-auto">
                 <div className="min-w-[65rem]">
                     <div
-                        className="grid w-full items-center self-stretch rounded-xl bg-[#F9F9F9]"
+                        className="grid w-full items-center self-stretch rounded-[0.75rem] bg-[#F9F9F9]"
                         style={{
                             gridTemplateColumns:
                                 "139px minmax(228px,1fr) 139px 139px 111px 130px 139px",
@@ -2339,11 +2600,11 @@ export default function MilestoneAndDeliverablesTab({
 
                     <div className="mt-7 flex flex-col gap-7">
                         {loading ? (
-                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-xl border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#969696]">
+                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-[0.75rem] border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#969696]">
                                 Loading milestones...
                             </div>
                         ) : error && milestones.length === 0 ? (
-                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-xl border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#E53935]">
+                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-[0.75rem] border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#E53935]">
                                 {error}
                             </div>
                         ) : milestones.length > 0 ? (
@@ -2373,7 +2634,7 @@ export default function MilestoneAndDeliverablesTab({
                                 return (
                                     <div
                                         key={rowId}
-                                        className="overflow-hidden rounded-xl border border-[#E6E6E6] bg-white"
+                                        className="overflow-hidden rounded-[0.75rem] border border-[#E6E6E6] bg-white"
                                     >
                                         <div
                                             className="grid w-full items-center bg-white"
@@ -2496,17 +2757,17 @@ export default function MilestoneAndDeliverablesTab({
                                 );
                             })
                         ) : (
-                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-xl border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#969696]">
+                            <div className="flex min-h-[5.5rem] w-full items-center justify-center rounded-[0.75rem] border border-[#E6E6E6] bg-white font-['Inter'] text-sm text-[#969696]">
                                 No deliverables found.
                             </div>
                         )}
                     </div>
                 </div>
             </div>
+            <div className="mt-8 w-full">
+                <MainRevisionHistoryTable revisions={allRevisionRows} />
+            </div>
         </section>
     );
 }
 
-function setMilestoneTargetRow(arg0: any) {
-    throw new Error("Function not implemented.");
-}

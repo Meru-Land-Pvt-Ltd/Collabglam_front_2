@@ -747,6 +747,7 @@ export default function AddMilestoneCard({
   const [milestoneBudget, setMilestoneBudget] = useState("");
   const [milestoneBudgetError, setMilestoneBudgetError] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
 
   const [deliverableName, setDeliverableName] = useState("");
   const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
@@ -770,14 +771,18 @@ export default function AddMilestoneCard({
 
   const isEditMode = mode === "edit";
 
-  const isAccepted =
-    Number(
-      milestoneData?.isAccepted ??
-      milestoneData?.raw?.isAccepted ??
-      0
-    ) === 1;
+  const rawMilestoneData = milestoneData?.raw || milestoneData || {};
 
-  const isFormLocked = isEditMode && isAccepted;
+  const isAccepted =
+    Number(rawMilestoneData?.isAccepted ?? 0) === 1;
+
+  const payoutStatus = String(rawMilestoneData?.payoutStatus || "")
+    .trim()
+    .toLowerCase();
+
+  const isPayoutInitiated = payoutStatus === "initiated";
+
+  const isFormLocked = isEditMode && (isAccepted || isPayoutInitiated);
   useEffect(() => {
     if (!open) return;
 
@@ -802,6 +807,7 @@ export default function AddMilestoneCard({
       setMilestoneDescription("");
       setMilestoneBudget("");
       setAttachments([]);
+      setExistingAttachments([]);
       setDeliverableName("");
       setMilestoneBudgetError("");
       setSelectedDeliveries([]);
@@ -835,7 +841,8 @@ export default function AddMilestoneCard({
       String(raw?.milestoneBudget || raw?.amount || milestoneData?.qty || "")
     );
 
-    setAttachments(Array.isArray(raw?.attachments) ? raw.attachments : []);
+    setAttachments([]);
+    setExistingAttachments(Array.isArray(raw?.attachments) ? raw.attachments : []);
 
     const mappedDeliverables = Array.isArray(raw?.deliverables)
       ? raw.deliverables.map((item: any) => ({
@@ -1007,7 +1014,7 @@ export default function AddMilestoneCard({
       toast({
         icon: "warning",
         title: "Milestone locked",
-        text: "This milestone has been accepted and cannot be edited.",
+        text: "This milestone cannot be edited because payout is initiated or influencer has accepted it.",
       });
       return false;
     }
@@ -1162,9 +1169,10 @@ export default function AddMilestoneCard({
 
       const milestoneBudgetNum = Number(milestoneBudget);
 
-      const payloadAttachments = attachments
-        .map(normalizeAttachmentForPayload)
-        .filter(Boolean);
+      const payloadAttachments = [
+        ...existingAttachments.map(normalizeAttachmentForPayload),
+        ...attachments.map(normalizeAttachmentForPayload),
+      ].filter(Boolean);
 
       const payloadDeliverables = deliverables.map((item) => ({
         deliverableName: item.name.trim(),

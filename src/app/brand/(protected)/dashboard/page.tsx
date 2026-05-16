@@ -1063,7 +1063,7 @@ const DashboardMetricCard = ({
 
 const AppliedInfluencerSection = ({ rows }: { rows: AppliedInfluencerRow[] }) => {
   return (
-    <section className="flex w-full min-w-0 rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3">
+    <section className="flex w-full min-w-0 rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3 pr-1">
       <div className="flex w-full min-w-0 flex-col gap-6">
         <div className="flex w-full items-center justify-between gap-4">
           <h3 className="font-inter text-[1rem] font-medium leading-6 tracking-[0] text-[#1A1A1A]">
@@ -1072,7 +1072,7 @@ const AppliedInfluencerSection = ({ rows }: { rows: AppliedInfluencerRow[] }) =>
 
           <button
             type="button"
-            className="shrink-0 font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2"
+            className="shrink-0 font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] underline underline-offset-2 pr-2"
           >
             View all
           </button>

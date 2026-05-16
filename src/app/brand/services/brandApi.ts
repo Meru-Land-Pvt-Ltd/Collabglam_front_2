@@ -1855,6 +1855,26 @@ export async function apiGetManageContractInfo(contractId: string) {
   return apiGet(`${CONTRACT_BASE}/manage/${contractId}`)
 }
 
+export type GetContractDetailsResponse = {
+  success?: boolean;
+  message?: string;
+  contract: any;
+};
+
+export async function apiGetContractDetails(contractId: string) {
+  const id = String(contractId || "").trim();
+
+  if (!id) {
+    throw new Error("contractId is required");
+  }
+
+  const res = await apiGet<GetContractDetailsResponse>(
+    `${CONTRACT_BASE}/get-contract-details/${encodeURIComponent(id)}`
+  );
+
+  return (res?.contract ?? res) as any;
+}
+
 // Add these types and functions near the bottom of services/brandApi.t
 
 export type UpdateBrandProfilePayload = {
