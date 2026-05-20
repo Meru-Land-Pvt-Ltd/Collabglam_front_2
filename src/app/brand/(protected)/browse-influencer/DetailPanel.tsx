@@ -27,6 +27,7 @@ import { PastCollaborationsTable } from '@/components/common/PastCollaborations'
 import { PerformanceTrendCard } from '@/components/common/PerformanceTrendCard';
 import { PopularContentPanel } from '@/components/common/PopularContentPanel';
 import { RecentPostsTable } from '@/components/common/RecentPostsTable';
+import { SectionCard } from '@/components/common/SectionCard';
 
 import {
   type CampaignHighlight,
@@ -658,6 +659,11 @@ function buildPrimaryReport(
         : [];
 
   return {
+    _id:
+      (raw as any)?._modashProfileId ??
+      (raw as any)?._id ??
+      (data as any)?._modashProfileId ??
+      (data as any)?._id,
     modashId:
       root?.userId ??
       root?.modashId ??
@@ -760,7 +766,7 @@ function buildPrimaryReport(
       profileRoot?.postsCounts,
     statHistory,
     lookalikes,
-  };
+  } as InfluencerReport & { _id?: string };
 }
 
 async function copyWithFallback(text: string) {
@@ -1179,6 +1185,668 @@ function CampaignInvitePicker({
   );
 }
 
+type SuggestedRateCardResponse = {
+  status: "success" | "error";
+  message?: string;
+  data?: {
+    currency: string;
+    campaign: {
+      _id: string;
+      title: string;
+      budget: number | null;
+      budgetFit: string;
+      budgetNote: string;
+    };
+    influencer: {
+      _id: string | null;
+      modashUserId: string | null;
+      username: string | null;
+      handle: string | null;
+      name: string;
+      platform: string;
+      followers: number;
+      engagementRate: number;
+      estimatedReach: number;
+      credibility: number | null;
+    };
+    suggested: {
+      low: number;
+      high: number;
+      recommended: number;
+      confidenceScore: number;
+    };
+    lineItems: Array<{
+      key: string;
+      label: string;
+      quantity: number;
+      unitEstimate: number;
+      low: number;
+      high: number;
+      totalEstimate: number;
+      totalLow: number;
+      totalHigh: number;
+    }>;
+    multipliers: Record<string, number>;
+    selectionReason?: string[];
+    reasoning: string[];
+    disclaimer: string;
+  };
+};
+
+function formatMoney(value?: number | null, currency = "USD") {
+  const amount = Number(value || 0);
+
+  if (!Number.isFinite(amount) || amount <= 0) return "—";
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatMultiplierLabel(key: string) {
+  return String(key || "")
+    .replace(/([A-Z])/g, " $1")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
+function getBudgetFitBadgeClass(value?: string | null) {
+  const safe = String(value || "").toLowerCase();
+
+  if (safe === "within_range") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (safe === "below_range") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  if (safe === "above_range") {
+    return "border-blue-200 bg-blue-50 text-blue-700";
+  }
+
+  return "border-[#efe8dd] bg-[#fffdfa] text-[#7d7569]";
+}
+
+function SuggestedRateCardBox({
+  loading,
+  data,
+  error,
+  onGenerate,
+}: {
+  loading: boolean;
+  data: SuggestedRateCardResponse["data"] | null;
+  error: string | null;
+  onGenerate: () => void;
+}) {
+  const currency = data?.currency || "USD";
+  const budgetFitLabel = data?.campaign.budgetFit
+    ? data.campaign.budgetFit.replaceAll("_", " ")
+    : "not calculated";
+
+  return (
+    <SectionCard
+      title="Suggested AI Rate Card"
+      eyebrow="AI pricing assistant"
+      className="overflow-hidden"
+    >
+      <div className="space-y-5">
+        <div className="relative overflow-hidden rounded-[22px] border border-[#efe8dd] bg-[#111111] p-5 text-white">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-[#ffbf00]/25 blur-3xl" />
+          <div className="pointer-events-none absolute -bottom-20 left-10 h-44 w-44 rounded-full bg-[#f3584e]/20 blur-3xl" />
+
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-2xl">
+              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#f7d985]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#ffbf00]" />
+                Campaign-aware estimate
+              </div>
+
+              <p className="mt-3 text-sm leading-6 text-white/70">
+                Estimate pricing using the selected campaign, creator performance,
+                audience quality, geography, deliverables, usage signals, and credibility.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={loading}
+              className="inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-white px-5 text-sm font-semibold text-[#111111] shadow-sm transition hover:bg-[#f7f1e7] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading
+                ? "Generating..."
+                : data
+                  ? "Regenerate rate card"
+                  : "Show Suggested AI Rate Card"}
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="rounded-[18px] border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
+
+        {!data ? (
+          <div className="rounded-[22px] border border-dashed border-[#efe8dd] bg-[#fffdfa] p-5">
+            <div className="grid gap-4 md:grid-cols-3">
+              {[
+                ["1", "Campaign", "Reads selected campaign budget and deliverables."],
+                ["2", "Creator", "Uses followers, engagement, views, and credibility."],
+                ["3", "Estimate", "Creates a suggested USD negotiation range."],
+              ].map(([step, title, copy]) => (
+                <div key={step} className="rounded-[18px] bg-white p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#fff4df] text-xs font-bold text-[#b77900]">
+                    {step}
+                  </div>
+                  <div className="mt-3 text-sm font-semibold text-[#1f1f1f]">
+                    {title}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-[#7d7569]">
+                    {copy}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr_0.8fr]">
+              <div className="rounded-[22px] border border-[#efe8dd] bg-gradient-to-br from-[#fff7e8] via-white to-white p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ab7b2a]">
+                  Recommended fee
+                </div>
+                <div className="mt-3 text-[34px] font-bold leading-none tracking-tight text-[#1f1f1f]">
+                  {formatMoney(data.suggested.recommended, currency)}
+                </div>
+                <p className="mt-3 text-sm leading-6 text-[#7d7569]">
+                  Suggested creator payout for the detected deliverable package.
+                </p>
+              </div>
+
+              <div className="rounded-[22px] border border-[#efe8dd] bg-white p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ab9f8e]">
+                  Negotiation range
+                </div>
+                <div className="mt-3 text-xl font-bold text-[#1f1f1f]">
+                  {formatMoney(data.suggested.low, currency)} -{" "}
+                  {formatMoney(data.suggested.high, currency)}
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#f1eadf]">
+                  <div className="h-full w-[68%] rounded-full bg-[#d99707]" />
+                </div>
+                <p className="mt-3 text-xs leading-5 text-[#8b857b]">
+                  Use this range for initial negotiation and final approvals.
+                </p>
+              </div>
+
+              <div className="rounded-[22px] border border-[#efe8dd] bg-white p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#ab9f8e]">
+                  Confidence
+                </div>
+                <div className="mt-3 flex items-end gap-2">
+                  <span className="text-[34px] font-bold leading-none text-[#1f1f1f]">
+                    {data.suggested.confidenceScore}
+                  </span>
+                  <span className="pb-1 text-lg font-semibold text-[#7d7569]">%</span>
+                </div>
+                <div className="mt-4 h-2 overflow-hidden rounded-full bg-[#f1eadf]">
+                  <div
+                    className="h-full rounded-full bg-[#1f1f1f]"
+                    style={{
+                      width: `${Math.max(5, Math.min(100, data.suggested.confidenceScore))}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-3 text-xs leading-5 text-[#8b857b]">
+                  Based on available performance and audience signals.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
+              <div className="overflow-hidden rounded-[22px] border border-[#efe8dd] bg-white">
+                <div className="flex items-center justify-between border-b border-[#efe8dd] bg-[#fbf8f3] px-4 py-3">
+                  <div>
+                    <div className="text-sm font-semibold text-[#1f1f1f]">
+                      Deliverable breakdown
+                    </div>
+                    <div className="text-xs text-[#8b857b]">
+                      Unit rate, quantity, and total estimate
+                    </div>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-[#f3eadf]">
+                  {data.lineItems.map((item) => (
+                    <div
+                      key={item.key}
+                      className="grid gap-3 px-4 py-4 md:grid-cols-[1fr_72px_128px] md:items-center"
+                    >
+                      <div>
+                        <div className="text-sm font-semibold text-[#1f1f1f]">
+                          {item.label}
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-[#8b857b]">
+                          {formatMoney(item.low, currency)} -{" "}
+                          {formatMoney(item.high, currency)} per unit ·{" "}
+                          {formatMoney(item.unitEstimate, currency)} suggested
+                        </div>
+                      </div>
+
+                      <div className="inline-flex h-9 w-fit items-center justify-center rounded-full border border-[#efe8dd] bg-[#fffdfa] px-4 text-sm font-semibold text-[#5f5a52] md:mx-auto">
+                        x{item.quantity}
+                      </div>
+
+                      <div className="text-left md:text-right">
+                        <div className="text-sm font-bold text-[#1f1f1f]">
+                          {formatMoney(item.totalEstimate, currency)}
+                        </div>
+                        <div className="text-xs text-[#8b857b]">estimated total</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-5">
+                <div className="rounded-[22px] border border-[#efe8dd] bg-[#fffdfa] p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-[#1f1f1f]">
+                        Campaign budget fit
+                      </div>
+                      <div className="mt-1 text-xs text-[#8b857b]">
+                        Compared with selected campaign budget
+                      </div>
+                    </div>
+
+                    <span
+                      className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold capitalize ${getBudgetFitBadgeClass(data.campaign.budgetFit)}`}
+                    >
+                      {budgetFitLabel}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 text-xl font-bold text-[#1f1f1f]">
+                    {data.campaign.budget
+                      ? formatMoney(data.campaign.budget, currency)
+                      : "No budget"}
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[#7d7569]">
+                    {data.campaign.budgetNote}
+                  </p>
+                </div>
+
+                <div className="rounded-[22px] border border-[#efe8dd] bg-white p-5">
+                  <div className="text-sm font-semibold text-[#1f1f1f]">
+                    Pricing signals
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {Object.entries(data.multipliers).map(([key, value]) => {
+                      const safeValue = Number(value || 0);
+                      const barWidth = Math.max(
+                        8,
+                        Math.min(100, (safeValue / 1.6) * 100)
+                      );
+
+                      return (
+                        <div key={key}>
+                          <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                            <span className="font-medium text-[#5f5a52]">
+                              {formatMultiplierLabel(key)}
+                            </span>
+                            <span className="font-semibold text-[#1f1f1f]">
+                              {safeValue.toFixed(2)}x
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-[#f1eadf]">
+                            <div
+                              className="h-full rounded-full bg-[#d99707]"
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[22px] border border-[#efe8dd] bg-white p-5">
+              <div className="text-sm font-semibold text-[#1f1f1f]">
+                Why this estimate?
+              </div>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {data.reasoning.map((item, index) => (
+                  <div
+                    key={index}
+                    className="rounded-[16px] border border-[#f0e7da] bg-[#fffdfa] px-4 py-3 text-sm leading-6 text-[#6f675c]"
+                  >
+                    {item}
+                  </div>
+                ))}
+              </div>
+
+              <p className="mt-4 rounded-[16px] bg-[#f8f4ed] px-4 py-3 text-xs leading-5 text-[#8b857b]">
+                {data.disclaimer}
+              </p>
+            </div>
+
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+function toSelectionNumber(value: any) {
+  if (value === undefined || value === null || value === '') return 0;
+
+  const cleaned =
+    typeof value === 'string'
+      ? value.replace(/,/g, '').replace('%', '').trim()
+      : value;
+
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function formatSelectionCompact(value: any) {
+  const num = toSelectionNumber(value);
+
+  if (!num || num <= 0) return '0';
+
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(num);
+}
+
+function formatSelectionPercentValue(value: any) {
+  const num = toSelectionNumber(value);
+
+  if (!num || num <= 0) return '0%';
+
+  const pct = num > 1 ? num : num * 100;
+  return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`;
+}
+
+function stringifySelectionValue(value: any): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return value.map(stringifySelectionValue).filter(Boolean).join(' ');
+  }
+  if (typeof value === 'object') {
+    return Object.values(value).map(stringifySelectionValue).filter(Boolean).join(' ');
+  }
+  return '';
+}
+
+function uniqueSelectionLabels(values: any[]) {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  values.forEach((value) => {
+    const label = stringifySelectionValue(value)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!label) return;
+
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+
+    seen.add(key);
+    out.push(label);
+  });
+
+  return out;
+}
+
+function getWeightedTopNames(items: any, limit = 3) {
+  return (Array.isArray(items) ? items : [])
+    .slice()
+    .sort((a, b) => Number(b?.weight || b?.value || 0) - Number(a?.weight || a?.value || 0))
+    .map((item) => String(item?.name || item?.code || item?.label || '').trim())
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function getCampaignSelectionLabels(campaign: any) {
+  if (!campaign) return [];
+
+  const categoryPairs = (Array.isArray(campaign?.categories) ? campaign.categories : [])
+    .flatMap((item: any) => [item?.categoryName, item?.subcategoryName])
+    .filter(Boolean);
+
+  return uniqueSelectionLabels([
+    campaign?.campaignTitle,
+    campaign?.campaignCategory,
+    campaign?.campaignSubcategory,
+    campaign?.campaignType,
+    campaign?.influencerTier,
+    campaign?.targetCountry,
+    campaign?.creatorContentLanguage,
+    campaign?.audienceContentLanguage,
+    campaign?.platformSelection,
+    campaign?.hashtags,
+    categoryPairs,
+  ]).slice(0, 8);
+}
+
+function getCreatorSelectionLabels(report: any) {
+  if (!report) return [];
+
+  const categoryLabels = (Array.isArray(report?.categories) ? report.categories : [])
+    .flatMap((item: any) => {
+      if (typeof item === 'string') return [item];
+      return [item?.categoryName, item?.subcategoryName, item?.name, item?.label];
+    })
+    .filter(Boolean);
+
+  const interestLabels = (Array.isArray(report?.audience?.interests)
+    ? report.audience.interests
+    : [])
+    .map((item: any) => item?.name || item?.code || item?.label)
+    .filter(Boolean);
+
+  const hashtagLabels = (Array.isArray(report?.hashtags) ? report.hashtags : [])
+    .map((item: any) => item?.tag || item?.name || item)
+    .filter(Boolean);
+
+  return uniqueSelectionLabels([
+    report?.bio,
+    report?.country,
+    report?.language?.name,
+    categoryLabels,
+    interestLabels,
+    hashtagLabels,
+  ]).slice(0, 10);
+}
+
+function getMatchingSelectionLabels(campaignLabels: string[], creatorLabels: string[]) {
+  const campaignLower = campaignLabels.map((item) => item.toLowerCase());
+
+  return creatorLabels.filter((creatorLabel) => {
+    const normalized = creatorLabel.toLowerCase();
+    if (!normalized) return false;
+
+    return campaignLower.some((campaignLabel) => {
+      return campaignLabel.includes(normalized) || normalized.includes(campaignLabel);
+    });
+  });
+}
+
+function getCampaignDeliverableSummary(campaign: any) {
+  const text = [
+    campaign?.campaignTitle,
+    campaign?.description,
+    campaign?.campaignType,
+    campaign?.additionalNotes,
+    campaign?.contentFormats,
+    campaign?.platformSelection,
+  ]
+    .map(stringifySelectionValue)
+    .join(' ')
+    .toLowerCase();
+
+  const deliverables: string[] = [];
+
+  if (/reel|short|video/.test(text)) deliverables.push('short-form video');
+  if (/story|stories/.test(text)) deliverables.push('stories');
+  if (/post|carousel|feed/.test(text)) deliverables.push('feed posts');
+  if (/youtube|long form|integration/.test(text)) deliverables.push('video integrations');
+  if (/live|stream/.test(text)) deliverables.push('live content');
+
+  return uniqueSelectionLabels(deliverables).slice(0, 3).join(', ');
+}
+
+function buildProfileSelectionReasons({
+  campaign,
+  report,
+  platform,
+}: {
+  campaign: BrandCampaignItem | null;
+  report: (InfluencerReport & { _id?: string }) | null;
+  platform: Platform | null | string;
+}) {
+  if (!report) return [];
+
+  const campaignTitle =
+    String((campaign as any)?.campaignTitle || '').trim() || 'this campaign';
+
+  const creatorName =
+    String(report?.name || report?.fullname || report?.username || report?.handle || 'This creator').trim();
+
+  const normalizedPlatform = normalizePlatform((report?.provider as Platform | null) ?? (platform as Platform | null));
+  const campaignLabels = getCampaignSelectionLabels(campaign);
+  const creatorLabels = getCreatorSelectionLabels(report);
+  const matchingLabels = getMatchingSelectionLabels(campaignLabels, creatorLabels).slice(0, 3);
+
+  const followers = toSelectionNumber(report?.followers);
+  const engagementRate = toSelectionNumber(report?.engagementRate);
+  const avgViews = toSelectionNumber(report?.avgViews || report?.avgReelsPlays || report?.stats?.avgViews?.value);
+  const estimatedReach = Math.max(
+    avgViews,
+    Math.round(followers * Math.min(0.28, Math.max(0.035, (engagementRate > 1 ? engagementRate / 100 : engagementRate) + 0.045)))
+  );
+
+  const credibilityRaw = toSelectionNumber(report?.audience?.credibility);
+  const credibilityPct = credibilityRaw > 1 ? credibilityRaw : credibilityRaw * 100;
+  const topCountries = getWeightedTopNames(report?.audience?.geoCountries, 3);
+  const topLanguages = getWeightedTopNames(report?.audience?.languages, 2);
+  const deliverableSummary = getCampaignDeliverableSummary(campaign);
+
+  const reasons: string[] = [];
+
+  if (matchingLabels.length) {
+    reasons.push(
+      `${creatorName} is a strong fit for ${campaignTitle} because their profile signals match ${matchingLabels.join(', ')}, which aligns with the campaign focus.`
+    );
+  } else {
+    reasons.push(
+      `${creatorName} is selected for ${campaignTitle} because their ${normalizedPlatform} profile, content style, and available audience data are relevant for this campaign.`
+    );
+  }
+
+  reasons.push(
+    `Performance fit: ${formatSelectionCompact(followers)} followers, ${formatSelectionPercentValue(engagementRate)} engagement, and about ${formatSelectionCompact(estimatedReach)} estimated reach support the creator's selection${deliverableSummary ? ` for ${deliverableSummary}` : ''}.`
+  );
+
+  if (credibilityPct > 0 || topCountries.length || topLanguages.length) {
+    const audienceParts = [
+      credibilityPct > 0 ? `${Math.round(credibilityPct)}% audience credibility` : '',
+      topCountries.length ? `top geography in ${topCountries.join(', ')}` : '',
+      topLanguages.length ? `language signals around ${topLanguages.join(', ')}` : '',
+    ].filter(Boolean);
+
+    reasons.push(
+      `Audience quality also supports the match with ${audienceParts.join(', ')}, helping validate the campaign targeting.`
+    );
+  } else {
+    reasons.push(
+      `The selection is supported by measurable creator performance and profile relevance, even before the pricing estimate is generated.`
+    );
+  }
+
+  return reasons.slice(0, 4);
+}
+
+function SelectionReasonCard({
+  loading,
+  reasons,
+  campaignTitle,
+}: {
+  loading: boolean;
+  reasons: string[];
+  campaignTitle?: string | null;
+}) {
+  if (!loading && !reasons.length) return null;
+
+  return (
+    <SectionCard
+      title="Selection Reason"
+      eyebrow="Campaign fit"
+      className="overflow-hidden"
+    >
+      <div className="rounded-[22px] border border-[#efe8dd] bg-gradient-to-br from-[#fffdfa] via-white to-[#fff7e8] p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm leading-6 text-[#7d7569]">
+              Why this creator is recommended{campaignTitle ? ` for ${campaignTitle}` : ''}.
+            </p>
+          </div>
+
+          <span className="w-fit rounded-full border border-[#efe8dd] bg-white px-3 py-1 text-[11px] font-semibold text-[#7d7569]">
+            AI Match Summary
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="mt-4 space-y-3">
+            {[0, 1, 2].map((item) => (
+              <div
+                key={item}
+                className="h-[58px] animate-pulse rounded-[18px] border border-[#f0e7da] bg-white/80"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {reasons.map((reason, index) => (
+              <div
+                key={`${reason}-${index}`}
+                className="flex gap-3 rounded-[18px] border border-[#f0e7da] bg-white/85 px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.035)]"
+              >
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#111111] text-[11px] font-bold text-white">
+                  {index + 1}
+                </div>
+
+                <p className="text-sm leading-6 text-[#5f5a52]">
+                  {reason}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+
 export const DetailPanel = React.memo<DetailPanelProps>(
   ({
     open,
@@ -1218,6 +1886,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     );
     const [campaignSearch, setCampaignSearch] = useState('');
 
+    const [rateCardLoading, setRateCardLoading] = useState(false);
+    const [rateCardError, setRateCardError] = useState<string | null>(null);
+    const [rateCardData, setRateCardData] =
+      useState<SuggestedRateCardResponse["data"] | null>(null);
+
+    const rateCardRequestKeyRef = useRef("");
+
     const [emailEditorOpen, setEmailEditorOpen] = useState(false);
     const [emailDraft, setEmailDraft] = useState<EmailDraftState | null>(null);
 
@@ -1232,6 +1907,51 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       setPlan(getSubscriptionPlan());
       setRole(getUserRole());
     }, []);
+
+    useEffect(() => {
+      if (!open || !brandId || brandCampaigns.length) return;
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          setCampaignsLoading(true);
+
+          const resp = await post<GetByBrandCampaignResp>('/campaign/get-by-brand', {
+            brandId,
+            page: 1,
+            limit: 20,
+            status: 'active',
+          });
+
+          if (cancelled) return;
+
+          const items = Array.isArray(resp?.data?.items) ? resp.data.items : [];
+          setBrandCampaigns(items);
+          setSelectedCampaignIds((prev) => {
+            if (campaignId) return [campaignId];
+
+            const stillValid = prev.filter((id) =>
+              items.some((item) => item.campaignId === id)
+            );
+
+            return stillValid;
+          });
+        } catch {
+          if (!cancelled) {
+            setBrandCampaigns((prev) => prev);
+          }
+        } finally {
+          if (!cancelled) {
+            setCampaignsLoading(false);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [open, brandId, brandCampaigns.length, campaignId]);
 
     useEffect(() => {
       setLastUpdatedAt(lastFetchedAt || null);
@@ -1333,6 +2053,62 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const activePlatformKey = normalizePlatform(
       ((selectedReport?.provider as Platform | null) ?? platform) as Platform | null
     );
+
+    const activeCampaignIdForPanel = selectedCampaignIds[0] || campaignId || '';
+
+    const activeCampaignForPanel = useMemo<BrandCampaignItem | null>(() => {
+      if (!activeCampaignIdForPanel) return null;
+
+      const found = brandCampaigns.find(
+        (item) => item.campaignId === activeCampaignIdForPanel
+      );
+
+      if (found) return found;
+
+      return {
+        campaignId: activeCampaignIdForPanel,
+        campaignTitle: 'selected campaign',
+      };
+    }, [activeCampaignIdForPanel, brandCampaigns]);
+
+    const selectionReasonItems = useMemo(() => {
+      return buildProfileSelectionReasons({
+        campaign: activeCampaignForPanel,
+        report: selectedReport as (InfluencerReport & { _id?: string }) | null,
+        platform: activePlatformKey,
+      });
+    }, [activeCampaignForPanel, selectedReport, activePlatformKey]);
+
+    const rateCardProfileKey = useMemo(() => {
+      if (!open) return "";
+
+      return [
+        (selectedReport as any)?._id,
+        selectedReport?.modashId,
+        selectedReport?.handle,
+        selectedReport?.username,
+        activePlatformKey,
+        selectedCampaignIds[0] || campaignId || "",
+      ]
+        .filter(Boolean)
+        .join(":");
+    }, [
+      open,
+      (selectedReport as any)?._id,
+      selectedReport?.modashId,
+      selectedReport?.handle,
+      selectedReport?.username,
+      activePlatformKey,
+      selectedCampaignIds,
+      campaignId,
+    ]);
+
+    useEffect(() => {
+      setRateCardData(null);
+      setRateCardError(null);
+      setRateCardLoading(false);
+      rateCardRequestKeyRef.current = "";
+    }, [rateCardProfileKey]);
 
     const panelMediaKit = useMemo<MediaKit | null>(() => {
       if (!selectedReport) return null;
@@ -1716,7 +2492,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
     if (!open) return null;
 
-    const hasUserId = Boolean((data?.profile as any)?.userId || selectedReport?.modashId || selectedReport?._id);
+    const hasUserId = Boolean(
+      (data?.profile as any)?.userId ||
+      selectedReport?.modashId ||
+      (selectedReport as any)?._id ||
+      (raw as any)?._modashProfileId ||
+      (data as any)?._modashProfileId
+    );
     const canAct = hasUserId && !loading && !sendingInvite && !refreshing && !checkingEmail;
     const effectiveHasEmail =
       hasAnyEmail !== null ? hasAnyEmail : emailExists === true;
@@ -1755,6 +2537,88 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         );
       } finally {
         setRefreshing(false);
+      }
+    };
+
+    const handleGenerateSuggestedRateCard = async () => {
+      if (!brandId) {
+        await Swal.fire("Missing brand", "Missing brand _id.", "warning");
+        return;
+      }
+
+      const activeCampaignId =
+        selectedCampaignIds[0] || campaignId || searchParams?.get("campaignId") || "";
+
+      if (!activeCampaignId) {
+        await Swal.fire(
+          "Select campaign",
+          "Please select or open a campaign before generating a rate card.",
+          "warning"
+        );
+        return;
+      }
+
+      const normalizedPlatform = normalizePlatform(platform);
+
+      const influencerId =
+        (selectedReport as any)?._id ||
+        (raw as any)?._modashProfileId ||
+        (data as any)?._modashProfileId ||
+        (raw as any)?._id ||
+        (data as any)?._id ||
+        "";
+
+      if (!influencerId) {
+        await Swal.fire(
+          "Missing influencer _id",
+          "Please open or refresh the full Modash report once, so the local influencer _id is available.",
+          "warning"
+        );
+        return;
+      }
+
+      try {
+        const currentRateCardKey = rateCardProfileKey;
+        rateCardRequestKeyRef.current = currentRateCardKey;
+
+        setRateCardLoading(true);
+        setRateCardError(null);
+
+        const response = await post<SuggestedRateCardResponse>(
+          "/modash/rate-card/suggested",
+          {
+            brandId,
+            campaignId: activeCampaignId,
+            influencerId,
+            platform: normalizedPlatform,
+            currency: "USD",
+
+            // This avoids another Modash credit call.
+            report: raw || data,
+          }
+        );
+
+        if (response.status !== "success" || !response.data) {
+          throw new Error(response.message || "Failed to generate rate card");
+        }
+
+        if (rateCardRequestKeyRef.current === currentRateCardKey) {
+          setRateCardData(response.data);
+        }
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to generate suggested rate card";
+
+        if (rateCardRequestKeyRef.current === rateCardProfileKey) {
+          setRateCardError(message);
+        }
+      } finally {
+        if (rateCardRequestKeyRef.current === rateCardProfileKey) {
+          setRateCardLoading(false);
+        }
       }
     };
 
@@ -2767,6 +3631,19 @@ Team CollabGlam`;
                     ) : (
                       <FeatureLockedCard title="Audience Intelligence" plan="pro" />
                     )}
+
+                    <SelectionReasonCard
+                      loading={loading && !selectedReport}
+                      reasons={selectionReasonItems}
+                      campaignTitle={activeCampaignForPanel?.campaignTitle}
+                    />
+
+                    <SuggestedRateCardBox
+                      loading={rateCardLoading}
+                      data={rateCardData}
+                      error={rateCardError}
+                      onGenerate={handleGenerateSuggestedRateCard}
+                    />
 
                     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_420px]">
                       {hasSectionAccess('recentPosts') ? (

@@ -1948,14 +1948,14 @@ function CreateManualScreen({
 
         if (status === "scheduled") {
           resetForm();
-          router.replace(`/brand/campaign`);
+          router.replace(`/brand/influencer-invitation/?q=scheduled-campaign&campaignId=${encodeURIComponent(cid || "")}`);
           onAfterPublish?.();
           return;
         }
 
         if (status === "active") {
           resetForm();
-          router.replace(`/brand/campaign`);
+          router.replace(`/brand/influencer-invitation?q=active&campaignId=${encodeURIComponent(cid || "")}`);
           onAfterPublish?.();
           return;
         }

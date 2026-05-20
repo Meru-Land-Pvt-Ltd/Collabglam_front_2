@@ -1,4 +1,3 @@
-// app/brand/layout.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -16,7 +15,7 @@ export default function BrandAppLayout({
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [hasBrandId, setHasBrandId] = useState(false);
 
-  const NO_SCAFFOLD_ROUTES = useMemo(
+  const PUBLIC_NO_SCAFFOLD_ROUTES = useMemo(
     () => [
       "/brand/login",
       "/brand/signup",
@@ -26,10 +25,25 @@ export default function BrandAppLayout({
     []
   );
 
-  const skipScaffold = NO_SCAFFOLD_ROUTES.some((route) => pathname === route);
+  const AUTH_NO_SCAFFOLD_ROUTES = useMemo(
+    () => [
+      "/brand/influencer-invitation",
+    ],
+    []
+  );
+
+  const isPublicNoScaffoldRoute = PUBLIC_NO_SCAFFOLD_ROUTES.some(
+    (route) => pathname === route
+  );
+
+  const isAuthNoScaffoldRoute = AUTH_NO_SCAFFOLD_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  );
+
+  const skipScaffold = isPublicNoScaffoldRoute || isAuthNoScaffoldRoute;
 
   useEffect(() => {
-    if (skipScaffold) {
+    if (isPublicNoScaffoldRoute) {
       setCheckingAuth(false);
       setHasBrandId(true);
       return;
@@ -53,7 +67,7 @@ export default function BrandAppLayout({
 
     setHasBrandId(true);
     setCheckingAuth(false);
-  }, [router, skipScaffold, pathname]);
+  }, [router, pathname, isPublicNoScaffoldRoute]);
 
   if (checkingAuth) {
     return (
@@ -63,12 +77,12 @@ export default function BrandAppLayout({
     );
   }
 
-  if (skipScaffold) {
-    return <>{children}</>;
-  }
-
   if (!hasBrandId) {
     return null;
+  }
+
+  if (skipScaffold) {
+    return <>{children}</>;
   }
 
   return (
