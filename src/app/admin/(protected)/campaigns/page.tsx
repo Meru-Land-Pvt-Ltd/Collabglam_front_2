@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { post } from "@/lib/api";
-import { toast, ToastStyles } from "@/components/ui/toast";
 import AdminTable, { type AdminTableColumn } from "../../components/table";
 import {
   Check,
@@ -48,19 +47,6 @@ type SortKey =
   | "createdAt";
 
 type AssignmentBadgeVariant = "rh" | "bme" | "ime";
-
-type ApiErrorLike = {
-  message?: unknown;
-  error?: unknown;
-  errors?: unknown;
-  detail?: unknown;
-  data?: unknown;
-  statusText?: unknown;
-  response?: {
-    data?: unknown;
-    statusText?: unknown;
-  };
-};
 
 interface CreatedByAdmin {
   userId: string;
@@ -177,106 +163,6 @@ const datePresetOptions: Array<{ label: string; value: DatePreset }> = [
   { label: "This Month", value: "this_month" },
 ];
 
-function normalizeErrorValue(value: unknown): string {
-  if (!value) return "";
-
-  if (typeof value === "string") {
-    return value.trim();
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeErrorValue(item))
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  if (typeof value === "object") {
-    const objectValue = value as Record<string, unknown>;
-
-    const directMessage =
-      normalizeErrorValue(objectValue.message) ||
-      normalizeErrorValue(objectValue.error) ||
-      normalizeErrorValue(objectValue.detail) ||
-      normalizeErrorValue(objectValue.msg);
-
-    if (directMessage) return directMessage;
-
-    return Object.entries(objectValue)
-      .map(([key, item]) => {
-        const itemMessage = normalizeErrorValue(item);
-        return itemMessage ? `${key}: ${itemMessage}` : "";
-      })
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  return "";
-}
-
-function getErrorMessage(error: unknown, fallback: string) {
-  const err = error as ApiErrorLike | undefined;
-
-  const candidates = [
-    err?.response?.data,
-    err?.data,
-    err?.errors,
-    err?.error,
-    err?.detail,
-    err?.message,
-    err?.response?.statusText,
-    err?.statusText,
-    error,
-  ];
-
-  for (const candidate of candidates) {
-    const message = normalizeErrorValue(candidate);
-    if (message) return message;
-  }
-
-  return fallback;
-}
-
-function showErrorToast(title: string, error: unknown, fallback: string) {
-  toast({
-    icon: "error",
-    title,
-    text: getErrorMessage(error, fallback),
-    timer: 4000,
-  });
-}
-
-function showValidationToast(title: string, message: string) {
-  toast({
-    icon: "error",
-    title,
-    text: message,
-    timer: 4000,
-  });
-}
-
-function showSuccessToast(title: string, message?: string) {
-  toast({
-    icon: "success",
-    title,
-    text: message,
-    timer: 2500,
-  });
-}
-
-function showWarningToast(title: string, message?: string) {
-  toast({
-    icon: "warning",
-    title,
-    text: message,
-    timer: 3500,
-  });
-}
-
 function toApiUrl(path: string) {
   const base = API_BASE.endsWith("/") ? API_BASE : `${API_BASE}/`;
   const cleanPath = path.startsWith("/") ? path.slice(1) : path;
@@ -303,13 +189,7 @@ async function getJson<T>(path: string): Promise<T> {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw {
-      response: {
-        data,
-        statusText: response.statusText,
-      },
-      message: normalizeErrorValue(data) || response.statusText || "Request failed",
-    };
+    throw new Error(data?.message || "Request failed");
   }
 
   return data as T;
@@ -317,10 +197,8 @@ async function getJson<T>(path: string): Promise<T> {
 
 function formatName(name?: string) {
   if (!name) return "—";
-
   const trimmed = name.trim();
   if (trimmed.length <= MAX_NAME_LENGTH) return trimmed;
-
   return `${trimmed.slice(0, MAX_NAME_LENGTH)}…`;
 }
 
@@ -554,18 +432,10 @@ async function copyTextToClipboard(text: string) {
   textarea.setAttribute("readonly", "");
   textarea.style.position = "absolute";
   textarea.style.left = "-9999px";
-
   document.body.appendChild(textarea);
-  textarea.focus();
   textarea.select();
-  textarea.setSelectionRange(0, textarea.value.length);
-
-  const copied = document.execCommand("copy");
+  document.execCommand("copy");
   document.body.removeChild(textarea);
-
-  if (!copied) {
-    throw new Error("Copy failed. Please copy the link manually.");
-  }
 }
 
 export default function AdminCampaignsPage() {
@@ -577,6 +447,7 @@ export default function AdminCampaignsPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [summaryStats, setSummaryStats] = useState<SummaryStats>({
     totalCampaigns: 0,
     totalThisMonth: 0,
@@ -591,6 +462,8 @@ export default function AdminCampaignsPage() {
   const [assigningCampaignId, setAssigningCampaignId] = useState<string | null>(
     null
   );
+  const [assignmentMsg, setAssignmentMsg] = useState<string | null>(null);
+  const [assignmentErr, setAssignmentErr] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(0);
@@ -648,14 +521,8 @@ export default function AdminCampaignsPage() {
     try {
       const response = await getJson<any>("/admins/me");
       setCurrentAdmin(response?.data || response || null);
-    } catch (error) {
+    } catch {
       setCurrentAdmin(null);
-
-      showErrorToast(
-        "Admin profile failed",
-        error,
-        "Failed to load current admin details."
-      );
     }
   }, []);
 
@@ -678,16 +545,9 @@ export default function AdminCampaignsPage() {
       setCampaigns(data?.campaigns || []);
       setTotal(data?.total || 0);
       setTotalPages(data?.totalPages || 1);
-    } catch (error) {
-      setCampaigns([]);
-      setTotal(0);
-      setTotalPages(1);
-
-      showErrorToast(
-        "Campaigns loading failed",
-        error,
-        "Failed to load campaigns."
-      );
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load campaigns.");
     } finally {
       setLoading(false);
     }
@@ -711,23 +571,9 @@ export default function AdminCampaignsPage() {
         "/admins/get-executive-list?role=ime"
       );
 
-      const list = Array.isArray(response?.data) ? response.data : [];
-      setImeOptions(list);
-
-      if (!list.length) {
-        showWarningToast(
-          "No IME found",
-          "No IME users are available for campaign assignment."
-        );
-      }
-    } catch (error) {
-      setImeOptions([]);
-
-      showErrorToast(
-        "IME list loading failed",
-        error,
-        "Failed to load IME list."
-      );
+      setImeOptions(Array.isArray(response?.data) ? response.data : []);
+    } catch (err: any) {
+      setAssignmentErr(err?.message || "Failed to load IME list.");
     } finally {
       setImeLoading(false);
     }
@@ -760,22 +606,10 @@ export default function AdminCampaignsPage() {
           }),
         ]);
 
-      const failedResult = [allCampaignsRes, thisMonthRes, fullListRes].find(
-        (item) => item.status === "rejected"
-      );
-
-      if (failedResult && failedResult.status === "rejected") {
-        showErrorToast(
-          "Summary loading failed",
-          failedResult.reason,
-          "Some campaign summary metrics could not be loaded."
-        );
-      }
-
       const fullyManagedCount =
         fullListRes.status === "fulfilled"
           ? (fullListRes.value?.campaigns || []).filter(isFullyManagedCampaign)
-              .length
+            .length
           : 0;
 
       setSummaryStats({
@@ -789,18 +623,6 @@ export default function AdminCampaignsPage() {
             : 0,
         totalFullyManaged: fullyManagedCount,
       });
-    } catch (error) {
-      setSummaryStats({
-        totalCampaigns: 0,
-        totalThisMonth: 0,
-        totalFullyManaged: 0,
-      });
-
-      showErrorToast(
-        "Summary loading failed",
-        error,
-        "Failed to load campaign summary."
-      );
     } finally {
       setSummaryLoading(false);
     }
@@ -838,10 +660,6 @@ export default function AdminCampaignsPage() {
   }, [fetchImeOptions]);
 
   const getPublicShareUrl = useCallback(async (campaign: Campaign) => {
-    if (!campaign.campaignId || !campaign.brandId) {
-      throw new Error("Campaign ID or Brand ID is missing.");
-    }
-
     const response = await post<any>("/admin/campaign/share/enable", {
       campaignId: campaign.campaignId,
       brandId: campaign.brandId,
@@ -854,40 +672,27 @@ export default function AdminCampaignsPage() {
       "";
 
     if (!shareUrl) {
-      throw new Error("Public link not received from backend.");
+      throw new Error("Public link not received");
     }
 
     return shareUrl;
   }, []);
 
-  const handleCopyPublicLink = useCallback(
-    async (campaign: Campaign) => {
-      try {
-        const shareUrl = await getPublicShareUrl(campaign);
-        await copyTextToClipboard(shareUrl);
+  const handleCopyPublicLink = async (campaign: Campaign) => {
+    try {
+      const shareUrl = await getPublicShareUrl(campaign);
+      await copyTextToClipboard(shareUrl);
+      setCopiedCampaignId(campaign.campaignId);
 
-        setCopiedCampaignId(campaign.campaignId);
-
-        showSuccessToast(
-          "Public link copied",
-          "The campaign public link has been copied."
+      window.setTimeout(() => {
+        setCopiedCampaignId((prev) =>
+          prev === campaign.campaignId ? null : prev
         );
-
-        window.setTimeout(() => {
-          setCopiedCampaignId((prev) =>
-            prev === campaign.campaignId ? null : prev
-          );
-        }, 1800);
-      } catch (error) {
-        showErrorToast(
-          "Copy public link failed",
-          error,
-          "Failed to copy public link."
-        );
-      }
-    },
-    [getPublicShareUrl]
-  );
+      }, 1800);
+    } catch (err: any) {
+      window.alert(err?.message || "Failed to copy public link");
+    }
+  };
 
   const getImeOptionsForCampaign = useCallback(
     (campaign: Campaign) => {
@@ -905,41 +710,35 @@ export default function AdminCampaignsPage() {
   const handleAssignIme = useCallback(
     async (campaign: Campaign, idmId: string) => {
       if (!canAssignIme) {
-        showValidationToast(
-          "Permission denied",
+        setAssignmentErr(
           "Only Super Admin or Revenue Head can assign IME to campaigns."
         );
         return;
       }
 
       if (!isFullyManagedCampaign(campaign)) {
-        showValidationToast(
-          "Invalid campaign type",
+        setAssignmentErr(
           "IME assignment is available only for Fully Managed campaigns."
         );
         return;
       }
 
       if (!campaign.RHId) {
-        showValidationToast(
-          "RH required",
+        setAssignmentErr(
           "Assign RH to this brand before assigning IME to its campaign."
         );
         return;
       }
 
       if (!idmId) {
-        showValidationToast("IME required", "Please select an IME first.");
+        setAssignmentErr("Please select an IME first.");
         return;
       }
 
       const campaignMongoId = String(campaign._id || "").trim();
 
       if (!campaignMongoId) {
-        showValidationToast(
-          "Campaign ID missing",
-          "Campaign Mongo ID is missing."
-        );
+        setAssignmentErr("Campaign Mongo ID is missing.");
         return;
       }
 
@@ -948,6 +747,8 @@ export default function AdminCampaignsPage() {
 
       try {
         setAssigningCampaignId(campaignMongoId);
+        setAssignmentErr(null);
+        setAssignmentMsg(null);
 
         await post<any>("/admins/assign-campaign-ime", {
           campaignId: campaignMongoId,
@@ -958,35 +759,21 @@ export default function AdminCampaignsPage() {
           prev.map((item) =>
             item._id === campaignMongoId
               ? {
-                  ...item,
-                  idmId,
-                  assignedIme: selectedImeName,
-                  assignmentStatus: "active",
-                }
+                ...item,
+                idmId,
+                assignedIme: selectedImeName,
+                assignmentStatus: "active",
+              }
               : item
           )
         );
 
-        showSuccessToast(
-          "IME assigned",
-          "Campaign IME assignment saved successfully."
-        );
+        setAssignmentMsg("Campaign IME assignment saved successfully.");
+        window.setTimeout(() => setAssignmentMsg(null), 2500);
 
-        try {
-          await fetchCampaigns();
-        } catch (refreshError) {
-          showErrorToast(
-            "Refresh failed",
-            refreshError,
-            "IME was assigned, but campaign list refresh failed."
-          );
-        }
-      } catch (error) {
-        showErrorToast(
-          "IME assignment failed",
-          error,
-          "Failed to assign IME to campaign."
-        );
+        await fetchCampaigns();
+      } catch (err: any) {
+        setAssignmentErr(err?.message || "Failed to assign IME to campaign.");
       } finally {
         setAssigningCampaignId(null);
       }
@@ -994,42 +781,36 @@ export default function AdminCampaignsPage() {
     [canAssignIme, fetchCampaigns, imeOptions]
   );
 
-  const toggleSort = useCallback(
-    (key: SortKey) => {
-      if (sortKey === key) {
-        setSortAsc((prev) => !prev);
-      } else {
-        setSortKey(key);
-        setSortAsc(true);
-      }
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc((prev) => !prev);
+    } else {
+      setSortKey(key);
+      setSortAsc(true);
+    }
 
-      setPage(1);
-    },
-    [sortKey]
-  );
+    setPage(1);
+  };
 
-  const handleSort = useCallback(
-    (field: string) => {
-      const allowedFields: SortKey[] = [
-        "name",
-        "startDate",
-        "endDate",
-        "budget",
-        "isActive",
-        "createdAt",
-      ];
+  const handleSort = (field: string) => {
+    const allowedFields: SortKey[] = [
+      "name",
+      "startDate",
+      "endDate",
+      "budget",
+      "isActive",
+      "createdAt",
+    ];
 
-      if (allowedFields.includes(field as SortKey)) {
-        toggleSort(field as SortKey);
-      }
-    },
-    [toggleSort]
-  );
+    if (allowedFields.includes(field as SortKey)) {
+      toggleSort(field as SortKey);
+    }
+  };
 
-  const handleRowsPerPageChange = useCallback((limit: number) => {
+  const handleRowsPerPageChange = (limit: number) => {
     setRowsPerPage(limit);
     setPage(1);
-  }, []);
+  };
 
   const hasActiveFilters =
     search.trim() !== "" ||
@@ -1037,15 +818,13 @@ export default function AdminCampaignsPage() {
     (canUseCampaignTypeStatusFilters &&
       (statusFilter !== 0 || quickFilter !== "all"));
 
-  const resetFilters = useCallback(() => {
+  const resetFilters = () => {
     setSearch("");
     setStatusFilter(0);
     setQuickFilter("all");
     setDatePreset("all_time");
     setPage(1);
-
-    showSuccessToast("Filters reset", "Campaign filters have been cleared.");
-  }, []);
+  };
 
   const filteredCampaigns = useMemo(() => {
     if (effectiveQuickFilter === "fully_managed") {
@@ -1345,15 +1124,15 @@ export default function AdminCampaignsPage() {
 
       const displayOptions = hasCurrentOutsideOptions
         ? [
-            {
-              _id: currentId,
-              name: assignedLabel || "Current IME",
-              email: "",
-              role: "ime",
-              status: "active",
-            },
-            ...scopedOptions,
-          ]
+          {
+            _id: currentId,
+            name: assignedLabel || "Current IME",
+            email: "",
+            role: "ime",
+            status: "active",
+          },
+          ...scopedOptions,
+        ]
         : scopedOptions;
 
       const disabled =
@@ -1397,20 +1176,7 @@ export default function AdminCampaignsPage() {
                   value={employee._id}
                   className="data-[highlighted]:!bg-slate-50 data-[highlighted]:!text-slate-900 focus:!bg-slate-50"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-black text-slate-700">
-                      {getInitials(getEmployeeLabel(employee))}
-                    </span>
-
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-semibold">
-                        {getEmployeeLabel(employee)}
-                      </span>
-                      <span className="block truncate text-xs text-slate-500">
-                        {getEmployeeSubLabel(employee)}
-                      </span>
-                    </span>
-                  </div>
+                  {getEmployeeLabel(employee)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -1429,51 +1195,48 @@ export default function AdminCampaignsPage() {
   );
 
   return (
-    <>
-      <ToastStyles />
-
-      <div className="min-h-screen">
-        <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 lg:px-8">
-          <div className="mb-6 overflow-hidden rounded-[32px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-white p-5 shadow-sm md:p-6">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div>
-                <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950 md:text-4xl">
-                  Admin Campaign Management
-                </h1>
-              </div>
+    <div className="min-h-screen">
+      <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-6 lg:px-8">
+        <div className="mb-6 overflow-hidden rounded-[32px] border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div>
+              <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-slate-950 md:text-4xl">
+                Admin Campaign Management
+              </h1>
             </div>
+          </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {summaryCards.map((card) => {
-                const Icon = card.icon;
+          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {summaryCards.map((card) => {
+              const Icon = card.icon;
 
-                return (
-                  <div
-                    key={card.id}
-                    className={`relative overflow-hidden rounded-[24px] p-5 ${card.cardClassName}`}
-                  >
-                    {card.id === "fully_managed" ? (
-                      <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-amber-200/30 blur-2xl" />
-                    ) : null}
+              return (
+                <div
+                  key={card.id}
+                  className={`relative overflow-hidden rounded-[24px] p-5 ${card.cardClassName}`}
+                >
+                  {card.id === "fully_managed" ? (
+                    <div className="pointer-events-none absolute right-0 top-0 h-24 w-24 rounded-full bg-amber-200/30 blur-2xl" />
+                  ) : null}
 
-                    <div className="relative flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          {card.title}
-                        </p>
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                        {card.title}
+                      </p>
 
-                        <div
-                          className={`mt-3 text-3xl font-bold ${card.valueClassName}`}
-                        >
-                          {summaryLoading && card.id !== "ime_assigned"
-                            ? "—"
-                            : card.value}
-                        </div>
-
-                        <p className="mt-2 text-sm text-slate-600">
-                          {card.subtitle}
-                        </p>
+                      <div
+                        className={`mt-3 text-3xl font-bold ${card.valueClassName}`}
+                      >
+                        {summaryLoading && card.id !== "ime_assigned"
+                          ? "—"
+                          : card.value}
                       </div>
+
+                      <p className="mt-2 text-sm text-slate-600">
+                        {card.subtitle}
+                      </p>
+                    </div>
 
                     <div
                       className={`flex h-11 w-11 items-center justify-center rounded-2xl ${card.iconWrapClassName}`}
@@ -1695,121 +1458,120 @@ export default function AdminCampaignsPage() {
           </div>
         </div>
 
-          <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 bg-gradient-to-r from-white via-slate-50 to-white px-4 py-4 md:px-5">
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">
-                    Campaign Table
-                  </p>
-                </div>
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-white via-slate-50 to-white px-4 py-4 md:px-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Campaign Table
+                </p>
+              </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm">
-                    Showing:
-                    <span className="ml-2 font-semibold text-slate-900">
-                      {totalVisibleItems}
-                    </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm">
+                  Showing:
+                  <span className="ml-2 font-semibold text-slate-900">
+                    {totalVisibleItems}
                   </span>
+                </span>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={fetchCampaigns}
-                    disabled={loading}
-                    className="h-9 rounded-[10px] border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm hover:!bg-slate-50 hover:!text-slate-900 focus-visible:!ring-0 focus-visible:!ring-offset-0"
-                  >
-                    <RefreshCw
-                      className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                    />
-                    Refresh
-                  </Button>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={fetchCampaigns}
+                  disabled={loading}
+                  className="h-9 rounded-[10px] border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm hover:!bg-slate-50 hover:!text-slate-900 focus-visible:!ring-0 focus-visible:!ring-offset-0"
+                >
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                  />
+                  Refresh
+                </Button>
               </div>
             </div>
+          </div>
 
-            <div className="px-2 pb-2 md:px-3 md:pb-3">
-              <AdminTable<Campaign>
-                data={tableCampaigns}
-                columns={columns}
-                rowKey={(row, index) => row.campaignId || row._id || String(index)}
-                loading={loading}
-                loadingRows={rowsPerPage}
-                emptyTitle="No campaigns found"
-                emptyDescription="Try adjusting your filters or search."
-                sortBy={sortKey}
-                sortOrder={sortAsc ? "asc" : "desc"}
-                onSort={handleSort}
-                actions={{
-                  header: "Actions",
-                  align: "right",
-                  cellClassName: "min-w-[260px]",
-                  render: (campaign) => (
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {renderImeAction(campaign)}
+          <div className="px-2 pb-2 md:px-3 md:pb-3">
+            <AdminTable<Campaign>
+              data={tableCampaigns}
+              columns={columns}
+              rowKey={(row, index) => row.campaignId || row._id || String(index)}
+              loading={loading}
+              loadingRows={rowsPerPage}
+              error={error}
+              emptyTitle="No campaigns found"
+              emptyDescription="Try adjusting your filters or search."
+              sortBy={sortKey}
+              sortOrder={sortAsc ? "asc" : "desc"}
+              onSort={handleSort}
+              actions={{
+                header: "Actions",
+                align: "right",
+                cellClassName: "min-w-[260px]",
+                render: (campaign) => (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {renderImeAction(campaign)}
 
-                      <div className="flex items-center gap-2">
-                        <Button
-                          asChild
-                          type="button"
-                          className={`${tableButtonBaseClass} ${manageButtonClass}`}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        asChild
+                        type="button"
+                        className={`${tableButtonBaseClass} ${manageButtonClass}`}
+                      >
+                        <Link
+                          href={`/admin/campaigns/view?id=${campaign.campaignId}`}
+                          aria-label="Manage Campaign"
                         >
-                          <Link
-                            href={`/admin/campaigns/view?id=${campaign.campaignId}`}
-                            aria-label="Manage Campaign"
-                          >
-                            Manage
-                          </Link>
-                        </Button>
+                          Manage
+                        </Link>
+                      </Button>
 
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => handleCopyPublicLink(campaign)}
-                          aria-label="Copy Public Link"
-                          title="Copy Public Link"
-                          className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${
-                            copiedCampaignId === campaign.campaignId
-                              ? "border-0 bg-transparent text-emerald-600 hover:!bg-transparent hover:!text-emerald-700"
-                              : "border-0 bg-transparent text-blue-600 hover:!bg-transparent hover:!text-blue-700"
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => handleCopyPublicLink(campaign)}
+                        aria-label="Copy Public Link"
+                        title="Copy Public Link"
+                        className={`h-9 rounded-[10px] px-2 shadow-none focus-visible:!ring-0 focus-visible:!ring-offset-0 ${copiedCampaignId === campaign.campaignId
+                          ? "border-0 bg-transparent text-emerald-600 hover:!bg-transparent hover:!text-emerald-700"
+                          : "border-0 bg-transparent text-blue-600 hover:!bg-transparent hover:!text-blue-700"
                           }`}
-                        >
-                          {copiedCampaignId === campaign.campaignId ? (
-                            <>
-                              <Check className="mr-2 h-4.5 w-4.5" />
-                              Copied
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="mr-2 h-4.5 w-4.5" />
-                              Copy
-                            </>
-                          )}
-                        </Button>
-                      </div>
+                      >
+                        {copiedCampaignId === campaign.campaignId ? (
+                          <>
+                            <Check className="mr-2 h-4.5 w-4.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="mr-2 h-4.5 w-4.5" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
                     </div>
-                  ),
-                }}
-                pagination={{
-                  page,
-                  totalPages: tableTotalPages,
-                  totalItems: totalVisibleItems,
-                  limit: rowsPerPage,
-                  onPageChange: setPage,
-                  onLimitChange: handleRowsPerPageChange,
-                  rowOptions: ROW_OPTIONS,
-                  loading,
-                  showRowsSelector: true,
-                  showSummary: true,
-                }}
-                className="py-2"
-                tableClassName="min-w-[1900px]"
-                headerRowClassName="bg-slate-50/80"
-              />
-            </div>
+                  </div>
+                ),
+              }}
+              pagination={{
+                page,
+                totalPages: tableTotalPages,
+                totalItems: totalVisibleItems,
+                limit: rowsPerPage,
+                onPageChange: setPage,
+                onLimitChange: handleRowsPerPageChange,
+                rowOptions: ROW_OPTIONS,
+                loading,
+                showRowsSelector: true,
+                showSummary: true,
+              }}
+              className="py-2"
+              tableClassName="min-w-[1900px]"
+              headerRowClassName="bg-slate-50/80"
+            />
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
