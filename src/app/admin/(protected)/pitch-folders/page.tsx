@@ -341,7 +341,7 @@ export default function PitchFoldersPage() {
     setLoadingCampaigns(true);
 
     try {
-      const resp = await adminPost<CampaignListResponse>('/admin/campaign/lite', {
+      const resp = await adminPost<CampaignListResponse>('/admin/campaign/fully', {
         page: 1,
         limit: 1000,
         search: '',

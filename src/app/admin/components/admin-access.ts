@@ -164,6 +164,13 @@ export const ADMIN_MODULES: AdminModule[] = [
     icon: Scale,
   },
   {
+    key: "missing-emails",
+    label: "Missing Emails",
+    href: "/admin/missing-emails",
+    icon: Bell,
+    aliases: ["missingemail", "missing-email", "missingemails"]
+  },
+  {
     key: "disputes",
     label: "Disputes",
     href: "/admin/disputes",
@@ -183,7 +190,7 @@ export const ADMIN_MODULES: AdminModule[] = [
     href: "/admin/new-leads",
     icon: UsersRound,
   },
-    {
+  {
     key: "rating-reviews",
     label: "Rating & Reviews",
     href: "/admin/rating-reviews",
