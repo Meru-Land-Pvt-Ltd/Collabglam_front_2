@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import AdminTable, { type AdminTableColumn } from "../../../components/table";
+import AddMilestoneCard from "@/components/ui/brand/AddMilestoneCard";
 import {
   AlignLeft,
   ArrowRight,
@@ -54,7 +55,7 @@ import { HiOutlineRefresh } from "react-icons/hi";
 /* ========================= Types ========================= */
 
 type TabKey = "details" | "applicants" | "ratings" | "deliverables" | "pitchFolder";
-type ReviewStatus = "pending" | "approved" | "revision";
+type ReviewStatus = "pending" | "submitted" | "approved" | "revision";
 
 interface ProductImage {
   name?: string;
@@ -104,6 +105,8 @@ interface CreatedBy {
   email?: string;
   role?: string;
   adminRole?: string;
+  userId?: string;
+  userModel?: string;
 }
 
 interface CampaignData {
@@ -207,7 +210,10 @@ type BreakdownItem = {
 
 interface InfluencerApplicant {
   influencerId?: string;
+  influencerName?: string;
   name?: string;
+  email?: string;
+  influencerEmail?: string;
   primaryPlatform?: string;
   platform?: string;
   handle?: string;
@@ -218,6 +224,15 @@ interface InfluencerApplicant {
   influencerTierResolved?: string;
   createdAt?: string;
   appliedAt?: string;
+
+  invitationId?: string;
+  invitationStatus?: string;
+  brandId?: string;
+  brandName?: string;
+  campaignId?: string;
+  campaignTitle?: string;
+  createdByAdminId?: string;
+
   isShortlisted?: number;
   isUndicided?: number;
   isUndecided?: number;
@@ -461,6 +476,28 @@ type DeliverableRow = {
   updatedAt?: string;
 };
 
+type MilestoneDeliverableLink = {
+  label?: string;
+  url?: string;
+};
+
+type MilestoneDeliverable = {
+  _id?: string;
+  deliverableId?: string;
+  deliverableName?: string;
+  title?: string;
+  deliveries?: string[];
+  aspectRatio?: string;
+  platforms?: string[];
+  quantity?: number;
+  deliverableLinks?: MilestoneDeliverableLink[];
+  submittedAt?: string | null;
+  status?: string;
+  comments?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 type MilestoneRow = {
   milestoneHistoryId?: string;
   milestoneId?: string;
@@ -481,12 +518,19 @@ type MilestoneRow = {
   updatedAt?: string;
   releasedAt?: string;
   paidAt?: string;
+  deliverables?: MilestoneDeliverable[];
   [key: string]: any;
 };
 
 type MilestonesByInfluencerResponse = {
   message?: string;
   milestones?: MilestoneRow[];
+};
+
+type DeliverableSubmitTarget = {
+  applicant: InfluencerApplicant;
+  milestone: MilestoneRow;
+  deliverable: MilestoneDeliverable;
 };
 
 type PitchFolderMediaKit = {
@@ -704,25 +748,25 @@ const CAMPAIGN_RATING_SCOPES: Array<{
   hint: string;
   icon: typeof MessageSquareText;
 }> = [
-  {
-    id: "all",
-    label: "All Submitted",
-    hint: "Both review directions for this campaign",
-    icon: MessageSquareText,
-  },
-  {
-    id: "submitted_by_brand",
-    label: "Submitted by Brand",
-    hint: "Brand → Influencer ratings",
-    icon: Building2,
-  },
-  {
-    id: "given_to_brand",
-    label: "Ratings Given to Brand",
-    hint: "Influencer → Brand ratings",
-    icon: Users2,
-  },
-];
+    {
+      id: "all",
+      label: "All Submitted",
+      hint: "Both review directions for this campaign",
+      icon: MessageSquareText,
+    },
+    {
+      id: "submitted_by_brand",
+      label: "Submitted by Brand",
+      hint: "Brand → Influencer ratings",
+      icon: Building2,
+    },
+    {
+      id: "given_to_brand",
+      label: "Ratings Given to Brand",
+      hint: "Influencer → Brand ratings",
+      icon: Users2,
+    },
+  ];
 
 const CAMPAIGN_RATING_METRIC_LABELS: Array<[keyof CampaignRatingMetrics, string]> = [
   ["workQuality", "Work Quality"],
@@ -971,10 +1015,13 @@ const formatPercent = (v?: number | null) => `${toPercentNumber(v).toFixed(2)}%`
 
 const toReviewStatus = (v: any): ReviewStatus => {
   const s = String(v || "pending").toLowerCase();
+
   if (s === "approved") return "approved";
+  if (s === "submitted") return "submitted";
   if (["revision", "changes", "changes_needed", "changes needed"].includes(s)) {
     return "revision";
   }
+
   return "pending";
 };
 
@@ -1129,44 +1176,59 @@ function PaginationBar({
 }
 
 function getApplicantStatusMeta(inf: InfluencerApplicant) {
-  if (inf.isCompleted === 1) {
+  const status = String(
+    inf.invitationStatus ||
+    inf.lifecycleStatus ||
+    inf.lifecycleStatusRaw ||
+    inf.statusBrand ||
+    inf.statusInfluencer ||
+    ""
+  ).toLowerCase();
+
+  if (inf.isCompleted === 1 || status === "completed") {
     return {
       label: "Completed",
       pill: "bg-emerald-600 text-white ring-emerald-600",
     };
   }
-  if (inf.isActive === 1) {
+
+  if (status === "accepted" || inf.isActive === 1) {
     return {
-      label: "Active",
-      pill: "bg-stone-900 text-white ring-stone-900",
+      label: status === "accepted" ? "Accepted" : "Active",
+      pill: "bg-emerald-600 text-white ring-emerald-600",
     };
   }
-  if (inf.isShortlisted === 1) {
+
+  if (inf.isShortlisted === 1 || status === "shortlisted") {
     return {
       label: "Shortlisted",
       pill: "bg-amber-500 text-white ring-amber-500",
     };
   }
-  if (inf.isRejected === 1) {
+
+  if (inf.isRejected === 1 || ["rejected", "declined"].includes(status)) {
     return {
-      label: "Rejected",
+      label: status === "declined" ? "Declined" : "Rejected",
       pill: "bg-rose-600 text-white ring-rose-600",
     };
   }
-  if (inf.isInvited === 1) {
+
+  if (inf.isInvited === 1 || ["invited", "pending", "sent"].includes(status)) {
     return {
-      label: "Invited",
+      label: status ? prettify(status) : "Invited",
       pill: "bg-violet-600 text-white ring-violet-600",
     };
   }
-  if (inf.isUndecided === 1 || inf.isUndicided === 1) {
+
+  if (inf.isUndecided === 1 || inf.isUndicided === 1 || status === "undecided") {
     return {
       label: "Undecided",
       pill: "bg-stone-600 text-white ring-stone-600",
     };
   }
+
   return {
-    label: "Applied",
+    label: status ? prettify(status) : "Applied",
     pill: "bg-stone-500 text-white ring-stone-500",
   };
 }
@@ -1174,6 +1236,7 @@ function getApplicantStatusMeta(inf: InfluencerApplicant) {
 function reviewBadge(status: ReviewStatus) {
   if (status === "approved") return "bg-emerald-600 text-white ring-emerald-600";
   if (status === "revision") return "bg-amber-500 text-white ring-amber-500";
+  if (status === "submitted") return "bg-sky-600 text-white ring-sky-600";
   return "bg-stone-700 text-white ring-stone-700";
 }
 
@@ -1182,7 +1245,9 @@ function reviewLabel(status: ReviewStatus) {
     ? "Approved"
     : status === "revision"
       ? "Revision"
-      : "Pending";
+      : status === "submitted"
+        ? "Submitted"
+        : "Pending";
 }
 
 function mapDeliverables(items: DeliverableApi[]): DeliverableRow[] {
@@ -1282,6 +1347,78 @@ function getMilestoneStatusPill(item: MilestoneRow) {
   };
 }
 
+function isMilestoneReleased(item: MilestoneRow) {
+  const payout = String(item.payoutStatus || "").toLowerCase();
+
+  return (
+    Boolean(item.released) ||
+    Boolean(item.releasedAt) ||
+    payout === "initiated" ||
+    payout === "paid"
+  );
+}
+
+function areAllMilestoneDeliverablesApproved(item: MilestoneRow) {
+  const deliverables = Array.isArray(item.deliverables) ? item.deliverables : [];
+
+  if (!deliverables.length) return false;
+
+  return deliverables.every(
+    (deliverable) => toReviewStatus(deliverable.status) === "approved"
+  );
+}
+
+function getDeliverableTitle(item: MilestoneDeliverable) {
+  return item.deliverableName || item.title || "Untitled Deliverable";
+}
+
+function getDeliverableId(item: MilestoneDeliverable) {
+  return String(item.deliverableId || item._id || "");
+}
+
+function formatDeliverableList(value?: string[]) {
+  const list = Array.isArray(value) ? value.filter(Boolean) : [];
+
+  if (!list.length) return DASH;
+
+  return list.map(prettify).join(", ");
+}
+
+function formatPlatformList(value?: string[]) {
+  const list = Array.isArray(value) ? value.filter(Boolean) : [];
+
+  if (!list.length) return DASH;
+
+  return list.map(prettify).join(", ");
+}
+
+function getSubmittedLinkCount(item: MilestoneDeliverable) {
+  return Array.isArray(item.deliverableLinks)
+    ? item.deliverableLinks.filter((link) => String(link?.url || "").trim())
+      .length
+    : 0;
+}
+
+function getRequiredDeliverableLinks(item: MilestoneDeliverable) {
+  const qty = Number(item.quantity || 1);
+
+  return Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1;
+}
+
+function buildDeliverableLinkInputs(item?: MilestoneDeliverable) {
+  const required = item ? getRequiredDeliverableLinks(item) : 1;
+  const existingLinks = Array.isArray(item?.deliverableLinks)
+    ? item.deliverableLinks.filter((link) => String(link?.url || "").trim())
+    : [];
+
+  const inputCount = Math.max(required, existingLinks.length, 1);
+
+  return Array.from({ length: inputCount }, (_, index) => ({
+    label: existingLinks[index]?.label || `Deliverable Link ${index + 1}`,
+    url: existingLinks[index]?.url || "",
+  }));
+}
+
 function isApplicantActive(inf: InfluencerApplicant) {
   if (inf.isActive === 1) return true;
 
@@ -1341,6 +1478,9 @@ function matchesApplicantStatusFilter(
 function buildApplicantSearchText(inf: InfluencerApplicant) {
   return [
     inf.name,
+    inf.influencerName,
+    inf.email,
+    inf.influencerEmail,
     inf.handle,
     inf.primaryPlatform,
     inf.platform,
@@ -1350,6 +1490,12 @@ function buildApplicantSearchText(inf: InfluencerApplicant) {
     inf.lifecycleStatusRaw,
     inf.brandStatus,
     inf.statusBrand,
+    inf.statusInfluencer,
+    inf.influencerStatus,
+    inf.invitationStatus,
+    inf.brandName,
+    inf.campaignTitle,
+    inf.invitationId,
   ]
     .filter(Boolean)
     .join(" ")
@@ -1522,30 +1668,71 @@ function extractArrayFromInvitationResponse(payload: any): any[] {
 }
 
 function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
-  const influencer = item?.influencer || item?.influencerDetails || item?.user || {};
+  const influencer =
+    item?.influencer ||
+    item?.influencerDetails ||
+    item?.user ||
+    item?.profile ||
+    {};
+
   const rawStatus = String(
     item?.status ||
     item?.invitationStatus ||
     item?.lifecycleStatus ||
     item?.state ||
     ""
-  ).toLowerCase();
-
-  const defaultInvited =
-    !rawStatus || ["invited", "pending", "sent"].includes(rawStatus) ? 1 : 0;
-
-  const defaultActive = ["active", "accepted", "approved", "contracted"].includes(
-    rawStatus
   )
-    ? 1
-    : 0;
+    .trim()
+    .toLowerCase();
 
-  const defaultRejected = ["rejected", "declined"].includes(rawStatus) ? 1 : 0;
-  const defaultCompleted = ["completed"].includes(rawStatus) ? 1 : 0;
-  const defaultShortlisted = ["shortlisted"].includes(rawStatus) ? 1 : 0;
-  const defaultUndecided = ["undecided"].includes(rawStatus) ? 1 : 0;
+  const isAccepted = ["accepted", "active", "approved", "contracted"].includes(
+    rawStatus
+  );
+
+  const isRejected = ["rejected", "declined"].includes(rawStatus);
+  const isCompleted = ["completed"].includes(rawStatus);
+  const isShortlisted = ["shortlisted"].includes(rawStatus);
+  const isUndecided = ["undecided"].includes(rawStatus);
+
+  const influencerName =
+    item?.influencerName ||
+    item?.name ||
+    influencer?.name ||
+    influencer?.fullName ||
+    influencer?.fullname ||
+    influencer?.username ||
+    item?.handle ||
+    "—";
+
+  const influencerEmail =
+    item?.influencerEmail ||
+    item?.email ||
+    influencer?.email ||
+    "";
+
+  const platform =
+    item?.platform ||
+    item?.primaryPlatform ||
+    influencer?.primaryPlatform ||
+    influencer?.platform ||
+    "";
+
+  const handle =
+    item?.handle ||
+    item?.username ||
+    influencer?.handle ||
+    influencer?.username ||
+    "";
 
   return {
+    invitationId: String(item?.invitationId || item?._id || item?.id || ""),
+
+    brandId: String(item?.brandId || influencer?.brandId || ""),
+    brandName: item?.brandName || "",
+
+    campaignId: String(item?.campaignId || ""),
+    campaignTitle: item?.campaignTitle || "",
+
     influencerId: String(
       item?.influencerId ||
       influencer?._id ||
@@ -1553,36 +1740,17 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
       influencer?.id ||
       ""
     ),
-    name:
-      item?.name ||
-      influencer?.name ||
-      influencer?.fullName ||
-      influencer?.fullname ||
-      "—",
-    handle:
-      item?.handle ||
-      item?.username ||
-      influencer?.handle ||
-      influencer?.username ||
-      "",
-    primaryPlatform:
-      item?.primaryPlatform ||
-      item?.platform ||
-      influencer?.primaryPlatform ||
-      influencer?.platform ||
-      "",
-    platform:
-      item?.platform ||
-      item?.primaryPlatform ||
-      influencer?.platform ||
-      influencer?.primaryPlatform ||
-      "",
-    category:
-      item?.category ||
-      influencer?.category ||
-      influencer?.niche ||
-      "",
+
+    name: influencerName,
+    email: influencerEmail,
+
+    handle,
+    primaryPlatform: platform,
+    platform,
+
+    category: item?.category || influencer?.category || influencer?.niche || "",
     categoryIds: item?.categoryIds || influencer?.categoryIds || [],
+
     audienceSize: Number(
       item?.audienceSize ??
       item?.followers ??
@@ -1590,6 +1758,7 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
       influencer?.followers ??
       0
     ),
+
     engagementRate: Number(
       item?.engagementRate ??
       item?.er ??
@@ -1597,45 +1766,77 @@ function normalizeInvitationInfluencer(item: any): InfluencerApplicant {
       influencer?.er ??
       0
     ),
+
     influencerTierResolved:
       item?.influencerTierResolved ||
       influencer?.influencerTierResolved ||
       item?.tier ||
       influencer?.tier ||
       "",
+
     createdAt:
       item?.createdAt ||
       item?.invitedAt ||
       influencer?.createdAt ||
       item?.updatedAt,
+
     appliedAt:
+      item?.updatedAt ||
+      item?.acceptedAt ||
       item?.invitedAt ||
       item?.createdAt ||
-      influencer?.createdAt ||
-      item?.updatedAt,
+      influencer?.createdAt,
+
+    createdByAdminId: String(item?.createdByAdminId || ""),
+    invitationStatus: rawStatus,
+
     isShortlisted:
-      Number(item?.isShortlisted ?? influencer?.isShortlisted ?? defaultShortlisted) || 0,
+      Number(item?.isShortlisted ?? influencer?.isShortlisted ?? (isShortlisted ? 1 : 0)) || 0,
+
     isUndicided:
       Number(item?.isUndicided ?? influencer?.isUndicided ?? 0) || 0,
+
     isUndecided:
-      Number(item?.isUndecided ?? influencer?.isUndecided ?? defaultUndecided) || 0,
+      Number(item?.isUndecided ?? influencer?.isUndecided ?? (isUndecided ? 1 : 0)) || 0,
+
     isRejected:
-      Number(item?.isRejected ?? influencer?.isRejected ?? defaultRejected) || 0,
+      Number(item?.isRejected ?? influencer?.isRejected ?? (isRejected ? 1 : 0)) || 0,
+
     statusBrand: item?.statusBrand || rawStatus || "",
     statusInfluencer: item?.statusInfluencer || rawStatus || "",
     brandStatus: item?.brandStatus || rawStatus || "",
     influencerStatus: item?.influencerStatus || rawStatus || "",
+
     isInvited:
-      Number(item?.isInvited ?? influencer?.isInvited ?? defaultInvited) || 0,
+      Number(
+        item?.isInvited ??
+        influencer?.isInvited ??
+        (["invited", "pending", "sent"].includes(rawStatus) ? 1 : 0)
+      ) || 0,
+
     isActive:
-      Number(item?.isActive ?? influencer?.isActive ?? defaultActive) || 0,
+      Number(item?.isActive ?? influencer?.isActive ?? (isAccepted ? 1 : 0)) || 0,
+
     isCompleted:
-      Number(item?.isCompleted ?? influencer?.isCompleted ?? defaultCompleted) || 0,
+      Number(item?.isCompleted ?? influencer?.isCompleted ?? (isCompleted ? 1 : 0)) || 0,
+
     lifecycleStatus: item?.lifecycleStatus || rawStatus || "",
     lifecycleStatusRaw: item?.lifecycleStatusRaw || rawStatus || "",
+
     isFinalUpdate: Boolean(item?.isFinalUpdate ?? influencer?.isFinalUpdate),
     contractId: item?.contractId || influencer?.contractId || "",
-    modashProfile: item?.modashProfile || influencer?.modashProfile,
+
+    modashProfile: {
+      ...(item?.modashProfile || influencer?.modashProfile || {}),
+      username:
+        item?.modashProfile?.username ||
+        influencer?.modashProfile?.username ||
+        handle,
+      fullname:
+        item?.modashProfile?.fullname ||
+        influencer?.modashProfile?.fullname ||
+        influencerName,
+    },
   };
 }
 
@@ -1882,11 +2083,10 @@ const CampaignRatingBadge = ({
   tone?: "neutral" | "success";
 }) => (
   <span
-    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-      tone === "success"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-        : "border-stone-200 bg-stone-50 text-stone-600"
-    }`}
+    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : "border-stone-200 bg-stone-50 text-stone-600"
+      }`}
   >
     {children}
   </span>
@@ -2037,11 +2237,10 @@ const ReviewLinksExpandableRow = ({
                 </div>
 
                 <span
-                  className={`inline-flex w-fit items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-                    isReady
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-stone-200 bg-white text-stone-400"
-                  }`}
+                  className={`inline-flex w-fit items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${isReady
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-stone-200 bg-white text-stone-400"
+                    }`}
                 >
                   {isReady ? <CheckCircle2 className="h-3 w-3" /> : <X className="h-3 w-3" />}
                   {isReady ? "Ready" : "Missing"}
@@ -2134,85 +2333,335 @@ const ApplicantMilestonesPanel = ({
   loading,
   error,
   items,
+  canAddDeliverable = true,
+  onAddDeliverable,
+  onRaiseRevision,
+  onApproveDeliverable,
+  onReleaseMilestone,
+  updatingDeliverableActionKey = "",
+  releasingMilestoneKey = "",
 }: {
   applicant: InfluencerApplicant;
   rowKey: string;
   loading: boolean;
   error?: string;
   items: MilestoneRow[];
-}) => (
-  <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <div>
-        <p className="text-sm font-semibold text-stone-900">Milestones</p>
-        <p className="text-xs text-stone-400">
-          For {applicant.name || applicant.handle || "this influencer"} in this campaign
+  canAddDeliverable?: boolean;
+  onAddDeliverable: (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow,
+    deliverable: MilestoneDeliverable
+  ) => void;
+  onRaiseRevision: (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow,
+    deliverable: MilestoneDeliverable
+  ) => void | Promise<void>;
+  onApproveDeliverable: (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow,
+    deliverable: MilestoneDeliverable
+  ) => void | Promise<void>;
+  onReleaseMilestone: (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow
+  ) => void | Promise<void>;
+  updatingDeliverableActionKey?: string;
+  releasingMilestoneKey?: string;
+}) => {
+  const [expandedMilestoneId, setExpandedMilestoneId] = useState<string | null>(
+    null
+  );
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-stone-900">Milestones</p>
+          <p className="text-xs text-stone-400">
+            For {applicant.name || applicant.handle || "this influencer"} in this
+            campaign
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="py-4 text-xs text-stone-400">Loading milestones...</p>
+      ) : error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
+          {error}
+        </div>
+      ) : items.length === 0 ? (
+        <p className="py-4 text-xs text-stone-400">
+          No milestones found for this campaign and influencer.
         </p>
-      </div>
-    </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((item, itemIndex) => {
+            const milestoneStatus = getMilestoneStatusPill(item);
+            const milestoneKey = String(
+              item.milestoneHistoryId || item._id || item.milestoneId || itemIndex
+            );
+            const isExpanded = expandedMilestoneId === milestoneKey;
+            const deliverables = Array.isArray(item.deliverables)
+              ? item.deliverables
+              : [];
 
-    {loading ? (
-      <p className="py-4 text-xs text-stone-400">Loading milestones...</p>
-    ) : error ? (
-      <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
-        {error}
-      </div>
-    ) : items.length === 0 ? (
-      <p className="py-4 text-xs text-stone-400">
-        No milestones found for this campaign and influencer.
-      </p>
-    ) : (
-      <div className="space-y-3">
-        {items.map((item, itemIndex) => {
-          const milestoneStatus = getMilestoneStatusPill(item);
+            return (
+              <div
+                key={`${rowKey}-${milestoneKey}`}
+                className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50"
+              >
+                <div className="flex w-full items-start justify-between gap-3 px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedMilestoneId((prev) =>
+                        prev === milestoneKey ? null : milestoneKey
+                      )
+                    }
+                    className="min-w-0 flex-1 text-left"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-stone-900">
+                        {getMilestoneDisplayTitle(item)}
+                      </p>
 
-          return (
-            <div
-              key={`${rowKey}-${item.milestoneHistoryId || item.milestoneId || itemIndex}`}
-              className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3"
-            >
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-stone-900">
-                    {getMilestoneDisplayTitle(item)}
-                  </p>
+                      <Pill className={milestoneStatus.className}>
+                        {milestoneStatus.label}
+                      </Pill>
 
-                  {getMilestoneDisplayDescription(item) ? (
-                    <p className="mt-1 text-xs leading-relaxed text-stone-500">
-                      {getMilestoneDisplayDescription(item)}
-                    </p>
-                  ) : null}
+                      <Pill className="bg-stone-900 text-white ring-stone-900">
+                        ${formatMoney(item.amount)}
+                      </Pill>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Pill className={milestoneStatus.className}>
-                      {milestoneStatus.label}
-                    </Pill>
+                      <Pill className="bg-white text-stone-600 ring-stone-200">
+                        {deliverables.length} Deliverable
+                        {deliverables.length === 1 ? "" : "s"}
+                      </Pill>
+                    </div>
 
-                    <Pill className="bg-stone-900 text-white ring-stone-900">
-                      ${formatMoney(item.amount)}
-                    </Pill>
+                    {getMilestoneDisplayDescription(item) ? (
+                      <p className="mt-1 text-xs leading-relaxed text-stone-500">
+                        {getMilestoneDisplayDescription(item)}
+                      </p>
+                    ) : null}
+
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-stone-400">
+                      <span>Created: {formatDateShort(item.createdAt)}</span>
+                      <span>Released: {formatDateShort(item.releasedAt)}</span>
+                      <span>Updated: {formatDateShort(item.updatedAt)}</span>
+                    </div>
+                  </button>
+
+                  <div className="mt-1 flex shrink-0 flex-col items-end gap-2">
+                    {(() => {
+                      const allApproved = areAllMilestoneDeliverablesApproved(item);
+                      const milestoneReleased = isMilestoneReleased(item);
+                      const milestoneHistoryId = String(item.milestoneHistoryId || item._id || "");
+                      const releaseActionKey = milestoneHistoryId || milestoneKey;
+                      const isReleasing = releasingMilestoneKey === releaseActionKey;
+                      const showReleaseButton = allApproved || milestoneReleased;
+
+                      if (!showReleaseButton) return null;
+
+                      return (
+                        <button
+                          type="button"
+                          disabled={milestoneReleased || isReleasing}
+                          onClick={() => onReleaseMilestone(applicant, item)}
+                          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600 px-3 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-stone-200 disabled:bg-stone-100 disabled:text-stone-400"
+                        >
+                          {isReleasing ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Wallet className="h-3.5 w-3.5" />
+                          )}
+
+                          {isReleasing
+                            ? "Releasing..."
+                            : milestoneReleased
+                              ? "Released"
+                              : "Release"}
+                        </button>
+                      );
+                    })()}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedMilestoneId((prev) =>
+                          prev === milestoneKey ? null : milestoneKey
+                        )
+                      }
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-700 transition hover:bg-stone-50"
+                      aria-label={isExpanded ? "Collapse milestone" : "Expand milestone"}
+                    >
+                      {isExpanded ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
 
-                <div className="grid min-w-[210px] grid-cols-1 gap-1 text-right">
-                  <span className="text-[11px] text-stone-400">
-                    Created: {formatDateShort(item.createdAt)}
-                  </span>
-                  <span className="text-[11px] text-stone-400">
-                    Released: {formatDateShort(item.releasedAt)}
-                  </span>
-                  <span className="text-[11px] text-stone-400">
-                    Updated: {formatDateShort(item.updatedAt)}
-                  </span>
-                </div>
+                {isExpanded ? (
+                  <div className="border-t border-stone-200 bg-white px-4 py-3">
+                    {deliverables.length === 0 ? (
+                      <p className="text-xs text-stone-400">
+                        No deliverables added under this milestone.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {deliverables.map((deliverable, index) => {
+                          const submitted = getSubmittedLinkCount(deliverable);
+                          const required = getRequiredDeliverableLinks(deliverable);
+                          const status = toReviewStatus(deliverable.status);
+                          const deliverableId = getDeliverableId(deliverable);
+                          const milestoneHistoryId = String(
+                            item.milestoneHistoryId || item._id || ""
+                          );
+                          const hasActionIds =
+                            Boolean(item.milestoneId) &&
+                            Boolean(milestoneHistoryId) &&
+                            Boolean(deliverableId);
+                          const actionKey = `${milestoneKey}-${deliverableId}`;
+                          const isUpdatingAction =
+                            updatingDeliverableActionKey === actionKey;
+                          const canOpenAddDeliverable =
+                            canAddDeliverable &&
+                            status !== "approved" &&
+                            (status === "revision" || submitted < required) &&
+                            hasActionIds;
+                          const canReviewSubmitted = status === "submitted" && hasActionIds;
+
+                          return (
+                            <div
+                              key={`${milestoneKey}-${getDeliverableId(deliverable) || index}`}
+                              className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-3"
+                            >
+                              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-xs font-semibold text-stone-900">
+                                      {getDeliverableTitle(deliverable)}
+                                    </p>
+
+                                    <Pill className={reviewBadge(status)}>
+                                      {reviewLabel(status)}
+                                    </Pill>
+                                  </div>
+
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <Pill className="bg-white text-stone-600 ring-stone-200">
+                                      {formatDeliverableList(deliverable.deliveries)}
+                                    </Pill>
+
+                                    <Pill className="bg-white text-stone-600 ring-stone-200">
+                                      {deliverable.aspectRatio || DASH}
+                                    </Pill>
+
+                                    <Pill className="bg-white text-stone-600 ring-stone-200">
+                                      {formatPlatformList(deliverable.platforms)}
+                                    </Pill>
+
+                                    <Pill className="bg-white text-stone-600 ring-stone-200">
+                                      Links {submitted}/{required}
+                                    </Pill>
+                                  </div>
+                                </div>
+
+                                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                  {canOpenAddDeliverable ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onAddDeliverable(applicant, item, deliverable)
+                                      }
+                                      disabled={isUpdatingAction}
+                                      className="inline-flex items-center gap-1.5 rounded-full border border-black bg-black px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                      Add Deliverable
+                                    </button>
+                                  ) : null}
+
+                                  {canReviewSubmitted ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onRaiseRevision(applicant, item, deliverable)
+                                        }
+                                        disabled={isUpdatingAction}
+                                        className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        {isUpdatingAction ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <HiOutlineRefresh className="h-3.5 w-3.5" />
+                                        )}
+                                        Raise Revision
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onApproveDeliverable(applicant, item, deliverable)
+                                        }
+                                        disabled={isUpdatingAction}
+                                        className="inline-flex items-center gap-1.5 rounded-full border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        {isUpdatingAction ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="h-3.5 w-3.5" />
+                                        )}
+                                        Approve
+                                      </button>
+                                    </>
+                                  ) : !canOpenAddDeliverable ? (
+                                    <span className="inline-flex items-center rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-stone-400">
+                                      {status === "approved" ? "Approved" : "Waiting for submission"}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              {Array.isArray(deliverable.deliverableLinks) &&
+                                deliverable.deliverableLinks.length > 0 ? (
+                                <div className="mt-3 space-y-1 border-t border-stone-200 pt-2">
+                                  {deliverable.deliverableLinks.map((link, linkIndex) =>
+                                    link?.url ? (
+                                      <a
+                                        key={`${link.url}-${linkIndex}`}
+                                        href={normalizeUrl(link.url)}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block truncate text-xs font-medium text-stone-700 underline"
+                                      >
+                                        {link.label || `Deliverable Link ${linkIndex + 1}`}
+                                      </a>
+                                    ) : null
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-);
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* ========================= Main Page ========================= */
 
@@ -2268,27 +2717,24 @@ export default function ViewCampaignPage() {
 
   const [showMilestoneModal, setShowMilestoneModal] = useState(false);
   const [selectedInf, setSelectedInf] = useState<InfluencerApplicant | null>(null);
-  const [milestoneForm, setMilestoneForm] = useState({
-    title: "",
-    amount: "",
-    description: "",
-  });
-  const [isSavingMilestone, setIsSavingMilestone] = useState(false);
 
   const [showDeliverableModal, setShowDeliverableModal] = useState(false);
   const [selectedDeliverableInf, setSelectedDeliverableInf] =
     useState<InfluencerApplicant | null>(null);
+  const [selectedDeliverableTarget, setSelectedDeliverableTarget] =
+    useState<DeliverableSubmitTarget | null>(null);
 
-  const [deliverableMilestones, setDeliverableMilestones] = useState<MilestoneRow[]>([]);
-  const [deliverableMilestonesLoading, setDeliverableMilestonesLoading] = useState(false);
   const [isSavingDeliverable, setIsSavingDeliverable] = useState(false);
+  const [updatingDeliverableActionKey, setUpdatingDeliverableActionKey] = useState("");
+  const [releasingMilestoneKey, setReleasingMilestoneKey] = useState("");
 
   const [deliverableForm, setDeliverableForm] = useState({
+    milestoneId: "",
     milestoneHistoryId: "",
+    deliverableId: "",
     title: "",
     description: "",
-    draftLabel: "Draft",
-    draftUrl: "",
+    deliverableLinks: [{ label: "Deliverable Link 1", url: "" }],
   });
 
   const [pitchFolderLoading, setPitchFolderLoading] = useState(false);
@@ -2342,13 +2788,13 @@ export default function ViewCampaignPage() {
   }, []);
 
   useEffect(() => {
-    if (!isFundsModalOpen && !showMilestoneModal) return;
+    if (!isFundsModalOpen && !showMilestoneModal && !showDeliverableModal) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prevOverflow;
     };
-  }, [isFundsModalOpen, showMilestoneModal]);
+  }, [isFundsModalOpen, showMilestoneModal, showDeliverableModal]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -2403,6 +2849,12 @@ export default function ViewCampaignPage() {
   const isBudgetLocked = false;
   const canShowAddMilestone = currentAdminRole !== "ime";
   const canShowAddDeliverable = currentAdminRole !== "bme";
+
+  const milestoneCampaignName =
+    campaign?.campaignTitle ||
+    campaign?.name ||
+    campaign?.brandName ||
+    "Campaign";
 
   const reviewCampaignId = String(campaign?._id || id || "").trim();
 
@@ -2780,150 +3232,82 @@ export default function ViewCampaignPage() {
     [effectiveCampaignId, milestoneByApplicant]
   );
 
-  const handleAddMilestone = (inf: InfluencerApplicant) => {
+  const handleOpenMilestoneModal = (inf: InfluencerApplicant) => {
+    if (!brandId) {
+      showErr("Brand ID missing for this campaign.");
+      return;
+    }
+
+    if (!campaignId) {
+      showErr("Campaign ID missing.");
+      return;
+    }
+
+    if (!inf?.influencerId) {
+      showErr("Influencer ID missing.");
+      return;
+    }
+
+    if (!adminId) {
+      showErr("Admin ID missing. Please login again.");
+      return;
+    }
+
     setSelectedInf(inf);
-    setMilestoneForm({
-      title: "",
-      amount: "",
-      description: "",
-    });
     setShowMilestoneModal(true);
   };
 
   const handleCloseMilestoneModal = () => {
-    if (isSavingMilestone) return;
     setShowMilestoneModal(false);
     setSelectedInf(null);
-    setMilestoneForm({
-      title: "",
-      amount: "",
-      description: "",
-    });
   };
 
-  const handleSaveMilestone = async () => {
-    if (!selectedInf?.influencerId) {
-      await showErr("Influencer not found.");
-      return;
-    }
-
-    if (!campaignId || !brandId) {
-      await showErr("Campaign or brand information is missing.");
-      return;
-    }
-
-    const title = milestoneForm.title.trim();
-    const description = milestoneForm.description.trim();
-    const amountNum = Number(milestoneForm.amount);
-
-    if (!title) {
-      await showErr("Please enter milestone title.");
-      return;
-    }
-
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      await showErr("Please enter a valid amount.");
-      return;
-    }
-
-    try {
-      setIsSavingMilestone(true);
-
-      await post("milestone/create", {
-        influencerId: selectedInf.influencerId,
-        campaignId,
-        milestoneTitle: title,
-        amount: amountNum,
-        milestoneDescription: description,
-        brandId,
-        paymentProvider: "admin",
-      });
-
-      const savedApplicant = selectedInf;
-      const rowKey = getApplicantRowKey(savedApplicant);
-
-      setMilestoneByApplicant((prev) => {
-        const next = { ...prev };
-        delete next[rowKey];
-        return next;
-      });
-
-      setShowMilestoneModal(false);
-      setSelectedInf(null);
-      setMilestoneForm({ title: "", amount: "", description: "" });
-      setApplicantPage(1);
-
-      await loadCampaign();
-      await fetchApplicants();
-      await fetchMilestonesForApplicant(savedApplicant, {
-        force: true,
-        keepOpen: true,
-      });
-
-      await showSuccess("Milestone added successfully.");
-    } catch (err: any) {
-      console.error(err);
-      await showErr(
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to create milestone."
-      );
-    } finally {
-      setIsSavingMilestone(false);
-    }
-  };
-
-  const handleOpenDeliverableModal = async (inf: InfluencerApplicant) => {
+  const handleOpenDeliverableModal = (
+    inf: InfluencerApplicant,
+    milestone?: MilestoneRow,
+    deliverable?: MilestoneDeliverable
+  ) => {
     if (!inf.influencerId) {
-      await showErr("Influencer not found.");
+      void showErr("Influencer not found.");
       return;
     }
 
     if (!campaignId || !brandId) {
-      await showErr("Campaign or brand information is missing.");
+      void showErr("Campaign or brand information is missing.");
+      return;
+    }
+
+    if (!milestone || !deliverable) {
+      void showErr("Please open a milestone and select a deliverable first.");
+      return;
+    }
+
+    const milestoneId = String(milestone.milestoneId || "");
+    const milestoneHistoryId = String(
+      milestone.milestoneHistoryId || milestone._id || ""
+    );
+    const deliverableId = getDeliverableId(deliverable);
+
+    if (!milestoneId || !milestoneHistoryId || !deliverableId) {
+      void showErr("Milestone or deliverable information is missing.");
       return;
     }
 
     setSelectedDeliverableInf(inf);
-    setDeliverableForm({
-      milestoneHistoryId: "",
-      title: "",
-      description: "",
-      draftLabel: "Draft",
-      draftUrl: "",
+    setSelectedDeliverableTarget({
+      applicant: inf,
+      milestone,
+      deliverable,
     });
-
-    setDeliverableMilestones([]);
-    setDeliverableMilestonesLoading(true);
+    setDeliverableForm({
+      milestoneId,
+      milestoneHistoryId,
+      deliverableId,
+      title: getDeliverableTitle(deliverable),
+      description: deliverable.comments || "",
+      deliverableLinks: buildDeliverableLinkInputs(deliverable),
+    });
     setShowDeliverableModal(true);
-
-    try {
-      const response = await post<MilestonesByInfluencerResponse>(
-        "/milestone/byInfluencer",
-        { influencerId: inf.influencerId }
-      );
-
-      const filtered = (response?.milestones || []).filter(
-        (item) => String(item.campaignId || "") === String(effectiveCampaignId)
-      );
-
-      setDeliverableMilestones(filtered);
-
-      if (filtered.length === 1) {
-        const only = filtered[0];
-        setDeliverableForm((prev) => ({
-          ...prev,
-          milestoneHistoryId: String(
-            only.milestoneHistoryId || only._id || only.milestoneId || ""
-          ),
-          title: getMilestoneDisplayTitle(only),
-        }));
-      }
-    } catch (err: any) {
-      await showErr(err?.message || "Failed to load milestones.");
-    } finally {
-      setDeliverableMilestonesLoading(false);
-    }
   };
 
   const handleCloseDeliverableModal = () => {
@@ -2931,13 +3315,14 @@ export default function ViewCampaignPage() {
 
     setShowDeliverableModal(false);
     setSelectedDeliverableInf(null);
-    setDeliverableMilestones([]);
+    setSelectedDeliverableTarget(null);
     setDeliverableForm({
+      milestoneId: "",
       milestoneHistoryId: "",
+      deliverableId: "",
       title: "",
       description: "",
-      draftLabel: "Draft",
-      draftUrl: "",
+      deliverableLinks: [{ label: "Deliverable Link 1", url: "" }],
     });
   };
 
@@ -2952,56 +3337,72 @@ export default function ViewCampaignPage() {
       return;
     }
 
+    const milestoneId = deliverableForm.milestoneId.trim();
     const milestoneHistoryId = deliverableForm.milestoneHistoryId.trim();
-    const title = deliverableForm.title.trim();
-    const description = deliverableForm.description.trim();
-    const draftLabel = deliverableForm.draftLabel.trim() || "Draft";
-    const draftUrl = deliverableForm.draftUrl.trim();
+    const deliverableId = deliverableForm.deliverableId.trim();
+    const requiredLinks = selectedDeliverableTarget?.deliverable
+      ? getRequiredDeliverableLinks(selectedDeliverableTarget.deliverable)
+      : 1;
+
+    const deliverableLinks = deliverableForm.deliverableLinks
+      .map((item, index) => ({
+        label: String(item.label || `Deliverable Link ${index + 1}`).trim(),
+        url: String(item.url || "").trim(),
+      }))
+      .filter((item) => item.url);
+
+    if (!milestoneId) {
+      await showErr("Milestone ID is missing.");
+      return;
+    }
 
     if (!milestoneHistoryId) {
-      await showErr("Please select milestone.");
+      await showErr("Milestone history ID is missing.");
       return;
     }
 
-    if (!title) {
-      await showErr("Please enter deliverable title.");
+    if (!deliverableId) {
+      await showErr("Deliverable ID is missing.");
       return;
     }
 
-    if (!draftUrl) {
-      await showErr("Please enter deliverable URL.");
+    if (deliverableLinks.length < requiredLinks) {
+      await showErr(
+        `Please enter ${requiredLinks} deliverable link${requiredLinks === 1 ? "" : "s"}.`
+      );
       return;
     }
 
     try {
       setIsSavingDeliverable(true);
 
-      await post("/deliverable/admin/create", {
-        brandId,
-        campaignId,
+      await post("/milestone/submitDeliverable", {
         influencerId: selectedDeliverableInf.influencerId,
+        milestoneId,
         milestoneHistoryId,
-        title,
-        description,
-        url: [
-          {
-            label: draftLabel,
-            url: draftUrl,
-          },
-        ],
+        deliverableId,
+        deliverableLinks,
       });
 
       const savedApplicant = selectedDeliverableInf;
+      const rowKey = getApplicantRowKey(savedApplicant);
 
       setShowDeliverableModal(false);
       setSelectedDeliverableInf(null);
-      setDeliverableMilestones([]);
+      setSelectedDeliverableTarget(null);
       setDeliverableForm({
+        milestoneId: "",
         milestoneHistoryId: "",
+        deliverableId: "",
         title: "",
         description: "",
-        draftLabel: "Draft",
-        draftUrl: "",
+        deliverableLinks: [{ label: "Deliverable Link 1", url: "" }],
+      });
+
+      setMilestoneByApplicant((prev) => {
+        const next = { ...prev };
+        delete next[rowKey];
+        return next;
       });
 
       await fetchDeliverables();
@@ -3010,17 +3411,209 @@ export default function ViewCampaignPage() {
         keepOpen: true,
       });
 
-      setActiveTab("deliverables");
-      await showSuccess("Deliverable added on behalf of influencer.");
+      await showSuccess("Deliverable submitted successfully.");
     } catch (err: any) {
       console.error(err);
       await showErr(
         err?.response?.data?.message ||
         err?.message ||
-        "Failed to create deliverable."
+        "Failed to submit deliverable."
       );
     } finally {
       setIsSavingDeliverable(false);
+    }
+  };
+
+  const refreshMilestoneAfterDeliverableAction = async (
+    applicant: InfluencerApplicant
+  ) => {
+    const rowKey = getApplicantRowKey(applicant);
+
+    setMilestoneByApplicant((prev) => {
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
+
+    await fetchDeliverables();
+    await fetchMilestonesForApplicant(applicant, {
+      force: true,
+      keepOpen: true,
+    });
+  };
+
+  const handleRaiseRevisionFromMilestone = async (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow,
+    deliverable: MilestoneDeliverable
+  ) => {
+    const deliverableId = getDeliverableId(deliverable);
+    const milestoneId = String(milestone.milestoneId || "");
+    const milestoneHistoryId = String(milestone.milestoneHistoryId || milestone._id || "");
+    const actionKey = `${String(
+      milestone.milestoneHistoryId || milestone._id || milestone.milestoneId || ""
+    )}-${deliverableId}`;
+
+    if (!deliverableId) {
+      await showErr("Deliverable ID is missing.");
+      return;
+    }
+
+    if (!milestoneId || !milestoneHistoryId) {
+      await showErr("Milestone information is missing.");
+      return;
+    }
+
+    if (toReviewStatus(deliverable.status) !== "submitted") {
+      await showErr("Revision can be raised only after deliverable submission.");
+      return;
+    }
+
+    const confirm = await swal({
+      title: "Raise revision?",
+      text: "This will move the submitted deliverable to revision status.",
+      icon: "warning",
+      buttons: ["Cancel", "Raise Revision"],
+      dangerMode: true,
+    });
+
+    if (!confirm) return;
+
+    try {
+      setUpdatingDeliverableActionKey(actionKey);
+
+      await post("/milestone/updateDeliverableStatus", {
+        milestoneId,
+        milestoneHistoryId,
+        deliverableId,
+        status: "revision",
+      });
+
+      await refreshMilestoneAfterDeliverableAction(applicant);
+      await showSuccess("Revision raised successfully.");
+    } catch (err: any) {
+      await showErr(
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to raise revision."
+      );
+    } finally {
+      setUpdatingDeliverableActionKey("");
+    }
+  };
+
+  const handleApproveDeliverableFromMilestone = async (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow,
+    deliverable: MilestoneDeliverable
+  ) => {
+    const deliverableId = getDeliverableId(deliverable);
+    const milestoneId = String(milestone.milestoneId || "");
+    const milestoneHistoryId = String(milestone.milestoneHistoryId || milestone._id || "");
+    const actionKey = `${String(
+      milestone.milestoneHistoryId || milestone._id || milestone.milestoneId || ""
+    )}-${deliverableId}`;
+
+    if (!deliverableId) {
+      await showErr("Deliverable ID is missing.");
+      return;
+    }
+
+    if (!milestoneId || !milestoneHistoryId) {
+      await showErr("Milestone information is missing.");
+      return;
+    }
+
+    if (toReviewStatus(deliverable.status) !== "submitted") {
+      await showErr("Deliverable can be approved only after submission.");
+      return;
+    }
+
+    const confirm = await swal({
+      title: "Approve deliverable?",
+      text: "This will approve this submitted deliverable.",
+      icon: "warning",
+      buttons: ["Cancel", "Approve"],
+    });
+
+    if (!confirm) return;
+
+    try {
+      setUpdatingDeliverableActionKey(actionKey);
+
+      await post("/milestone/approveDeliverable", {
+        milestoneId,
+        milestoneHistoryId,
+        deliverableId,
+        approvedRole: "Admin",
+        approvalId: adminId || "",
+      });
+
+      await refreshMilestoneAfterDeliverableAction(applicant);
+      await showSuccess("Deliverable approved successfully.");
+    } catch (err: any) {
+      await showErr(
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to approve deliverable."
+      );
+    } finally {
+      setUpdatingDeliverableActionKey("");
+    }
+  };
+
+  const handleReleaseMilestoneFromApplicant = async (
+    applicant: InfluencerApplicant,
+    milestone: MilestoneRow
+  ) => {
+    const milestoneId = String(milestone.milestoneId || "");
+    const milestoneHistoryId = String(milestone.milestoneHistoryId || milestone._id || "");
+    const actionKey = milestoneHistoryId || milestoneId;
+
+    if (!milestoneId || !milestoneHistoryId) {
+      await showErr("Milestone ID or milestone history ID is missing.");
+      return;
+    }
+
+    if (isMilestoneReleased(milestone)) {
+      await showErr("This milestone is already released.");
+      return;
+    }
+
+    if (!areAllMilestoneDeliverablesApproved(milestone)) {
+      await showErr("You can release only after all deliverables are approved.");
+      return;
+    }
+
+    const confirm = await swal({
+      title: "Release milestone?",
+      text: "This will release the milestone payout.",
+      icon: "warning",
+      buttons: ["Cancel", "Release"],
+      dangerMode: true,
+    });
+
+    if (!confirm) return;
+
+    try {
+      setReleasingMilestoneKey(actionKey);
+
+      await post("/milestone/release", {
+        milestoneId,
+        milestoneHistoryId,
+      });
+
+      await refreshMilestoneAfterDeliverableAction(applicant);
+
+      await showSuccess("Milestone released successfully.");
+    } catch (err: any) {
+      await showErr(
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to release milestone."
+      );
+    } finally {
+      setReleasingMilestoneKey("");
     }
   };
 
@@ -3168,6 +3761,36 @@ export default function ViewCampaignPage() {
     deliverableInfluencerFilter,
     deliverableSearch,
   ]);
+
+  const adminId = useMemo(() => {
+    const campaignCreatedByUserId = String(campaign?.createdBy?.userId || "").trim();
+
+    if (campaignCreatedByUserId) {
+      return campaignCreatedByUserId;
+    }
+
+    if (typeof window === "undefined") return "";
+
+    try {
+      const storedAdmin = JSON.parse(localStorage.getItem("admin") || "{}");
+
+      return String(
+        storedAdmin?._id ||
+        storedAdmin?.adminId ||
+        storedAdmin?.id ||
+        storedAdmin?.userId ||
+        storedAdmin?.admin?._id ||
+        storedAdmin?.admin?.adminId ||
+        storedAdmin?.admin?.userId ||
+        storedAdmin?.data?._id ||
+        storedAdmin?.data?.adminId ||
+        storedAdmin?.data?.userId ||
+        ""
+      );
+    } catch {
+      return "";
+    }
+  }, [campaign?.createdBy?.userId]);
 
   const deliverableTotalItems = filteredDeliverables.length;
   const deliverableTotalPages = Math.max(
@@ -3557,8 +4180,8 @@ export default function ViewCampaignPage() {
       } catch (err: any) {
         await showErr(
           err?.response?.data?.message ||
-            err?.message ||
-            "Failed to get review links."
+          err?.message ||
+          "Failed to get review links."
         );
       } finally {
         setReviewGeneratingKey("");
@@ -3598,8 +4221,8 @@ export default function ViewCampaignPage() {
       } catch (err: any) {
         await showErr(
           err?.response?.data?.message ||
-            err?.message ||
-            "Failed to regenerate review link."
+          err?.message ||
+          "Failed to regenerate review link."
         );
       } finally {
         setReviewRegeneratingKey("");
@@ -3681,11 +4304,18 @@ export default function ViewCampaignPage() {
             <ApplicantAvatar applicant={inf} />
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-stone-900">
-                {inf.name || "—"}
+                {inf.name || inf.influencerName || "—"}
               </p>
+
               <p className="truncate text-[11px] text-stone-400">
-                {inf.handle || "—"}
+                {inf.email || inf.handle || "—"}
               </p>
+
+              {inf.email && inf.handle ? (
+                <p className="truncate text-[10px] text-stone-400">
+                  {inf.handle}
+                </p>
+              ) : null}
             </div>
           </div>
         ),
@@ -4346,10 +4976,10 @@ export default function ViewCampaignPage() {
                       const rowKey = getApplicantRowKey(inf);
                       return Boolean(
                         getReviewGroupForApplicant(inf) ||
-                          openMilestoneKey === rowKey ||
-                          milestoneByApplicant[rowKey]?.length ||
-                          milestoneErrorByApplicant[rowKey] ||
-                          milestoneLoadingKey === rowKey
+                        openMilestoneKey === rowKey ||
+                        milestoneByApplicant[rowKey]?.length ||
+                        milestoneErrorByApplicant[rowKey] ||
+                        milestoneLoadingKey === rowKey
                       );
                     },
                     expandedRowClassName: "bg-stone-50/45",
@@ -4384,6 +5014,13 @@ export default function ViewCampaignPage() {
                               loading={milestoneLoadingKey === rowKey}
                               error={milestoneError}
                               items={milestoneItems}
+                              canAddDeliverable={canShowAddDeliverable}
+                              onAddDeliverable={handleOpenDeliverableModal}
+                              onRaiseRevision={handleRaiseRevisionFromMilestone}
+                              onApproveDeliverable={handleApproveDeliverableFromMilestone}
+                              onReleaseMilestone={handleReleaseMilestoneFromApplicant}
+                              updatingDeliverableActionKey={updatingDeliverableActionKey}
+                              releasingMilestoneKey={releasingMilestoneKey}
                             />
                           ) : null}
 
@@ -4421,23 +5058,13 @@ export default function ViewCampaignPage() {
                                 <button
                                   type="button"
                                   className="rounded-full border-black bg-white px-4 text-black hover:bg-gray-100 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
-                                  onClick={() => handleAddMilestone(inf)}
+                                  onClick={() => handleOpenMilestoneModal(inf)}
                                   disabled={!inf.influencerId || isBudgetLocked || !brandId}
                                 >
                                   Add Milestone
                                 </button>
                               ) : null}
 
-                              {canShowAddDeliverable ? (
-                                <button
-                                  type="button"
-                                  className="rounded-full border-black bg-black px-4 text-white hover:bg-gray-800 disabled:opacity-50 border text-[11px] font-semibold py-1.5"
-                                  onClick={() => handleOpenDeliverableModal(inf)}
-                                  disabled={!inf.influencerId || !brandId || !campaignId}
-                                >
-                                  Add Deliverable
-                                </button>
-                              ) : null}
                             </>
                           ) : rowContractId ? (
                             <button
@@ -4453,9 +5080,8 @@ export default function ViewCampaignPage() {
                           <button
                             type="button"
                             onClick={() => fetchMilestonesForApplicant(inf)}
-                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${
-                              isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
-                            }`}
+                            className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold ${isMilestoneOpen ? PRIMARY_BUTTON : SECONDARY_BUTTON
+                              }`}
                           >
                             View Milestones
                             {isMilestoneOpen ? (
@@ -4474,11 +5100,10 @@ export default function ViewCampaignPage() {
                                   : handleGenerateReviewLinks(inf)
                               }
                               disabled={isGeneratingLinks || (reviewLinksLoading && !reviewGroup)}
-                              className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                                isReviewLinksOpen
-                                  ? PRIMARY_BUTTON
-                                  : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
-                              }`}
+                              className={`inline-flex items-center gap-1.5 rounded-[10px] px-3 py-1.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${isReviewLinksOpen
+                                ? PRIMARY_BUTTON
+                                : "border border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
+                                }`}
                             >
                               {isGeneratingLinks ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4589,11 +5214,10 @@ export default function ViewCampaignPage() {
                           setCampaignRatingScope(item.id);
                           setCampaignRatingsPage(1);
                         }}
-                        className={`rounded-2xl border px-4 py-3 text-left transition ${
-                          active
-                            ? "border-stone-300 bg-stone-50"
-                            : "border-transparent bg-white hover:border-stone-200 hover:bg-stone-50"
-                        }`}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${active
+                          ? "border-stone-300 bg-stone-50"
+                          : "border-transparent bg-white hover:border-stone-200 hover:bg-stone-50"
+                          }`}
                       >
                         <div className="flex items-start gap-3">
                           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-stone-500">
@@ -4602,11 +5226,10 @@ export default function ViewCampaignPage() {
                           <span className="min-w-0 flex-1">
                             <span className="flex items-start justify-between gap-2">
                               <span className="block text-sm font-semibold text-stone-950">{item.label}</span>
-                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${
-                                active
-                                  ? "border-stone-300 bg-white text-stone-900"
-                                  : "border-stone-200 bg-white text-stone-500"
-                              }`}>
+                              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${active
+                                ? "border-stone-300 bg-white text-stone-900"
+                                : "border-stone-200 bg-white text-stone-500"
+                                }`}>
                                 {campaignRatingStatsLoading ? "..." : campaignRatingScopeCounts[item.id]}
                               </span>
                             </span>
@@ -4746,162 +5369,162 @@ export default function ViewCampaignPage() {
 
               {selectedCampaignRating
                 ? createPortal(
-                    <div
-                      className="fixed inset-0 flex justify-end bg-stone-950/35 backdrop-blur-[2px]"
-                      style={{
-                        zIndex: 2147483647,
-                        position: "fixed",
-                        top: 0,
-                        right: 0,
-                        bottom: 0,
-                        left: 0,
-                        width: "100vw",
-                        height: "100dvh",
-                      }}
-                      onClick={() => setSelectedCampaignRating(null)}
+                  <div
+                    className="fixed inset-0 flex justify-end bg-stone-950/35 backdrop-blur-[2px]"
+                    style={{
+                      zIndex: 2147483647,
+                      position: "fixed",
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      left: 0,
+                      width: "100vw",
+                      height: "100dvh",
+                    }}
+                    onClick={() => setSelectedCampaignRating(null)}
+                  >
+                    <aside
+                      className="relative flex h-full w-full max-w-[780px] flex-col overflow-hidden bg-white shadow-2xl"
+                      style={{ zIndex: 2147483647, height: "100dvh" }}
+                      onClick={(event) => event.stopPropagation()}
                     >
-                      <aside
-                        className="relative flex h-full w-full max-w-[780px] flex-col overflow-hidden bg-white shadow-2xl"
-                        style={{ zIndex: 2147483647, height: "100dvh" }}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <div className="border-b border-stone-200 bg-white p-5">
-                          <div className="flex items-start justify-between gap-4">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2">
-                              </div>
-                              <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-stone-950">
-                                {selectedCampaignRating.reviewTitle ||
-                                  campaignRatingTypeLabel(selectedCampaignRating.reviewType)}
-                              </h3>
+                      <div className="border-b border-stone-200 bg-white p-5">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
                             </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setSelectedCampaignRating(null)}
-                              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-500 transition hover:bg-stone-50"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
+                            <h3 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-stone-950">
+                              {selectedCampaignRating.reviewTitle ||
+                                campaignRatingTypeLabel(selectedCampaignRating.reviewType)}
+                            </h3>
                           </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCampaignRating(null)}
+                            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-stone-200 bg-white text-stone-500 transition hover:bg-stone-50"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
                         </div>
+                      </div>
 
-                        <div className="flex-1 overflow-y-auto bg-stone-50/70 p-5">
-                          <div className="grid gap-4">
-                            <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                              <div className="flex flex-wrap items-center gap-3">
-                                <CampaignRatingEntity
-                                  entity={campaignRatingReviewer(selectedCampaignRating)}
-                                  role={selectedCampaignRating.reviewerRole}
-                                />
-                                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-stone-400">
-                                  <ArrowRight className="h-4 w-4" />
-                                </span>
-                                <CampaignRatingEntity
-                                  entity={campaignRatingReviewee(selectedCampaignRating)}
-                                  role={selectedCampaignRating.revieweeRole}
-                                />
-                              </div>
-
-                              <div className="mt-4 flex flex-wrap gap-2">
-                                <CampaignRatingPill
-                                  rating={
-                                    selectedCampaignRating.rating ||
-                                    selectedCampaignRating.noteStarRating
-                                  }
-                                />
-                              </div>
+                      <div className="flex-1 overflow-y-auto bg-stone-50/70 p-5">
+                        <div className="grid gap-4">
+                          <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                            <div className="flex flex-wrap items-center gap-3">
+                              <CampaignRatingEntity
+                                entity={campaignRatingReviewer(selectedCampaignRating)}
+                                role={selectedCampaignRating.reviewerRole}
+                              />
+                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-stone-100 text-stone-400">
+                                <ArrowRight className="h-4 w-4" />
+                              </span>
+                              <CampaignRatingEntity
+                                entity={campaignRatingReviewee(selectedCampaignRating)}
+                                role={selectedCampaignRating.revieweeRole}
+                              />
                             </div>
 
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-stone-950">Campaign</p>
-                                <p className="mt-2 text-sm leading-6 text-stone-500">{primaryTitle}</p>
-                              </div>
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              <CampaignRatingPill
+                                rating={
+                                  selectedCampaignRating.rating ||
+                                  selectedCampaignRating.noteStarRating
+                                }
+                              />
+                            </div>
+                          </div>
 
-                              <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-stone-950">Submitted</p>
-                                <p className="mt-2 text-sm leading-6 text-stone-500">
-                                  {formatDateTime(campaignRatingSubmittedAt(selectedCampaignRating))}
-                                </p>
-                              </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                              <p className="text-sm font-semibold text-stone-950">Campaign</p>
+                              <p className="mt-2 text-sm leading-6 text-stone-500">{primaryTitle}</p>
                             </div>
 
-                            {selectedCampaignRating.reviewText ? (
-                              <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-stone-950">Review Note</p>
-                                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-500">
-                                  {selectedCampaignRating.reviewText}
-                                </p>
-                              </div>
-                            ) : null}
-
                             <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <h4 className="text-base font-semibold text-stone-950">
-                                  Submitted Questions & Answers
-                                </h4>
-                                <CampaignRatingBadge>
-                                  {campaignRatingAnswers(selectedCampaignRating).length} answers
-                                </CampaignRatingBadge>
-                              </div>
+                              <p className="text-sm font-semibold text-stone-950">Submitted</p>
+                              <p className="mt-2 text-sm leading-6 text-stone-500">
+                                {formatDateTime(campaignRatingSubmittedAt(selectedCampaignRating))}
+                              </p>
+                            </div>
+                          </div>
 
-                              <div className="mt-4 grid gap-3">
-                                {campaignRatingAnswers(selectedCampaignRating).length ? (
-                                  campaignRatingAnswers(selectedCampaignRating).map((item, index) => (
-                                    <div
-                                      key={`${item.question}-${index}`}
-                                      className="rounded-xl border border-stone-100 bg-stone-50 p-4"
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-stone-500 ring-1 ring-stone-200">
-                                          {index + 1}
-                                        </span>
-                                        <div className="min-w-0 flex-1">
-                                          <p className="text-sm font-semibold text-stone-950">
-                                            {item.question}
-                                          </p>
-                                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-500">
-                                            {item.answer}
-                                          </p>
-                                          {item.score ? (
-                                            <div className="mt-3">
-                                              <CampaignRatingBadge>
-                                                Score: {item.score}/5
-                                              </CampaignRatingBadge>
-                                            </div>
-                                          ) : null}
-                                        </div>
+                          {selectedCampaignRating.reviewText ? (
+                            <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                              <p className="text-sm font-semibold text-stone-950">Review Note</p>
+                              <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-500">
+                                {selectedCampaignRating.reviewText}
+                              </p>
+                            </div>
+                          ) : null}
+
+                          <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <h4 className="text-base font-semibold text-stone-950">
+                                Submitted Questions & Answers
+                              </h4>
+                              <CampaignRatingBadge>
+                                {campaignRatingAnswers(selectedCampaignRating).length} answers
+                              </CampaignRatingBadge>
+                            </div>
+
+                            <div className="mt-4 grid gap-3">
+                              {campaignRatingAnswers(selectedCampaignRating).length ? (
+                                campaignRatingAnswers(selectedCampaignRating).map((item, index) => (
+                                  <div
+                                    key={`${item.question}-${index}`}
+                                    className="rounded-xl border border-stone-100 bg-stone-50 p-4"
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-stone-500 ring-1 ring-stone-200">
+                                        {index + 1}
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-semibold text-stone-950">
+                                          {item.question}
+                                        </p>
+                                        <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-stone-500">
+                                          {item.answer}
+                                        </p>
+                                        {item.score ? (
+                                          <div className="mt-3">
+                                            <CampaignRatingBadge>
+                                              Score: {item.score}/5
+                                            </CampaignRatingBadge>
+                                          </div>
+                                        ) : null}
                                       </div>
                                     </div>
-                                  ))
-                                ) : (
-                                  <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
-                                    This review does not include question-answer data.
                                   </div>
-                                )}
+                                ))
+                              ) : (
+                                <div className="rounded-xl border border-dashed border-stone-200 bg-stone-50 p-5 text-sm text-stone-500">
+                                  This review does not include question-answer data.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {Array.isArray(selectedCampaignRating.tags) &&
+                            selectedCampaignRating.tags.length ? (
+                            <div className="rounded-2xl border border-stone-200 bg-white p-4">
+                              <p className="text-sm font-semibold text-stone-950">Tags</p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {selectedCampaignRating.tags.map((tag) => (
+                                  <CampaignRatingBadge key={tag}>
+                                    {campaignRatingNormalizeText(tag)}
+                                  </CampaignRatingBadge>
+                                ))}
                               </div>
                             </div>
-
-                            {Array.isArray(selectedCampaignRating.tags) &&
-                            selectedCampaignRating.tags.length ? (
-                              <div className="rounded-2xl border border-stone-200 bg-white p-4">
-                                <p className="text-sm font-semibold text-stone-950">Tags</p>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {selectedCampaignRating.tags.map((tag) => (
-                                    <CampaignRatingBadge key={tag}>
-                                      {campaignRatingNormalizeText(tag)}
-                                    </CampaignRatingBadge>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
+                          ) : null}
                         </div>
-                      </aside>
-                    </div>,
-                    document.body
-                  )
+                      </div>
+                    </aside>
+                  </div>,
+                  document.body
+                )
                 : null}
             </div>
           )}
@@ -5294,6 +5917,7 @@ export default function ViewCampaignPage() {
                       >
                         <option value="all">All Status</option>
                         <option value="pending">Pending</option>
+                        <option value="submitted">Submitted</option>
                         <option value="approved">Approved</option>
                         <option value="revision">Revision</option>
                       </select>
@@ -5462,121 +6086,46 @@ export default function ViewCampaignPage() {
             </div>
           )}
 
-          {showMilestoneModal && selectedInf ? (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-              <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
-                <div className="flex items-start justify-between border-b border-gray-200 bg-gray-100 px-6 py-4">
-                  <div className="text-black">
-                    <p className="text-xs uppercase tracking-wide text-black/70">
-                      Create milestone
-                    </p>
-                    <h2 className="mt-1 text-lg font-semibold text-black">
-                      {selectedInf.name}
-                    </h2>
-                  </div>
+          <AddMilestoneCard
+            open={showMilestoneModal && Boolean(selectedInf)}
+            onClose={handleCloseMilestoneModal}
+            brandId={brandId || ""}
+            campaignId={campaignId || ""}
+            campaignName={milestoneCampaignName}
+            influencerId={selectedInf?.influencerId || ""}
+            influencerName={selectedInf?.name || selectedInf?.handle || "Influencer"}
+            contractId=""
+            adminId={adminId}
+            source="admin"
+            mode="create"
+            influencerBudget={0}
+            usedMilestoneBudget={0}
+            onSubmit={async () => {
+              const savedApplicant = selectedInf;
 
-                  <button
-                    type="button"
-                    onClick={handleCloseMilestoneModal}
-                    className="ml-3 text-lg leading-none text-black/80 hover:text-black"
-                    aria-label="Close"
-                    disabled={isSavingMilestone}
-                  >
-                    ✕
-                  </button>
-                </div>
+              handleCloseMilestoneModal();
+              await loadCampaign();
+              await fetchApplicants();
 
-                <div className="space-y-5 px-6 py-5">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="milestoneTitle"
-                        className="text-sm font-medium text-stone-700"
-                      >
-                        Milestone Title
-                      </label>
-                      <Input
-                        id="milestoneTitle"
-                        value={milestoneForm.title}
-                        onChange={(e) =>
-                          setMilestoneForm((f) => ({
-                            ...f,
-                            title: e.target.value,
-                          }))
-                        }
-                        placeholder="Enter milestone title"
-                      />
-                    </div>
+              if (savedApplicant) {
+                const rowKey = getApplicantRowKey(savedApplicant, "row");
 
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="milestoneAmount"
-                        className="text-sm font-medium text-stone-700"
-                      >
-                        Amount
-                      </label>
-                      <Input
-                        id="milestoneAmount"
-                        value={milestoneForm.amount}
-                        onChange={(e) =>
-                          setMilestoneForm((f) => ({
-                            ...f,
-                            amount: e.target.value,
-                          }))
-                        }
-                        type="number"
-                        placeholder="Enter amount"
-                      />
-                    </div>
-                  </div>
+                setMilestoneByApplicant((prev) => {
+                  const next = { ...prev };
+                  delete next[rowKey];
+                  return next;
+                });
 
-                  <div className="space-y-1">
-                    <label
-                      htmlFor="milestoneDesc"
-                      className="text-sm font-medium text-stone-700"
-                    >
-                      Milestone Description
-                    </label>
-                    <textarea
-                      id="milestoneDesc"
-                      value={milestoneForm.description}
-                      onChange={(e) =>
-                        setMilestoneForm((f) => ({
-                          ...f,
-                          description: e.target.value,
-                        }))
-                      }
-                      placeholder="Enter milestone description"
-                      rows={4}
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black"
-                    />
-                  </div>
-                </div>
+                setOpenMilestoneKey(rowKey);
+                setExpandedApplicantRowId(rowKey);
 
-                <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-3">
-                  <button
-                    onClick={handleCloseMilestoneModal}
-                    className="border-gray-300 text-black hover:bg-white border rounded-md px-4 py-2 text-sm"
-                    disabled={isSavingMilestone}
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    onClick={handleSaveMilestone}
-                    disabled={
-                      !selectedInf?.influencerId ||
-                      isSavingMilestone ||
-                      isBudgetLocked
-                    }
-                    className="bg-black text-white hover:bg-gray-800 disabled:opacity-60 rounded-md px-4 py-2 text-sm"
-                  >
-                    {isSavingMilestone ? "Saving..." : "Add Milestone"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
+                await fetchMilestonesForApplicant(savedApplicant, {
+                  force: true,
+                  keepOpen: true,
+                });
+              }
+            }}
+          />
 
           {isFundsModalOpen ? (
             <div
@@ -5762,13 +6311,13 @@ export default function ViewCampaignPage() {
           ) : null}
         </div>
       </div>
-      {showDeliverableModal && selectedDeliverableInf ? (
+      {showDeliverableModal && selectedDeliverableInf && selectedDeliverableTarget ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
             <div className="flex items-start justify-between border-b border-gray-200 bg-gray-100 px-6 py-4">
               <div className="text-black">
                 <p className="text-xs uppercase tracking-wide text-black/70">
-                  Add deliverable on behalf of influencer
+                  Add deliverable links on behalf of influencer
                 </p>
                 <h2 className="mt-1 text-lg font-semibold text-black">
                   {selectedDeliverableInf.name || selectedDeliverableInf.handle || "Influencer"}
@@ -5787,149 +6336,126 @@ export default function ViewCampaignPage() {
             </div>
 
             <div className="space-y-5 px-6 py-5">
-              <div className="space-y-1">
-                <label
-                  htmlFor="deliverableMilestone"
-                  className="text-sm font-medium text-stone-700"
-                >
-                  Milestone
-                </label>
+              <div className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-400">
+                      Milestone
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-stone-900">
+                      {getMilestoneDisplayTitle(selectedDeliverableTarget.milestone)}
+                    </p>
+                  </div>
 
-                <select
-                  id="deliverableMilestone"
-                  value={deliverableForm.milestoneHistoryId}
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    const selectedMilestone = deliverableMilestones.find(
-                      (item) =>
-                        String(item.milestoneHistoryId || item._id || item.milestoneId || "") ===
-                        selectedId
-                    );
-
-                    setDeliverableForm((prev) => ({
-                      ...prev,
-                      milestoneHistoryId: selectedId,
-                      title: prev.title || (selectedMilestone ? getMilestoneDisplayTitle(selectedMilestone) : ""),
-                    }));
-                  }}
-                  disabled={deliverableMilestonesLoading}
-                  className="h-10 w-full rounded-md border border-gray-300 px-3 text-sm outline-none focus:border-black disabled:opacity-60"
-                >
-                  <option value="">
-                    {deliverableMilestonesLoading ? "Loading milestones..." : "Select milestone"}
-                  </option>
-
-                  {deliverableMilestones.map((item, index) => {
-                    const value = String(
-                      item.milestoneHistoryId || item._id || item.milestoneId || ""
-                    );
-
-                    if (!value) return null;
-
-                    return (
-                      <option key={`${value}-${index}`} value={value}>
-                        {getMilestoneDisplayTitle(item)} · ${formatMoney(item.amount)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label
-                  htmlFor="deliverableTitle"
-                  className="text-sm font-medium text-stone-700"
-                >
-                  Deliverable Title
-                </label>
-
-                <Input
-                  id="deliverableTitle"
-                  value={deliverableForm.title}
-                  onChange={(e) =>
-                    setDeliverableForm((prev) => ({
-                      ...prev,
-                      title: e.target.value,
-                    }))
-                  }
-                  placeholder="Enter deliverable title"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label
-                  htmlFor="deliverableDesc"
-                  className="text-sm font-medium text-stone-700"
-                >
-                  Description
-                </label>
-
-                <textarea
-                  id="deliverableDesc"
-                  value={deliverableForm.description}
-                  onChange={(e) =>
-                    setDeliverableForm((prev) => ({
-                      ...prev,
-                      description: e.target.value,
-                    }))
-                  }
-                  placeholder="Enter deliverable description"
-                  rows={3}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-black"
-                />
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-[160px_1fr]">
-                <div className="space-y-1">
-                  <label
-                    htmlFor="deliverableDraftLabel"
-                    className="text-sm font-medium text-stone-700"
-                  >
-                    Draft Label
-                  </label>
-
-                  <Input
-                    id="deliverableDraftLabel"
-                    value={deliverableForm.draftLabel}
-                    onChange={(e) =>
-                      setDeliverableForm((prev) => ({
-                        ...prev,
-                        draftLabel: e.target.value,
-                      }))
-                    }
-                    placeholder="Draft"
-                  />
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-400">
+                      Deliverable
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-stone-900">
+                      {getDeliverableTitle(selectedDeliverableTarget.deliverable)}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="space-y-1">
-                  <label
-                    htmlFor="deliverableDraftUrl"
-                    className="text-sm font-medium text-stone-700"
-                  >
-                    Deliverable URL
-                  </label>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Pill className="bg-white text-stone-600 ring-stone-200">
+                    {formatDeliverableList(selectedDeliverableTarget.deliverable.deliveries)}
+                  </Pill>
 
-                  <Input
-                    id="deliverableDraftUrl"
-                    value={deliverableForm.draftUrl}
-                    onChange={(e) =>
-                      setDeliverableForm((prev) => ({
-                        ...prev,
-                        draftUrl: e.target.value,
-                      }))
-                    }
-                    placeholder="https://drive.google.com/..."
-                  />
+                  <Pill className="bg-white text-stone-600 ring-stone-200">
+                    {selectedDeliverableTarget.deliverable.aspectRatio || DASH}
+                  </Pill>
+
+                  <Pill className="bg-white text-stone-600 ring-stone-200">
+                    {formatPlatformList(selectedDeliverableTarget.deliverable.platforms)}
+                  </Pill>
+
+                  <Pill className="bg-white text-stone-600 ring-stone-200">
+                    Required Links: {getRequiredDeliverableLinks(selectedDeliverableTarget.deliverable)}
+                  </Pill>
                 </div>
               </div>
 
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                This deliverable will be submitted as pending review, on behalf of the selected influencer.
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-stone-900">
+                    Submission Links
+                  </p>
+                  <p className="mt-1 text-xs text-stone-400">
+                    Enter one link for each required deliverable quantity.
+                  </p>
+                </div>
+
+                {deliverableForm.deliverableLinks.map((link, index) => (
+                  <div
+                    key={`deliverable-link-input-${index}`}
+                    className="grid gap-3 md:grid-cols-[160px_1fr]"
+                  >
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={`deliverableLinkLabel-${index}`}
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        Link Label
+                      </label>
+
+                      <Input
+                        id={`deliverableLinkLabel-${index}`}
+                        value={link.label}
+                        onChange={(e) =>
+                          setDeliverableForm((prev) => {
+                            const nextLinks = [...prev.deliverableLinks];
+                            nextLinks[index] = {
+                              ...nextLinks[index],
+                              label: e.target.value,
+                            };
+
+                            return {
+                              ...prev,
+                              deliverableLinks: nextLinks,
+                            };
+                          })
+                        }
+                        placeholder={`Deliverable Link ${index + 1}`}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label
+                        htmlFor={`deliverableLinkUrl-${index}`}
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        Deliverable URL <span className="text-rose-500">*</span>
+                      </label>
+
+                      <Input
+                        id={`deliverableLinkUrl-${index}`}
+                        value={link.url}
+                        onChange={(e) =>
+                          setDeliverableForm((prev) => {
+                            const nextLinks = [...prev.deliverableLinks];
+                            nextLinks[index] = {
+                              ...nextLinks[index],
+                              url: e.target.value,
+                            };
+
+                            return {
+                              ...prev,
+                              deliverableLinks: nextLinks,
+                            };
+                          })
+                        }
+                        placeholder="https://drive.google.com/..."
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
             <div className="flex justify-end gap-2 border-t bg-gray-50 px-6 py-3">
               <button
+                type="button"
                 onClick={handleCloseDeliverableModal}
                 className="border-gray-300 text-black hover:bg-white border rounded-md px-4 py-2 text-sm"
                 disabled={isSavingDeliverable}
@@ -5938,15 +6464,12 @@ export default function ViewCampaignPage() {
               </button>
 
               <button
+                type="button"
                 onClick={handleSaveAdminDeliverable}
-                disabled={
-                  !selectedDeliverableInf?.influencerId ||
-                  isSavingDeliverable ||
-                  deliverableMilestonesLoading
-                }
+                disabled={!selectedDeliverableInf?.influencerId || isSavingDeliverable}
                 className="bg-black text-white hover:bg-gray-800 disabled:opacity-60 rounded-md px-4 py-2 text-sm"
               >
-                {isSavingDeliverable ? "Saving..." : "Add Deliverable"}
+                {isSavingDeliverable ? "Submitting..." : "Submit Deliverable"}
               </button>
             </div>
           </div>

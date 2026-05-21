@@ -35,9 +35,10 @@ type AddMilestoneCardProps = {
   brandId: string;
   contractId?: string;
   campaignId?: string;
+  campaignName?: string;
   influencerId?: string;
   influencerName?: string;
-  onSubmit?: () => void;
+  onSubmit?: () => void | Promise<void>;
 
   influencerBudget?: number;
   usedMilestoneBudget?: number;
@@ -46,6 +47,9 @@ type AddMilestoneCardProps = {
   milestoneId?: string;
   milestoneHistoryId?: string;
   milestoneData?: any;
+
+  source?: "brand" | "admin";
+  adminId?: string;
 };
 
 type WalletShortfallState = {
@@ -168,6 +172,74 @@ const normalizeAttachmentForPayload = (item: any) => {
     size: Number(item?.size || 0),
     key: item?.key || "",
   };
+};
+
+const getCookieValue = (name: string) => {
+  if (typeof document === "undefined") return "";
+
+  return (
+    document.cookie
+      .split("; ")
+      .find((row) => row.startsWith(`${name}=`))
+      ?.split("=")[1] || ""
+  );
+};
+
+const getAdminIdFromBrowser = () => {
+  if (typeof window === "undefined") return "";
+
+  const readJsonValue = (key: string) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+
+      return String(
+        stored?._id ||
+          stored?.adminId ||
+          stored?.id ||
+          stored?.userId ||
+          stored?.user?._id ||
+          stored?.user?.id ||
+          stored?.user?.userId ||
+          stored?.admin?._id ||
+          stored?.admin?.adminId ||
+          stored?.admin?.id ||
+          stored?.admin?.userId ||
+          stored?.data?._id ||
+          stored?.data?.adminId ||
+          stored?.data?.id ||
+          stored?.data?.userId ||
+          ""
+      ).trim();
+    } catch {
+      return "";
+    }
+  };
+
+  const adminFromStorage =
+    readJsonValue("admin") ||
+    readJsonValue("user") ||
+    readJsonValue("authUser") ||
+    readJsonValue("currentUser");
+
+  if (adminFromStorage) return adminFromStorage;
+
+  const directStorageId = String(
+    localStorage.getItem("adminId") ||
+      localStorage.getItem("admin_id") ||
+      localStorage.getItem("userId") ||
+      localStorage.getItem("user_id") ||
+      ""
+  ).trim();
+
+  if (directStorageId) return directStorageId;
+
+  return decodeURIComponent(
+    getCookieValue("adminId") ||
+      getCookieValue("admin_id") ||
+      getCookieValue("userId") ||
+      getCookieValue("user_id") ||
+      ""
+  ).trim();
 };
 
 function PlatformIcon({ platform }: { platform: string }) {
@@ -731,6 +803,7 @@ export default function AddMilestoneCard({
   onClose,
   brandId,
   campaignId,
+  campaignName = "",
   influencerId,
   influencerName,
   contractId,
@@ -741,6 +814,8 @@ export default function AddMilestoneCard({
   milestoneId = "",
   milestoneHistoryId = "",
   milestoneData = null,
+  source = "brand",
+  adminId = "",
 }: AddMilestoneCardProps) {
   const [milestoneName, setMilestoneName] = useState("");
   const [milestoneDescription, setMilestoneDescription] = useState("");
@@ -748,6 +823,7 @@ export default function AddMilestoneCard({
   const [milestoneBudgetError, setMilestoneBudgetError] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
+  const explicitAdminMode = source === "admin";
 
   const [deliverableName, setDeliverableName] = useState("");
   const [selectedDeliveries, setSelectedDeliveries] = useState<string[]>([]);
@@ -783,6 +859,20 @@ export default function AddMilestoneCard({
   const isPayoutInitiated = payoutStatus === "initiated";
 
   const isFormLocked = isEditMode && (isAccepted || isPayoutInitiated);
+
+  const resolvedAdminId = useMemo(() => {
+    const propAdminId = String(adminId || "").trim();
+
+    if (propAdminId) return propAdminId;
+
+    if (!open) return "";
+
+    return getAdminIdFromBrowser();
+  }, [adminId, open]);
+
+  const isAdminMode =
+    explicitAdminMode || (!contractId && Boolean(resolvedAdminId) && !isEditMode);
+
   useEffect(() => {
     if (!open) return;
 
@@ -866,9 +956,13 @@ export default function AddMilestoneCard({
   }, [open, isEditMode, milestoneData]);
 
   const modalSubtitle = useMemo(() => {
-    if (!influencerName) return "";
-    return `for ${influencerName}`;
-  }, [influencerName]);
+    const parts = [];
+
+    if (campaignName) parts.push(campaignName);
+    if (influencerName) parts.push(`for ${influencerName}`);
+
+    return parts.join(" • ");
+  }, [campaignName, influencerName]);
 
   const safeInfluencerBudget = Number(influencerBudget || 0);
   const safeUsedMilestoneBudget = Number(usedMilestoneBudget || 0);
@@ -916,6 +1010,7 @@ export default function AddMilestoneCard({
     const nextNumber = Number(nextValue || 0);
 
     if (
+      !isAdminMode &&
       safeInfluencerBudget > 0 &&
       nextValue &&
       Number.isFinite(nextNumber) &&
@@ -933,6 +1028,7 @@ export default function AddMilestoneCard({
     const nextNumber = Number(milestoneBudget || 0);
 
     if (
+      !isAdminMode &&
       safeInfluencerBudget > 0 &&
       milestoneBudget &&
       Number.isFinite(nextNumber) &&
@@ -1045,11 +1141,20 @@ export default function AddMilestoneCard({
       return false;
     }
 
-    if (!contractId) {
+    if (!isAdminMode && !contractId) {
       toast({
         icon: "warning",
         title: "Contract ID missing",
         text: "Contract ID is required to create a milestone.",
+      });
+      return false;
+    }
+
+    if (isAdminMode && !resolvedAdminId) {
+      toast({
+        icon: "warning",
+        title: "Admin ID missing",
+        text: "Admin ID is required to create a milestone.",
       });
       return false;
     }
@@ -1082,6 +1187,7 @@ export default function AddMilestoneCard({
     }
 
     if (
+      !isAdminMode &&
       safeInfluencerBudget > 0 &&
       milestoneBudgetNum > remainingInfluencerBudget
     ) {
@@ -1222,9 +1328,13 @@ export default function AddMilestoneCard({
           brandId,
           campaignId: campaignId || "",
           influencerId: influencerId || "",
-          contractId: contractId || "",
+          contractId: isAdminMode ? "" : contractId || "",
+          adminId: isAdminMode ? resolvedAdminId : "",
+          source: isAdminMode ? "admin" : "brand",
+          createdByRole: isAdminMode ? "admin" : "brand",
+          createdByModel: isAdminMode ? "Master" : "Brand",
           ...commonPayload,
-        });
+        } as any);
 
         toast({
           icon: "success",
