@@ -1840,7 +1840,7 @@ export default function Page() {
         )}
       </div>
 
-      <EmailEditor
+      {/* <EmailEditor
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
         toLabel={editorPayload.toLabel}
@@ -1863,7 +1863,7 @@ export default function Page() {
             JSON.stringify(payload)
           );
         }}
-      />
+      /> */}
     </div>
   );
 }

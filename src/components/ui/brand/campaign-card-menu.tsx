@@ -14,6 +14,8 @@ import { toast } from "@/components/ui/toast";
 type Props = {
   viewHref: string;
   inviteHref: string;
+  campaignStatus?: string;
+  isDraft?: boolean | number;
 };
 
 const itemCls =
@@ -65,8 +67,18 @@ async function safeCopy(text: string) {
   return false;
 }
 
-export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
+export default function CampaignCardMenu({
+  viewHref,
+  inviteHref,
+  campaignStatus,
+  isDraft,
+}: Props) {
   const [open, setOpen] = useState(false);
+
+  const isDraftCampaign =
+    String(campaignStatus || "").trim().toLowerCase() === "draft" ||
+    isDraft === true ||
+    Number(isDraft) === 1;
 
   const goTo = (href: string) => {
     if (typeof window !== "undefined") {
@@ -163,23 +175,27 @@ export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
             <span>View</span>
           </button>
 
-          <button
-            type="button"
-            onClick={copyLink}
-            className={itemCls}
-          >
-            <LinkSimple size={18} weight="regular" />
-            <span>Copy Link</span>
-          </button>
+{!isDraftCampaign ? (
+  <>
+    <button
+      type="button"
+      onClick={copyLink}
+      className={itemCls}
+    >
+      <LinkSimple size={18} weight="regular" />
+      <span>Copy Link</span>
+    </button>
 
-          <button
-            type="button"
-            onClick={() => goTo(inviteHref)}
-            className={itemCls}
-          >
-            <PaperPlaneTilt size={18} weight="regular" />
-            <span>Invite Influencers</span>
-          </button>
+    <button
+      type="button"
+      onClick={() => goTo(inviteHref)}
+      className={itemCls}
+    >
+      <PaperPlaneTilt size={18} weight="regular" />
+      <span>Invite Influencers</span>
+    </button>
+  </>
+) : null}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

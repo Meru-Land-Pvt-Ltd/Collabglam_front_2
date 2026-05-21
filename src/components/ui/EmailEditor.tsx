@@ -10,7 +10,6 @@ import {
   Link,
   Smiley,
   Signature,
-  Lock,
   TextB,
   TextItalic,
   TextUnderline,
@@ -19,10 +18,7 @@ import {
   ListBullets,
   ListNumbers,
   TextAlignLeft,
-  Copy,
-  ClipboardText,
   PaperPlaneTilt,
-  Trash,
   CaretUp,
 } from "@phosphor-icons/react";
 
@@ -33,36 +29,35 @@ export type EmailEditorAttachment = {
   contentBase64: string;
 };
 
+export type EmailEditorPayload = {
+  to: string;
+  subject: string;
+  body: string;
+  htmlBody: string;
+  attachments: EmailEditorAttachment[];
+};
+
 export type EmailEditorProps = {
   open: boolean;
   onClose: () => void;
-  toLabel?: string;
+
   fromName?: string;
   fromEmail?: string;
-  toAvatar?: string;
+  fromAvatar?: string | null;
+  fromProxyMailId?: string;
+
+  toLabel?: string;
+  toName?: string;
+  toEmail?: string;
+  toAvatar?: string | null;
+  toProxyMailId?: string;
+
   subject?: string;
   initialBody?: string;
   initialHtmlBody?: string;
   startExpanded?: boolean;
   sending?: boolean;
-  onSend: (payload: {
-    to: string;
-    cc: string;
-    bcc: string;
-    subject: string;
-    body: string;
-    htmlBody: string;
-    attachments: EmailEditorAttachment[];
-  }) => Promise<void> | void;
-  onSaveDraft?: (payload: {
-    to: string;
-    cc: string;
-    bcc: string;
-    subject: string;
-    body: string;
-    htmlBody: string;
-    attachments: EmailEditorAttachment[];
-  }) => Promise<void> | void;
+  onSend: (payload: EmailEditorPayload) => Promise<void> | void;
 };
 
 function cn(...classes: Array<string | false | null | undefined>) {
@@ -82,6 +77,46 @@ function plainTextToHtml(value: string) {
   return escapeHtml(value).replace(/\n/g, "<br />");
 }
 
+function getFallback(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function IdentityAvatar({
+  name,
+  avatar,
+  className,
+}: {
+  name: string;
+  avatar?: string | null;
+  className?: string;
+}) {
+  const safeName = name.trim() || "User";
+
+  if (avatar) {
+    return (
+      <img
+        src={avatar}
+        alt={safeName}
+        className={cn("h-6 w-6 shrink-0 rounded-full object-cover", className)}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black text-[10px] font-semibold text-white",
+        className,
+      )}
+    >
+      {getFallback(safeName)}
+    </div>
+  );
+}
+
 function IconButton({
   children,
   className,
@@ -92,7 +127,7 @@ function IconButton({
       type="button"
       className={cn(
         "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#5f6368] transition hover:bg-[#f1f3f4] hover:text-[#202124]",
-        className
+        className,
       )}
       {...props}
     >
@@ -115,7 +150,7 @@ function ToolbarButton({
       className={cn(
         "inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-2 text-[#202124] transition hover:bg-[#f1f3f4]",
         active && "bg-[#e4e5e7]",
-        className
+        className,
       )}
       {...props}
     >
@@ -139,7 +174,20 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-const EMOJIS = ["😀", "😂", "😍", "🔥", "✨", "👍", "👏", "🙏", "🎉", "❤️", "😊", "😉"];
+const EMOJIS = [
+  "😀",
+  "😂",
+  "😍",
+  "🔥",
+  "✨",
+  "👍",
+  "👏",
+  "🙏",
+  "🎉",
+  "❤️",
+  "😊",
+  "😉",
+];
 
 type FormatState = {
   bold: boolean;
@@ -153,33 +201,34 @@ export default function EmailEditor({
   open,
   onClose,
   toLabel = "",
-  fromName = "Nike",
-  fromEmail = "Collabglam.com",
+  toName = "",
+  toEmail = "",
   toAvatar = "",
+  toProxyMailId = "",
+  fromName = "",
+  fromEmail = "",
+  fromAvatar = "",
+  fromProxyMailId = "",
   subject = "",
   initialBody = "",
   initialHtmlBody = "",
   startExpanded = false,
   sending = false,
   onSend,
-  onSaveDraft,
 }: EmailEditorProps) {
   const editorRef = React.useRef<HTMLDivElement | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const [to, setTo] = React.useState(toLabel);
-  const [cc, setCc] = React.useState("");
-  const [bcc, setBcc] = React.useState("");
-  const [showCc, setShowCc] = React.useState(false);
-  const [showBcc, setShowBcc] = React.useState(false);
   const [mailSubject, setMailSubject] = React.useState(subject);
-  const [attachments, setAttachments] = React.useState<EmailEditorAttachment[]>([]);
-  const [editorHtml, setEditorHtml] = React.useState("");
+  const [attachments, setAttachments] = React.useState<EmailEditorAttachment[]>(
+    [],
+  );
+  const [, setEditorHtml] = React.useState("");
   const [showEmojiPicker, setShowEmojiPicker] = React.useState(false);
   const [minimized, setMinimized] = React.useState(false);
   const [expanded, setExpanded] = React.useState(false);
-  const [confidentialMode, setConfidentialMode] = React.useState(false);
   const [selectedFont, setSelectedFont] = React.useState("Inter");
   const [formatState, setFormatState] = React.useState<FormatState>({
     bold: false,
@@ -188,6 +237,16 @@ export default function EmailEditor({
     unorderedList: false,
     orderedList: false,
   });
+
+  const fromDisplayName = fromName.trim() || "You";
+  const fromProxy = (fromProxyMailId || "").trim();
+  const fromReal = (fromEmail || "").trim();
+  const fromPrimaryMail = fromProxy || fromReal;
+
+  const toDisplayName = toName.trim();
+  const toProxy = (toProxyMailId || "").trim();
+  const toReal = (toEmail || "").trim();
+  const toPrimaryMail = toProxy || to || toReal;
 
   const syncEditorState = React.useCallback(() => {
     if (!editorRef.current) return;
@@ -204,7 +263,7 @@ export default function EmailEditor({
         orderedList: document.queryCommandState("insertOrderedList"),
       });
     } catch {
-      // ignore
+      // queryCommandState can throw if the editor is not focused.
     }
   }, []);
 
@@ -219,23 +278,20 @@ export default function EmailEditor({
       syncEditorState();
       updateFormatState();
     },
-    [focusEditor, syncEditorState, updateFormatState]
+    [focusEditor, syncEditorState, updateFormatState],
   );
 
   React.useEffect(() => {
     if (!open) return;
 
-    setTo(toLabel || "");
-    setCc("");
-    setBcc("");
-    setShowCc(false);
-    setShowBcc(false);
+    const initialTo = toProxyMailId || toLabel || toEmail || "";
+
+    setTo(initialTo);
     setMailSubject(subject || "");
     setAttachments([]);
     setShowEmojiPicker(false);
     setMinimized(false);
     setExpanded(Boolean(startExpanded));
-    setConfidentialMode(false);
     setSelectedFont("Inter");
 
     const html =
@@ -252,7 +308,16 @@ export default function EmailEditor({
         editorRef.current.innerHTML = html;
       }
     });
-  }, [open, toLabel, subject, initialBody, initialHtmlBody, startExpanded]);
+  }, [
+    open,
+    toLabel,
+    toEmail,
+    toProxyMailId,
+    subject,
+    initialBody,
+    initialHtmlBody,
+    startExpanded,
+  ]);
 
   React.useEffect(() => {
     const handleSelectionChange = () => {
@@ -261,7 +326,8 @@ export default function EmailEditor({
     };
 
     document.addEventListener("selectionchange", handleSelectionChange);
-    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", handleSelectionChange);
   }, [open, updateFormatState]);
 
   const handlePickFiles = async (files: FileList | null) => {
@@ -273,7 +339,7 @@ export default function EmailEditor({
         contentType: file.type || "application/octet-stream",
         size: file.size,
         contentBase64: await fileToBase64(file),
-      }))
+      })),
     );
 
     setAttachments((prev) => [...prev, ...parsed]);
@@ -291,7 +357,7 @@ export default function EmailEditor({
       document.execCommand(
         "insertHTML",
         false,
-        `<img src="${src}" alt="${escapeHtml(file.name)}" style="max-width: 100%; border-radius: 8px; margin: 8px 0;" />`
+        `<img src="${src}" alt="${escapeHtml(file.name)}" style="max-width: 100%; border-radius: 8px; margin: 8px 0;" />`,
       );
     }
 
@@ -314,40 +380,16 @@ export default function EmailEditor({
   };
 
   const insertSignature = () => {
-    const signatureHtml = `<br /><br />—<br /><strong>${escapeHtml(fromName)}</strong><br />${escapeHtml(
-      fromEmail
-    )}`;
+    const signatureHtml = `<br /><br />—<br /><strong>${escapeHtml(
+      fromDisplayName,
+    )}</strong>${fromPrimaryMail ? `<br />${escapeHtml(fromPrimaryMail)}` : ""}`;
+
     exec("insertHTML", signatureHtml);
   };
 
   const applyFont = (font: string) => {
     setSelectedFont(font);
     exec("fontName", font);
-  };
-
-  const copyContent = async () => {
-    const text = editorRef.current?.innerText || "";
-    if (!text.trim()) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // ignore
-    }
-  };
-
-  const pasteClipboard = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) {
-        exec("insertText", text);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const toggleConfidentialMode = () => {
-    setConfidentialMode((prev) => !prev);
   };
 
   const getPlainBody = () => {
@@ -358,10 +400,8 @@ export default function EmailEditor({
     return (editorRef.current?.innerHTML || "").trim();
   };
 
-  const buildPayload = () => ({
-    to: to.trim(),
-    cc: cc.trim(),
-    bcc: bcc.trim(),
+  const buildPayload = (): EmailEditorPayload => ({
+    to: (to || toProxy || toReal).trim(),
     subject: mailSubject.trim(),
     body: getPlainBody(),
     htmlBody: getHtmlBody(),
@@ -372,17 +412,6 @@ export default function EmailEditor({
     await onSend(buildPayload());
   };
 
-  const handleSaveDraft = async () => {
-    const payload = buildPayload();
-
-    if (onSaveDraft) {
-      await onSaveDraft(payload);
-      return;
-    }
-
-    localStorage.setItem("collabglam-mail-draft", JSON.stringify(payload));
-  };
-
   if (!open) return null;
 
   return (
@@ -391,7 +420,7 @@ export default function EmailEditor({
         "pointer-events-none fixed z-[200] flex items-end justify-end",
         expanded
           ? "inset-2 sm:inset-10"
-          : "bottom-0 right-0 p-0 sm:bottom-0 sm:right-16 lg:right-24"
+          : "bottom-0 right-0 p-0 sm:bottom-0 sm:right-16 lg:right-24",
       )}
     >
       <style>{`
@@ -428,11 +457,13 @@ export default function EmailEditor({
             ? "h-[44px] w-full rounded-t-xl border border-[#dadce0] sm:w-[320px]"
             : expanded
               ? "h-full w-full rounded-xl border border-[#dadce0]"
-              : "h-[calc(100vh-80px)] max-h-[640px] w-full rounded-t-xl border border-[#dadce0] sm:w-[660px]"
+              : "h-[calc(100vh-80px)] max-h-[640px] w-full rounded-t-xl border border-[#dadce0] sm:w-[660px]",
         )}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[#e0e0e0] bg-[#f2f2f2] px-4 py-1">
-          <div className="text-[14px] font-medium text-[#202124]">New Message</div>
+          <div className="text-[14px] font-medium text-[#202124]">
+            New Message
+          </div>
           <div className="flex items-center gap-1">
             <IconButton
               aria-label={minimized ? "Expand" : "Minimize"}
@@ -461,21 +492,26 @@ export default function EmailEditor({
         {!minimized && (
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-[#ececec] px-4 py-3 text-[13px] text-[#5f6368]">
-              <div className="flex items-center gap-2">
-                <span className="w-10">From</span>
-                <div className="flex items-center gap-2 rounded-full px-1">
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-black">
-                    <svg
-                      className="h-3 w-3 text-white"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M24 8.25c-4.46-1.55-9.45-1.57-13.88-.04-1.28.45-2.47 1.05-3.56 1.77C4.1 11.53 1.94 13.6 0 16.03l.3.38c2.9-1.9 6.27-2.9 9.77-2.9 3.03 0 5.92.83 8.38 2.37 1.25.79 2.41 1.72 3.44 2.76l.16-.14c1.2-1.34 2.22-2.8 3.04-4.36l-.05-.05c-.32-.47-.68-.92-1.04-1.34v-.5z" />
-                    </svg>
+              <div className="flex items-center gap-3">
+                <span className="w-10 shrink-0">From</span>
+
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <IdentityAvatar
+                    name={fromDisplayName || fromPrimaryMail}
+                    avatar={fromAvatar}
+                  />
+
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-[#202124]">
+                      {fromDisplayName}
+                    </div>
+
+                    {fromProxy ? (
+                      <div className="truncate text-[12px] text-[#5f6368]">
+                        {fromProxy}
+                      </div>
+                    ) : null}
                   </div>
-                  <span className="truncate font-medium text-[#202124]">
-                    {fromName}@{fromEmail}
-                  </span>
                 </div>
               </div>
             </div>
@@ -485,73 +521,39 @@ export default function EmailEditor({
                 <div className="w-10 shrink-0">To</div>
 
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                  {toAvatar ? (
-                    <img
-                      src={toAvatar}
-                      alt={to}
-                      className="h-6 w-6 shrink-0 rounded-full object-cover"
-                    />
-                  ) : null}
-                  <input
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    className="w-full min-w-0 border-0 bg-transparent p-0 text-[13px] font-medium text-[#202124] outline-none"
+                  <IdentityAvatar
+                    name={toDisplayName || toPrimaryMail || "Recipient"}
+                    avatar={toAvatar}
                   />
-                </div>
 
-                <div className="flex shrink-0 items-center gap-2">
-                  {!showCc ? (
-                    <button
-                      type="button"
-                      className="text-[12px] font-medium text-[#5f6368] transition hover:text-[#202124]"
-                      onClick={() => setShowCc(true)}
-                    >
-                      Cc
-                    </button>
-                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    {toDisplayName ? (
+                      <div className="truncate text-[13px] font-medium text-[#202124]">
+                        {toDisplayName}
+                      </div>
+                    ) : null}
 
-                  <button
-                    type="button"
-                    className="rounded-full border border-[#e3e3e3] px-3 py-1 text-[12px] font-medium text-[#5f6368] transition hover:bg-[#f8f9fa]"
-                    onClick={() => setShowBcc((prev) => !prev)}
-                  >
-                    Bcc
-                  </button>
+                    <input
+                      value={to}
+                      onChange={(e) => setTo(e.target.value)}
+                      placeholder="Recipient email"
+                      className={cn(
+                        "w-full min-w-0 border-0 bg-transparent p-0 outline-none",
+                        toDisplayName
+                          ? "text-[12px] text-[#5f6368]"
+                          : "text-[13px] font-medium text-[#202124]",
+                      )}
+                    />
+
+                    {toProxy && toProxy !== to ? (
+                      <div className="truncate text-[12px] text-[#5f6368]">
+                        {toProxy}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
-
-            {showCc && (
-              <div className="shrink-0 border-b border-[#ececec] px-4 py-2.5">
-                <div className="flex items-center gap-3 text-[13px] text-[#5f6368]">
-                  <div className="w-10 shrink-0 font-medium text-[#202124]">Cc</div>
-                  <input
-                    value={cc}
-                    onChange={(e) => setCc(e.target.value)}
-                    className="w-full min-w-0 border-0 bg-transparent p-0 text-[13px] text-[#202124] outline-none"
-                  />
-                  <IconButton className="h-5 w-5" onClick={() => setShowCc(false)}>
-                    <X size={12} />
-                  </IconButton>
-                </div>
-              </div>
-            )}
-
-            {showBcc && (
-              <div className="shrink-0 border-b border-[#ececec] px-4 py-2.5">
-                <div className="flex items-center gap-3 text-[13px] text-[#5f6368]">
-                  <div className="w-10 shrink-0 font-medium text-[#202124]">Bcc</div>
-                  <input
-                    value={bcc}
-                    onChange={(e) => setBcc(e.target.value)}
-                    className="w-full min-w-0 border-0 bg-transparent p-0 text-[13px] text-[#202124] outline-none"
-                  />
-                  <IconButton className="h-5 w-5" onClick={() => setShowBcc(false)}>
-                    <X size={12} />
-                  </IconButton>
-                </div>
-              </div>
-            )}
 
             <div className="shrink-0 border-b border-[#ececec] px-4 py-3">
               <input
@@ -590,13 +592,22 @@ export default function EmailEditor({
 
                 <div className="mx-1 h-4 w-[1px] shrink-0 bg-[#e0e0e0]"></div>
 
-                <ToolbarButton active={formatState.bold} onClick={() => exec("bold")}>
+                <ToolbarButton
+                  active={formatState.bold}
+                  onClick={() => exec("bold")}
+                >
                   <TextB size={16} weight="bold" />
                 </ToolbarButton>
-                <ToolbarButton active={formatState.italic} onClick={() => exec("italic")}>
+                <ToolbarButton
+                  active={formatState.italic}
+                  onClick={() => exec("italic")}
+                >
                   <TextItalic size={16} />
                 </ToolbarButton>
-                <ToolbarButton active={formatState.underline} onClick={() => exec("underline")}>
+                <ToolbarButton
+                  active={formatState.underline}
+                  onClick={() => exec("underline")}
+                >
                   <TextUnderline size={16} />
                 </ToolbarButton>
 
@@ -608,12 +619,6 @@ export default function EmailEditor({
                 <ToolbarButton onClick={() => exec("redo")}>
                   <ArrowClockwise size={16} />
                 </ToolbarButton>
-                {/* <ToolbarButton onClick={pasteClipboard}>
-                  <ClipboardText size={16} />
-                </ToolbarButton>
-                <ToolbarButton onClick={copyContent}>
-                  <Copy size={16} />
-                </ToolbarButton> */}
 
                 <div className="mx-1 h-4 w-[1px] shrink-0 bg-[#e0e0e0]"></div>
 
@@ -632,12 +637,6 @@ export default function EmailEditor({
                 <ToolbarButton onClick={() => exec("justifyLeft")}>
                   <TextAlignLeft size={16} />
                 </ToolbarButton>
-
-                <button className="ml-auto shrink-0 pl-2 pr-1 text-[13px] font-medium transition-opacity hover:opacity-80">
-                  <span className="bg-gradient-to-r from-[#FFB020] via-[#F34C73] to-[#9E33FF] bg-clip-text text-transparent">
-                    Compose with AI
-                  </span>
-                </button>
               </div>
 
               {showEmojiPicker && (
@@ -656,12 +655,6 @@ export default function EmailEditor({
               )}
             </div>
 
-            {confidentialMode && (
-              <div className="shrink-0 border-b border-[#ececec] bg-[#fff8e1] px-4 py-2 text-[12px] font-medium text-[#8a6d1d]">
-                Confidential mode enabled
-              </div>
-            )}
-
             <div className="flex flex-1 flex-col overflow-y-auto bg-white p-4">
               <div
                 ref={editorRef}
@@ -673,7 +666,7 @@ export default function EmailEditor({
                 }}
                 className={cn(
                   "min-h-[120px] w-full flex-1 border-0 bg-transparent text-[13px] leading-[1.6] text-[#202124] outline-none",
-                  "empty:before:pointer-events-none empty:before:text-[#9aa0a6] empty:before:content-[attr(data-placeholder)]"
+                  "empty:before:pointer-events-none empty:before:text-[#9aa0a6] empty:before:content-[attr(data-placeholder)]",
                 )}
                 data-placeholder="Write your message..."
                 style={{ fontFamily: selectedFont }}
@@ -712,54 +705,32 @@ export default function EmailEditor({
                   >
                     <Paperclip size={18} />
                   </IconButton>
-                  <IconButton
-                    aria-label="Insert image"
-                    onClick={() => imageInputRef.current?.click()}
-                  >
-                    <ImageSquare size={18} />
-                  </IconButton>
+
                   <IconButton aria-label="Insert link" onClick={insertLink}>
                     <Link size={18} />
                   </IconButton>
+
                   <IconButton
                     aria-label="Emoji"
                     onClick={() => setShowEmojiPicker((prev) => !prev)}
                   >
                     <Smiley size={18} />
                   </IconButton>
+
                   <IconButton aria-label="Signature" onClick={insertSignature}>
                     <Signature size={18} />
                   </IconButton>
-                  <IconButton
-                    aria-label="Confidential mode"
-                    onClick={toggleConfidentialMode}
-                    className={confidentialMode ? "bg-[#f1f3f4] text-[#202124]" : ""}
-                  >
-                    <Lock size={18} />
-                  </IconButton>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <IconButton aria-label="Delete draft" className="mr-1 hidden sm:inline-flex">
-                    <Trash size={18} />
-                  </IconButton>
-                  <button
-                    type="button"
-                    onClick={handleSaveDraft}
-                    className="rounded-full border border-[#dadce0] bg-white px-4 py-2 text-[13px] font-medium text-[#202124] transition hover:bg-[#f8f9fa]"
-                  >
-                    Save draft
-                  </button>
-                  <button
-                    type="button"
-                    disabled={sending || !mailSubject.trim() || !getPlainBody()}
-                    onClick={handleSend}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#202124] px-5 py-2 text-[13px] font-medium text-white transition hover:bg-black disabled:opacity-60"
-                  >
-                    {sending ? "Sending..." : "Sent"}
-                    <PaperPlaneTilt size={14} weight="fill" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={sending || !mailSubject.trim() || !getPlainBody()}
+                  onClick={handleSend}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#202124] px-5 py-2 text-[13px] font-medium text-white transition hover:bg-black disabled:opacity-60"
+                >
+                  {sending ? "Sending..." : "Send"}
+                  <PaperPlaneTilt size={14} weight="fill" />
+                </button>
               </div>
             </div>
           </div>

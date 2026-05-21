@@ -6,7 +6,9 @@ import { get, post } from "@/lib/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/buttonComp";
 import { cn } from "@/lib/utils";
-import EmailEditor, { type EmailEditorAttachment } from "@/components/ui/EmailEditor";
+import EmailEditor, {
+  type EmailEditorPayload,
+} from "@/components/ui/EmailEditor";
 import {
   ArrowLeft,
   Star,
@@ -39,7 +41,14 @@ type BrandThread = {
     _id?: string | null;
     influencerId: string | null;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
     aliasEmail: string;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    avatarUrl?: string | null;
+    image?: string | null;
+    photo?: string | null;
   };
 };
 
@@ -47,8 +56,35 @@ type BrandThreadsResponse = {
   brand: {
     brandId: string;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
+    aliasEmail?: string | null;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    logoUrl?: string | null;
   };
   threads: BrandThread[];
+};
+
+type EmailParticipantProfile = {
+  _id?: string | null;
+  brandId?: string | null;
+  influencerId?: string | null;
+  name: string;
+  email?: string | null;
+  proxyEmail?: string | null;
+  aliasEmail?: string | null;
+  profileImage?: string | null;
+  profilePic?: string | null;
+  logoUrl?: string | null;
+  avatarUrl?: string | null;
+  image?: string | null;
+  photo?: string | null;
+};
+
+type EmailParticipantsResponse = {
+  brand?: EmailParticipantProfile | null;
+  influencer?: EmailParticipantProfile | null;
 };
 
 type ThreadMessage = {
@@ -77,6 +113,63 @@ type ThreadMessagesResponse = {
 };
 
 const EMAIL_API_BASE = "/emails";
+
+function pickAvatar(item?: any) {
+  return (
+    item?.profileImage ||
+    item?.profilePic ||
+    item?.logoUrl ||
+    item?.avatarUrl ||
+    item?.image ||
+    item?.photo ||
+    ""
+  );
+}
+
+function pickProxyMailId(item?: any) {
+  return (
+    item?.proxyMailId ||
+    item?.proxyEmail ||
+    item?.aliasEmail ||
+    item?.displayAlias ||
+    ""
+  );
+}
+
+function pickRealEmail(item?: any) {
+  return item?.email || item?.realEmail || "";
+}
+
+function readStoredBrandProfile() {
+  if (typeof window === "undefined") {
+    return { name: "", email: "", proxyEmail: "", profileImage: "" };
+  }
+
+  const raw = localStorage.getItem("brand") || localStorage.getItem("user");
+
+  if (!raw) {
+    return { name: "", email: "", proxyEmail: "", profileImage: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    return {
+      name: parsed?.brandName || parsed?.name || "",
+      email: parsed?.email || "",
+      proxyEmail: parsed?.proxyEmail || parsed?.aliasEmail || "",
+      profileImage:
+        parsed?.profileImage ||
+        parsed?.profilePic ||
+        parsed?.logoUrl ||
+        parsed?.image ||
+        parsed?.photo ||
+        "",
+    };
+  } catch {
+    return { name: "", email: "", proxyEmail: "", profileImage: "" };
+  }
+}
 
 function getStoredBrandId(): string {
   if (typeof window === "undefined") return "";
@@ -132,7 +225,7 @@ function IconButton({
     <button
       className={cn(
         "inline-flex h-8 w-8 items-center justify-center rounded-md text-[#707070] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]",
-        className
+        className,
       )}
       {...props}
     >
@@ -146,8 +239,7 @@ export default function BrandInboxMailDetailPage() {
   const params = useParams();
   const searchParams = useSearchParams();
 
-  const threadId =
-    typeof params?.threadId === "string" ? params.threadId : "";
+  const threadId = typeof params?.threadId === "string" ? params.threadId : "";
 
   const [loading, setLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
@@ -156,6 +248,8 @@ export default function BrandInboxMailDetailPage() {
   const [brandId, setBrandId] = React.useState("");
   const [thread, setThread] = React.useState<BrandThread | null>(null);
   const [messages, setMessages] = React.useState<ThreadMessage[]>([]);
+  const [participants, setParticipants] =
+    React.useState<EmailParticipantsResponse | null>(null);
   const [showReply, setShowReply] = React.useState(false);
   const [showCompose, setShowCompose] = React.useState(false);
 
@@ -167,7 +261,7 @@ export default function BrandInboxMailDetailPage() {
 
   const currentCampaignId = React.useMemo(
     () => thread?.campaign?._id || searchParams.get("campaignId") || undefined,
-    [thread, searchParams]
+    [thread, searchParams],
   );
 
   const fetchThread = React.useCallback(async () => {
@@ -187,15 +281,15 @@ export default function BrandInboxMailDetailPage() {
       }
 
       setBrandId(storedBrandId);
+      setParticipants((prev) => prev || { brand: readStoredBrandProfile() });
 
       const threadsRes = await get<BrandThreadsResponse>(
-        `${EMAIL_API_BASE}/threads/brand/${storedBrandId}`
+        `${EMAIL_API_BASE}/threads/brand/${storedBrandId}`,
       );
 
-      const foundThread =
-        Array.isArray(threadsRes?.threads)
-          ? threadsRes.threads.find((item) => item.threadId === threadId) || null
-          : null;
+      const foundThread = Array.isArray(threadsRes?.threads)
+        ? threadsRes.threads.find((item) => item.threadId === threadId) || null
+        : null;
 
       if (!foundThread) {
         setError("Conversation not found.");
@@ -207,15 +301,26 @@ export default function BrandInboxMailDetailPage() {
       setThread(foundThread);
 
       const messagesRes = await get<ThreadMessagesResponse>(
-        `${EMAIL_API_BASE}/messages/${threadId}`
+        `${EMAIL_API_BASE}/messages/${threadId}`,
       );
 
-      setMessages(Array.isArray(messagesRes?.messages) ? messagesRes.messages : []);
+      setMessages(
+        Array.isArray(messagesRes?.messages) ? messagesRes.messages : [],
+      );
+
+      try {
+        const participantsRes = await get<EmailParticipantsResponse>(
+          `${EMAIL_API_BASE}/participants?threadId=${encodeURIComponent(threadId)}`,
+        );
+        setParticipants(participantsRes || null);
+      } catch {
+        setParticipants((prev) => prev || null);
+      }
     } catch (err: any) {
       setError(
         err?.response?.data?.error ||
           err?.message ||
-          "Failed to load conversation"
+          "Failed to load conversation",
       );
       setThread(null);
       setMessages([]);
@@ -236,11 +341,38 @@ export default function BrandInboxMailDetailPage() {
   const influencerId =
     thread?.influencer?._id || thread?.influencer?.influencerId || "";
 
-  const handleSendReply = async (payload: {
-    subject: string;
-    body: string;
-    attachments: EmailEditorAttachment[];
-  }) => {
+  const brandParticipant = participants?.brand;
+  const influencerParticipant = participants?.influencer || thread?.influencer;
+
+  const latestBrandMessage = React.useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((item) => item.direction === "brand_to_influencer"),
+    [messages],
+  );
+
+  const latestInfluencerMessage = React.useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find((item) => item.direction === "influencer_to_brand"),
+    [messages],
+  );
+
+  const brandProxyMailId =
+    pickProxyMailId(brandParticipant) ||
+    latestBrandMessage?.fromProxyEmail ||
+    latestBrandMessage?.fromAliasEmail ||
+    "";
+
+  const influencerProxyMailId =
+    pickProxyMailId(influencerParticipant) ||
+    latestInfluencerMessage?.fromProxyEmail ||
+    latestBrandMessage?.toProxyEmail ||
+    "";
+
+  const handleSendReply = async (payload: EmailEditorPayload) => {
     if (!influencerId) {
       throw new Error("Influencer ID missing for this conversation");
     }
@@ -255,6 +387,7 @@ export default function BrandInboxMailDetailPage() {
         campaignId: currentCampaignId,
         subject: payload.subject,
         body: payload.body,
+        htmlBody: payload.htmlBody,
         attachments: payload.attachments,
       });
 
@@ -262,9 +395,7 @@ export default function BrandInboxMailDetailPage() {
       await fetchThread();
     } catch (err: any) {
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to send reply"
+        err?.response?.data?.error || err?.message || "Failed to send reply",
       );
       throw err;
     } finally {
@@ -272,11 +403,7 @@ export default function BrandInboxMailDetailPage() {
     }
   };
 
-  const handleSendCompose = async (payload: {
-    subject: string;
-    body: string;
-    attachments: EmailEditorAttachment[];
-  }) => {
+  const handleSendCompose = async (payload: EmailEditorPayload) => {
     if (!influencerId) {
       throw new Error("Influencer ID missing for this conversation");
     }
@@ -291,6 +418,7 @@ export default function BrandInboxMailDetailPage() {
         campaignId: currentCampaignId,
         subject: payload.subject,
         body: payload.body,
+        htmlBody: payload.htmlBody,
         attachments: payload.attachments,
       });
 
@@ -298,9 +426,7 @@ export default function BrandInboxMailDetailPage() {
       await fetchThread();
     } catch (err: any) {
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to send message"
+        err?.response?.data?.error || err?.message || "Failed to send message",
       );
       throw err;
     } finally {
@@ -320,7 +446,7 @@ export default function BrandInboxMailDetailPage() {
                     currentCampaignId
                       ? `?campaignId=${encodeURIComponent(currentCampaignId)}`
                       : ""
-                  }`
+                  }`,
                 )
               }
               className="inline-flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium text-[#7B7B7B] transition-colors hover:bg-[#F3F4F6] hover:text-[#111111]"
@@ -347,7 +473,9 @@ export default function BrandInboxMailDetailPage() {
 
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1 text-[12px] text-[#A1A1A1]">
-              <span>{messages.length === 0 ? "0" : `1-${messages.length}`}</span>
+              <span>
+                {messages.length === 0 ? "0" : `1-${messages.length}`}
+              </span>
               <span>of</span>
               <span>{messages.length}</span>
               <IconButton aria-label="Previous">
@@ -388,7 +516,10 @@ export default function BrandInboxMailDetailPage() {
                 <div className="mb-7 flex items-start justify-between gap-4">
                   <div className="flex items-start gap-3">
                     <Avatar className="h-11 w-11 border border-[#ECECEC]">
-                      <AvatarImage src="" alt={thread.influencer.name} />
+                      <AvatarImage
+                        src={pickAvatar(influencerParticipant)}
+                        alt={thread.influencer.name}
+                      />
                       <AvatarFallback className="bg-[#111111] text-base font-semibold text-white">
                         {getFallback(thread.influencer.name || "Influencer")}
                       </AvatarFallback>
@@ -425,9 +556,13 @@ export default function BrandInboxMailDetailPage() {
                     </p>
                   ) : (
                     messages.map((message) => {
-                      const isBrand = message.direction === "brand_to_influencer";
-                      const displayName = isBrand ? "You" : thread.influencer.name || "Influencer";
-                      const displayAlias = message.fromAliasEmail || message.fromProxyEmail || "";
+                      const isBrand =
+                        message.direction === "brand_to_influencer";
+                      const displayName = isBrand
+                        ? "You"
+                        : thread.influencer.name || "Influencer";
+                      const displayAlias =
+                        message.fromAliasEmail || message.fromProxyEmail || "";
 
                       return (
                         <div
@@ -448,7 +583,7 @@ export default function BrandInboxMailDetailPage() {
                               {formatMailDate(
                                 message.sentAt ||
                                   message.receivedAt ||
-                                  message.createdAt
+                                  message.createdAt,
                               )}
                             </div>
                           </div>
@@ -499,7 +634,19 @@ export default function BrandInboxMailDetailPage() {
                     <EmailEditor
                       open={showReply}
                       onClose={() => setShowReply(false)}
-                      toLabel={thread.influencer.aliasEmail || thread.influencer.name}
+                      fromName={brandParticipant?.name || "You"}
+                      fromEmail={pickRealEmail(brandParticipant)}
+                      fromAvatar={pickAvatar(brandParticipant)}
+                      fromProxyMailId={brandProxyMailId}
+                      toName={thread.influencer.name || "Influencer"}
+                      toEmail={pickRealEmail(influencerParticipant)}
+                      toAvatar={pickAvatar(influencerParticipant)}
+                      toProxyMailId={influencerProxyMailId}
+                      toLabel={
+                        influencerProxyMailId ||
+                        thread.influencer.aliasEmail ||
+                        thread.influencer.name
+                      }
                       subject={replySubject}
                       initialBody=""
                       sending={sending}
@@ -517,7 +664,19 @@ export default function BrandInboxMailDetailPage() {
         <EmailEditor
           open={showCompose}
           onClose={() => setShowCompose(false)}
-          toLabel={thread.influencer.aliasEmail || thread.influencer.name}
+          fromName={brandParticipant?.name || "You"}
+          fromEmail={pickRealEmail(brandParticipant)}
+          fromAvatar={pickAvatar(brandParticipant)}
+          fromProxyMailId={brandProxyMailId}
+          toName={thread.influencer.name || "Influencer"}
+          toEmail={pickRealEmail(influencerParticipant)}
+          toAvatar={pickAvatar(influencerParticipant)}
+          toProxyMailId={influencerProxyMailId}
+          toLabel={
+            influencerProxyMailId ||
+            thread.influencer.aliasEmail ||
+            thread.influencer.name
+          }
           subject=""
           initialBody=""
           sending={sending}
