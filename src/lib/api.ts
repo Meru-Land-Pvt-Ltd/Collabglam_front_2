@@ -297,9 +297,9 @@ adminApi.interceptors.request.use(attachAuthPrimary);
 const onResponseErrorPrimary = (err: any) => {
   const status = err?.response?.status;
 
-  if (shouldForceLogout(status) && !isAuthRoute()) {
-    forceLogout();
-  }
+  // if (shouldForceLogout(status) && !isAuthRoute()) {
+  //   forceLogout();
+  // }
 
   return Promise.reject(err);
 };
@@ -309,9 +309,9 @@ const onResponseErrorSecondary = (err: any) => Promise.reject(err);
 const onResponseErrorAdmin = (err: any) => {
   const status = err?.response?.status;
 
-  if (shouldForceLogout(status) && !isAuthRoute()) {
-    forceLogout();
-  }
+  // if (shouldForceLogout(status) && !isAuthRoute()) {
+  //   forceLogout();
+  // }
 
   return Promise.reject(err);
 };
