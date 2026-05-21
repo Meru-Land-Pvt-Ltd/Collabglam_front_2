@@ -46,6 +46,7 @@ import {
   Wallet,
   X,
   FolderSimpleStarIcon,
+  ChartLineUp,
 } from "@phosphor-icons/react";
 
 /* -------------------------------- routing -------------------------------- */
@@ -60,9 +61,10 @@ const ROUTES: Record<string, string> = {
   campaigns_active: "/brand/campaign/active",
   campaigns_draft: "/brand/campaign/draft",
   campaigns_scheduled: "/brand/campaign/scheduled-campaign",
-  hub:"/brand/creator-hub",
+  hub: "/brand/creator-hub",
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
+  insight_os: "/brand/insight-os",
   wallet: "",
   invite_user: "",
   notification: "/brand/notifications",
@@ -574,6 +576,12 @@ export default function BrandSidebar({
         key: "inbox",
         label: "Inbox",
         icon: PaperPlaneTilt,
+        section: "overview",
+      },
+      {
+        key: "insight_os",
+        label: "Insight OS",
+        icon: ChartLineUp,
         section: "overview",
       },
       {

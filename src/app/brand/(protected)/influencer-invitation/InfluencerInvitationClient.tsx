@@ -1,0 +1,1235 @@
+"use client";
+
+import React from "react";
+import { Button } from "@/components/ui/buttonComp";
+import { useRouter, useSearchParams } from "next/navigation";
+import Confetti from "@/components/ui/ConfettiUi";
+import api, { post, getApiErrorMessage } from "@/lib/api";
+import { toast } from "@/components/ui/toast";
+import { DetailPanel } from "@/app/brand/(protected)/browse-influencer/DetailPanel";
+
+const COLORS = ["#FFBF00", "#5E412B", "#F57F17", "#F7E152", "#FEF55B"];
+
+type Tier = {
+  key?: string;
+  label?: string;
+};
+
+type Creator = {
+  _id?: string;
+  ids?: {
+    modashId?: string;
+    userId?: string | null;
+  };
+  name?: string;
+  fullname?: string;
+  username?: string;
+  handle?: string;
+  platform?: string;
+  bio?: string;
+  provider?: string;
+  followers?: number;
+  tier?: Tier;
+  categories?: string[];
+  picture?: string;
+  url?: string;
+  urls?: {
+    url?: string;
+  };
+  isVerified?: boolean;
+  isPrivate?: boolean;
+  stats?: {
+    engagementRate?: number;
+    engagements?: number;
+    averageViews?: number;
+  };
+  location?: {
+    country?: string;
+    state?: string | null;
+    city?: string | null;
+  };
+  aiScore?: number;
+  rawAiScore?: number;
+  recommendationReason?: string;
+};
+
+type Invitation = {
+  _id?: string;
+  invitationId?: string;
+  brandId?: string | null;
+  campaignId?: string | null;
+  handle?: string | null;
+  platform?: string | null;
+  modashUserId?: string | null;
+  status?: string | null;
+};
+
+type RecommendedCreatorsResponse =
+  | Creator[]
+  | {
+      results?: Creator[];
+    };
+
+type InvitationListResponse = {
+  status?: string;
+  page?: number;
+  limit?: number;
+  total?: number;
+  hasNext?: boolean;
+  data?: Invitation[];
+  invitations?: Invitation[];
+};
+
+type ModashReportResponse = {
+  error?: boolean;
+  profile?: any;
+  audience?: any;
+  stats?: any;
+  recentPosts?: any[];
+  popularPosts?: any[];
+  sponsoredPosts?: any[];
+  bio?: string;
+  country?: string | null;
+  city?: string | null;
+  state?: string | null;
+  avgLikes?: number;
+  avgComments?: number;
+  avgViews?: number;
+  avgReelsPlays?: number;
+  averageViews?: number;
+  postsCount?: number;
+  postsCounts?: number;
+  _lastFetchedAt?: string;
+  [key: string]: any;
+};
+
+type ReportCalculationMethod = "median" | "average";
+
+type ReportDrawerState = {
+  open: boolean;
+  creator: Creator | null;
+  loading: boolean;
+  error: string | null;
+  data: ModashReportResponse | null;
+  raw: ModashReportResponse | null;
+  lastFetchedAt: string | null;
+  calculationMethod: ReportCalculationMethod;
+};
+
+type NavigateTarget = "next" | "dashboard";
+
+function formatCompact(n?: number) {
+  if (typeof n !== "number" || Number.isNaN(n)) return "—";
+
+  return new Intl.NumberFormat("en", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(n);
+}
+
+function normalizeHandle(h?: string | null) {
+  if (!h) return "";
+
+  const trimmed = String(h).trim();
+  if (!trimmed) return "";
+
+  return trimmed.startsWith("@")
+    ? trimmed.toLowerCase()
+    : `@${trimmed.toLowerCase()}`;
+}
+
+function normalizePlatform(platform?: string | null) {
+  const p = String(platform || "").trim().toLowerCase();
+
+  if (p === "yt") return "youtube";
+  if (p === "ig") return "instagram";
+  if (p === "tt") return "tiktok";
+
+  return p;
+}
+
+function getCreatorName(c: Creator) {
+  return c.name || c.fullname || c.username || c.handle || "Unknown Creator";
+}
+
+function getCreatorHandle(c: Creator) {
+  return normalizeHandle(c.handle || c.username);
+}
+
+function getCreatorPlatform(c: Creator) {
+  return normalizePlatform(c.platform || c.provider);
+}
+
+function getCreatorModashId(c: Creator) {
+  return c.ids?.modashId || c.ids?.userId || c._id || "";
+}
+
+function getCreatorAiScore(c: Creator) {
+  if (typeof c.aiScore !== "number" || Number.isNaN(c.aiScore)) return null;
+
+  return Math.max(0, Math.min(100, Math.round(c.aiScore)));
+}
+
+function getRecommendedCreators(data: RecommendedCreatorsResponse): Creator[] {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.results)) return data.results;
+  return [];
+}
+
+function getExistingInvitations(data: InvitationListResponse): Invitation[] {
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.invitations)) return data.invitations;
+  return [];
+}
+
+function getCreatorBio(c: Creator) {
+  return String(c.bio || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function rowId(c: Creator, index: number) {
+  const modashId = getCreatorModashId(c);
+  const platform = getCreatorPlatform(c);
+  const handle = getCreatorHandle(c);
+
+  if (modashId && platform) return `modash:${platform}:${modashId}`;
+  if (handle && platform) return `handle:${platform}:${handle}`;
+
+  return `${index}`;
+}
+
+function invitationKey(inv: Invitation) {
+  const modashId = String(inv.modashUserId || "").trim();
+  const platform = normalizePlatform(inv.platform);
+  const handle = normalizeHandle(inv.handle);
+
+  if (modashId && platform) return `modash:${platform}:${modashId}`;
+  if (handle && platform) return `handle:${platform}:${handle}`;
+
+  return "";
+}
+
+function creatorKeysForMatching(c: Creator, index: number) {
+  const keys = new Set<string>();
+
+  const modashId = getCreatorModashId(c);
+  const platform = getCreatorPlatform(c);
+  const handle = getCreatorHandle(c);
+
+  if (modashId && platform) keys.add(`modash:${platform}:${modashId}`);
+  if (handle && platform) keys.add(`handle:${platform}:${handle}`);
+
+  keys.add(rowId(c, index));
+
+  return keys;
+}
+
+function isCreatorSelected(
+  selected: Set<string>,
+  creator: Creator,
+  index: number
+) {
+  const keys = creatorKeysForMatching(creator, index);
+
+  for (const key of keys) {
+    if (selected.has(key)) return true;
+  }
+
+  return false;
+}
+
+function isCreatorAlreadyInvited(
+  alreadyInvited: Set<string>,
+  creator: Creator,
+  index: number
+) {
+  const keys = creatorKeysForMatching(creator, index);
+
+  for (const key of keys) {
+    if (alreadyInvited.has(key)) return true;
+  }
+
+  return false;
+}
+
+function isInvitationActive(inv: Invitation) {
+  const status = String(inv.status || "").toLowerCase();
+  return status === "invited";
+}
+
+function buildInvitationEmailTemplate(c: Creator) {
+  const name = getCreatorName(c);
+  const aiScore = getCreatorAiScore(c);
+
+  return {
+    subject: "You’re invited to a CollabGlam campaign",
+    textBody: `Hi ${name},
+
+We found your profile to be a strong match for one of our brand campaigns on CollabGlam.
+
+${
+  aiScore !== null
+    ? `Your campaign match score is ${aiScore}%.`
+    : "Your profile looks like a strong match for this campaign."
+}
+
+We would love to invite you to collaborate.
+
+Team CollabGlam`,
+    htmlBody: `
+      <p>Hi ${name},</p>
+      <p>We found your profile to be a strong match for one of our brand campaigns on CollabGlam.</p>
+      ${
+        aiScore !== null
+          ? `<p><strong>Your campaign match score is ${aiScore}%.</strong></p>`
+          : `<p><strong>Your profile looks like a strong match for this campaign.</strong></p>`
+      }
+      <p>We would love to invite you to collaborate.</p>
+      <p>Team CollabGlam</p>
+    `,
+  };
+}
+
+function getStoredBrandMongoId() {
+  if (typeof window === "undefined") return "";
+
+  return (
+    window.localStorage.getItem("brandId") ||
+    window.localStorage.getItem("currentBrandId") ||
+    ""
+  );
+}
+
+function AiScoreSparkleIcon() {
+  const gradientId = React.useId().replace(/:/g, "");
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      viewBox="0 0 13 13"
+      fill="none"
+      className="shrink-0"
+      aria-hidden="true"
+    >
+      <path
+        d="M10.5022 7.4375C10.5033 7.61588 10.4491 7.79022 10.3471 7.93654C10.245 8.08285 10.1002 8.19394 9.93238 8.25453L7.1116 9.29688L6.07254 12.1198C6.011 12.287 5.89968 12.4313 5.75358 12.5332C5.60748 12.6351 5.43363 12.6897 5.2555 12.6897C5.07738 12.6897 4.90353 12.6351 4.75743 12.5332C4.61133 12.4313 4.50001 12.287 4.43847 12.1198L3.39285 9.29688L0.569879 8.25781C0.402716 8.19628 0.258449 8.08495 0.156544 7.93885C0.0546386 7.79275 0 7.61891 0 7.44078C0 7.26265 0.0546386 7.08881 0.156544 6.94271C0.258449 6.79661 0.402716 6.68528 0.569879 6.62375L3.39285 5.57812L4.43191 2.75516C4.49344 2.58799 4.60477 2.44373 4.75087 2.34182C4.89697 2.23992 5.07081 2.18528 5.24894 2.18528C5.42707 2.18528 5.60091 2.23992 5.74701 2.34182C5.89311 2.44373 6.00444 2.58799 6.06597 2.75516L7.1116 5.57812L9.93457 6.61719C10.1025 6.67832 10.2473 6.79007 10.3489 6.93701C10.4506 7.08395 10.5042 7.25882 10.5022 7.4375ZM7.43972 2.1875H8.31472V3.0625C8.31472 3.17853 8.36082 3.28981 8.44286 3.37186C8.52491 3.45391 8.63619 3.5 8.75222 3.5C8.86826 3.5 8.97954 3.45391 9.06158 3.37186C9.14363 3.28981 9.18972 3.17853 9.18972 3.0625V2.1875H10.0647C10.1808 2.1875 10.292 2.14141 10.3741 2.05936C10.4561 1.97731 10.5022 1.86603 10.5022 1.75C10.5022 1.63397 10.4561 1.52269 10.3741 1.44064C10.292 1.35859 10.1808 1.3125 10.0647 1.3125H9.18972V0.4375C9.18972 0.321468 9.14363 0.210188 9.06158 0.128141C8.97954 0.0460936 8.86826 0 8.75222 0C8.63619 0 8.52491 0.0460936 8.44286 0.128141C8.36082 0.210188 8.31472 0.321468 8.31472 0.4375V1.3125H7.43972C7.32369 1.3125 7.21241 1.35859 7.13036 1.44064C7.04832 1.52269 7.00222 1.63397 7.00222 1.75C7.00222 1.86603 7.04832 1.97731 7.13036 2.05936C7.21241 2.14141 7.32369 2.1875 7.43972 2.1875ZM12.2522 3.9375H11.8147V3.5C11.8147 3.38397 11.7686 3.27269 11.6866 3.19064C11.6045 3.10859 11.4933 3.0625 11.3772 3.0625C11.2612 3.0625 11.1499 3.10859 11.0679 3.19064C10.9858 3.27269 10.9397 3.38397 10.9397 3.5V3.9375H10.5022C10.3862 3.9375 10.2749 3.98359 10.1929 4.06564C10.1108 4.14769 10.0647 4.25897 10.0647 4.375C10.0647 4.49103 10.1108 4.60231 10.1929 4.68436C10.2749 4.76641 10.3862 4.8125 10.5022 4.8125H10.9397V5.25C10.9397 5.36603 10.9858 5.47731 11.0679 5.55936C11.1499 5.64141 11.2612 5.6875 11.3772 5.6875C11.4933 5.6875 11.6045 5.64141 11.6866 5.55936C11.7686 5.47731 11.8147 5.36603 11.8147 5.25V4.8125H12.2522C12.3683 4.8125 12.4795 4.76641 12.5616 4.68436C12.6436 4.60231 12.6897 4.49103 12.6897 4.375C12.6897 4.25897 12.6436 4.14769 12.5616 4.06564C12.4795 3.98359 12.3683 3.9375 12.2522 3.9375Z"
+        fill={`url(#${gradientId})`}
+      />
+      <defs>
+        <linearGradient
+          id={gradientId}
+          x1="-0.765759"
+          y1="-1.05748"
+          x2="13.2693"
+          y2="6.12811"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="white" />
+          <stop offset="0.129808" stopColor="#FAFAFA" />
+          <stop offset="0.379808" stopColor="#FFBF00" stopOpacity="0.83" />
+          <stop offset="0.51676" stopColor="#F6BB2A" />
+          <stop offset="0.810379" stopColor="#F3584E" />
+          <stop offset="1" stopColor="#E078D1" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
+function normalizeReportPlatform(
+  platform?: string | null
+): "instagram" | "tiktok" | "youtube" {
+  const p = normalizePlatform(platform);
+
+  if (p === "instagram" || p === "tiktok" || p === "youtube") {
+    return p;
+  }
+
+  return "instagram";
+}
+
+function getCreatorReportHandle(creator?: Creator | null) {
+  if (!creator) return null;
+
+  const handle = getCreatorHandle(creator);
+  if (handle) return handle;
+
+  const username = String(creator.username || creator.handle || "")
+    .replace(/^@/, "")
+    .trim();
+
+  return username ? `@${username}` : null;
+}
+
+function getReportLastFetchedAt(data?: ModashReportResponse | null) {
+  const value =
+    data?._lastFetchedAt ||
+    data?.lastFetchedAt ||
+    data?.updatedAt ||
+    data?.createdAt ||
+    null;
+
+  return value ? String(value) : null;
+}
+
+function ModashReportSideModal({
+  drawer,
+  onClose,
+  onRefresh,
+  onChangeCalc,
+}: {
+  drawer: ReportDrawerState;
+  onClose: () => void;
+  onRefresh: () => void;
+  onChangeCalc: (calc: ReportCalculationMethod) => void;
+}) {
+  const creator = drawer.creator;
+  const platform = normalizeReportPlatform(
+    getCreatorPlatform(creator || {}) || drawer.data?.provider
+  );
+  const handle = getCreatorReportHandle(creator);
+
+  return (
+    <DetailPanel
+      open={drawer.open}
+      onClose={onClose}
+      loading={drawer.loading}
+      error={drawer.error}
+      data={(drawer.data as any) || null}
+      raw={drawer.raw || drawer.data}
+      platform={platform as any}
+      emailExists={null}
+      onChangeCalc={onChangeCalc}
+      brandId={getStoredBrandMongoId()}
+      handle={handle}
+      lastFetchedAt={drawer.lastFetchedAt}
+      onRefreshReport={onRefresh}
+      connectedProfiles={[]}
+    />
+  );
+}
+
+export default function InfluencerInvitationPage() {
+  const [mounted, setMounted] = React.useState(false);
+  const [showConfetti, setShowConfetti] = React.useState(false);
+
+  const [creators, setCreators] = React.useState<Creator[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [alreadyInvited, setAlreadyInvited] = React.useState<Set<string>>(
+    new Set()
+  );
+  const [sending, setSending] = React.useState<Set<string>>(new Set());
+  const [bulkCreating, setBulkCreating] = React.useState(false);
+
+  const [reportCalculationMethod, setReportCalculationMethod] =
+    React.useState<ReportCalculationMethod>("average");
+
+  const [reportDrawer, setReportDrawer] = React.useState<ReportDrawerState>({
+    open: false,
+    creator: null,
+    loading: false,
+    error: null,
+    data: null,
+    raw: null,
+    lastFetchedAt: null,
+    calculationMethod: "average",
+  });
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const campaignId = searchParams.get("campaignId");
+  const q = searchParams.get("q");
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  React.useEffect(() => {
+    if (!mounted) return;
+
+    setShowConfetti(true);
+
+    const timer = setTimeout(() => {
+      setShowConfetti(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [mounted]);
+
+  const fetchExistingInvitations = React.useCallback(
+    async (brandId: string, currentCampaignId: string) => {
+      const data = await post<InvitationListResponse>("/newinvitations/list", {
+        brandId,
+        campaignId: currentCampaignId,
+        status: "invited",
+        page: 1,
+        limit: 200,
+      });
+
+      const existing = getExistingInvitations(data);
+      const existingKeys = new Set<string>();
+
+      existing.forEach((inv) => {
+        if (!isInvitationActive(inv)) return;
+
+        const key = invitationKey(inv);
+        if (key) existingKeys.add(key);
+      });
+
+      return existingKeys;
+    },
+    []
+  );
+
+  const fetchCreators = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const brandId = getStoredBrandMongoId();
+
+      if (!brandId || !campaignId) {
+        throw new Error("Missing brand _id or campaign _id");
+      }
+
+      const [recommendedData, existingKeys] = await Promise.all([
+        post<RecommendedCreatorsResponse>("/modash/recommended-by-campaign", {
+          brandId,
+          campaignId,
+          limit: 15,
+        }),
+        fetchExistingInvitations(brandId, campaignId),
+      ]);
+
+      const list = getRecommendedCreators(recommendedData);
+      const defaultSelected = new Set<string>();
+
+      list.forEach((creator, index) => {
+        creatorKeysForMatching(creator, index).forEach((key) => {
+          defaultSelected.add(key);
+        });
+      });
+
+      setCreators(list);
+      setAlreadyInvited(existingKeys);
+      setSelected(defaultSelected);
+      setSending(new Set());
+    } catch (e: any) {
+      const message = await getApiErrorMessage(e, "Failed to load creators");
+
+      setError(message);
+      setCreators([]);
+      setAlreadyInvited(new Set());
+      setSelected(new Set());
+      setSending(new Set());
+
+      toast({
+        icon: "error",
+        title: "Unable to load creators",
+        text: message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [campaignId, fetchExistingInvitations]);
+
+  React.useEffect(() => {
+    fetchCreators();
+  }, [fetchCreators]);
+
+  const createInvitationForCreator = React.useCallback(
+    async (
+      creator: Creator,
+      index: number,
+      brandId: string,
+      currentCampaignId: string
+    ) => {
+      const handle = getCreatorHandle(creator);
+      const platform = getCreatorPlatform(creator);
+
+      if (!handle) {
+        throw new Error(`${getCreatorName(creator)} handle is missing`);
+      }
+
+      if (!platform) {
+        throw new Error(`${getCreatorName(creator)} platform is missing`);
+      }
+
+      await post("/newinvitations/create", {
+        brandId,
+        campaignId: currentCampaignId,
+        handle,
+        platform,
+        status: "invited",
+        modashUserId: getCreatorModashId(creator) || undefined,
+        aiScore: getCreatorAiScore(creator),
+        rawAiScore:
+          typeof creator.rawAiScore === "number"
+            ? creator.rawAiScore
+            : undefined,
+        recommendationReason: creator.recommendationReason || "",
+        emailTemplate: buildInvitationEmailTemplate(creator),
+      });
+
+      return creatorKeysForMatching(creator, index);
+    },
+    []
+  );
+
+  const fetchModashReport = React.useCallback(
+    async (
+      creator: Creator,
+      calculationMethod: ReportCalculationMethod,
+      forceRefresh = false
+    ) => {
+      const brandId = getStoredBrandMongoId();
+      const adminId =
+        typeof window !== "undefined"
+          ? String(window.localStorage.getItem("adminId") || "").trim()
+          : "";
+
+      const userId = getCreatorModashId(creator);
+      const platform = getCreatorPlatform(creator);
+      const handle = getCreatorHandle(creator).replace(/^@/, "");
+
+      if (!brandId && !adminId) {
+        throw new Error("Missing brand/admin id");
+      }
+
+      if (!userId) {
+        throw new Error("Creator Modash userId is missing");
+      }
+
+      if (!platform) {
+        throw new Error("Creator platform is missing");
+      }
+
+      const response = await api.get<ModashReportResponse>("/modash/report", {
+        params: {
+          userId,
+          platform,
+          calculationMethod,
+          handle,
+          username: handle,
+          ...(brandId ? { brandId } : {}),
+          ...(adminId && !brandId
+            ? {
+                adminId,
+                role: "admin",
+              }
+            : {}),
+          ...(forceRefresh
+            ? {
+                refresh: "1",
+                force: "1",
+              }
+            : {}),
+        },
+      });
+
+      return response.data;
+    },
+    []
+  );
+
+  const openReportForCreator = React.useCallback(
+    async (
+      creator: Creator,
+      calculationMethod: ReportCalculationMethod = reportCalculationMethod,
+      forceRefresh = false
+    ) => {
+      setReportDrawer({
+        open: true,
+        creator,
+        loading: true,
+        error: null,
+        data: null,
+        raw: null,
+        lastFetchedAt: null,
+        calculationMethod,
+      });
+
+      try {
+        const data = await fetchModashReport(
+          creator,
+          calculationMethod,
+          forceRefresh
+        );
+
+        setReportDrawer({
+          open: true,
+          creator,
+          loading: false,
+          error: null,
+          data,
+          raw: data,
+          lastFetchedAt: getReportLastFetchedAt(data),
+          calculationMethod,
+        });
+      } catch (err: any) {
+        const message = await getApiErrorMessage(
+          err,
+          "Failed to load full Modash report"
+        );
+
+        setReportDrawer({
+          open: true,
+          creator,
+          loading: false,
+          error: message,
+          data: null,
+          raw: null,
+          lastFetchedAt: null,
+          calculationMethod,
+        });
+
+        toast({
+          icon: "error",
+          title: "Report unavailable",
+          text: message,
+        });
+      }
+    },
+    [fetchModashReport, reportCalculationMethod]
+  );
+
+  const closeReportDrawer = React.useCallback(() => {
+    setReportDrawer((prev) => ({
+      ...prev,
+      open: false,
+    }));
+  }, []);
+
+  const refreshCurrentReport = React.useCallback(() => {
+    if (!reportDrawer.creator) return;
+
+    void openReportForCreator(
+      reportDrawer.creator,
+      reportDrawer.calculationMethod,
+      true
+    );
+  }, [
+    openReportForCreator,
+    reportDrawer.creator,
+    reportDrawer.calculationMethod,
+  ]);
+
+  const handleReportCalcChange = React.useCallback(
+    (calc: ReportCalculationMethod) => {
+      setReportCalculationMethod(calc);
+
+      if (!reportDrawer.creator) return;
+
+      void openReportForCreator(reportDrawer.creator, calc, false);
+    },
+    [openReportForCreator, reportDrawer.creator]
+  );
+
+  const getNavigateHref = React.useCallback(
+    (target: NavigateTarget) => {
+      if (target === "dashboard") return "/brand/dashboard";
+      if (q) return `/brand/campaign/${q}`;
+      return "/brand/dashboard";
+    },
+    [q]
+  );
+
+  const toggleCreatorSelection = React.useCallback(
+    (creator: Creator, index: number) => {
+      if (bulkCreating) return;
+
+      const keys = creatorKeysForMatching(creator, index);
+      const currentlySelected = isCreatorSelected(selected, creator, index);
+
+      setSelected((prev) => {
+        const next = new Set(prev);
+
+        keys.forEach((key) => {
+          if (currentlySelected) {
+            next.delete(key);
+          } else {
+            next.add(key);
+          }
+        });
+
+        return next;
+      });
+    },
+    [bulkCreating, selected]
+  );
+
+  const handleCreateSelectedAndNavigate = async (target: NavigateTarget) => {
+    if (loading || bulkCreating) return;
+
+    const href = getNavigateHref(target);
+
+    if (target === "dashboard") {
+      router.replace(href);
+      return;
+    }
+
+    try {
+      const brandId = getStoredBrandMongoId();
+      const currentCampaignId = searchParams.get("campaignId");
+
+      if (!brandId || !currentCampaignId) {
+        throw new Error("Missing brand _id or campaign _id");
+      }
+
+      const selectedCreators = creators
+        .map((creator, index) => ({
+          creator,
+          index,
+          id: rowId(creator, index),
+        }))
+        .filter(({ creator, index }) => {
+          return isCreatorSelected(selected, creator, index);
+        });
+
+      if (!selectedCreators.length) {
+        toast({
+          icon: "error",
+          title: "No creators selected",
+          text: "Please select at least one creator before continuing.",
+        });
+
+        return;
+      }
+
+      const pendingCreators = selectedCreators.filter(({ creator, index }) => {
+        return !isCreatorAlreadyInvited(alreadyInvited, creator, index);
+      });
+
+      if (!pendingCreators.length) {
+        router.replace(href);
+        return;
+      }
+
+      setBulkCreating(true);
+      setError(null);
+
+      setSending((prev) => {
+        const next = new Set(prev);
+
+        pendingCreators.forEach(({ id }) => {
+          next.add(id);
+        });
+
+        return next;
+      });
+
+      const results = await Promise.allSettled(
+        pendingCreators.map(async ({ creator, index }) => {
+          const keys = await createInvitationForCreator(
+            creator,
+            index,
+            brandId,
+            currentCampaignId
+          );
+
+          return {
+            creator,
+            index,
+            keys,
+          };
+        })
+      );
+
+      const succeeded = results.filter(
+        (
+          result
+        ): result is PromiseFulfilledResult<{
+          creator: Creator;
+          index: number;
+          keys: Set<string>;
+        }> => result.status === "fulfilled"
+      );
+
+      const failed = results.filter((result) => result.status === "rejected");
+
+      if (succeeded.length) {
+        setAlreadyInvited((prev) => {
+          const next = new Set(prev);
+
+          succeeded.forEach(({ value }) => {
+            value.keys.forEach((key) => {
+              next.add(key);
+            });
+          });
+
+          return next;
+        });
+
+        setSelected((prev) => {
+          const next = new Set(prev);
+
+          succeeded.forEach(({ value }) => {
+            value.keys.forEach((key) => {
+              next.add(key);
+            });
+          });
+
+          return next;
+        });
+      }
+
+      if (failed.length) {
+        const message = `${failed.length} invitation${
+          failed.length > 1 ? "s" : ""
+        } failed. Please try again.`;
+
+        setError(message);
+
+        toast({
+          icon: "error",
+          title: "Some invitations failed",
+          text: message,
+        });
+
+        return;
+      }
+
+      setShowConfetti(true);
+
+      window.setTimeout(() => {
+        setShowConfetti(false);
+      }, 2500);
+
+      toast({
+        icon: "success",
+        title: "Invitations sent",
+        text: `${succeeded.length} creator${
+          succeeded.length > 1 ? "s have" : " has"
+        } been invited.`,
+      });
+
+      router.replace(href);
+    } catch (err: any) {
+      const message = await getApiErrorMessage(
+        err,
+        "Failed to create invitations"
+      );
+
+      setError(message);
+
+      toast({
+        icon: "error",
+        title: "Unable to continue",
+        text: message,
+      });
+    } finally {
+      setBulkCreating(false);
+
+      setSending((prev) => {
+        const next = new Set(prev);
+
+        creators.forEach((creator, index) => {
+          next.delete(rowId(creator, index));
+        });
+
+        return next;
+      });
+    }
+  };
+
+  const total = creators.length;
+
+  const selectedCount = creators.reduce((count, creator, index) => {
+    return isCreatorSelected(selected, creator, index) ? count + 1 : count;
+  }, 0);
+
+  const isAllSelected = total > 0 && selectedCount === total;
+
+  const isAnySending = sending.size > 0;
+  const footerDisabled = loading || bulkCreating || isAnySending;
+  const inviteButtonLabel = isAllSelected ? "Invite All" : "Invite selected";
+
+  return (
+    <div className="relative flex h-dvh w-screen flex-col overflow-hidden bg-white">
+      <style jsx global>{`
+        @keyframes creatorRowIn {
+          0% {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .creator-row-animate {
+          animation: creatorRowIn 320ms ease both;
+        }
+      `}</style>
+
+      <div
+        className="pointer-events-none absolute inset-x-0 top-0 h-[500px]"
+        style={{
+          background:
+            "radial-gradient(279.1% 260.1% at 50% -199.66%, rgba(255, 140, 1, 0.62) 61.31%, rgba(255, 191, 0, 0.54) 72.42%, rgba(255, 255, 255, 0.42) 94.53%)",
+          maskImage:
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.78) 54%, rgba(0,0,0,0) 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.78) 54%, rgba(0,0,0,0) 100%)",
+        }}
+      />
+
+      {mounted && (
+        <div
+          className="pointer-events-none fixed -top-5 left-1/2 z-[9999] w-full max-w-4xl -translate-x-1/2"
+          style={{
+            height: "100px",
+            overflow: "hidden",
+            maxWidth: "20rem",
+          }}
+        >
+          <Confetti
+            isActive={showConfetti}
+            colors={COLORS}
+            particleCount={100}
+          />
+        </div>
+      )}
+
+      <main className="relative z-10 mx-auto flex min-h-0 w-full max-w-[1280px] flex-1 flex-col px-6 pt-10">
+        <div className="mb-5 shrink-0 rounded-lg px-6 py-5 text-center">
+          <h1 className="text-[26px] font-semibold leading-[32px] text-gray-950">
+            Invite Creators to Your Campaign
+          </h1>
+
+          <p className="mx-auto mt-2 max-w-2xl text-[15px] leading-[22px] text-gray-800">
+            Creators are selected by default. Deselect anyone you do not want to
+            invite.
+          </p>
+
+          {error ? (
+            <p className="mx-auto mt-2 max-w-2xl text-sm font-medium text-red-600">
+              {error}
+            </p>
+          ) : null}
+        </div>
+
+        <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-transparent">
+          <div className="min-h-0 flex-1 overflow-y-auto px-1 py-1">
+            {loading ? (
+              <>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="relative mx-2 my-1 rounded-lg bg-white/42 backdrop-blur-[1px] after:absolute after:bottom-0 after:left-5 after:right-5 after:h-px after:bg-black/5 after:content-[''] last:after:hidden"
+                  >
+                    <div className="flex min-h-[104px] items-center justify-between gap-5 px-6 py-5">
+                      <div className="flex min-w-0 items-start gap-4">
+                        <div className="h-14 w-14 shrink-0 animate-pulse rounded-full bg-gray-200" />
+
+                        <div className="min-w-0 space-y-2 pt-1">
+                          <div className="h-5 w-44 animate-pulse rounded bg-gray-200" />
+                          <div className="h-4 w-80 max-w-full animate-pulse rounded bg-gray-100" />
+                          <div className="h-4 w-[420px] max-w-full animate-pulse rounded bg-gray-100" />
+                        </div>
+                      </div>
+
+                      <div className="h-10 w-24 shrink-0 animate-pulse rounded-full bg-gray-200" />
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
+                {creators.map((c, index) => {
+                  const id = rowId(c, index);
+                  const isSelected = isCreatorSelected(selected, c, index);
+                  const isSending = sending.has(id);
+
+                  const name = getCreatorName(c);
+                  const handle = getCreatorHandle(c);
+                  const aiScore = getCreatorAiScore(c);
+                  const creatorBio = getCreatorBio(c);
+
+                  return (
+                    <div
+                      key={id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void openReportForCreator(c)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          void openReportForCreator(c);
+                        }
+                      }}
+                      className="creator-row-animate relative mx-2 my-1 cursor-pointer rounded-lg bg-white/42 backdrop-blur-[1px] transition-transform duration-200 ease-out will-change-transform hover:scale-[0.992] after:absolute after:bottom-0 after:left-5 after:right-5 after:h-px after:bg-black/5 after:content-[''] last:after:hidden"
+                      style={{
+                        animationDelay: `${Math.min(index * 30, 240)}ms`,
+                        transformOrigin: "center center",
+                      }}
+                    >
+                      <div className="flex min-h-[104px] flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6">
+                        <div className="flex min-w-0 items-start gap-4">
+                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full bg-gray-200">
+                            {c.picture ? (
+                              <img
+                                src={c.picture}
+                                alt={name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="grid h-full w-full place-items-center text-lg font-semibold text-gray-700">
+                                {name.slice(0, 1).toUpperCase()}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 pt-0.5">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                              <h3 className="truncate text-[18px] font-semibold leading-[24px] text-[#202124] sm:text-[20px] sm:leading-[26px]">
+                                {name}
+                              </h3>
+
+                              {handle ? (
+                                <span className="truncate text-[14px] font-normal leading-[20px] text-[#8E8E8E] sm:text-[15px] sm:leading-[21px]">
+                                  {handle}
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] leading-[19px] sm:text-[15px] sm:leading-[21px]">
+                              <span className="font-medium text-[#202124]">
+                                {formatCompact(c.followers)}
+                              </span>
+
+                              <span className="font-normal text-[#8E8E8E]">
+                                Followers
+                              </span>
+
+                              <span className="text-[#B5B5B5]">·</span>
+
+                              <span className="font-semibold text-[#202124]">
+                                {c.tier?.key || c.tier?.label || "—"}
+                              </span>
+
+                              <span className="font-normal text-[#8E8E8E]">
+                                Tier
+                              </span>
+
+                              <span className="text-[#B5B5B5]">·</span>
+
+                              <span className="inline-flex items-center gap-1.5">
+                                <AiScoreSparkleIcon />
+
+                                <span className="font-semibold text-[#202124]">
+                                  {aiScore !== null ? aiScore : "—"}
+                                </span>
+
+                                <span className="font-normal text-[#8E8E8E]">
+                                  /100 AI SCORE
+                                </span>
+                              </span>
+                            </div>
+
+                            <div className="mt-1.5 line-clamp-1 text-[12px] leading-[18px] text-[#8E8E8E]">
+                              {creatorBio ||
+                                c.recommendationReason ||
+                                "No bio available."}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 self-end sm:self-center">
+                          <Button
+                            type="button"
+                            variant={isSelected ? undefined : "outline"}
+                            className={
+                              isSelected
+                                ? "h-10 rounded-full border-2 border-[#202124] bg-[#202124] px-7 text-[15px] font-semibold text-white hover:bg-[#202124] hover:text-white disabled:opacity-60"
+                                : "h-10 rounded-full border-2 border-[#202124] bg-white px-7 text-[15px] font-semibold text-[#202124] hover:bg-[#F5F5F5] hover:text-[#202124] disabled:opacity-60"
+                            }
+                            disabled={isSending || bulkCreating}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleCreatorSelection(c, index);
+                            }}
+                          >
+                            {isSending ? "Sending..." : "Invite"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!creators.length && !error ? (
+                  <div className="grid min-h-[220px] place-items-center p-8 text-center">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">
+                        No creators found
+                      </div>
+
+                      <p className="mt-2 text-xs text-gray-500">
+                        No creators were returned from the API for this
+                        campaign.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {!creators.length && error ? (
+                  <div className="grid min-h-[220px] place-items-center p-8 text-center">
+                    <Button
+                      variant="outline"
+                      className="rounded-full border-2 px-8"
+                      onClick={fetchCreators}
+                    >
+                      Try Again
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </section>
+      </main>
+
+      <footer className="relative z-20 shrink-0 border-t border-black/5 bg-white/60 backdrop-blur-md">
+        <div className="mx-auto flex min-h-14 w-full max-w-[1280px] flex-col gap-3 px-6 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-bold text-gray-800">
+            {selectedCount}/{total || 0} Selected
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end sm:gap-6">
+            <Button
+              variant="outline"
+              onClick={() => router.replace(getNavigateHref("dashboard"))}
+              className="border-none shadow-none text-sm text-gray-900 disabled:opacity-50"
+            >
+              Go to Dashboard
+            </Button>
+
+            <Button
+              onClick={() => handleCreateSelectedAndNavigate("next")}
+              className="rounded-lg bg-black px-9 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+              disabled={footerDisabled || !creators.length || selectedCount === 0}
+            >
+              {bulkCreating ? "Sending..." : inviteButtonLabel}
+            </Button>
+          </div>
+        </div>
+      </footer>
+
+      <ModashReportSideModal
+        drawer={reportDrawer}
+        onClose={closeReportDrawer}
+        onRefresh={refreshCurrentReport}
+        onChangeCalc={handleReportCalcChange}
+      />
+    </div>
+  );
+}

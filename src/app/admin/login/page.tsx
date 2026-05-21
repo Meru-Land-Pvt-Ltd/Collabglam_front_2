@@ -80,28 +80,47 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto h-12 w-12 relative">
-            <Image
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f8fafc] px-4 py-10">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(250,204,21,0.25),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(15,23,42,0.12),transparent_35%)]" />
+
+      <div className="absolute left-10 top-10 h-32 w-32 rounded-full bg-yellow-300/20 blur-3xl" />
+      <div className="absolute bottom-10 right-10 h-40 w-40 rounded-full bg-slate-900/10 blur-3xl" />
+
+      <Card className="relative w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white/90 shadow-2xl shadow-slate-200/80 backdrop-blur-xl">
+        <div className="h-1.5 w-full bg-gradient-to-r from-yellow-400 via-amber-300 to-slate-900" />
+
+        <CardHeader className="space-y-5 px-8 pb-4 pt-8 text-center">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl border border-slate-100 bg-white shadow-lg shadow-slate-200/70">
+            <img
               src="/logo.png"
               alt="Admin Logo"
-              fill
+              width={58}
+              height={58}
               className="object-contain"
             />
           </div>
 
-          <CardTitle className="text-2xl font-bold">Admin Sign In</CardTitle>
-          <CardDescription className="text-gray-500">
-            Please enter your admin credentials
-          </CardDescription>
+          <div className="space-y-2">
+            <CardTitle className="text-3xl font-bold tracking-tight text-slate-950">
+              Admin Sign In
+            </CardTitle>
+
+            <CardDescription className="text-sm leading-6 text-slate-500">
+              Welcome back. Enter your admin credentials to continue.
+            </CardDescription>
+          </div>
         </CardHeader>
 
         <form onSubmit={handleSubmit}>
-          <CardContent className="space-y-6">
-            <div className="space-y-1">
-              <Label htmlFor="email">Email address</Label>
+          <CardContent className="space-y-5 px-8 pt-2">
+            <div className="space-y-2">
+              <Label
+                htmlFor="email"
+                className="text-sm font-medium text-slate-700"
+              >
+                Email address
+              </Label>
+
               <Input
                 id="email"
                 type="email"
@@ -110,11 +129,15 @@ export default function AdminLoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
                 required
+                className="h-12 rounded-xl border-slate-200 bg-slate-50/70 px-4 text-sm text-slate-900 outline-none transition focus-visible:ring-2 focus-visible:ring-yellow-400"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm">
+              <Label
+                htmlFor="password"
+                className="text-sm font-medium text-slate-700"
+              >
                 Password
               </Label>
 
@@ -122,41 +145,47 @@ export default function AdminLoginPage() {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  className="w-full border border-black/10 rounded-lg px-3 py-2 pr-10 text-sm"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
                   required
+                  className="h-12 rounded-xl border-slate-200 bg-slate-50/70 px-4 pr-12 text-sm text-slate-900 outline-none transition focus-visible:ring-2 focus-visible:ring-yellow-400"
                 />
 
                 <button
                   type="button"
                   onClick={() => setShowPassword((p) => !p)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-black/40 hover:text-black/60"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 rounded-md text-slate-400 transition hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-yellow-400"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <HiEyeSlash /> : <HiEye />}
+                  {showPassword ? (
+                    <HiEyeSlash className="h-5 w-5" />
+                  ) : (
+                    <HiEye className="h-5 w-5" />
+                  )}
                 </button>
               </div>
             </div>
 
             {error && (
-              <p className="text-sm text-red-500 text-center">{error}</p>
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
+                {error}
+              </div>
             )}
           </CardContent>
 
-          <CardFooter className="pt-0">
+          <CardFooter className="px-8 pb-8 pt-6">
             <Button
               type="submit"
-              className="w-full py-2 text-lg"
               disabled={loading}
+              className="h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-yellow-200/50 transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
             >
-              {loading ? "Signing in…" : "Sign In"}
+              {loading ? "Signing in..." : "Sign In"}
             </Button>
           </CardFooter>
         </form>
       </Card>
-    </div>
+    </main>
   );
 }
