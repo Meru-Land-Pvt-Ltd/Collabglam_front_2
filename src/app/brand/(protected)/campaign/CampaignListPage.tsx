@@ -28,7 +28,7 @@ import ListCardView, {
   MetricIcons,
   type ListCardViewItem,
 } from "@/components/ui/brand/list";
-
+import { toast } from "@/components/ui/toast";
 import CampaignFilter, {
   DEFAULT_DATE_FILTER,
   type DateFilterValue,
@@ -760,7 +760,7 @@ export default function CampaignListPage({
     const goToApplied = () => {
       if (locked) return;
       if (typeof window !== "undefined") {
-        window.location.href = `/brand/influ/all?campaignId=${encodeURIComponent(
+        window.location.href = `/brand/influ/applied?campaignId=${encodeURIComponent(
           campaignId
         )}`;
       }

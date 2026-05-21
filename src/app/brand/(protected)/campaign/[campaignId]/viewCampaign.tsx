@@ -1715,28 +1715,41 @@ export default function ViewCampaignPage() {
       0
     ) || 0;
 
-  const selectedInfluencerDisplay =
-    (campaignStatusCounts.active ?? 0) > 0
-      ? `${pad2(campaignStatusCounts.active)}`
-      : (campaignStatusCounts.invited ?? 0) > 0
-        ? `${pad2(campaignStatusCounts.invited)}`
-        : totalInfluencers
-          ? `${pad2(selectedCount)}/${pad2(totalInfluencers)}`
-          : "—";
+  const selectedInfluencerDisplay = String(
+    Number(campaignStatusCounts.active ?? 0)
+  );
 
   const startAt = (campaign as any)?.startAt ?? details?.startAt ?? null;
   const endAt = (campaign as any)?.endAt ?? details?.endAt ?? null;
   const showEditButton = canShowEditCampaign(campaign);
 
   let timelineText = "—";
+
   try {
     if (startAt && endAt) {
       const a = new Date(startAt).getTime();
       const b = new Date(endAt).getTime();
-      if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
-        const days = Math.ceil((b - a) / 86400000);
-        const months = Math.max(1, Math.round(days / 30));
-        timelineText = plural(months, "month");
+
+      if (Number.isFinite(a) && Number.isFinite(b) && b >= a) {
+        const days = Math.max(1, Math.ceil((b - a) / 86400000));
+
+        if (days < 7) {
+          timelineText = plural(days, "day");
+        } else if (days < 30) {
+          const weeks = Math.floor(days / 7);
+          const remainingDays = days % 7;
+
+          timelineText = remainingDays
+            ? `${plural(weeks, "week")} ${plural(remainingDays, "day")}`
+            : plural(weeks, "week");
+        } else {
+          const months = Math.floor(days / 30);
+          const remainingDays = days % 30;
+
+          timelineText = remainingDays
+            ? `${plural(months, "month")} ${plural(remainingDays, "day")}`
+            : plural(months, "month");
+        }
       }
     } else if ((campaign as any)?.timeline) {
       timelineText = String((campaign as any)?.timeline);

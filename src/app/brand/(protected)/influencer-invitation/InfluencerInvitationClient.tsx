@@ -67,8 +67,8 @@ type Invitation = {
 type RecommendedCreatorsResponse =
   | Creator[]
   | {
-      results?: Creator[];
-    };
+    results?: Creator[];
+  };
 
 type InvitationListResponse = {
   status?: string;
@@ -268,11 +268,10 @@ function buildInvitationEmailTemplate(c: Creator) {
 
 We found your profile to be a strong match for one of our brand campaigns on CollabGlam.
 
-${
-  aiScore !== null
-    ? `Your campaign match score is ${aiScore}%.`
-    : "Your profile looks like a strong match for this campaign."
-}
+${aiScore !== null
+        ? `Your campaign match score is ${aiScore}%.`
+        : "Your profile looks like a strong match for this campaign."
+      }
 
 We would love to invite you to collaborate.
 
@@ -280,10 +279,9 @@ Team CollabGlam`,
     htmlBody: `
       <p>Hi ${name},</p>
       <p>We found your profile to be a strong match for one of our brand campaigns on CollabGlam.</p>
-      ${
-        aiScore !== null
-          ? `<p><strong>Your campaign match score is ${aiScore}%.</strong></p>`
-          : `<p><strong>Your profile looks like a strong match for this campaign.</strong></p>`
+      ${aiScore !== null
+        ? `<p><strong>Your campaign match score is ${aiScore}%.</strong></p>`
+        : `<p><strong>Your profile looks like a strong match for this campaign.</strong></p>`
       }
       <p>We would love to invite you to collaborate.</p>
       <p>Team CollabGlam</p>
@@ -621,15 +619,15 @@ export default function InfluencerInvitationPage() {
           ...(brandId ? { brandId } : {}),
           ...(adminId && !brandId
             ? {
-                adminId,
-                role: "admin",
-              }
+              adminId,
+              role: "admin",
+            }
             : {}),
           ...(forceRefresh
             ? {
-                refresh: "1",
-                force: "1",
-              }
+              refresh: "1",
+              force: "1",
+            }
             : {}),
         },
       });
@@ -735,8 +733,16 @@ export default function InfluencerInvitationPage() {
   const getNavigateHref = React.useCallback(
     (target: NavigateTarget) => {
       if (target === "dashboard") return "/brand/dashboard";
-      if (q) return `/brand/campaign/${q}`;
-      return "/brand/dashboard";
+
+      if (q === "scheduled-campaign") {
+        return "/brand/campaign/scheduled-campaign";
+      }
+
+      if (q === "active") {
+        return "/brand/campaign/active";
+      }
+
+      return "/brand/campaign/all";
     },
     [q]
   );
@@ -881,9 +887,8 @@ export default function InfluencerInvitationPage() {
       }
 
       if (failed.length) {
-        const message = `${failed.length} invitation${
-          failed.length > 1 ? "s" : ""
-        } failed. Please try again.`;
+        const message = `${failed.length} invitation${failed.length > 1 ? "s" : ""
+          } failed. Please try again.`;
 
         setError(message);
 
@@ -905,9 +910,8 @@ export default function InfluencerInvitationPage() {
       toast({
         icon: "success",
         title: "Invitations sent",
-        text: `${succeeded.length} creator${
-          succeeded.length > 1 ? "s have" : " has"
-        } been invited.`,
+        text: `${succeeded.length} creator${succeeded.length > 1 ? "s have" : " has"
+          } been invited.`,
       });
 
       router.replace(href);

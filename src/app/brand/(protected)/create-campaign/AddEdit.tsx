@@ -17,7 +17,7 @@ import { TopbarAction, useBrandTopbar } from "@/components/ui/brand/brandTopbarP
 import {
   apiCampaignCreate,
   apiCampaignEditDraft,
-  apiCampaignGetById,
+  apiCampaignGetById2,
   apiCampaignPrefillAI,
   apiGetTimezonesByCountries,
   getApiErrorMessage,
@@ -1775,6 +1775,10 @@ function CreateManualScreen({
 
       setDraftJustSaved(true);
       draftSavedTimerRef.current = window.setTimeout(() => setDraftJustSaved(false), 1200);
+
+      resetForm();
+      router.replace("/brand/campaign/draft");
+      onAfterPublish?.();
     } catch (e) {
       const backendMsg = extractBackendMessage(e);
       setApiError(backendMsg);
@@ -1782,7 +1786,17 @@ function CreateManualScreen({
     } finally {
       setDraftSaving(false);
     }
-  }, [campaignId, form, pushApiError, extractBackendMessage, extractBackendSuccessMessage]);
+}, [
+  campaignId,
+  form,
+  savedProductImages,
+  pushApiError,
+  extractBackendMessage,
+  extractBackendSuccessMessage,
+  resetForm,
+  router,
+  onAfterPublish,
+]);
 
   useEffect(() => {
     return () => {
@@ -2533,10 +2547,7 @@ export default function CreateCampaignPage() {
 
     (async () => {
       try {
-        const res: any = await apiCampaignGetById({
-          campaignId: editCampaignId,
-          brandId: getBrandId() || undefined,
-        });
+const res: any = await apiCampaignGetById2(editCampaignId);
         if (cancelled) return;
 
         const doc = res?.data ?? res;
