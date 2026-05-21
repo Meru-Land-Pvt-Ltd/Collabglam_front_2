@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element */
-
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -109,7 +107,7 @@ type StoredBrand = {
     brand?: StoredBrand;
 };
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.collabglam.com";
 const REPORT_STORAGE_KEY = "youtubeInsightReport";
 const REPORT_ID_STORAGE_KEY = "youtubeInsightReportId";
 
@@ -481,6 +479,7 @@ function mapReportToPreviousSearchRow(item: PlainObject): PreviousSearchRow {
 
 function extractCampaignDetailPayload(payload: unknown): PlainObject | null {
     if (!isObject(payload)) return null;
+    if (isObject(payload.doc)) return payload.doc;
     if (isObject(payload.campaign)) return payload.campaign;
     if (isObject(payload.item)) return payload.item;
     if (isObject(payload.data)) return extractCampaignDetailPayload(payload.data) || payload.data;
@@ -600,14 +599,14 @@ function AnalyzingOverlay(): React.ReactElement {
 function HeroGradientLayer(): React.ReactElement {
     return (
         <div
-            className="pointer-events-none absolute inset-0 z-[1] hidden overflow-hidden rounded-[16px] lg:block"
+            className="insight-hero-gradient pointer-events-none absolute inset-0 z-[1] overflow-hidden rounded-[16px]"
             aria-hidden="true"
         >
             <div
-                className="absolute inset-y-0 right-0 h-full w-[72%] min-w-[760px] rounded-br-[16px] rounded-tr-[16px]"
+                className="absolute inset-y-0 right-0 h-full w-[70%] min-w-[680px] rounded-br-[16px] rounded-tr-[16px]"
                 style={{
                     background: HERO_GRADIENT,
-                    clipPath: "polygon(20% 0%, 100% 0%, 100% 100%, 0% 100%)",
+                    clipPath: "polygon(18% 0%, 100% 0%, 100% 100%, 0% 100%)",
                 }}
             />
         </div>
@@ -618,7 +617,7 @@ function HeroWhiteBlurImage(): React.ReactElement {
     return (
         <div
             aria-hidden="true"
-            className="pointer-events-none absolute bottom-[-210px] right-[-80px] z-[2] hidden h-[820px] w-[840px] overflow-visible blur-[44px] lg:block"
+            className="insight-hero-blur pointer-events-none absolute bottom-[-210px] right-[-80px] z-[2] h-[820px] w-[840px] overflow-visible blur-[44px]"
         >
             <AssetImage
                 src={HERO_WHITE_BLUR_SRC}
@@ -724,15 +723,15 @@ function AudienceMatchCard(): React.ReactElement {
 function HeroForegroundArtwork(): React.ReactElement {
     return (
         <div
-            className="pointer-events-none absolute inset-y-0 right-0 z-[4] hidden lg:block"
-            style={{ width: "min(58vw, 790px)", minWidth: "690px" }}
+            className="insight-hero-visual pointer-events-none absolute inset-y-0 right-0 z-[4]"
+            style={{ width: "clamp(650px, 54cqw, 790px)" }}
         >
             <AssetImage
                 src={HERO_IMAGE_SRC}
                 alt="Creators with cameras and skateboards"
                 width={557}
                 height={470}
-                className="absolute bottom-0 right-[30px] z-[4] h-[94%] max-h-[482px] w-auto select-none object-contain"
+                className="absolute bottom-0 right-[26px] z-[4] h-[94%] max-h-[482px] w-auto select-none object-contain"
             />
 
             <div className="pointer-events-auto absolute right-[148px] top-[26px] z-[7] inline-flex h-8 items-center gap-2 rounded-full bg-white/92 px-3 text-[0.625rem] font-medium text-[#7B7F88] shadow-[0_8px_28px_rgba(17,24,39,0.08)] backdrop-blur">
@@ -996,7 +995,7 @@ function CampaignDeliverablesDrawer({
                             ))
                         ) : (
                             <div className="rounded-[12px] border border-[#EEEEEE] bg-[#FAFAFA] p-5 text-sm font-semibold text-[#6E737D]">
-                                No deliverables were found inside this campaign response yet.
+                                No deliverables were found for this campaign yet.
                             </div>
                         )}
                     </div>
@@ -1209,7 +1208,7 @@ function GenerateReportBox({
                 className="h-9 w-full rounded-[8px] bg-transparent px-3 text-sm font-normal text-[#191919] outline-none placeholder:text-[#B8BBC2]"
             />
 
-            <div className="flex items-center justify-between gap-3 px-2 pb-1 pt-2">
+            <div className="flex flex-col gap-2 px-2 pb-1 pt-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                 <button type="button" className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#202124]">
                     Youtube
                     <ChevronDown className="h-3.5 w-3.5 text-[#71757F]" />
@@ -1219,7 +1218,7 @@ function GenerateReportBox({
                     type="button"
                     onClick={onAnalyze}
                     disabled={loading}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-[#111111] px-4 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(17,17,17,0.18)] transition hover:bg-[#252525] disabled:cursor-not-allowed disabled:opacity-70"
+                    className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-[8px] bg-[#111111] px-4 text-xs font-semibold text-white shadow-[0_10px_24px_rgba(17,17,17,0.18)] transition hover:bg-[#252525] disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto"
                 >
                     {loading ? (
                         <>
@@ -1267,7 +1266,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
     const [drawerLoading, setDrawerLoading] = useState<boolean>(false);
     const [drawerError, setDrawerError] = useState<string>("");
 
-    const reportListUrl = useMemo(() => `${API_BASE_URL}/youtube-insights`, []);
+    const reportListUrl = useMemo(() => `${API_BASE_URL}youtube-insights`, []);
 
     useEffect(() => {
         if (!isBrandMode) return;
@@ -1292,7 +1291,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
                 setCampaignsLoading(true);
                 setCampaignsError("");
                 const response = await axios.post<ApiListPayload>(
-                    `${API_BASE_URL}/campaign/get-by-brand`,
+                    `${API_BASE_URL}campaign/get-by-brand`,
                     { brandId, page: 1, limit: 1000, status: "" },
                     { headers: getAuthHeaders() }
                 );
@@ -1411,43 +1410,26 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
 
         try {
             setDrawerLoading(true);
-            const attempts = [
-                () => axios.post<ApiListPayload>(`${API_BASE_URL}/campaign/get-by-id`, { campaignId: id, id }, { headers: getAuthHeaders() }),
-                () => axios.post<ApiListPayload>(`${API_BASE_URL}/campaign/get-details`, { campaignId: id, id }, { headers: getAuthHeaders() }),
-                () => axios.get<ApiListPayload>(`${API_BASE_URL}/campaign/${encodeURIComponent(id)}`, { headers: getAuthHeaders() }),
-                () => axios.get<ApiListPayload>(`${API_BASE_URL}/campaign/get/${encodeURIComponent(id)}`, { headers: getAuthHeaders() }),
-            ];
 
-            let detail: PlainObject | null = null;
-            let lastError = "";
+            const response = await axios.post<ApiListPayload>(
+                `${API_BASE_URL}campaign/view-campaign-brand`,
+                { campaignId: id },
+                { headers: getAuthHeaders() }
+            );
 
-            for (const attempt of attempts) {
-                try {
-                    const response = await attempt();
-                    detail = extractCampaignDetailPayload(response.data);
-                    if (detail) break;
-                } catch (err) {
-                    lastError = axios.isAxiosError(err) ? String(err.response?.data?.message || err.message || "") : "";
-                }
-            }
-
-            if (!detail) {
-                setDrawerError(lastError || "Could not fetch campaign details. Showing available campaign data.");
-                return;
-            }
+            const detail = extractCampaignDetailPayload(response.data);
+            if (!detail) return;
 
             const merged = { ...campaign.raw, ...detail };
             const updatedCampaign = mapCampaignToCard(merged);
+
             setDrawerCampaign({
                 ...updatedCampaign,
                 id: updatedCampaign.id || campaign.id,
                 campaignId: updatedCampaign.campaignId || campaign.campaignId,
             });
-        } catch (err) {
-            const message = axios.isAxiosError(err)
-                ? String(err.response?.data?.message || err.message || "Failed to load campaign deliverables.")
-                : "Failed to load campaign deliverables.";
-            setDrawerError(message);
+        } catch {
+            setDrawerError("");
         } finally {
             setDrawerLoading(false);
         }
@@ -1472,7 +1454,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
             const token = getToken();
 
             const response = await axios.post<ApiResponse>(
-                `${API_BASE_URL}/youtube-insights/analyze`,
+                `${API_BASE_URL}youtube-insights/analyze`,
                 {
                     videoUrl: cleanUrl,
                     saveReport: isBrandMode,
@@ -1519,18 +1501,21 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
         <main className="min-h-screen overflow-x-hidden bg-white px-0 py-0 text-[#161616]">
             {loading ? <AnalyzingOverlay /> : null}
 
-            <div className="mx-auto w-full max-w-[1440px] px-5 py-6">
-                <section className="relative min-h-[454px] overflow-hidden rounded-[16px] px-5 py-6 shadow-[0_1px_0_rgba(15,23,42,0.02)] md:px-8 md:py-8 lg:px-10">
-                    <div className="relative z-20 max-w-[430px]">
+            <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-5 sm:py-6">
+                <section
+                    className="insight-hero-section relative min-h-[360px] overflow-hidden rounded-[16px] px-5 py-6 shadow-[0_1px_0_rgba(15,23,42,0.02)] md:min-h-[392px] md:px-8 md:py-8 lg:px-10"
+                    style={{ containerType: "inline-size", containerName: "insightHero" }}
+                >
+                    <div className="insight-hero-copy relative z-20 max-w-[430px]">
                         <h1
                             className="max-w-[360px]"
                             style={{
                                 color: "var(--Light-Text-Primary, #1A1A1A)",
                                 fontFamily: "var(--Font-Family-Inter, Inter)",
-                                fontSize: "var(--Font-Size-40, 2.5rem)",
+                                fontSize: "clamp(2rem, 4cqw, 2.5rem)",
                                 fontStyle: "normal",
                                 fontWeight: 600,
-                                lineHeight: "var(--Line-Height-48, 3rem)",
+                                lineHeight: "clamp(2.45rem, 4.8cqw, 3rem)",
                                 letterSpacing: "var(--Letter-Spacing--1, -0.0625rem)",
                             }}
                         >
@@ -1591,6 +1576,26 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
                     <HeroGradientLayer />
                     <HeroWhiteBlurImage />
                     <HeroForegroundArtwork />
+
+                    <style jsx global>{`
+                        .insight-hero-gradient,
+                        .insight-hero-blur,
+                        .insight-hero-visual {
+                            display: none;
+                        }
+
+                        @container insightHero (min-width: 1120px) {
+                            .insight-hero-section {
+                                min-height: 454px;
+                            }
+
+                            .insight-hero-gradient,
+                            .insight-hero-blur,
+                            .insight-hero-visual {
+                                display: block;
+                            }
+                        }
+                    `}</style>
                 </section>
 
                 {showBrandOnlySections ? (
