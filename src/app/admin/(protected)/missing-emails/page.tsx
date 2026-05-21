@@ -783,7 +783,6 @@ export default function MissingListPage() {
                 className="px-4 py-2 rounded-full bg-white border shadow-sm text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="invitations">All invitations</option>
-                <option value="missing">Missing emails / handles</option>
                 <option value="available">Available email & handle</option>
               </select>
 
