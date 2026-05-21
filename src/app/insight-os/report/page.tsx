@@ -124,7 +124,7 @@ export default function YoutubeInsightReportPage(): React.ReactElement {
     void loadReport();
   }, [fetchReportById, reportIdFromUrl]);
 
-  const handleBackToAnalyze = (): void => router.push("/insight-os");
+  const handleBackToAnalyze = (): void => router.back();
   const handleRefresh = (): void => {
     if (!reportId) {
       setError("Report ID is not available. Please analyze the video again.");
