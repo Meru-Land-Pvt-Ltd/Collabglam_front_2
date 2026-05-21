@@ -108,6 +108,13 @@ type StoredBrand = {
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "https://api.collabglam.com";
+
+function apiPath(path: string): string {
+    const base = API_BASE_URL.replace(/\/+$/, "");
+    const cleanPath = path.replace(/^\/+/, "");
+    return `${base}/${cleanPath}`;
+}
+
 const REPORT_STORAGE_KEY = "youtubeInsightReport";
 const REPORT_ID_STORAGE_KEY = "youtubeInsightReportId";
 
@@ -603,7 +610,7 @@ function HeroGradientLayer(): React.ReactElement {
             aria-hidden="true"
         >
             <div
-                className="absolute inset-y-0 right-0 h-full w-[70%] min-w-[680px] rounded-br-[16px] rounded-tr-[16px]"
+                className="absolute inset-y-0 right-0 h-full w-[74%] min-w-[520px] rounded-br-[16px] rounded-tr-[16px]"
                 style={{
                     background: HERO_GRADIENT,
                     clipPath: "polygon(18% 0%, 100% 0%, 100% 100%, 0% 100%)",
@@ -722,16 +729,13 @@ function AudienceMatchCard(): React.ReactElement {
 
 function HeroForegroundArtwork(): React.ReactElement {
     return (
-        <div
-            className="insight-hero-visual pointer-events-none absolute inset-y-0 right-0 z-[4]"
-            style={{ width: "clamp(650px, 54cqw, 790px)" }}
-        >
+        <div className="insight-hero-visual pointer-events-none absolute inset-y-0 right-0 z-[4]">
             <AssetImage
                 src={HERO_IMAGE_SRC}
                 alt="Creators with cameras and skateboards"
                 width={557}
                 height={470}
-                className="absolute bottom-0 right-[26px] z-[4] h-[94%] max-h-[482px] w-auto select-none object-contain"
+                className="insight-hero-main-image absolute bottom-0 right-[26px] z-[4] h-[94%] max-h-[482px] w-auto select-none object-contain"
             />
 
             <div className="pointer-events-auto absolute right-[148px] top-[26px] z-[7] inline-flex h-8 items-center gap-2 rounded-full bg-white/92 px-3 text-[0.625rem] font-medium text-[#7B7F88] shadow-[0_8px_28px_rgba(17,24,39,0.08)] backdrop-blur">
@@ -1266,7 +1270,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
     const [drawerLoading, setDrawerLoading] = useState<boolean>(false);
     const [drawerError, setDrawerError] = useState<string>("");
 
-    const reportListUrl = useMemo(() => `${API_BASE_URL}youtube-insights`, []);
+    const reportListUrl = useMemo(() => apiPath("/youtube-insights"), []);
 
     useEffect(() => {
         if (!isBrandMode) return;
@@ -1291,7 +1295,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
                 setCampaignsLoading(true);
                 setCampaignsError("");
                 const response = await axios.post<ApiListPayload>(
-                    `${API_BASE_URL}campaign/get-by-brand`,
+                    apiPath("/campaign/get-by-brand"),
                     { brandId, page: 1, limit: 1000, status: "" },
                     { headers: getAuthHeaders() }
                 );
@@ -1412,7 +1416,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
             setDrawerLoading(true);
 
             const response = await axios.post<ApiListPayload>(
-                `${API_BASE_URL}campaign/view-campaign-brand`,
+                apiPath("/campaign/view-campaign-brand"),
                 { campaignId: id },
                 { headers: getAuthHeaders() }
             );
@@ -1454,7 +1458,7 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
             const token = getToken();
 
             const response = await axios.post<ApiResponse>(
-                `${API_BASE_URL}youtube-insights/analyze`,
+                apiPath("/youtube-insights/analyze"),
                 {
                     videoUrl: cleanUrl,
                     saveReport: isBrandMode,
@@ -1578,10 +1582,110 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
                     <HeroForegroundArtwork />
 
                     <style jsx global>{`
-                        .insight-hero-gradient,
+                        .insight-hero-gradient {
+                            display: block;
+                        }
+
                         .insight-hero-blur,
                         .insight-hero-visual {
                             display: none;
+                        }
+
+                        .insight-hero-copy {
+                            max-width: min(100%, 430px);
+                        }
+
+                        @container insightHero (max-width: 639px) {
+                            .insight-hero-gradient > div {
+                                width: 100%;
+                                min-width: 0;
+                                opacity: 0.72;
+                                clip-path: polygon(28% 0%, 100% 0%, 100% 100%, 8% 100%) !important;
+                            }
+
+                            .insight-hero-copy {
+                                max-width: 100%;
+                            }
+                        }
+
+                        @container insightHero (min-width: 640px) {
+                            .insight-hero-section {
+                                min-height: 392px;
+                            }
+
+                            .insight-hero-blur,
+                            .insight-hero-visual {
+                                display: block;
+                            }
+
+                            .insight-hero-copy {
+                                max-width: clamp(320px, 42cqw, 410px);
+                            }
+
+                            .insight-hero-gradient > div {
+                                width: 76%;
+                                min-width: 560px;
+                            }
+
+                            .insight-hero-visual {
+                                right: 0;
+                                width: 760px;
+                                transform: scale(0.54);
+                                transform-origin: right bottom;
+                            }
+
+                            .insight-hero-blur {
+                                right: 0;
+                                transform: scale(0.58);
+                                transform-origin: right bottom;
+                            }
+                        }
+
+                        @container insightHero (min-width: 768px) {
+                            .insight-hero-copy {
+                                max-width: clamp(340px, 41cqw, 420px);
+                            }
+
+                            .insight-hero-gradient > div {
+                                width: 74%;
+                                min-width: 610px;
+                            }
+
+                            .insight-hero-visual {
+                                transform: scale(0.62);
+                            }
+
+                            .insight-hero-blur {
+                                transform: scale(0.66);
+                            }
+                        }
+
+                        @container insightHero (min-width: 880px) {
+                            .insight-hero-visual {
+                                transform: scale(0.70);
+                            }
+
+                            .insight-hero-blur {
+                                transform: scale(0.74);
+                            }
+                        }
+
+                        @container insightHero (min-width: 980px) {
+                            .insight-hero-section {
+                                min-height: 420px;
+                            }
+
+                            .insight-hero-copy {
+                                max-width: clamp(370px, 39cqw, 430px);
+                            }
+
+                            .insight-hero-visual {
+                                transform: scale(0.82);
+                            }
+
+                            .insight-hero-blur {
+                                transform: scale(0.86);
+                            }
                         }
 
                         @container insightHero (min-width: 1120px) {
@@ -1589,10 +1693,19 @@ export default function YoutubeInsightAnalyzePage({ mode = "auto" }: { mode?: In
                                 min-height: 454px;
                             }
 
-                            .insight-hero-gradient,
-                            .insight-hero-blur,
                             .insight-hero-visual {
-                                display: block;
+                                transform: scale(0.94);
+                            }
+
+                            .insight-hero-blur {
+                                transform: scale(0.98);
+                            }
+                        }
+
+                        @container insightHero (min-width: 1260px) {
+                            .insight-hero-visual,
+                            .insight-hero-blur {
+                                transform: none;
                             }
                         }
                     `}</style>
