@@ -1127,12 +1127,6 @@ export default function ViewCampaignPage() {
     [idFromQuery, params]
   );
 
-  const handleEdit = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.location.href = `/brand/create-campaign?campaignId=${encodeURIComponent(campaignId)}`;
-    }
-  }, [campaignId]);
-
   const [budgetTab, setBudgetTab] = useState<"remaining" | "used">("remaining");
   const [usableWalletBalance, setUsableWalletBalance] = useState<number>(0);
   const [campaignFreezeAmount, setCampaignFreezeAmount] = useState<number>(0);
@@ -1477,7 +1471,7 @@ export default function ViewCampaignPage() {
 
       const redirectBase = `${window.location.origin}/brand/campaign/${encodeURIComponent(
         safeCampaignTitle
-      )}?id=${encodeURIComponent(campaignId)}`;
+      )}?campaignId=${encodeURIComponent(campaignId)}`;
 
       const successUrl = `${redirectBase}&topup=success&session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${redirectBase}&topup=cancelled`;
@@ -1768,6 +1762,18 @@ export default function ViewCampaignPage() {
     Number.isFinite(budgetNum) && budgetNum > 0 ? `${currency} $${budgetNum.toLocaleString("en-US")}` : "—";
 
   const statusText = String((campaign as any)?.status ?? "—");
+
+  const handleEdit = useCallback(() => {
+    const normalizedStatus = String(statusText || "").trim().toLowerCase();
+    const encodedId = encodeURIComponent(campaignId);
+
+    if (normalizedStatus === "draft") {
+      router.push(`/brand/create-campaign?campaignId=${encodedId}`);
+      return;
+    }
+
+    router.push(`/brand/edit-campaign?campaignId=${encodedId}`);
+  }, [campaignId, router, statusText]);
 
   const startDateText = startAt ? new Date(startAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : "—";
   const endDateText = endAt ? new Date(endAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : "—";

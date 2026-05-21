@@ -686,7 +686,7 @@ export default function EditCampaignPage() {
     const lists = useCampaignLists(true);
     const categoryPicker = useCategoryPicker({ debounceMs: 250, enabled: true });
 
-    const queryCampaignId = searchParams.get("id") || "";
+    const queryCampaignId = searchParams.get("campaignId") || "";
 
     const [loading, setLoading] = useState(true);
     const [loadedDetails, setLoadedDetails] = useState<any>(null);
@@ -1277,7 +1277,20 @@ export default function EditCampaignPage() {
                 extractBackendSuccessMessage(updated, "Campaign updated successfully.")
             );
 
-            router.replace(`/brand/edit-campaign?id=${encodeURIComponent(nextId)}`);
+            const nextStatus = String(updatedDoc?.status || campaignStatus || "")
+                .trim()
+                .toLowerCase();
+
+            const nextRoute =
+                nextStatus === "draft"
+                    ? "/brand/campaign/draft"
+                    : nextStatus === "scheduled"
+                        ? "/brand/campaign/scheduled-campaign"
+                        : nextStatus === "active"
+                            ? "/brand/campaign/active"
+                            : "/brand/campaign/all";
+
+            router.replace(nextRoute);
         } catch (e: any) {
             const backendMsg = extractBackendMessage(e);
             const fe = extractBackendFieldErrors(e);
