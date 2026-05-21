@@ -749,7 +749,6 @@ export default function AdminCampaignsPage() {
         setAssigningCampaignId(campaignMongoId);
         setAssignmentErr(null);
         setAssignmentMsg(null);
-
         await post<any>("/admins/assign-campaign-ime", {
           campaignId: campaignMongoId,
           idmId,

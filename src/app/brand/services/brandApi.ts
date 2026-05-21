@@ -969,7 +969,16 @@ export type CreateMilestonePayload = {
   brandId: string;
   influencerId: string;
   campaignId: string;
-  contractId: string;
+
+  // Optional because admin-created milestones do not use contract.
+  contractId?: string;
+
+  // Admin-created milestone fields
+  adminId?: string;
+  source?: "brand" | "admin";
+  createdByRole?: "brand" | "admin";
+  createdByModel?: "Brand" | "Master" | "Admin";
+  campaignName?: string;
 
   milestoneTitle: string;
   milestoneBudget: number;
@@ -1000,15 +1009,24 @@ export type CreateMilestoneResponse = {
   milestoneHistoryId?: string;
   totalAmount: number;
 
-  influencerBudget?: number;
-  usedInfluencerBudget?: number;
-  remainingInfluencerBudget?: number;
+  campaignName?: string;
+  source?: "brand" | "admin";
+  createdByRole?: "brand" | "admin";
+  adminId?: string;
+
+  influencerBudget?: number | null;
+  usedInfluencerBudget?: number | null;
+  remainingInfluencerBudget?: number | null;
 
   entry: {
     milestoneHistoryId: string;
     influencerId: string;
     campaignId: string;
     contractId?: string;
+
+    adminId?: string;
+    createdByRole?: "brand" | "admin";
+    createdByModel?: "Brand" | "Master" | "Admin";
 
     milestoneTitle: string;
     milestoneDescription: string;
@@ -1063,11 +1081,26 @@ export type CreateMilestoneResponse = {
 };
 
 export async function apiCreateMilestone(payload: CreateMilestonePayload) {
+  const isAdminMilestone =
+    payload.source === "admin" ||
+    payload.createdByRole === "admin" ||
+    Boolean(payload.adminId);
+
   return apiPost<CreateMilestoneResponse>(`${MILESTONE_BASE}/create`, {
     brandId: payload.brandId,
     influencerId: payload.influencerId,
     campaignId: payload.campaignId,
-    contractId: payload.contractId,
+
+    // Brand flow sends contractId. Admin flow sends empty contractId.
+    contractId: isAdminMilestone ? "" : payload.contractId || "",
+
+    // Admin flow fields
+    adminId: isAdminMilestone ? payload.adminId || "" : "",
+    source: isAdminMilestone ? "admin" : "brand",
+    createdByRole: isAdminMilestone ? "admin" : "brand",
+    createdByModel: isAdminMilestone
+      ? payload.createdByModel || "Master"
+      : "Brand",
 
     milestoneTitle: payload.milestoneTitle,
     milestoneBudget: payload.milestoneBudget,
