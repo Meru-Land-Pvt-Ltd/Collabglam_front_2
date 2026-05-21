@@ -7,7 +7,11 @@ import { get, post } from "@/lib/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -18,7 +22,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/buttonComp";
-import EmailEditor, { type EmailEditorAttachment } from "@/components/ui/EmailEditor";
+import EmailEditor, {
+  type EmailEditorPayload,
+} from "@/components/ui/EmailEditor";
 import {
   MagnifyingGlass,
   CaretLeft,
@@ -49,6 +55,14 @@ type BrandContact = {
   invitationId: string | null;
   name: string;
   displayAlias: string;
+  email?: string | null;
+  proxyEmail?: string | null;
+  proxyMailId?: string | null;
+  avatarUrl?: string | null;
+  profileImage?: string | null;
+  profilePic?: string | null;
+  image?: string | null;
+  photo?: string | null;
   threadId: string | null;
   lastMessageAt: string | null;
   lastMessageSnippet: string;
@@ -62,8 +76,17 @@ type BrandContact = {
 
 type BrandContactsResponse = {
   brand: {
+    _id?: string | null;
     brandId: string;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
+    aliasEmail?: string | null;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    logoUrl?: string | null;
+    image?: string | null;
+    photo?: string | null;
   };
   influencers: BrandContact[];
 };
@@ -87,18 +110,59 @@ type BrandInboxThread = {
   lastMessageSnippet: string;
   campaign?: CampaignRef | null;
   influencer: {
+    _id?: string | null;
     influencerId: string | null;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
+    proxyMailId?: string | null;
     aliasEmail: string;
+    avatarUrl?: string | null;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    image?: string | null;
+    photo?: string | null;
   };
 };
 
 type BrandInboxResponse = {
   brand: {
+    _id?: string | null;
     brandId: string;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
+    aliasEmail?: string | null;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    logoUrl?: string | null;
+    image?: string | null;
+    photo?: string | null;
   };
   threads: BrandInboxThread[];
+};
+
+type EmailParticipantProfile = {
+  _id?: string | null;
+  brandId?: string | null;
+  influencerId?: string | null;
+  name: string;
+  email?: string | null;
+  proxyEmail?: string | null;
+  proxyMailId?: string | null;
+  aliasEmail?: string | null;
+  displayAlias?: string | null;
+  profileImage?: string | null;
+  profilePic?: string | null;
+  logoUrl?: string | null;
+  avatarUrl?: string | null;
+  image?: string | null;
+  photo?: string | null;
+};
+
+type EmailParticipantsResponse = {
+  brand?: EmailParticipantProfile | null;
+  influencer?: EmailParticipantProfile | null;
 };
 
 function formatRelativeTime(dateString?: string | null) {
@@ -153,7 +217,9 @@ function FilterPopover({
   options: FilterOption[];
 }) {
   const [open, setOpen] = React.useState(false);
-  const [selectedOption, setSelectedOption] = React.useState<FilterOption>(options[0]);
+  const [selectedOption, setSelectedOption] = React.useState<FilterOption>(
+    options[0],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -163,7 +229,7 @@ function FilterPopover({
           className={cn(
             "h-[32px] rounded-[0.5rem] px-3 inline-flex items-center gap-2 transition-colors",
             "text-[14px] font-medium text-[#1A1A1A]",
-            open ? "bg-[#ECEEF2]" : "bg-transparent"
+            open ? "bg-[#ECEEF2]" : "bg-transparent",
           )}
         >
           <span>{label}</span>
@@ -176,7 +242,7 @@ function FilterPopover({
         align="start"
         className={cn(
           "w-[240px] rounded-[12px] border border-[#E6E6E6] bg-white p-2",
-          "shadow-[0_7px_20px_0_rgba(25,33,61,0.04)]"
+          "shadow-[0_7px_20px_0_rgba(25,33,61,0.04)]",
         )}
       >
         <Command>
@@ -202,7 +268,9 @@ function FilterPopover({
                 className="rounded-[10px]"
               >
                 <span className="flex-1">{option.name}</span>
-                {selectedOption.id === option.id ? <Check className="h-4 w-4" /> : null}
+                {selectedOption.id === option.id ? (
+                  <Check className="h-4 w-4" />
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -272,6 +340,32 @@ function normalizeRecipientValue(value?: string | null) {
   return extracted.trim().toLowerCase();
 }
 
+function pickAvatar(item?: any) {
+  return (
+    item?.profileImage ||
+    item?.profilePic ||
+    item?.logoUrl ||
+    item?.avatarUrl ||
+    item?.image ||
+    item?.photo ||
+    ""
+  );
+}
+
+function pickProxyMailId(item?: any) {
+  return (
+    item?.proxyMailId ||
+    item?.proxyEmail ||
+    item?.aliasEmail ||
+    item?.displayAlias ||
+    ""
+  );
+}
+
+function pickRealEmail(item?: any) {
+  return item?.email || item?.realEmail || "";
+}
+
 export default function BrandInboxPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -285,8 +379,13 @@ export default function BrandInboxPageContent() {
 
   const [brandId, setBrandId] = React.useState("");
   const [showCompose, setShowCompose] = React.useState(false);
-  const [composeThread, setComposeThread] = React.useState<BrandInboxThread | null>(null);
+  const [composeThread, setComposeThread] =
+    React.useState<BrandInboxThread | null>(null);
   const [contacts, setContacts] = React.useState<BrandContact[]>([]);
+  const [brandProfile, setBrandProfile] =
+    React.useState<EmailParticipantProfile | null>(null);
+  const [composeParticipants, setComposeParticipants] =
+    React.useState<EmailParticipantsResponse | null>(null);
 
   React.useEffect(() => {
     if (searchParams.get("compose") === "true") {
@@ -295,8 +394,11 @@ export default function BrandInboxPageContent() {
   }, [searchParams]);
 
   const currentCampaignId = React.useMemo(
-    () => searchParams.get("campaignId") || composeThread?.campaign?._id || undefined,
-    [searchParams, composeThread]
+    () =>
+      searchParams.get("campaignId") ||
+      composeThread?.campaign?._id ||
+      undefined,
+    [searchParams, composeThread],
   );
 
   const fetchThreads = React.useCallback(async () => {
@@ -317,18 +419,27 @@ export default function BrandInboxPageContent() {
       setBrandId(storedBrandId);
 
       const [threadsData, contactsData] = await Promise.all([
-        get<BrandInboxResponse>(`${EMAIL_API_BASE}/threads/brand/${storedBrandId}`),
-        get<BrandContactsResponse>(`${EMAIL_API_BASE}/brand/contacts?brandId=${storedBrandId}`),
+        get<BrandInboxResponse>(
+          `${EMAIL_API_BASE}/threads/brand/${storedBrandId}`,
+        ),
+        get<BrandContactsResponse>(
+          `${EMAIL_API_BASE}/brand/contacts?brandId=${storedBrandId}`,
+        ),
       ]);
 
-      setThreads(Array.isArray(threadsData?.threads) ? threadsData.threads : []);
-      setContacts(Array.isArray(contactsData?.influencers) ? contactsData.influencers : []);
+      setBrandProfile(threadsData?.brand || contactsData?.brand || null);
+      setThreads(
+        Array.isArray(threadsData?.threads) ? threadsData.threads : [],
+      );
+      setContacts(
+        Array.isArray(contactsData?.influencers)
+          ? contactsData.influencers
+          : [],
+      );
       setSelectedIds([]);
     } catch (err: any) {
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to load inbox"
+        err?.response?.data?.error || err?.message || "Failed to load inbox",
       );
       setThreads([]);
       setContacts([]);
@@ -386,7 +497,13 @@ export default function BrandInboxPageContent() {
       const matchedContact = contacts.find((item) => {
         if (!item.influencerId) return false;
 
-        const candidates = [item.displayAlias, item.name]
+        const candidates = [
+          item.displayAlias,
+          item.proxyEmail,
+          item.proxyMailId,
+          item.email,
+          item.name,
+        ]
           .map((v) => normalizeRecipientValue(v))
           .filter(Boolean);
 
@@ -403,12 +520,12 @@ export default function BrandInboxPageContent() {
         aliasEmail: matchedContact.displayAlias,
       };
     },
-    [composeThread, contacts]
+    [composeThread, contacts],
   );
 
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   };
 
@@ -429,18 +546,90 @@ export default function BrandInboxPageContent() {
         : null;
 
     setComposeThread(selectedThread);
+    setComposeParticipants(null);
     setShowCompose(true);
   };
 
-  const handleSendCompose = async (payload: {
-    to: string;
-    cc: string;
-    bcc: string;
-    subject: string;
-    body: string;
-    htmlBody: string;
-    attachments: EmailEditorAttachment[];
-  }) => {
+  const selectedComposeContact = React.useMemo(() => {
+    if (composeThread?.influencer) {
+      return {
+        influencerId:
+          composeThread.influencer.influencerId ||
+          composeThread.influencer._id ||
+          null,
+        name: composeThread.influencer.name,
+        email: composeThread.influencer.email || "",
+        proxyEmail:
+          composeThread.influencer.proxyEmail ||
+          composeThread.influencer.proxyMailId ||
+          composeThread.influencer.aliasEmail ||
+          "",
+        avatar: pickAvatar(composeThread.influencer),
+      };
+    }
+
+    const selectedContact = contacts.find(
+      (item) => item.threadId && selectedIds.includes(item.threadId),
+    );
+
+    if (!selectedContact) return null;
+
+    return {
+      influencerId: selectedContact.influencerId,
+      name: selectedContact.name,
+      email: selectedContact.email || "",
+      proxyEmail:
+        selectedContact.proxyEmail ||
+        selectedContact.proxyMailId ||
+        selectedContact.displayAlias ||
+        "",
+      avatar: pickAvatar(selectedContact),
+    };
+  }, [composeThread, contacts, selectedIds]);
+
+  React.useEffect(() => {
+    if (!showCompose || !brandId) return;
+
+    let ignore = false;
+
+    const fetchParticipants = async () => {
+      try {
+        const params = new URLSearchParams({ brandId });
+
+        if (composeThread?.threadId) {
+          params.set("threadId", composeThread.threadId);
+        }
+
+        if (selectedComposeContact?.influencerId) {
+          params.set("influencerId", selectedComposeContact.influencerId);
+        }
+
+        const res = await get<EmailParticipantsResponse>(
+          `${EMAIL_API_BASE}/participants?${params.toString()}`,
+        );
+
+        if (!ignore) {
+          setComposeParticipants(res || null);
+          if (res?.brand) setBrandProfile(res.brand);
+        }
+      } catch {
+        if (!ignore) setComposeParticipants(null);
+      }
+    };
+
+    fetchParticipants();
+
+    return () => {
+      ignore = true;
+    };
+  }, [
+    showCompose,
+    brandId,
+    composeThread?.threadId,
+    selectedComposeContact?.influencerId,
+  ]);
+
+  const handleSendCompose = async (payload: EmailEditorPayload) => {
     setSending(true);
     setError("");
 
@@ -449,7 +638,7 @@ export default function BrandInboxPageContent() {
 
       if (!recipient?.influencerId) {
         throw new Error(
-          "Recipient not found. Please enter a creator name or alias email from your contacts."
+          "Recipient not found. Please enter a creator name or alias email from your contacts.",
         );
       }
 
@@ -459,12 +648,15 @@ export default function BrandInboxPageContent() {
       let threadId = recipient.threadId || composeThread?.threadId || null;
 
       if (!threadId) {
-        const threadRes = await post<CreateThreadResponse>(`${EMAIL_API_BASE}/threads`, {
-          brandId,
-          influencerId: recipient.influencerId,
-          campaignId: effectiveCampaignId,
-          subject: payload.subject,
-        });
+        const threadRes = await post<CreateThreadResponse>(
+          `${EMAIL_API_BASE}/threads`,
+          {
+            brandId,
+            influencerId: recipient.influencerId,
+            campaignId: effectiveCampaignId,
+            subject: payload.subject,
+          },
+        );
 
         threadId = threadRes?.threadId || null;
       }
@@ -476,8 +668,6 @@ export default function BrandInboxPageContent() {
         subject: payload.subject,
         body: payload.body,
         htmlBody: payload.htmlBody,
-        cc: payload.cc,
-        bcc: payload.bcc,
         attachments: payload.attachments,
       });
 
@@ -486,9 +676,7 @@ export default function BrandInboxPageContent() {
       await fetchThreads();
     } catch (err: any) {
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to send message"
+        err?.response?.data?.error || err?.message || "Failed to send message",
       );
       throw err;
     } finally {
@@ -502,7 +690,10 @@ export default function BrandInboxPageContent() {
         <div className="flex flex-col gap-4 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-1 md:gap-3">
             <FilterPopover label="Read Status" options={readStatusOptions} />
-            <FilterPopover label="Collaboration Stage" options={collaborationStageOptions} />
+            <FilterPopover
+              label="Collaboration Stage"
+              options={collaborationStageOptions}
+            />
             <FilterPopover label="Recipient" options={recipientOptions} />
             <FilterPopover label="Date" options={dateOptions} />
             <Badge
@@ -540,7 +731,10 @@ export default function BrandInboxPageContent() {
               }
               onCheckedChange={toggleSelectAll}
             />
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="More selection options">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="More selection options"
+            >
               <CaretDown className="h-4 w-4" />
             </button>
             <button
@@ -550,7 +744,10 @@ export default function BrandInboxPageContent() {
             >
               <ArrowClockwise className="h-4 w-4" />
             </button>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Archive inbox">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Archive inbox"
+            >
               <Archive className="h-4 w-4" />
             </button>
           </div>
@@ -561,10 +758,16 @@ export default function BrandInboxPageContent() {
                 ? "0 conversations"
                 : `1-${filteredThreads.length} of ${filteredThreads.length}`}
             </span>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Previous page">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Previous page"
+            >
               <CaretLeft className="h-4 w-4" />
             </button>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Next page">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Next page"
+            >
               <CaretRight className="h-4 w-4" />
             </button>
           </div>
@@ -596,11 +799,11 @@ export default function BrandInboxPageContent() {
                           itemCampaignId
                             ? `?campaignId=${encodeURIComponent(itemCampaignId)}`
                             : ""
-                        }`
+                        }`,
                       )
                     }
                     className={cn(
-                      "cursor-pointer grid grid-cols-[24px_minmax(180px,1.1fr)_minmax(0,4fr)_minmax(120px,140px)] items-center gap-3 border-b border-[#D6D6D6] px-3 py-4 transition-colors hover:bg-[#EDEDED]"
+                      "cursor-pointer grid grid-cols-[24px_minmax(180px,1.1fr)_minmax(0,4fr)_minmax(120px,140px)] items-center gap-3 border-b border-[#D6D6D6] px-3 py-4 transition-colors hover:bg-[#EDEDED]",
                     )}
                   >
                     <div onClick={(e) => e.stopPropagation()}>
@@ -613,7 +816,7 @@ export default function BrandInboxPageContent() {
                     <div className="flex min-w-0 items-center gap-3">
                       <ContactAvatar
                         name={item.influencer?.name || "Influencer"}
-                        avatar={null}
+                        avatar={pickAvatar(item.influencer)}
                       />
                       <div className="flex min-w-0 flex-col">
                         <span className="truncate text-sm font-semibold text-foreground">
@@ -630,7 +833,9 @@ export default function BrandInboxPageContent() {
                         <Envelope className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <p className="truncate text-sm text-muted-foreground">
-                        {item.lastMessageSnippet || item.subject || "No message preview"}
+                        {item.lastMessageSnippet ||
+                          item.subject ||
+                          "No message preview"}
                       </p>
                     </div>
 
@@ -663,8 +868,43 @@ export default function BrandInboxPageContent() {
         onClose={() => {
           setShowCompose(false);
           setComposeThread(null);
+          setComposeParticipants(null);
         }}
-        toLabel={composeThread?.influencer?.aliasEmail || composeThread?.influencer?.name || ""}
+        fromName={
+          composeParticipants?.brand?.name || brandProfile?.name || "Brand"
+        }
+        fromEmail={pickRealEmail(composeParticipants?.brand || brandProfile)}
+        fromAvatar={pickAvatar(composeParticipants?.brand || brandProfile)}
+        fromProxyMailId={pickProxyMailId(
+          composeParticipants?.brand || brandProfile,
+        )}
+        toName={
+          composeParticipants?.influencer?.name ||
+          selectedComposeContact?.name ||
+          ""
+        }
+        toEmail={
+          pickRealEmail(composeParticipants?.influencer) ||
+          selectedComposeContact?.email ||
+          ""
+        }
+        toAvatar={
+          pickAvatar(composeParticipants?.influencer) ||
+          selectedComposeContact?.avatar ||
+          ""
+        }
+        toProxyMailId={
+          pickProxyMailId(composeParticipants?.influencer) ||
+          selectedComposeContact?.proxyEmail ||
+          ""
+        }
+        toLabel={
+          pickProxyMailId(composeParticipants?.influencer) ||
+          selectedComposeContact?.proxyEmail ||
+          composeThread?.influencer?.aliasEmail ||
+          composeThread?.influencer?.name ||
+          ""
+        }
         subject=""
         initialBody=""
         sending={sending}
