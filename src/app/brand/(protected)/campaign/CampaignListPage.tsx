@@ -346,14 +346,17 @@ function isDraftCampaign(c: any) {
   );
 }
 
-function getCampaignEditHref(c: any, campaignId: string) {
+function getCampaignEditHref(c: any, campaignId: string, campaignTitle?: string) {
   const encodedId = encodeURIComponent(campaignId);
+  const encodedTitle = encodeURIComponent(
+    String(campaignTitle || c?.campaignTitle || "Campaign").trim()
+  );
 
   if (isDraftCampaign(c)) {
-    return `/brand/create-campaign?campaignId=${encodedId}`;
+    return `/brand/create-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`;
   }
 
-  return `/brand/edit-campaign?campaignId=${encodedId}`;
+  return `/brand/edit-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`;
 }
 
 function campaignFooterText(c: any) {
@@ -765,8 +768,8 @@ export default function CampaignListPage({
     const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
     const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
     const viewHref = `/brand/campaign/${encodeURIComponent(
-      campaignTitle
-    )}?campaignId=${encodeURIComponent(campaignId)}`;
+      campaignId
+    )}?campaignTitle=${encodeURIComponent(campaignTitle)}`;
     const inviteHref = `/brand/browse-influencer`;
     const showEditButton = canShowEditCampaign(c);
     const applicantCount = c.applicantCount ?? 0;
@@ -806,7 +809,7 @@ export default function CampaignListPage({
     const handleEdit = () => {
       if (locked) return;
       if (typeof window !== "undefined") {
-        window.location.href = getCampaignEditHref(c, campaignId);
+        window.location.href = getCampaignEditHref(c, campaignId, campaignTitle);
       }
     };
 
@@ -1099,9 +1102,10 @@ export default function CampaignListPage({
       const platforms = (c.platformSelection ?? []) as string[];
       const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
       const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
+
       const viewHref = `/brand/campaign/${encodeURIComponent(
-        campaignTitle
-      )}?id=${encodeURIComponent(campaignId)}`;
+        campaignId
+      )}?campaignTitle=${encodeURIComponent(campaignTitle)}`;
       const inviteHref = `/brand/browse-influencer`;
       const showEditButton = canShowEditCampaign(c);
       const applicantCount = c.applicantCount ?? 0;
@@ -1120,9 +1124,7 @@ export default function CampaignListPage({
       const handleEdit = () => {
         if (locked) return;
         if (typeof window !== "undefined") {
-          window.location.href = `/brand/edit-campaign?campaignId=${encodeURIComponent(
-            campaignId
-          )}`;
+          window.location.href = getCampaignEditHref(c, campaignId, campaignTitle);
         }
       };
 

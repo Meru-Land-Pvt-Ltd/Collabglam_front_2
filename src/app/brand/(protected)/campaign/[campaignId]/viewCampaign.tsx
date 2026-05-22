@@ -1117,15 +1117,29 @@ export default function ViewCampaignPage() {
   const [addFundsModalOpen, setAddFundsModalOpen] = useState(false);
   const [topupAmount, setTopupAmount] = useState("");
   const [topupLoading, setTopupLoading] = useState(false);
-  const idFromQuery = searchParams.get("id");
+  const idFromQuery = searchParams.get("campaignId") || searchParams.get("id");
+
+  const campaignTitleFromQuery =
+    searchParams.get("campaignTitle") ||
+    searchParams.get("campaignName") ||
+    searchParams.get("name") ||
+    "";
+
   const topupStatus = searchParams.get("topup");
   const stripeSessionId = searchParams.get("session_id");
-
 
   const campaignId = useMemo(
     () => normalizeMongoId(idFromQuery ?? (params as any)?.campaignId),
     [idFromQuery, params]
   );
+
+  const decodedCampaignTitleFromQuery = useMemo(() => {
+    try {
+      return decodeURIComponent(String(campaignTitleFromQuery || "")).trim();
+    } catch {
+      return String(campaignTitleFromQuery || "").trim();
+    }
+  }, [campaignTitleFromQuery]);
 
   const [budgetTab, setBudgetTab] = useState<"remaining" | "used">("remaining");
   const [usableWalletBalance, setUsableWalletBalance] = useState<number>(0);
@@ -1464,14 +1478,9 @@ export default function ViewCampaignPage() {
     setTopupLoading(true);
 
     try {
-      const rawCampaignTitle =
-        String((campaign as any)?.campaignTitle ?? "").trim();
-
-      const safeCampaignTitle = rawCampaignTitle || "campaign";
-
       const redirectBase = `${window.location.origin}/brand/campaign/${encodeURIComponent(
-        safeCampaignTitle
-      )}?campaignId=${encodeURIComponent(campaignId)}`;
+        campaignId
+      )}?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`;
 
       const successUrl = `${redirectBase}&topup=success&session_id={CHECKOUT_SESSION_ID}`;
       const cancelUrl = `${redirectBase}&topup=cancelled`;
@@ -1763,17 +1772,27 @@ export default function ViewCampaignPage() {
 
   const statusText = String((campaign as any)?.status ?? "—");
 
-  const handleEdit = useCallback(() => {
+  const campaignDisplayTitle =
+    String((campaign as any)?.campaignTitle ?? "").trim() ||
+    decodedCampaignTitleFromQuery ||
+    "Campaign";
+
+  const handleEdit = () => {
     const normalizedStatus = String(statusText || "").trim().toLowerCase();
     const encodedId = encodeURIComponent(campaignId);
+    const encodedTitle = encodeURIComponent(campaignDisplayTitle);
 
     if (normalizedStatus === "draft") {
-      router.push(`/brand/create-campaign?campaignId=${encodedId}`);
+      router.push(
+        `/brand/create-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`
+      );
       return;
     }
 
-    router.push(`/brand/edit-campaign?campaignId=${encodedId}`);
-  }, [campaignId, router, statusText]);
+    router.push(
+      `/brand/edit-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`
+    );
+  };
 
   const startDateText = startAt ? new Date(startAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : "—";
   const endDateText = endAt ? new Date(endAt).toLocaleDateString("en-IN", { dateStyle: "medium" }) : "—";
@@ -1937,12 +1956,12 @@ export default function ViewCampaignPage() {
             {logoUrl ? (
               <img
                 src={logoUrl}
-                alt={`${(campaign as any)?.campaignTitle ?? "Campaign"} logo`}
+                alt={`${campaignDisplayTitle} logo`}
                 className="h-full w-full object-cover"
               />
             ) : (
               <span className="text-[1.5rem] font-semibold text-[#1A1A1A]">
-                {String((campaign as any)?.campaignTitle ?? "C").charAt(0).toUpperCase()}
+                {String(campaignDisplayTitle || "C").charAt(0).toUpperCase()}
               </span>
             )}
           </div>
@@ -1956,9 +1975,9 @@ export default function ViewCampaignPage() {
                   line-clamp-2
                 "
                 style={{ fontFamily: "Inter" }}
-                title={(campaign as any)?.campaignTitle ?? "Campaign"}
+                title={campaignDisplayTitle}
               >
-                {(campaign as any)?.campaignTitle ?? "Campaign"}
+                {campaignDisplayTitle}
               </div>
 
               <div className="mt-1">
@@ -2020,7 +2039,9 @@ export default function ViewCampaignPage() {
                 <Button
                   variant="raised"
                   size="sm"
-                  rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(`/brand/campaign/${encodeURIComponent(campaign?.campaignTitle || "")}/pitch-folder?id=${campaignId}`)}>
+                  rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(
+                    `/brand/campaign/${encodeURIComponent(campaignId)}/pitch-folder?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`
+                  )}>
                   <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
                     Pitch folder
                   </span>
