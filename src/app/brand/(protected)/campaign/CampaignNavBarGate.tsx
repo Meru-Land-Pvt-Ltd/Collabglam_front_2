@@ -29,7 +29,7 @@ export default function CampaignNavBarGate() {
 
     if (CAMPAIGN_LIST_PAGES.has(slug)) return false;
 
-    return Boolean(searchParams?.get("id"));
+    return true;
   }, [pathname, searchParams]);
 
   if (hideNavbar) return null;
