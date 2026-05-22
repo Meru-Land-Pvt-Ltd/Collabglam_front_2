@@ -12,7 +12,6 @@ export type ManageTabKey =
     | "overview"
     | "milestones"
     | "payment"
-    | "communication";
 
 export type ManageTabDefinition = {
     key: ManageTabKey;
@@ -307,7 +306,6 @@ export type InfluencerViewModel = {
     overview: OverviewTabDetails;
     milestonesTab: MilestoneDeliverablesTabDetails;
     payment: PaymentContractTabDetails;
-    communication: CommunicationTabDetails;
 
     influencer: InfluencerDetails;
     contract: any;

@@ -9,13 +9,18 @@ import {
     AreaChart,
     CartesianGrid,
     ReferenceDot,
+    ReferenceLine,
     ResponsiveContainer,
     Tooltip,
     XAxis,
     YAxis,
 } from "recharts";
 import { InfluencerViewModel, compactNumber } from "./utils";
-import { apiGetInfluencerMatchScore } from "../../services/brandApi";
+import {
+    apiGetContractDetails,
+    apiGetInfluencerMatchScore,
+    apiGetMilestonesByCampaign,
+} from "../../services/brandApi";
 
 const NA = "N/A";
 
@@ -74,6 +79,330 @@ const getNumberFromPercent = (value: any) => {
     if (!Number.isFinite(num)) return null;
 
     return Math.max(0, Math.min(100, num));
+};
+
+const normalizeScoreTo100 = (value: any): number | null => {
+    if (isEmptyValue(value)) return null;
+
+    const cleaned =
+        typeof value === "string"
+            ? value.replace("%", "").replace("/100", "").trim()
+            : value;
+
+    const num = Number(cleaned);
+
+    if (!Number.isFinite(num)) return null;
+
+    if (num > 0 && num <= 1) {
+        return Math.max(0, Math.min(100, num * 100));
+    }
+
+    return Math.max(0, Math.min(100, num));
+};
+
+const getFirstScore = (...values: any[]) => {
+    for (const value of values) {
+        const score = normalizeScoreTo100(value);
+
+        if (score !== null) return score;
+    }
+
+    return null;
+};
+
+const getContractDoc = (data: any) => {
+    return data?.contract || data?.data?.contract || data?.data || data || null;
+};
+
+const firstPositiveNumber = (...values: any[]) => {
+    for (const value of values) {
+        const num = Number(value);
+
+        if (Number.isFinite(num) && num > 0) {
+            return num;
+        }
+    }
+
+    return 0;
+};
+
+const formatMoney = (amount: any, currency = "USD") => {
+    const num = Number(amount);
+
+    if (!Number.isFinite(num) || num <= 0) return NA;
+
+    return `${currency || "USD"} $ ${num.toLocaleString("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    })}`;
+};
+
+const getCommercial = (contract: any) => {
+    return (
+        contract?.content?.scheduleA?.commercial ||
+        contract?.scheduleA?.commercial ||
+        {}
+    );
+};
+
+const getCurrency = (contract: any) => {
+    return getCommercial(contract)?.currency || contract?.currency || "USD";
+};
+
+const getInfluencerBudgetFromContract = (contract: any) => {
+    const commercial = getCommercial(contract);
+
+    return firstPositiveNumber(
+        commercial?.influencerBudget,
+        commercial?.feeAmount,
+        contract?.influencerBudget,
+        contract?.feeAmount
+    );
+};
+
+const humanizeLabel = (value: any) => {
+    if (isEmptyValue(value)) return NA;
+
+    return String(value)
+        .replace(/_/g, " ")
+        .replace(/-/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const extractMilestonesFromResponse = (res: any): any[] => {
+    const candidates = [
+        res?.milestones,
+        res?.data?.milestones,
+        res?.data?.data?.milestones,
+        res?.items,
+        res?.data?.items,
+        res?.data,
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) return candidate;
+    }
+
+    return [];
+};
+
+const getMilestoneDeliverables = (milestone: any) => {
+    const raw = milestone?.raw || milestone || {};
+
+    return Array.isArray(raw?.deliverables) ? raw.deliverables : [];
+};
+
+const getMilestoneDeliverablesCount = (milestone: any) => {
+    const raw = milestone?.raw || milestone || {};
+
+    const explicitCount = Number(
+        raw?.deliverablesCount ||
+        raw?.deliverableCount ||
+        raw?.totalDeliverables ||
+        0
+    );
+
+    if (Number.isFinite(explicitCount) && explicitCount > 0) {
+        return explicitCount;
+    }
+
+    return getMilestoneDeliverables(raw).length;
+};
+
+const getContentFormatsFromMilestones = (milestones: any[]) => {
+    const formats = milestones.flatMap((milestone) =>
+        getMilestoneDeliverables(milestone).flatMap((deliverable: any) =>
+            Array.isArray(deliverable?.deliveries)
+                ? deliverable.deliveries
+                : deliverable?.deliveries
+                    ? [deliverable.deliveries]
+                    : []
+        )
+    );
+
+    return Array.from(
+        new Set(
+            formats
+                .map((item) => humanizeLabel(item))
+                .filter((item) => item && item !== NA)
+        )
+    );
+};
+
+const getAllPageDataCandidates = (view: any) => {
+    const raw = view?.raw || {};
+    const influencer = raw?.influencer || view?.influencer || view || {};
+
+    const page1FromInfluencer = Array.isArray(influencer?.page1)
+        ? influencer.page1.map((item: any) => item?.data).filter(Boolean)
+        : [];
+
+    const page1FromRawInfluencer = Array.isArray(raw?.influencer?.page1)
+        ? raw.influencer.page1.map((item: any) => item?.data).filter(Boolean)
+        : [];
+
+    const page1FromRoot = Array.isArray(view?.page1)
+        ? view.page1.map((item: any) => item?.data).filter(Boolean)
+        : [];
+
+    const page1FromRaw = Array.isArray(raw?.page1)
+        ? raw.page1.map((item: any) => item?.data).filter(Boolean)
+        : [];
+
+    return [
+        view?.page1Data,
+        view?.providerRaw,
+        view?.page1Primary?.data,
+        raw?.page1Data,
+        raw?.providerRaw,
+        raw?.page1Primary?.data,
+        raw?.page1Primary,
+        influencer?.page1Data,
+        influencer?.providerRaw,
+        ...page1FromInfluencer,
+        ...page1FromRawInfluencer,
+        ...page1FromRoot,
+        ...page1FromRaw,
+    ].filter(Boolean);
+};
+
+const getAudienceCredibilityScore = (view: any, overview: any) => {
+    const raw = view?.raw || {};
+    const influencer =
+        raw?.influencer ||
+        view?.influencer ||
+        raw?.data?.influencer ||
+        view?.data?.influencer ||
+        view ||
+        {};
+
+    const pageDataCandidates = getAllPageDataCandidates(view);
+
+    const pageDataScores = pageDataCandidates.flatMap((data: any) => [
+        data?.audience?.credibility,
+        data?.audience?.credibilityScore,
+        data?.audience?.audienceCredibilityScore,
+
+        data?.providerRaw?.audience?.credibility,
+        data?.providerRaw?.audience?.credibilityScore,
+        data?.providerRaw?.audience?.audienceCredibilityScore,
+
+        data?.audienceLikers?.credibility,
+        data?.audienceLikers?.credibilityScore,
+
+        data?.audienceCommenters?.credibility,
+        data?.audienceCommenters?.credibilityScore,
+
+        data?.audienceExtra?.credibility,
+        data?.audienceExtra?.credibilityScore,
+
+        data?.audienceCredibilityScore,
+        data?.credibilityScore,
+        data?.credibility,
+    ]);
+
+    return getFirstScore(
+        overview?.audienceCredibilityScore,
+        overview?.credibilityScore,
+        overview?.audience?.credibility,
+        overview?.audience?.credibilityScore,
+        overview?.audience?.audienceCredibilityScore,
+
+        (view as any)?.audienceCredibilityScore,
+        (view as any)?.credibilityScore,
+        (view as any)?.audience?.credibility,
+        (view as any)?.audience?.credibilityScore,
+        (view as any)?.audience?.audienceCredibilityScore,
+
+        raw?.audienceCredibilityScore,
+        raw?.credibilityScore,
+        raw?.audience?.credibility,
+        raw?.audience?.credibilityScore,
+        raw?.audience?.audienceCredibilityScore,
+
+        influencer?.audienceCredibilityScore,
+        influencer?.credibilityScore,
+        influencer?.audience?.credibility,
+        influencer?.audience?.credibilityScore,
+        influencer?.audience?.audienceCredibilityScore,
+
+        ...pageDataScores
+    );
+};
+
+const buildSyntheticCredibilityChart = (score: number | null) => {
+    if (score === null) return [];
+
+    const safeScore = Math.max(0, Math.min(100, score));
+
+    const multipliers = [
+        0.72,
+        0.9,
+        0.65,
+        0.6,
+        1.08,
+        0.77,
+        0.91,
+        1,
+        0.55,
+        0.62,
+        0.62,
+        0.62,
+    ];
+
+    return multipliers.map((multiplier, index) => ({
+        day: `P${index + 1}`,
+        credibility: Math.max(
+            0,
+            Math.min(100, Number((safeScore * multiplier).toFixed(2)))
+        ),
+    }));
+};
+
+const getCredibilityChartData = (
+    view: any,
+    overview: any,
+    score: number | null
+) => {
+    const pageDataCandidates = getAllPageDataCandidates(view);
+
+    const candidates = [
+        overview?.credibilityChartData,
+        overview?.audienceCredibilityChartData,
+        overview?.audience?.credibilityChartData,
+        (view as any)?.credibilityChartData,
+        (view as any)?.audienceCredibilityChartData,
+        (view as any)?.audience?.credibilityChartData,
+        ...pageDataCandidates.map((data: any) => data?.audience?.credibilityHistory),
+        ...pageDataCandidates.map((data: any) => data?.audience?.credibilityChartData),
+    ];
+
+    for (const candidate of candidates) {
+        if (!Array.isArray(candidate) || candidate.length === 0) continue;
+
+        const normalized = candidate
+            .map((item: any, index: number) => {
+                const value = getFirstScore(
+                    item?.credibility,
+                    item?.score,
+                    item?.value,
+                    item?.audienceCredibilityScore
+                );
+
+                if (value === null) return null;
+
+                return {
+                    day: String(item?.day || item?.month || item?.label || `P${index + 1}`),
+                    credibility: Number(value.toFixed(2)),
+                };
+            })
+            .filter(Boolean) as Array<{ day: string; credibility: number }>;
+
+        if (normalized.length > 0) return normalized;
+    }
+
+    return buildSyntheticCredibilityChart(score);
 };
 
 const getPostEngagement = (post: any, followers: number) => {
@@ -469,8 +798,8 @@ function RecentPostsSection({ view }: { view: InfluencerViewModel }) {
                                     aria-label={`Show recent posts frame ${index + 1}`}
                                     onClick={() => setActiveFrame(index)}
                                     className={`h-2 w-2 rounded-lg transition-colors ${index === activeFrame
-                                            ? "bg-[#1A1A1A]"
-                                            : "bg-[#EDEDED]"
+                                        ? "bg-[#1A1A1A]"
+                                        : "bg-[#EDEDED]"
                                         }`}
                                 />
                             ))}
@@ -664,20 +993,76 @@ function EngagementRateSection({
     );
 }
 
+function CredibilityMarkerLabel({ viewBox, value }: any) {
+    const x = Number(viewBox?.x || 0);
+    const y = Number(viewBox?.y || 0);
+
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    return (
+        <g transform={`translate(${x - 26}, ${y - 42})`}>
+            <rect
+                width="52"
+                height="28"
+                rx="6"
+                fill="#3FA34D"
+                filter="drop-shadow(0px 6px 8px rgba(0,0,0,0.15))"
+            />
+            <text
+                x="26"
+                y="18"
+                textAnchor="middle"
+                fill="#FFFFFF"
+                fontSize="10"
+                fontWeight="600"
+                fontFamily="Inter"
+            >
+                {value}
+            </text>
+            <path d="M21 28 L26 34 L31 28 Z" fill="#3FA34D" />
+        </g>
+    );
+}
+
 function AudienceCredibilityScoreCard({
     score,
     chartData,
-    chartDomainMax,
 }: {
-    score: string;
-    chartData: Array<{ day: string; engagement: number }>;
-    chartDomainMax: number;
+    score: number | null;
+    chartData: Array<{ day: string; credibility: number }>;
 }) {
-    const safeScore = textOrNA(score);
-    const lastPoint = chartData[chartData.length - 1];
+    const safeScoreNumber =
+        score === null ? null : Math.max(0, Math.min(100, score));
+
+    const displayScore =
+        safeScoreNumber === null
+            ? NA
+            : Number.isInteger(safeScoreNumber)
+                ? String(safeScoreNumber)
+                : safeScoreNumber.toFixed(2).replace(/\.00$/, "");
+
+    const roundedBubbleScore =
+        safeScoreNumber === null ? NA : `${Math.round(safeScoreNumber)}%`;
+
+    const safeChartData =
+        safeScoreNumber === null
+            ? []
+            : chartData.length > 0
+                ? chartData
+                : buildSyntheticCredibilityChart(safeScoreNumber);
+
+    const highlightPoint =
+        safeScoreNumber === null || safeChartData.length === 0
+            ? null
+            : safeChartData.reduce((closest, current) => {
+                return Math.abs(current.credibility - safeScoreNumber) <
+                    Math.abs(closest.credibility - safeScoreNumber)
+                    ? current
+                    : closest;
+            }, safeChartData[safeChartData.length - 1]);
 
     return (
-        <div className="flex min-h-[13.5rem] flex-col justify-between rounded-xl border border-[#E6E6E6] bg-white p-4">
+        <div className="flex min-h-[13.5rem] flex-col justify-between rounded-[1.5rem] border border-[#E6E6E6] bg-white p-4">
             <div className="flex items-center gap-1">
                 <p className="font-['Inter'] text-sm font-normal leading-5 text-[#969696]">
                     Audience credibility score
@@ -686,13 +1071,13 @@ function AudienceCredibilityScoreCard({
             </div>
 
             <div className="grid grid-cols-[8rem_1fr] items-end gap-4">
-                <div>
+                <div className="pb-2">
                     <div className="flex items-end gap-1">
                         <span className="font-['Inter'] text-[2rem] font-medium leading-none text-[#1A1A1A]">
-                            {safeScore}
+                            {displayScore}
                         </span>
 
-                        {safeScore !== NA ? (
+                        {displayScore !== NA ? (
                             <span className="font-['Inter'] text-base font-normal text-[#B8B8B8]">
                                 /100
                             </span>
@@ -700,37 +1085,45 @@ function AudienceCredibilityScoreCard({
                     </div>
 
                     <p className="mt-2 max-w-[7rem] font-['Inter'] text-xs leading-4 text-[#969696]">
-                        {safeScore !== NA ? "this Influencer has a good score" : NA}
+                        {displayScore !== NA ? "this Influencer has a good score" : NA}
                     </p>
                 </div>
 
-                <div className="relative h-[8rem]">
-                    {chartData.length > 0 ? (
+                <div className="relative h-[9rem]">
+                    {safeChartData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={chartData}>
+                            <AreaChart
+                                data={safeChartData}
+                                margin={{ top: 44, right: 18, left: 0, bottom: 8 }}
+                            >
                                 <defs>
-                                    <linearGradient id="credibilityGradient" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                                    <linearGradient
+                                        id="credibilityGradient"
+                                        x1="0"
+                                        y1="0"
+                                        x2="0"
+                                        y2="1"
+                                    >
+                                        <stop offset="5%" stopColor="#3FA34D" stopOpacity={0.22} />
+                                        <stop offset="95%" stopColor="#3FA34D" stopOpacity={0} />
                                     </linearGradient>
                                 </defs>
 
-                                <CartesianGrid vertical={false} stroke="transparent" />
+                                <CartesianGrid vertical={false} horizontal={false} stroke="transparent" />
                                 <XAxis hide dataKey="day" />
-                                <YAxis hide domain={[0, Math.max(chartDomainMax, 100)]} />
+                                <YAxis hide domain={[0, 100]} />
 
                                 <Tooltip
-                                    cursor={{ stroke: "#22A447", strokeWidth: 1 }}
-                                    content={({ active, payload, label }) => {
+                                    cursor={{ stroke: "#3FA34D", strokeWidth: 1 }}
+                                    content={({ active, payload }) => {
                                         if (!active || !payload?.length) return null;
+
+                                        const value = Number(payload?.[0]?.value || 0);
 
                                         return (
                                             <div className="rounded-xl border border-[#E6E6E6] bg-white px-4 py-3 shadow-lg">
-                                                <p className="font-['Inter'] text-xs font-medium text-[#969696]">
-                                                    {label}
-                                                </p>
-                                                <p className="mt-1 font-['Inter'] text-xs font-semibold text-[#1A1A1A]">
-                                                    Score: {safeScore !== NA ? `${safeScore}/100` : NA}
+                                                <p className="font-['Inter'] text-xs font-semibold text-[#1A1A1A]">
+                                                    {value.toFixed(2).replace(/\.00$/, "")}/100
                                                 </p>
                                             </div>
                                         );
@@ -739,28 +1132,57 @@ function AudienceCredibilityScoreCard({
 
                                 <Area
                                     type="monotone"
-                                    dataKey="engagement"
-                                    stroke="#22A447"
-                                    strokeWidth={1}
+                                    dataKey="credibility"
+                                    stroke="#3FA34D"
+                                    strokeWidth={1.5}
                                     fill="url(#credibilityGradient)"
                                     isAnimationActive={false}
                                     dot={false}
+                                    activeDot={{
+                                        r: 4,
+                                        fill: "#3FA34D",
+                                        stroke: "#3FA34D",
+                                        strokeWidth: 2,
+                                    }}
                                 />
 
-                                {lastPoint ? (
+                                {highlightPoint ? (
+                                    <ReferenceLine
+                                        x={highlightPoint.day}
+                                        stroke="#3FA34D"
+                                        strokeDasharray="4 4"
+                                        strokeWidth={1}
+                                        segment={[
+                                            {
+                                                x: highlightPoint.day,
+                                                y: 0,
+                                            },
+                                            {
+                                                x: highlightPoint.day,
+                                                y: highlightPoint.credibility,
+                                            },
+                                        ]}
+                                    />
+                                ) : null}
+
+                                {highlightPoint ? (
                                     <ReferenceDot
-                                        x={lastPoint.day}
-                                        y={lastPoint.engagement}
+                                        x={highlightPoint.day}
+                                        y={highlightPoint.credibility}
                                         r={4}
-                                        fill="#22A447"
-                                        stroke="#22A447"
+                                        fill="#3FA34D"
+                                        stroke="#3FA34D"
+                                        strokeWidth={2}
+                                        label={
+                                            <CredibilityMarkerLabel value={roundedBubbleScore} />
+                                        }
                                     />
                                 ) : null}
                             </AreaChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex h-full w-full items-center justify-center rounded-lg bg-[#FAFAFA] font-['Inter'] text-sm text-[#969696]">
-                            {NA}
+                        <div className="flex h-full w-full items-center justify-center rounded-xl bg-[#FAFAFA] font-['Inter'] text-sm text-[#969696]">
+                            No credibility data
                         </div>
                     )}
                 </div>
@@ -830,7 +1252,6 @@ function InfluencerMatchScoreCard({
                                 className="h-full w-full"
                                 aria-label={`Influencer match score ${safeScore}`}
                             >
-                                {/* dotted inner guide */}
                                 {Array.from({ length: 35 }).map((_, index) => {
                                     const percent = (index / 34) * 100;
                                     const point = getArcPoint(percent, 80);
@@ -846,7 +1267,6 @@ function InfluencerMatchScoreCard({
                                     );
                                 })}
 
-                                {/* Low */}
                                 <path
                                     d={describeArc(0, 39)}
                                     fill="none"
@@ -855,7 +1275,6 @@ function InfluencerMatchScoreCard({
                                     strokeLinecap="round"
                                 />
 
-                                {/* Average */}
                                 <path
                                     d={describeArc(45, 66)}
                                     fill="none"
@@ -864,7 +1283,6 @@ function InfluencerMatchScoreCard({
                                     strokeLinecap="round"
                                 />
 
-                                {/* Good */}
                                 <path
                                     d={describeArc(73, 85)}
                                     fill="none"
@@ -873,7 +1291,6 @@ function InfluencerMatchScoreCard({
                                     strokeLinecap="round"
                                 />
 
-                                {/* High */}
                                 <path
                                     d={describeArc(92, 100)}
                                     fill="none"
@@ -882,7 +1299,6 @@ function InfluencerMatchScoreCard({
                                     strokeLinecap="round"
                                 />
 
-                                {/* Indicator */}
                                 {indicatorPoint ? (
                                     <circle
                                         cx={indicatorPoint.x}
@@ -895,7 +1311,6 @@ function InfluencerMatchScoreCard({
                                 ) : null}
                             </svg>
 
-                            {/* Percentage - moved slightly lower */}
                             <div className="absolute left-1/2 top-[9.8rem] -translate-x-1/2 text-center">
                                 <p
                                     className="font-['Inter'] font-semibold text-[#242424]"
@@ -911,7 +1326,6 @@ function InfluencerMatchScoreCard({
                         </div>
                     </div>
 
-                    {/* Text block */}
                     <div className="-mt-1 flex flex-col items-center text-center">
                         <p className="font-['Inter'] text-[1.25rem] font-semibold leading-7 text-[#1A1A1A]">
                             Influencer Match Score is {scoreLabel}
@@ -924,7 +1338,6 @@ function InfluencerMatchScoreCard({
                         </p>
                     </div>
 
-                    {/* Legend */}
                     <div className="mx-auto mt-8 flex items-center gap-6 rounded-full border border-[#E6E6E6] px-8 py-3">
                         {[
                             ["Low", "#EF5350"],
@@ -981,16 +1394,6 @@ function AnalyticsSection({
                 />
             </div>
 
-            <button className="flex h-12 w-full items-center justify-between rounded-xl border border-[#E6E6E6] bg-white px-5 font-['Inter'] text-sm font-medium text-[#1A1A1A]">
-                <span>View Revisions history</span>
-                <span>›</span>
-            </button>
-
-            <button className="flex h-12 w-full items-center justify-between rounded-xl border border-[#E6E6E6] bg-white px-5 font-['Inter'] text-sm font-medium text-[#1A1A1A]">
-                <span>View Deliveries</span>
-                <span>›</span>
-            </button>
-
             <p className="py-10 text-center font-['Inter'] text-sm text-[#B8B8B8]">
                 You have reached the end of the page
             </p>
@@ -1009,6 +1412,10 @@ export default function OverviewTab({ view }: OverviewTabProps) {
 
     const [matchScore, setMatchScore] = useState<string>(NA);
     const [matchScoreLabel, setMatchScoreLabel] = useState<string>(NA);
+    const [contractDetailsData, setContractDetailsData] = useState<any | null>(null);
+    const [contractDetailsLoading, setContractDetailsLoading] = useState(false);
+    const [apiMilestones, setApiMilestones] = useState<any[]>([]);
+    const [milestonesLoading, setMilestonesLoading] = useState(false);
 
     const resolvedCampaignId =
         searchParams.get("campaignId") ||
@@ -1022,6 +1429,24 @@ export default function OverviewTab({ view }: OverviewTabProps) {
         (view as any)?.raw?.influencer?._id ||
         (view as any)?.influencer?.influencerId ||
         (view as any)?.influencer?._id ||
+        "";
+
+    const resolvedBrandId =
+        searchParams.get("brandId") ||
+        (view as any)?.raw?.contract?.brandId ||
+        (view as any)?.contract?.brandId ||
+        (view as any)?.raw?.contract?.content?.brand?._id ||
+        (view as any)?.contract?.content?.brand?._id ||
+        "";
+
+    const resolvedContractId =
+        searchParams.get("contractId") ||
+        (view as any)?.raw?.contract?.contractId ||
+        (view as any)?.contract?.contractId ||
+        (view as any)?.raw?.contractId ||
+        (view as any)?.contractId ||
+        (view as any)?.raw?.contract?._id ||
+        (view as any)?.contract?._id ||
         "";
 
     useEffect(() => {
@@ -1067,9 +1492,149 @@ export default function OverviewTab({ view }: OverviewTabProps) {
         };
     }, [resolvedCampaignId, resolvedInfluencerId]);
 
-    const credibilityScore = textOrNA(
-        overview?.credibilityScore || (view as any)?.credibilityScore
-    );
+    useEffect(() => {
+        if (!resolvedContractId) {
+            setContractDetailsData(null);
+            return;
+        }
+
+        let isMounted = true;
+
+        const fetchContractDetails = async () => {
+            try {
+                setContractDetailsLoading(true);
+
+                const data = await apiGetContractDetails(resolvedContractId);
+
+                if (isMounted) {
+                    setContractDetailsData(data);
+                }
+            } catch (err) {
+                console.error("Failed to fetch contract details for overview", err);
+
+                if (isMounted) {
+                    setContractDetailsData(null);
+                }
+            } finally {
+                if (isMounted) {
+                    setContractDetailsLoading(false);
+                }
+            }
+        };
+
+        fetchContractDetails();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [resolvedContractId]);
+
+    useEffect(() => {
+        if (!resolvedCampaignId) {
+            setApiMilestones([]);
+            return;
+        }
+
+        let isMounted = true;
+
+        const fetchMilestones = async () => {
+            try {
+                setMilestonesLoading(true);
+
+                const res = await apiGetMilestonesByCampaign({
+                    campaignId: resolvedCampaignId,
+                    brandId: resolvedBrandId || "",
+                } as any);
+
+                if (!isMounted) return;
+
+                const milestones = extractMilestonesFromResponse(res);
+                const filteredMilestones = resolvedInfluencerId
+                    ? milestones.filter(
+                        (item: any) =>
+                            String(item?.influencerId || item?.raw?.influencerId || "") ===
+                            String(resolvedInfluencerId)
+                    )
+                    : milestones;
+
+                setApiMilestones(filteredMilestones);
+            } catch (err) {
+                console.error("Failed to fetch milestone overview details", err);
+
+                if (isMounted) {
+                    setApiMilestones([]);
+                }
+            } finally {
+                if (isMounted) {
+                    setMilestonesLoading(false);
+                }
+            }
+        };
+
+        fetchMilestones();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [resolvedCampaignId, resolvedBrandId, resolvedInfluencerId]);
+
+    const detailedContract = useMemo(() => {
+        return getContractDoc(contractDetailsData);
+    }, [contractDetailsData]);
+
+    const selectedContractMeta = useMemo(() => {
+        return (
+            detailedContract ||
+            (view as any)?.raw?.contract ||
+            (view as any)?.contract ||
+            (view as any)?.raw?.contractData ||
+            null
+        );
+    }, [detailedContract, view]);
+
+    const contractCurrency = getCurrency(selectedContractMeta);
+    const contractInfluencerBudget = getInfluencerBudgetFromContract(selectedContractMeta);
+
+    const milestoneOverviewStats = useMemo(() => {
+        const fallbackMilestones =
+            Array.isArray((view as any)?.milestones) &&
+                (view as any).milestones.length > 0
+                ? (view as any).milestones
+                : Array.isArray((view as any)?.milestonesTab?.milestones)
+                    ? (view as any).milestonesTab.milestones
+                    : [];
+
+        const source = apiMilestones.length > 0 ? apiMilestones : fallbackMilestones;
+
+        const filtered = resolvedInfluencerId
+            ? source.filter(
+                (item: any) =>
+                    String(item?.influencerId || item?.raw?.influencerId || "") ===
+                    String(resolvedInfluencerId)
+            )
+            : source;
+
+        const milestonesCount = filtered.length;
+        const deliverablesCount = filtered.reduce(
+            (sum: number, milestone: any) =>
+                sum + getMilestoneDeliverablesCount(milestone),
+            0
+        );
+
+        return {
+            milestonesCount,
+            deliverablesCount,
+            contentFormats: getContentFormatsFromMilestones(filtered),
+        };
+    }, [apiMilestones, resolvedInfluencerId, view]);
+
+    const credibilityScoreNumber = useMemo(() => {
+        return getAudienceCredibilityScore(view, overview);
+    }, [overview, view]);
+
+    const credibilityChartData = useMemo(() => {
+        return getCredibilityChartData(view, overview, credibilityScoreNumber);
+    }, [credibilityScoreNumber, overview, view]);
 
     const contentPlatforms =
         Array.isArray(overview?.contentPlatforms) && overview.contentPlatforms.length > 0
@@ -1080,12 +1645,14 @@ export default function OverviewTab({ view }: OverviewTabProps) {
                 : [];
 
     const contentFormats =
-        Array.isArray(overview?.contentFormats) && overview.contentFormats.length > 0
-            ? overview.contentFormats
-            : Array.isArray((view as any)?.contentFormats) &&
-                (view as any).contentFormats.length > 0
-                ? (view as any).contentFormats
-                : [];
+        milestoneOverviewStats.contentFormats.length > 0
+            ? milestoneOverviewStats.contentFormats
+            : Array.isArray(overview?.contentFormats) && overview.contentFormats.length > 0
+                ? overview.contentFormats
+                : Array.isArray((view as any)?.contentFormats) &&
+                    (view as any).contentFormats.length > 0
+                    ? (view as any).contentFormats
+                    : [];
 
     const chartData = useMemo(() => {
         const incoming =
@@ -1099,17 +1666,25 @@ export default function OverviewTab({ view }: OverviewTabProps) {
         return incoming;
     }, [overview?.chartData, view]);
 
-    const influencerPayment = textOrNA(
-        overview?.influencerPayment || (view as any)?.influencerPayment
-    );
+    const influencerPayment = contractDetailsLoading
+        ? "Loading..."
+        : contractInfluencerBudget
+            ? formatMoney(contractInfluencerBudget, contractCurrency)
+            : textOrNA(overview?.influencerPayment || (view as any)?.influencerPayment);
 
-    const milestonesText = textOrNA(
-        overview?.milestonesText || (view as any)?.milestonesText
-    );
+    const milestonesText =
+        milestonesLoading && milestoneOverviewStats.milestonesCount === 0
+            ? "Loading..."
+            : milestoneOverviewStats.milestonesCount > 0
+                ? String(milestoneOverviewStats.milestonesCount).padStart(2, "0")
+                : textOrNA(overview?.milestonesText || (view as any)?.milestonesText);
 
-    const totalDeliverables = textOrNA(
-        overview?.totalDeliverables || (view as any)?.totalDeliverables
-    );
+    const totalDeliverables =
+        milestonesLoading && milestoneOverviewStats.deliverablesCount === 0
+            ? "Loading..."
+            : milestoneOverviewStats.deliverablesCount > 0
+                ? String(milestoneOverviewStats.deliverablesCount).padStart(2, "0")
+                : textOrNA(overview?.totalDeliverables || (view as any)?.totalDeliverables);
 
     const contentLanguage = textOrNA(
         overview?.contentLanguages || (view as any)?.contentLanguages
@@ -1225,9 +1800,8 @@ export default function OverviewTab({ view }: OverviewTabProps) {
                     </div>
 
                     <AudienceCredibilityScoreCard
-                        score={credibilityScore}
-                        chartData={chartData}
-                        chartDomainMax={chartDomainMax}
+                        score={credibilityScoreNumber}
+                        chartData={credibilityChartData}
                     />
                 </div>
             </div>

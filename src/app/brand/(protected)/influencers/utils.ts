@@ -36,7 +36,6 @@ export const MANAGE_TABS: ManageTabDefinition[] = [
     { key: "overview", label: "Overview" },
     { key: "milestones", label: "Milestone & Deliverables" },
     { key: "payment", label: "Payment & Contract" },
-    { key: "communication", label: "Communication" },
 ];
 
 export const dash = (value: any) =>
@@ -865,12 +864,6 @@ export const buildInfluencerViewModel = (manageInfo: any): InfluencerViewModel =
         paymentTable,
     };
 
-    const communication = {
-        influencerName: profileName,
-        email: dash(influencer?.email),
-        proxyEmail: dash(influencer?.proxyEmail),
-        phone: dash(influencer?.phone),
-    };
 
     return {
         raw: {
@@ -888,7 +881,6 @@ export const buildInfluencerViewModel = (manageInfo: any): InfluencerViewModel =
         overview,
         milestonesTab,
         payment,
-        communication,
 
         influencer,
         contract,
