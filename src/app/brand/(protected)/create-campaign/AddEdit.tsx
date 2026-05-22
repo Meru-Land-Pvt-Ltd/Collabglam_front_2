@@ -17,7 +17,7 @@ import { TopbarAction, useBrandTopbar } from "@/components/ui/brand/brandTopbarP
 import {
   apiCampaignCreate,
   apiCampaignEditDraft,
-  apiCampaignGetById,
+  apiCampaignGetById2,
   apiCampaignPrefillAI,
   apiGetTimezonesByCountries,
   getApiErrorMessage,
@@ -1710,6 +1710,8 @@ function CreateManualScreen({
     setApiError("");
     setCampaignId("");
     setLoadedDetails(null);
+    setSavedProductImages([]);
+    setPreviewProductImages([]);
 
     categoryPicker.hydrateSelectedCategory(null);
     categoryPicker.setSearch("");
@@ -1748,8 +1750,45 @@ function CreateManualScreen({
     }
 
     try {
+      let uploadedImages: SavedProductImage[] = [];
+
+      if (form.productFiles?.length) {
+        const uploadRes = await apiUploadImages(form.productFiles);
+        const urls: string[] = uploadRes?.urls ?? uploadRes?.data?.urls ?? [];
+
+        if (!urls.length) {
+          throw new Error("Image upload failed. No image URLs returned from backend.");
+        }
+
+        uploadedImages = urls.map((url, i) => {
+          const file = form.productFiles[i];
+          const key =
+            url.split("/campaign-images/")[1] ?? url.split("/").pop() ?? "";
+
+          return {
+            dataUrl: url,
+            name: file?.name ?? "",
+            type: file?.type ?? "image/jpeg",
+            contentType: file?.type ?? "image/jpeg",
+            originalSize: file?.size ?? 0,
+            size: file?.size ?? 0,
+            key,
+          };
+        });
+      }
+
+      const allProductImages: SavedProductImage[] = [
+        ...savedProductImages,
+        ...uploadedImages,
+      ];
+
       if (!campaignId) {
-        const createBase = await buildCreateManualPayload(form, true, savedProductImages);
+        const createBase = await buildCreateManualPayload(
+          { ...form, productFiles: [] },
+          true,
+          allProductImages
+        );
+
         const res = await apiCampaignCreate({
           ...(createBase as CreateCampaignManualPayload),
           status: "draft" as CampaignStatus,
@@ -1763,9 +1802,9 @@ function CreateManualScreen({
         const payload = await buildEditDraftPayload(
           brandId,
           campaignId,
-          form,
+          { ...form, productFiles: [] },
           "draft",
-          savedProductImages
+          allProductImages
         );
 
         const res = await apiCampaignEditDraft(payload);
@@ -1775,14 +1814,28 @@ function CreateManualScreen({
 
       setDraftJustSaved(true);
       draftSavedTimerRef.current = window.setTimeout(() => setDraftJustSaved(false), 1200);
+
+      resetForm();
+      router.replace("/brand/campaign/draft");
+      onAfterPublish?.();
     } catch (e) {
       const backendMsg = extractBackendMessage(e);
       setApiError(backendMsg);
-      toastError(backendMsg);
+      toastError("Failed to save draft", backendMsg);
     } finally {
       setDraftSaving(false);
     }
-  }, [campaignId, form, pushApiError, extractBackendMessage, extractBackendSuccessMessage]);
+  }, [
+    campaignId,
+    form,
+    savedProductImages,
+    pushApiError,
+    extractBackendMessage,
+    extractBackendSuccessMessage,
+    resetForm,
+    router,
+    onAfterPublish,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -2533,10 +2586,7 @@ export default function CreateCampaignPage() {
 
     (async () => {
       try {
-        const res: any = await apiCampaignGetById({
-          campaignId: editCampaignId,
-          brandId: getBrandId() || undefined,
-        });
+const res: any = await apiCampaignGetById2(editCampaignId);
         if (cancelled) return;
 
         const doc = res?.data ?? res;

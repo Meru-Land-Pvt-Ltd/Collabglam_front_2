@@ -1135,11 +1135,11 @@ const ModalShell = memo(function ModalShell({
 }) {
   if (!open) return null;
 
-  return (
-    <div
-      className={`fixed inset-0 flex items-center justify-center bg-black/55 p-4 ${zIndexClass}`}
-    >
-      <div className="absolute inset-0" onClick={onClose} />
+return (
+  <div
+    className={`fixed inset-y-0 right-0 left-0 flex items-center justify-center bg-black/55 py-4 pr-4 pl-4 sm:py-5 sm:pr-5 sm:pl-5 md:left-[280px] md:pl-8 lg:py-6 lg:pr-6 lg:pl-10 ${zIndexClass}`}
+  >
+    <div className="absolute inset-0" onClick={onClose} />
       <div
         className={`relative z-10 flex max-h-[92vh] w-full ${maxWidthClass} flex-col overflow-hidden rounded-3xl bg-white shadow-2xl`}
       >
@@ -1558,13 +1558,14 @@ const RateCardModal = memo(function RateCardModal({
   }, [item]);
 
   return (
-    <ModalShell
-      open={!!item}
-      title={item ? `${item.name || 'Influencer'} - Rate Cards` : 'Rate Cards'}
-      description="Review influencer rate card, admin rate card, and change history."
-      onClose={onClose}
-      maxWidthClass="max-w-6xl"
-    >
+<ModalShell
+  open={!!item}
+  title={item ? `${item.name || 'Influencer'} - Rate Cards` : 'Rate Cards'}
+  description="Review influencer rate card, admin rate card, and change history."
+  onClose={onClose}
+  maxWidthClass="max-w-6xl"
+  zIndexClass="z-[70]"
+>
       {item ? (
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2">

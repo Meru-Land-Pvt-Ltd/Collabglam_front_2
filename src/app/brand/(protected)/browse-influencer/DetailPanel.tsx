@@ -15,7 +15,7 @@ import Swal from 'sweetalert2';
 import type { ReportResponse, Platform } from './types';
 import { post, post2 } from '@/lib/api';
 
-import EmailEditor from '@/components/ui/EmailEditor';
+import EmailEditor, { type EmailEditorPayload } from '@/components/ui/EmailEditor';
 import { AudienceIntelligenceCard } from '@/components/common/AudienceIntelligenceCard';
 import { CampaignHighlightsCard } from '@/components/common/CampaignHighlightsCard';
 import { ContactManagementCard } from '@/components/common/ContactManagementCard';
@@ -219,21 +219,6 @@ type EmailDraftState = {
   subject: string;
   initialBody: string;
   initialHtmlBody: string;
-};
-
-type EmailEditorSendPayload = {
-  to: string;
-  cc: string;
-  bcc: string;
-  subject: string;
-  body: string;
-  htmlBody: string;
-  attachments: Array<{
-    filename: string;
-    contentType: string;
-    size: number;
-    contentBase64: string;
-  }>;
 };
 
 type CampaignInvitePickerProps = {
@@ -2624,7 +2609,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const finalizeCampaignInvitations = async (
       chosenCampaignIds?: string[],
-      editorPayload?: EmailEditorSendPayload
+      editorPayload?: EmailEditorPayload
     ) => {
       const rawHandle = handle ? String(handle).trim() : '';
       const safeHandle = rawHandle
@@ -2698,8 +2683,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                   subject: editorPayload.subject,
                   body: editorPayload.body,
                   htmlBody: editorPayload.htmlBody,
-                  cc: editorPayload.cc,
-                  bcc: editorPayload.bcc,
                   attachments: editorPayload.attachments,
                   fromEmail: emailDraft?.fromEmail || '',
                   fromName: emailDraft?.fromName || 'CollabGlam',
@@ -3327,7 +3310,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
     };
 
-    const handleEditorSend = async (payload: EmailEditorSendPayload) => {
+    const handleEditorSend = async (payload: EmailEditorPayload) => {
       await finalizeCampaignInvitations(emailDraft?.campaignIds || [], payload);
     };
 

@@ -103,9 +103,96 @@ type Props = {
   apiResponse?: PlainObject | null;
   report?: ReportData | PlainObject | null;
   isLoading?: boolean;
+  reportId?: string;
+  shareToken?: string;
+  isShareableView?: boolean;
 };
 
 const FALLBACK_REPORT_NAME = "youtube-insight";
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://api.collabglam.com";
+const PUBLIC_SITE_ORIGIN =
+  process.env.NEXT_PUBLIC_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "https://collabglam.com";
+
+function apiPath(path: string): string {
+  const base = API_BASE_URL.replace(/\/+$/, "");
+  const cleanPath = path.replace(/^\/+/, "");
+  return `${base}/${cleanPath}`;
+}
+
+function getPublicReportUrl(token: string): string {
+  const origin = PUBLIC_SITE_ORIGIN.replace(/\/+$/, "");
+  return `${origin}/insight-os/report?share=${encodeURIComponent(token)}`;
+}
+
+function getStoredToken(): string {
+  if (typeof window === "undefined") return "";
+  return (
+    localStorage.getItem("token") ||
+    localStorage.getItem("adminToken") ||
+    localStorage.getItem("accessToken") ||
+    ""
+  );
+}
+
+function extractShareToken(payload: unknown): string {
+  if (!isObject(payload)) return "";
+  const direct = payload.shareToken || payload.token || payload.publicToken;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (isObject(payload.data)) return extractShareToken(payload.data);
+  return "";
+}
+
+function extractPublicUrl(payload: unknown): string {
+  if (!isObject(payload)) return "";
+  const direct = payload.publicUrl || payload.shareUrl || payload.url || payload.link;
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (isObject(payload.data)) return extractPublicUrl(payload.data);
+  return "";
+}
+
+async function createPublicInsightLink(report: ReportData, reportId?: string, existingToken?: string): Promise<string> {
+  if (existingToken) return getPublicReportUrl(existingToken);
+
+  const token = getStoredToken();
+  const response = await fetch(apiPath("/youtube-insights/share"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      reportId: reportId || report.reportId || "",
+      frontendReport: report,
+      report,
+      sourceContext: "insight_os_report_share",
+    }),
+  });
+
+  const result = await response.json().catch(() => ({}));
+
+  if (!response.ok || result?.success === false) {
+    const message = typeof result?.message === "string" && result.message.trim()
+      ? result.message
+      : "Unable to create public report link.";
+    throw new Error(message);
+  }
+
+  const publicUrl = extractPublicUrl(result);
+  if (publicUrl) return publicUrl;
+
+  const newToken = extractShareToken(result);
+  if (!newToken) throw new Error("Share token missing from backend response.");
+
+  return getPublicReportUrl(newToken);
+}
+
 
 function isObject(value: unknown): value is PlainObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -352,11 +439,11 @@ function getCreatorAvatarUrl(report: ReportData): string {
 
   return text(
     profile.avatarUrl ||
-      channel.avatarUrl ||
-      channel.thumbnailUrl ||
-      hero.channelThumbnailUrl ||
-      video.creatorAvatarUrl ||
-      channelMetrics.thumbnailUrl,
+    channel.avatarUrl ||
+    channel.thumbnailUrl ||
+    hero.channelThumbnailUrl ||
+    video.creatorAvatarUrl ||
+    channelMetrics.thumbnailUrl,
     ""
   );
 }
@@ -489,90 +576,101 @@ function getSafeFileName(report: ReportData): string {
   return `${name || FALLBACK_REPORT_NAME}-${report.reportId || Date.now()}.pdf`;
 }
 
-async function downloadReportPdf(report: ReportData): Promise<void> {
-  const jsPdfModule = await import("jspdf");
-  const JsPDF = jsPdfModule.default || jsPdfModule.jsPDF;
-  const pdf = new JsPDF("p", "mm", "a4");
-  const margin = 14;
-  const width = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  let y = margin;
+const PDF_CAPTURE_WIDTH = 1280;
 
-  const addPageIfNeeded = (height = 10) => {
-    if (y + height > pageHeight - margin) {
-      pdf.addPage();
-      y = margin;
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+async function waitForPdfImages(root: HTMLElement): Promise<void> {
+  const images = Array.from(root.querySelectorAll("img"));
+
+  await Promise.all(
+    images.map((image) => {
+      if (image.complete) return Promise.resolve();
+
+      return new Promise<void>((resolve) => {
+        image.onload = () => resolve();
+        image.onerror = () => resolve();
+      });
+    })
+  );
+}
+
+function expandPdfClone(root: HTMLElement): void {
+  const elements = Array.from(root.querySelectorAll<HTMLElement>("*"));
+
+  elements.forEach((element) => {
+    const className = String(element.getAttribute("class") || "");
+    const computed = window.getComputedStyle(element);
+
+    const shouldExpandY =
+      element.dataset.pdfExpand === "true" ||
+      className.includes("overflow-y-auto") ||
+      className.includes("overflow-auto") ||
+      className.includes("max-h-") ||
+      ((computed.overflowY === "auto" || computed.overflowY === "scroll") &&
+        element.scrollHeight > element.clientHeight + 2);
+
+    const shouldExpandX =
+      element.dataset.pdfExpand === "true" ||
+      className.includes("overflow-x-auto") ||
+      className.includes("overflow-auto") ||
+      ((computed.overflowX === "auto" || computed.overflowX === "scroll") &&
+        element.scrollWidth > element.clientWidth + 2);
+
+    if (shouldExpandY || shouldExpandX) {
+      element.style.overflow = "visible";
+      element.style.overflowY = "visible";
+      element.style.overflowX = "visible";
+      element.style.maxHeight = "none";
+      element.style.maxWidth = "none";
+
+      if (shouldExpandY) {
+        element.style.height = "auto";
+        element.style.minHeight = `${element.scrollHeight}px`;
+      }
+
+      if (shouldExpandX) {
+        element.style.width = `${Math.max(element.scrollWidth, element.clientWidth)}px`;
+      }
     }
-  };
 
-  const addTitle = (value: string, size = 16) => {
-    addPageIfNeeded(12);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(size);
-    pdf.setTextColor(15, 23, 42);
-    pdf.text(value, margin, y);
-    y += size * 0.55 + 5;
-  };
+    if (className.includes("truncate") || className.includes("line-clamp")) {
+      element.style.overflow = "visible";
+      element.style.textOverflow = "clip";
+      element.style.whiteSpace = "normal";
+      element.style.display = "block";
+      element.style.setProperty("-webkit-line-clamp", "unset");
+      element.style.setProperty("-webkit-box-orient", "unset");
+    }
+  });
+}
 
-  const addText = (value: string, size = 9, isBold = false) => {
-    const lines = pdf.splitTextToSize(value || "Not available", width - margin * 2);
-    addPageIfNeeded(lines.length * 5 + 2);
-    pdf.setFont("helvetica", isBold ? "bold" : "normal");
-    pdf.setFontSize(size);
-    pdf.setTextColor(51, 65, 85);
-    pdf.text(lines, margin, y);
-    y += lines.length * 4.5 + 3;
-  };
+async function downloadReportPdf(report: ReportData): Promise<void> {
+  const target = document.getElementById("youtube-insight-report-pdf");
+  if (!target) throw new Error("Report UI element was not found.");
 
-  const addKV = (label: string, value: string) => {
-    addPageIfNeeded(8);
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(8);
-    pdf.setTextColor(100, 116, 139);
-    pdf.text(label, margin, y);
-    pdf.setFont("helvetica", "normal");
-    pdf.setTextColor(15, 23, 42);
-    pdf.text(value || "Not available", width - margin - 70, y, { maxWidth: 70 });
-    y += 6;
-  };
+  const previousTitle = document.title;
+  const safeTitle = getSafeFileName(report).replace(/\.pdf$/i, "");
 
-  addTitle("YouTube Creator Insight Report", 18);
-  addText(text(report.aiSummary?.brandDecision || report.finalVerdict?.verdict || report.aiSummary?.recommendation, "Brand decision summary unavailable."), 10, true);
+  try {
+    document.title = safeTitle;
 
-  addTitle("Channel Overview", 13);
-  addKV("Creator", text(report.profile?.name));
-  addKV("Subscribers", text(report.channelOverview?.subscribersDisplay || report.profile?.subscriberCountDisplay));
-  addKV("Channel views", text(report.channelOverview?.totalViewsDisplay || report.profile?.totalViewCountDisplay));
-  addKV("Total videos", text(report.channelOverview?.totalVideosDisplay || report.profile?.videoCountDisplay));
-  addKV("Category", text(report.creatorFit?.primaryCategory));
+    await document.fonts?.ready;
 
-  addTitle("Video Overview", 13);
-  addText(text(report.videoOverview?.title), 10, true);
-  addKV("Published", formatDate(report.videoOverview?.publishedOn));
-  addKV("Duration", text(report.videoOverview?.durationDisplay));
-  (report.overviewCards || []).slice(0, 8).forEach((card) => addKV(text(card.label), text(card.displayValue || card.value)));
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
 
-  addTitle("Estimated Brand Metrics", 13);
-  (report.performanceEstimateCards || []).forEach((card) => addKV(text(card.label), text(card.displayValue)));
-
-  addTitle("AI Summary", 13);
-  addText(text(report.aiSummary?.heroSummary || report.aiSummary?.influencerSummary));
-  addText(text(report.aiSummary?.performanceSummary));
-  addText(text(report.aiSummary?.riskInsight));
-
-  const comments = report.commentBreakdown;
-  if (comments) {
-    addTitle("Comments", 13);
-    addKV("Analyzed", compactNumber(comments.totalComments));
-    addKV("Positive", `${numberValue(comments.sentiment?.positive).toFixed(1)}%`);
-    addKV("Neutral", `${numberValue(comments.sentiment?.neutral).toFixed(1)}%`);
-    addKV("Negative", `${numberValue(comments.sentiment?.negative).toFixed(1)}%`);
-    (comments.topCommentThemes || []).slice(0, 6).forEach((theme) => addText(`• ${theme.theme || "Theme"}: ${theme.interpretation || ""}`, 8));
+    window.print();
+  } finally {
+    window.setTimeout(() => {
+      document.title = previousTitle;
+    }, 500);
   }
-
-  addTitle("Notes", 13);
-  (report.dataAvailability?.notes || ["All estimated metrics are formula-based unless YouTube Analytics or brand tracking is connected."]).forEach((note) => addText(`• ${note}`, 8));
-  pdf.save(getSafeFileName(report));
 }
 
 function StatusPill({ label, tone = "default" }: { label?: string; tone?: Tone }) {
@@ -580,7 +678,14 @@ function StatusPill({ label, tone = "default" }: { label?: string; tone?: Tone }
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <section className={classNames("rounded-2xl border border-slate-200 bg-white", className)}>{children}</section>;
+  return (
+    <section
+      data-pdf-card="true"
+      className={classNames("rounded-2xl border border-slate-200 bg-white", className)}
+    >
+      {children}
+    </section>
+  );
 }
 
 function CardHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: React.ReactNode }) {
@@ -595,31 +700,75 @@ function CardHeader({ title, subtitle, right }: { title: string; subtitle?: stri
   );
 }
 
-function HeaderProfile({ report }: { report: ReportData }) {
+function HeaderProfile({
+  report,
+  reportId,
+  shareToken,
+  isShareableView = false,
+}: {
+  report: ReportData;
+  reportId?: string;
+  shareToken?: string;
+  isShareableView?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copied, setCopied] = useState(false);
   const profile = report.profile || {};
   const channel = report.channelOverview || {};
-  const video = report.videoOverview || {};
   const summary = text(profile.summary || report.aiSummary?.influencerSummary, "Public creator profile generated from YouTube channel and video data.");
 
   const handleDownload = async () => {
     if (downloading) return;
+
+    const wasExpanded = expanded;
+
     setDownloading(true);
+    setExpanded(true);
+
     try {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
       await downloadReportPdf(report);
     } catch (error) {
       console.error(error);
-      window.alert("PDF download failed. Please install jspdf and try again.");
+      window.alert("PDF download failed. Please try again.");
     } finally {
+      if (!wasExpanded) setExpanded(false);
       setDownloading(false);
     }
   };
 
   const copyLink = async () => {
-    const link = text(video.videoUrl || report.hero?.livePublishedLink, "");
-    if (!link || !navigator?.clipboard) return;
-    await navigator.clipboard.writeText(link);
+    if (copying) return;
+
+    try {
+      setCopying(true);
+      setCopied(false);
+      const publicLink = await createPublicInsightLink(report, reportId, shareToken);
+
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(publicLink);
+      } else {
+        const input = document.createElement("input");
+        input.value = publicLink;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        document.body.removeChild(input);
+      }
+
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : "Unable to copy public report link.");
+    } finally {
+      setCopying(false);
+    }
   };
 
   return (
@@ -655,12 +804,23 @@ function HeaderProfile({ report }: { report: ReportData }) {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
           <StatusPill label={String(report.reportStatus || "Published")} tone="success" />
-          <button type="button" onClick={handleDownload} disabled={downloading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-            <Download className="h-4 w-4" /> {downloading ? "Preparing PDF..." : "Download PDF"}
-          </button>
-          <button type="button" onClick={copyLink} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-            <Copy className="h-4 w-4" /> Copy Link
-          </button>
+
+          <div data-pdf-exclude="true" className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={handleDownload} disabled={downloading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              <Download className="h-4 w-4" /> {downloading ? "Preparing PDF..." : "Download PDF"}
+            </button>
+            {!isShareableView ? (
+              <button
+                type="button"
+                onClick={copyLink}
+                disabled={copying}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Copy className="h-4 w-4" />
+                {copying ? "Creating link..." : copied ? "Copied" : "Copy Link"}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -824,25 +984,49 @@ function YouTubePublicOverview({ report }: { report: ReportData }): React.ReactE
 }
 
 function VideoHero({ report }: { report: ReportData }) {
-  const video = report.videoOverview || {};
+  const video: PlainObject = isObject(report.videoOverview) ? report.videoOverview : {};
+
   return (
     <Card className="overflow-hidden">
       <div className="grid md:grid-cols-[320px_1fr]">
         <div className="relative h-64 bg-slate-100 md:h-full">
-          {video.thumbnailUrl ? <img src={String(video.thumbnailUrl)} alt={text(video.title)} className="h-full w-full object-cover" /> : null}
+          {video.thumbnailUrl ? (
+            <img
+              src={String(video.thumbnailUrl)}
+              alt={text(video.title)}
+              className="h-full w-full object-cover"
+            />
+          ) : null}
+
           <div className="absolute left-3 top-3 inline-flex items-center gap-1 rounded bg-black/80 px-2 py-1 text-xs font-semibold text-white">
-            <Youtube className="h-3 w-3 fill-red-500 text-red-500" /> YouTube
+            <Youtube className="h-3 w-3 fill-red-500 text-red-500" />
+            YouTube
           </div>
-          <div className="absolute bottom-3 right-3 rounded bg-black/80 px-2 py-1 text-xs font-semibold text-white">{text(video.durationDisplay)}</div>
+
+          <div className="absolute bottom-3 right-3 rounded bg-black/80 px-2 py-1 text-xs font-semibold text-white">
+            {text(video.durationDisplay)}
+          </div>
         </div>
+
         <div className="p-5">
-          <h2 className="text-lg font-black leading-6 text-slate-950">{text(video.title, "YouTube Video")}</h2>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{shorten(video.descriptionPreview, 230)}</p>
+          <h2 className="text-lg font-black leading-6 text-slate-950">
+            {text(video.title, "YouTube Video")}
+          </h2>
+
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            {shorten(video.descriptionPreview, 230)}
+          </p>
+
           <div className="mt-4 flex flex-wrap gap-2 text-xs">
             <StatusPill label={String(video.contentFormat || "Public Video")} tone="primary" />
-            {hasValue(video.categoryName) ? <StatusPill label={String(video.categoryName)} tone="muted" /> : null}
+
+            {hasValue(video.categoryName) ? (
+              <StatusPill label={String(video.categoryName)} tone="muted" />
+            ) : null}
+
             <StatusPill label={formatDate(video.publishedOn)} tone="default" />
           </div>
+
           <div className="mt-5 flex flex-wrap gap-3">
             <ExternalButton href={String(video.videoUrl || "")}>View Video</ExternalButton>
             <ExternalButton href={String(video.channelUrl || "")}>View Channel</ExternalButton>
@@ -852,7 +1036,6 @@ function VideoHero({ report }: { report: ReportData }) {
     </Card>
   );
 }
-
 
 function ExternalButton({ href, children }: { href?: string; children: React.ReactNode }) {
   return (
@@ -1084,7 +1267,7 @@ function SentimentCard({ label, value, tone }: { label: string; value: number; t
 
 function ThemeGrid({ themes }: { themes: Array<{ theme?: string; count?: number; interpretation?: string }> }) {
   return (
-    <div className="mt-3 grid max-h-[28rem] gap-3 overflow-y-auto lg:grid-cols-2">
+    <div data-pdf-expand="true" className="mt-3 grid max-h-[28rem] gap-3 overflow-y-auto lg:grid-cols-2">
       {themes.length ? themes.slice(0, 12).map((theme, index) => <div key={`${theme.theme}-${index}`} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-3"><b className="text-xs text-slate-900">“{theme.theme || "Audience theme"}”</b>{hasValue(theme.count) ? <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{compactNumber(theme.count)}</span> : null}</div><p className="mt-2 text-[11px] leading-4 text-slate-500">{theme.interpretation || "No interpretation available."}</p></div>) : <EmptyState text="No comment themes found." />}
     </div>
   );
@@ -1092,7 +1275,7 @@ function ThemeGrid({ themes }: { themes: Array<{ theme?: string; count?: number;
 
 function CommentGrid({ comments }: { comments: CommentItem[] }) {
   return (
-    <div className="mt-3 grid max-h-[32rem] gap-3 overflow-y-auto lg:grid-cols-2">
+    <div data-pdf-expand="true" className="mt-3 grid max-h-[32rem] gap-3 overflow-y-auto lg:grid-cols-2">
       {comments.length ? comments.slice(0, 10).map((comment, index) => <div key={comment.commentId || index} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm"><div className="flex justify-between gap-3"><div className="min-w-0"><b className="block truncate text-xs text-slate-900">{comment.authorDisplayName || "YouTube user"}</b><span className="mt-1 block text-[11px] text-slate-400">{compactNumber(comment.likeCount)} likes · {compactNumber(comment.replyCount)} replies</span></div><StatusPill label={comment.sentiment || "neutral"} tone={comment.sentiment === "positive" ? "success" : comment.sentiment === "negative" ? "danger" : "muted"} /></div><p className="mt-3 text-xs leading-5 text-slate-700">“{shorten(comment.text, 240)}”</p></div>) : <EmptyState text="No comments in this bucket." />}
     </div>
   );
@@ -1379,18 +1562,18 @@ function SideRow({ label, value }: { label: string; value: string }) {
 function ScoreBreakdown({ cards = [] }: { cards?: MetricCard[] }) {
   if (!cards.length) return null;
   return <Card><CardHeader title="Score Breakdown" /><div className="grid gap-3 px-5 pb-5 sm:grid-cols-2 lg:grid-cols-4">{cards.map((card, index) => (
-              <MetricTile key={metricCardKey(card, index)} card={card} compact />
-            ))}</div></Card>;
+    <MetricTile key={metricCardKey(card, index)} card={card} compact />
+  ))}</div></Card>;
 }
 
 function Notes({ notes = [] }: { notes?: string[] }) {
   if (!notes.length) return null;
   return <Card className="p-5"><h3 className="text-sm font-bold text-slate-900">Public Data Notes</h3><div className="mt-4 space-y-2">{uniqueTextList(notes).map((note, index) => (
-        <div key={stableKey(note, index, "note")} className="flex gap-2 text-xs leading-5 text-slate-500">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
-          {note}
-        </div>
-      ))}</div></Card>;
+    <div key={stableKey(note, index, "note")} className="flex gap-2 text-xs leading-5 text-slate-500">
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+      {note}
+    </div>
+  ))}</div></Card>;
 }
 
 function EmptyState({ text }: { text: string }) {
@@ -1398,115 +1581,220 @@ function EmptyState({ text }: { text: string }) {
 }
 
 function FullPageSkeleton() {
-  return <main className="min-h-screen bg-white"><div className="mx-auto max-w-[1180px] px-6 py-10"><div className="h-32 animate-pulse rounded-3xl bg-slate-100" /><div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]"><div className="space-y-5">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-52 animate-pulse rounded-2xl bg-slate-100" />)}</div><div className="space-y-5">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-56 animate-pulse rounded-2xl bg-slate-100" />)}</div></div></div></main>;
+  return <main className="min-h-screen bg-white"><div className="mx-auto max-w-[1180px] px-6 py-10"><div className="h-32 animate-pulse rounded-3xl bg-slate-100" /><div className="mt-6 grid gap-6 lg:grid-cols-[1fr_340px]"><div className="space-y-5">{Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-52 animate-pulse rounded-2xl bg-slate-100" />)}</div><div className="space-y-5">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-56 animate-pulse rounded-2xl bg-slate-100" />)}</div></div></div>
+    <style jsx global>{`
+  @page {
+    size: A4;
+    margin: 10mm;
+  }
+
+  @media print {
+    html,
+    body {
+      width: 100% !important;
+      height: auto !important;
+      overflow: visible !important;
+      background: #ffffff !important;
+    }
+
+    body {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    [data-pdf-exclude="true"] {
+      display: none !important;
+    }
+
+    #youtube-insight-report-pdf {
+      width: 100% !important;
+      min-height: auto !important;
+      background: #ffffff !important;
+      overflow: visible !important;
+    }
+
+    #youtube-insight-report-pdf > div {
+      max-width: 100% !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+    }
+
+    #youtube-insight-report-pdf [data-pdf-card="true"] {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+      box-shadow: none !important;
+    }
+
+    #youtube-insight-report-pdf [data-pdf-expand="true"] {
+      max-height: none !important;
+      height: auto !important;
+      overflow: visible !important;
+    }
+
+    #youtube-insight-report-pdf .overflow-y-auto,
+    #youtube-insight-report-pdf .overflow-x-auto,
+    #youtube-insight-report-pdf .overflow-auto {
+      overflow: visible !important;
+      max-height: none !important;
+    }
+
+    #youtube-insight-report-pdf .truncate {
+      overflow: visible !important;
+      text-overflow: unset !important;
+      white-space: normal !important;
+    }
+
+    #youtube-insight-report-pdf .line-clamp-2,
+    #youtube-insight-report-pdf .line-clamp-3 {
+      display: block !important;
+      overflow: visible !important;
+      -webkit-line-clamp: unset !important;
+      -webkit-box-orient: unset !important;
+    }
+
+    #youtube-insight-report-pdf .max-w-7xl {
+      max-width: 100% !important;
+    }
+
+    #youtube-insight-report-pdf .lg\\:grid-cols-\\[minmax\\(0\\,1fr\\)_340px\\] {
+      grid-template-columns: minmax(0, 1fr) 300px !important;
+    }
+
+    #youtube-insight-report-pdf .xl\\:grid-cols-\\[330px_minmax\\(0\\,1fr\\)\\] {
+      grid-template-columns: 300px minmax(0, 1fr) !important;
+    }
+
+    #youtube-insight-report-pdf a {
+      text-decoration: none !important;
+    }
+  }
+`}</style>
+  </main>;
 }
 
-export default function YoutubeInsightReport({ apiResponse, report: reportProp, isLoading = false }: Props): React.ReactElement {
+export default function YoutubeInsightReport({
+  apiResponse,
+  report: reportProp,
+  isLoading = false,
+  reportId,
+  shareToken,
+  isShareableView = false,
+}: Props): React.ReactElement {
   const report = useMemo(() => normalizeReport({ apiResponse, report: reportProp }), [apiResponse, reportProp]);
   if (isLoading) return <FullPageSkeleton />;
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
-    <HeaderProfile report={report} />
+    <main id="youtube-insight-report-pdf" className="min-h-screen bg-white text-slate-900">
+      <HeaderProfile
+        report={report}
+        reportId={reportId || report.reportId}
+        shareToken={shareToken}
+        isShareableView={isShareableView}
+      />
 
-    <div className="mx-auto max-w-7xl px-6 py-8">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-bold text-slate-950">YouTube Public Insight</h2>
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-bold text-slate-950">YouTube Public Insight</h2>
 
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <Calendar className="h-3.5 w-3.5" />
-          {formatDateTime(report.generatedAt || report.videoOverview?.publishedOn)}
-        </div>
-      </div>
-
-      {/* TOP AREA: left content + right sidebar */}
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="min-w-0 space-y-5">
-          <VideoHero report={report} />
-          <YouTubePublicOverview report={report} />
-          <AiSummary report={report} />
-          <EstimateGrid report={report} />
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <Calendar className="h-3.5 w-3.5" />
+            {formatDateTime(report.generatedAt || report.videoOverview?.publishedOn)}
+          </div>
         </div>
 
-        <aside className="space-y-5 self-start">
-          <AudienceGauge data={report.audienceMatch} />
-          <WatchTimeCard data={report.estimatedWatchTime as PlainObject} />
-          <RevenueCard data={report.estimatedRevenue as PlainObject} />
-          <AudienceSignalsCard data={report.audienceDemographic as PlainObject} />
-        </aside>
-      </div>
+        {/* TOP AREA: left content + right sidebar */}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="min-w-0 space-y-5">
+            <VideoHero report={report} />
+            <YouTubePublicOverview report={report} />
+            <AiSummary report={report} />
+            <EstimateGrid report={report} />
+          </div>
 
-      {/* FULL WIDTH AREA: Creator Fit and everything below */}
-      <div className="mt-6 space-y-5">
-        <CreatorFit report={report} />
+          <aside className="space-y-5 self-start">
+            <AudienceGauge data={report.audienceMatch} />
+            <WatchTimeCard data={report.estimatedWatchTime as PlainObject} />
+            <RevenueCard data={report.estimatedRevenue as PlainObject} />
+            <AudienceSignalsCard data={report.audienceDemographic as PlainObject} />
+          </aside>
+        </div>
 
-        <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
-          <Card>
-            <CardHeader title={report.contentPerformanceSummary?.title || "Video Performance Summary"} />
+        {/* FULL WIDTH AREA: Creator Fit and everything below */}
+        <div className="mt-6 space-y-5">
+          <CreatorFit report={report} />
 
-            <div className="px-5 pb-5">
-              {report.contentPerformanceSummary?.rows?.length ? (
-                <div className="overflow-hidden rounded-xl border border-slate-200">
-                  {report.contentPerformanceSummary.rows.map((row) => (
-                    <div
-                      key={row.label}
-                      className="flex items-center justify-between gap-4 border-b border-slate-100 px-3 py-3 text-xs last:border-b-0"
-                    >
-                      <span className="text-slate-600">{row.label}</span>
-                      <b className="text-right text-slate-950">{row.value}</b>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState text="No performance summary available." />
-              )}
-            </div>
-          </Card>
+          <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
+            <Card>
+              <CardHeader title={report.contentPerformanceSummary?.title || "Video Performance Summary"} />
 
-          <Card>
-            <CardHeader
-              title={report.performanceComparison?.title || "Video vs Creator Average"}
-              subtitle={report.performanceComparison?.summary}
-            />
-
-            <div className="px-5 pb-5">
-              {report.performanceComparison?.rows?.length ? (
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <div className="grid min-w-[540px] grid-cols-4 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">
-                    <span>Metric</span>
-                    <span>This Video</span>
-                    <span>Average</span>
-                    <span>Result</span>
+              <div className="px-5 pb-5">
+                {report.contentPerformanceSummary?.rows?.length ? (
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    {report.contentPerformanceSummary.rows.map((row) => (
+                      <div
+                        key={row.label}
+                        className="flex items-center justify-between gap-4 border-b border-slate-100 px-3 py-3 text-xs last:border-b-0"
+                      >
+                        <span className="text-slate-600">{row.label}</span>
+                        <b className="text-right text-slate-950">{row.value}</b>
+                      </div>
+                    ))}
                   </div>
+                ) : (
+                  <EmptyState text="No performance summary available." />
+                )}
+              </div>
+            </Card>
 
-                  {report.performanceComparison.rows.map((row, index) => (
-                    <div
-                      key={index}
-                      className="grid min-w-[540px] grid-cols-4 border-t border-slate-100 px-4 py-3 text-xs text-slate-600"
-                    >
-                      <span>{text(row.metric)}</span>
-                      <b>{text(row.thisVideo)}</b>
-                      <span>{text(row.creatorAverage)}</span>
-                      <span>{text(row.result)}</span>
+            <Card>
+              <CardHeader
+                title={report.performanceComparison?.title || "Video vs Creator Average"}
+                subtitle={report.performanceComparison?.summary}
+              />
+
+              <div className="px-5 pb-5">
+                {report.performanceComparison?.rows?.length ? (
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <div className="grid min-w-[540px] grid-cols-4 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-700">
+                      <span>Metric</span>
+                      <span>This Video</span>
+                      <span>Average</span>
+                      <span>Result</span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState text="No creator-average comparison available." />
-              )}
-            </div>
-          </Card>
+
+                    {report.performanceComparison.rows.map((row, index) => (
+                      <div
+                        key={index}
+                        className="grid min-w-[540px] grid-cols-4 border-t border-slate-100 px-4 py-3 text-xs text-slate-600"
+                      >
+                        <span>{text(row.metric)}</span>
+                        <b>{text(row.thisVideo)}</b>
+                        <span>{text(row.creatorAverage)}</span>
+                        <span>{text(row.result)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState text="No creator-average comparison available." />
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <CommentBreakdown data={report.commentBreakdown} />
+          <RecentVideos data={report.lastVideosComparison as PlainObject} />
+          <ScoreBreakdown cards={report.scoreCards || []} />
         </div>
 
-        <CommentBreakdown data={report.commentBreakdown} />
-        <RecentVideos data={report.lastVideosComparison as PlainObject} />
-        <ScoreBreakdown cards={report.scoreCards || []} />
+        <div className="py-16 text-center text-sm text-slate-400">
+          You have reached the end of the page
+        </div>
       </div>
-
-      <div className="py-16 text-center text-sm text-slate-400">
-        You have reached the end of the page
-      </div>
-    </div>
-  </main>
-);
+    </main>
+  );
 }

@@ -474,11 +474,11 @@ export const FloatingTagInput: React.FC<FloatingTagInputProps> = ({
         </div>
 
         {/* Chips + typing input area */}
-        <div className={cn("w-full", inputPad, "pr-[84px]")}>
-          <div className="flex items-center gap-2 min-w-0">
+        <div className={cn("w-full", inputPad, "pr-[92px]")}>
+          <div className="flex w-full flex-nowrap items-center gap-2 min-w-0 overflow-hidden">
             {/* ✅ Chips stay ONE line, scroll horizontally */}
             {tags.length > 0 ? (
-              <div className="flex items-center gap-2 min-w-0 max-w-[60%] overflow-x-auto whitespace-nowrap cg-scrollbar">
+              <div className="flex shrink min-w-0 max-w-[80%] items-center gap-2 overflow-x-auto whitespace-nowrap cg-scrollbar">
                 {tags.map((stored, idx) => {
                   const display = resolveLabelForStoredValue(stored);
                   const displayNorm = safeNormalize(display) ?? display;
@@ -544,7 +544,7 @@ export const FloatingTagInput: React.FC<FloatingTagInputProps> = ({
               }}
               placeholder={tags.length === 0 ? placeholderText : ""}
               className={cn(
-                "flex-1 min-w-0 bg-transparent outline-none", // ✅ min-w-0 is key in flex layouts
+                "flex-1 min-w-[90px] bg-transparent outline-none",
                 "text-[14px] leading-[20px] xl:text-[16px] xl:leading-[24px] font-semibold",
                 "text-tx-primary",
                 "placeholder:text-tx-tertiary placeholder:font-medium"

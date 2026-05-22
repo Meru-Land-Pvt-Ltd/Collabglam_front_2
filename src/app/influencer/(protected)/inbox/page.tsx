@@ -7,7 +7,11 @@ import { get } from "@/lib/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Command,
   CommandEmpty,
@@ -50,13 +54,37 @@ type InfluencerInboxThread = {
   brand: {
     brandId: string | null;
     name: string;
+    email?: string | null;
+    proxyEmail?: string | null;
     aliasEmail: string;
+    profileImage?: string | null;
+    profilePic?: string | null;
+    logoUrl?: string | null;
+    avatarUrl?: string | null;
+    image?: string | null;
+    photo?: string | null;
   };
 };
 
 type InfluencerInboxResponse = {
   threads: InfluencerInboxThread[];
 };
+
+function pickAvatar(item?: any) {
+  return (
+    item?.profileImage ||
+    item?.profilePic ||
+    item?.logoUrl ||
+    item?.avatarUrl ||
+    item?.image ||
+    item?.photo ||
+    ""
+  );
+}
+
+function pickProxyMailId(item?: any) {
+  return item?.proxyEmail || item?.aliasEmail || "";
+}
 
 function formatRelativeTime(dateString?: string | null) {
   if (!dateString) return "";
@@ -110,7 +138,9 @@ function FilterPopover({
   options: FilterOption[];
 }) {
   const [open, setOpen] = React.useState(false);
-  const [selectedOption, setSelectedOption] = React.useState<FilterOption>(options[0]);
+  const [selectedOption, setSelectedOption] = React.useState<FilterOption>(
+    options[0],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -120,7 +150,7 @@ function FilterPopover({
           className={cn(
             "inline-flex h-[32px] items-center gap-2 rounded-[0.5rem] px-3 transition-colors",
             "text-[14px] font-medium text-[#1A1A1A]",
-            open ? "bg-[#ECEEF2]" : "bg-transparent"
+            open ? "bg-[#ECEEF2]" : "bg-transparent",
           )}
         >
           <span>{label}</span>
@@ -133,7 +163,7 @@ function FilterPopover({
         align="start"
         className={cn(
           "w-[240px] rounded-[12px] border border-[#E6E6E6] bg-white p-2",
-          "shadow-[0_7px_20px_0_rgba(25,33,61,0.04)]"
+          "shadow-[0_7px_20px_0_rgba(25,33,61,0.04)]",
         )}
       >
         <Command>
@@ -159,7 +189,9 @@ function FilterPopover({
                 className="rounded-[10px]"
               >
                 <span className="flex-1">{option.name}</span>
-                {selectedOption.id === option.id ? <Check className="h-4 w-4" /> : null}
+                {selectedOption.id === option.id ? (
+                  <Check className="h-4 w-4" />
+                ) : null}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -249,16 +281,14 @@ export default function InfluencerInboxPage() {
       setInfluencerId(storedInfluencerId);
 
       const data = await get<InfluencerInboxResponse>(
-        `${EMAIL_API_BASE}/threads/influencer/${storedInfluencerId}`
+        `${EMAIL_API_BASE}/threads/influencer/${storedInfluencerId}`,
       );
 
       setThreads(Array.isArray(data?.threads) ? data.threads : []);
       setSelectedIds([]);
     } catch (err: any) {
       setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to load inbox"
+        err?.response?.data?.error || err?.message || "Failed to load inbox",
       );
       setThreads([]);
     } finally {
@@ -293,7 +323,7 @@ export default function InfluencerInboxPage() {
 
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   };
 
@@ -311,7 +341,10 @@ export default function InfluencerInboxPage() {
         <div className="flex flex-col gap-4 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-1 md:gap-3">
             <FilterPopover label="Read Status" options={readStatusOptions} />
-            <FilterPopover label="Collaboration Stage" options={collaborationStageOptions} />
+            <FilterPopover
+              label="Collaboration Stage"
+              options={collaborationStageOptions}
+            />
             <FilterPopover label="Brand" options={brandOptions} />
             <FilterPopover label="Date" options={dateOptions} />
             <Badge
@@ -344,7 +377,10 @@ export default function InfluencerInboxPage() {
               }
               onCheckedChange={toggleSelectAll}
             />
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="More selection options">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="More selection options"
+            >
               <CaretDown className="h-4 w-4" />
             </button>
             <button
@@ -354,7 +390,10 @@ export default function InfluencerInboxPage() {
             >
               <ArrowClockwise className="h-4 w-4" />
             </button>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Archive inbox">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Archive inbox"
+            >
               <Archive className="h-4 w-4" />
             </button>
           </div>
@@ -365,10 +404,16 @@ export default function InfluencerInboxPage() {
                 ? "0 conversations"
                 : `1-${filteredThreads.length} of ${filteredThreads.length}`}
             </span>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Previous page">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Previous page"
+            >
               <CaretLeft className="h-4 w-4" />
             </button>
-            <button className="rounded-md p-1.5 hover:bg-muted" aria-label="Next page">
+            <button
+              className="rounded-md p-1.5 hover:bg-muted"
+              aria-label="Next page"
+            >
               <CaretRight className="h-4 w-4" />
             </button>
           </div>
@@ -400,11 +445,11 @@ export default function InfluencerInboxPage() {
                           campaignId
                             ? `?campaignId=${encodeURIComponent(campaignId)}`
                             : ""
-                        }`
+                        }`,
                       )
                     }
                     className={cn(
-                      "grid cursor-pointer grid-cols-[24px_minmax(180px,1.1fr)_minmax(0,4fr)_minmax(120px,140px)] items-center gap-3 border-b border-[#D6D6D6] px-3 py-4 transition-colors hover:bg-[#EDEDED]"
+                      "grid cursor-pointer grid-cols-[24px_minmax(180px,1.1fr)_minmax(0,4fr)_minmax(120px,140px)] items-center gap-3 border-b border-[#D6D6D6] px-3 py-4 transition-colors hover:bg-[#EDEDED]",
                     )}
                   >
                     <div onClick={(e) => e.stopPropagation()}>
@@ -417,14 +462,14 @@ export default function InfluencerInboxPage() {
                     <div className="flex min-w-0 items-center gap-3">
                       <ContactAvatar
                         name={item.brand?.name || "Brand"}
-                        avatar={null}
+                        avatar={pickAvatar(item.brand)}
                       />
                       <div className="flex min-w-0 flex-col">
                         <span className="truncate text-sm font-semibold text-foreground">
                           {item.brand?.name || "Brand"}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">
-                          {item.brand?.aliasEmail || ""}
+                          {pickProxyMailId(item.brand)}
                         </span>
                       </div>
                     </div>
@@ -434,7 +479,9 @@ export default function InfluencerInboxPage() {
                         <Envelope className="h-4 w-4 text-muted-foreground" />
                       </div>
                       <p className="truncate text-sm text-muted-foreground">
-                        {item.lastMessageSnippet || item.subject || "No message preview"}
+                        {item.lastMessageSnippet ||
+                          item.subject ||
+                          "No message preview"}
                       </p>
                     </div>
 

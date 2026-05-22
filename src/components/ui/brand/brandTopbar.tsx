@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import React, {
   useCallback,
   useEffect,
@@ -112,6 +112,39 @@ function safeDecodeURIComponent(v: string) {
   }
 }
 
+function getCampaignTitleFromSearch(searchParams: ReturnType<typeof useSearchParams>) {
+  return (
+    searchParams.get("campaignTitle") ||
+    searchParams.get("campaignName") ||
+    searchParams.get("name") ||
+    ""
+  );
+}
+
+function applyCampaignTitleToCrumbs(
+  crumbs: { href: string; label: string }[],
+  pathname: string,
+  campaignTitle: string
+) {
+  const safeTitle = safeDecodeURIComponent(campaignTitle).trim();
+  if (!safeTitle) return crumbs;
+
+  const segments = pathname.split("/").filter(Boolean);
+  const campaignIndex = segments.indexOf("campaign");
+
+  if (campaignIndex < 0 || !segments[campaignIndex + 1]) {
+    return crumbs;
+  }
+
+  const campaignIdHref = `/${segments.slice(0, campaignIndex + 2).join("/")}`;
+
+  return crumbs.map((crumb) =>
+    crumb.href === campaignIdHref
+      ? { ...crumb, label: safeTitle }
+      : crumb
+  );
+}
+
 function getDefaultActions(pathname: string): TopbarAction[] {
   if (pathname.startsWith("/brand/campaigns")) {
     return [
@@ -210,7 +243,8 @@ export default function BrandTopbar({
   actionsOverride?: TopbarAction[];
   onMenuToggle?: () => void;
 }) {
-  const pathname = usePathname();
+const pathname = usePathname();
+const searchParams = useSearchParams();
 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const isNarrow = useMediaQuery("(max-width: 640px)");
@@ -428,7 +462,12 @@ export default function BrandTopbar({
     }, 120);
   };
 
-  const crumbs = useMemo(() => getCrumbs(pathname), [pathname]);
+const crumbs = useMemo(() => {
+  const baseCrumbs = getCrumbs(pathname);
+  const campaignTitle = getCampaignTitleFromSearch(searchParams);
+
+  return applyCampaignTitleToCrumbs(baseCrumbs, pathname, campaignTitle);
+}, [pathname, searchParams]);
 
   const displayCrumbs = useMemo(() => {
     if (!isNarrow) return crumbs;

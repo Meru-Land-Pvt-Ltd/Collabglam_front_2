@@ -28,7 +28,7 @@ import ListCardView, {
   MetricIcons,
   type ListCardViewItem,
 } from "@/components/ui/brand/list";
-
+import { toast } from "@/components/ui/toast";
 import CampaignFilter, {
   DEFAULT_DATE_FILTER,
   type DateFilterValue,
@@ -335,6 +335,30 @@ function canShowEditCampaign(c: any) {
   return false;
 }
 
+function isDraftCampaign(c: any) {
+  const status = String(c?.status ?? "").trim().toLowerCase();
+
+  return (
+    status === "draft" ||
+    c?.isDraft === true ||
+    Number(c?.isDraft) === 1 ||
+    String(c?.publishStatus ?? "").trim().toLowerCase() === "draft"
+  );
+}
+
+function getCampaignEditHref(c: any, campaignId: string, campaignTitle?: string) {
+  const encodedId = encodeURIComponent(campaignId);
+  const encodedTitle = encodeURIComponent(
+    String(campaignTitle || c?.campaignTitle || "Campaign").trim()
+  );
+
+  if (isDraftCampaign(c)) {
+    return `/brand/create-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`;
+  }
+
+  return `/brand/edit-campaign?campaignId=${encodedId}&campaignTitle=${encodedTitle}`;
+}
+
 function campaignFooterText(c: any) {
   const status = String(c?.status ?? "").trim().toLowerCase();
   const scheduleIn = c?.scheduleIn;
@@ -615,6 +639,7 @@ export default function CampaignListPage({
   }, [
     brandId,
     fixedStatus,
+    title,
     searchQuery,
     campaignType,
     creatorStatus,
@@ -626,12 +651,19 @@ export default function CampaignListPage({
   const dateParams = useMemo(() => resolveDateParams(dateFilter), [dateFilter]);
 
   const payload = useMemo(() => {
+    const normalizedTitle = String(title || "").trim().toLowerCase();
+
+    const resolvedStatus =
+      normalizedTitle === "all campaigns"
+        ? "all"
+        : fixedStatus;
+
     const base: any = {
       brandId,
       page,
       limit,
       search: searchQuery || undefined,
-      status: fixedStatus,
+      status: resolvedStatus,
       byAi: aiCreated ? 1 : undefined,
     };
 
@@ -656,6 +688,7 @@ export default function CampaignListPage({
     limit,
     searchQuery,
     fixedStatus,
+    title,
     campaignType,
     creatorStatus,
     categoryIds,
@@ -735,8 +768,8 @@ export default function CampaignListPage({
     const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
     const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
     const viewHref = `/brand/campaign/${encodeURIComponent(
-      campaignTitle
-    )}?id=${encodeURIComponent(campaignId)}`;
+      campaignId
+    )}?campaignTitle=${encodeURIComponent(campaignTitle)}`;
     const inviteHref = `/brand/browse-influencer`;
     const showEditButton = canShowEditCampaign(c);
     const applicantCount = c.applicantCount ?? 0;
@@ -760,7 +793,7 @@ export default function CampaignListPage({
     const goToApplied = () => {
       if (locked) return;
       if (typeof window !== "undefined") {
-        window.location.href = `/brand/influ/all?campaignId=${encodeURIComponent(
+        window.location.href = `/brand/influ/applied?campaignId=${encodeURIComponent(
           campaignId
         )}`;
       }
@@ -776,9 +809,7 @@ export default function CampaignListPage({
     const handleEdit = () => {
       if (locked) return;
       if (typeof window !== "undefined") {
-        window.location.href = `/brand/create-campaign?campaignId=${encodeURIComponent(
-          campaignId
-        )}`;
+        window.location.href = getCampaignEditHref(c, campaignId, campaignTitle);
       }
     };
 
@@ -859,7 +890,12 @@ export default function CampaignListPage({
                 <ChevronDownMiniIcon />
                 {locked ? null : (
                   <div className="-ml-[1px] flex h-[21px] items-center">
-                    <CampaignCardMenu viewHref={viewHref} inviteHref={inviteHref} />
+                    <CampaignCardMenu
+                      viewHref={viewHref}
+                      inviteHref={inviteHref}
+                      campaignStatus={c.status}
+                      isDraft={c.isDraft}
+                    />
                   </div>
                 )}
               </div>
@@ -981,7 +1017,12 @@ export default function CampaignListPage({
           edgeBadges={edgeBadges}
           headerRight={
             locked ? null : (
-              <CampaignCardMenu viewHref={viewHref} inviteHref={inviteHref} />
+              <CampaignCardMenu
+                viewHref={viewHref}
+                inviteHref={inviteHref}
+                campaignStatus={c.status}
+                isDraft={c.isDraft}
+              />
             )
           }
           tags={[c.category?.name || "No Category"]}
@@ -1061,9 +1102,10 @@ export default function CampaignListPage({
       const platforms = (c.platformSelection ?? []) as string[];
       const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
       const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
+
       const viewHref = `/brand/campaign/${encodeURIComponent(
-        campaignTitle
-      )}?id=${encodeURIComponent(campaignId)}`;
+        campaignId
+      )}?campaignTitle=${encodeURIComponent(campaignTitle)}`;
       const inviteHref = `/brand/browse-influencer`;
       const showEditButton = canShowEditCampaign(c);
       const applicantCount = c.applicantCount ?? 0;
@@ -1082,9 +1124,7 @@ export default function CampaignListPage({
       const handleEdit = () => {
         if (locked) return;
         if (typeof window !== "undefined") {
-          window.location.href = `/brand/create-campaign?campaignId=${encodeURIComponent(
-            campaignId
-          )}`;
+          window.location.href = getCampaignEditHref(c, campaignId, campaignTitle);
         }
       };
 
@@ -1154,7 +1194,12 @@ min-[981px]:w-auto"
               </Button>
             ) : null}
 
-            <CampaignCardMenu viewHref={viewHref} inviteHref={inviteHref} />
+            <CampaignCardMenu
+              viewHref={viewHref}
+              inviteHref={inviteHref}
+              campaignStatus={c.status}
+              isDraft={c.isDraft}
+            />
           </div>
         ),
         showMoreButton: false,

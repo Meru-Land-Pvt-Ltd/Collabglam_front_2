@@ -292,13 +292,6 @@ function normalizeRateCard(item: PitchFolderInfluencer) {
   return `${currency} ${rate}`;
 }
 
-function getSharedTokenFromCurrentPath() {
-  if (typeof window === "undefined") return "";
-
-  const match = window.location.pathname.match(/\/pitch-folder\/shared\/([^/]+)/);
-  return match?.[1] || "";
-}
-
 function getPitchFolderItems(response: any): PitchFolderPayload {
   const payload = response?.data ?? response;
 
@@ -1084,20 +1077,23 @@ export default function PitchSheetPage() {
 
   const handleToggleGoodFit = async (row: PitchSheetRow) => {
     const itemId = String(row.__raw?._id || "").trim();
-    const sharedToken = String(
-      meta.shareToken || getSharedTokenFromCurrentPath()
-    ).trim();
 
-    if (!itemId || !sharedToken || updatingGoodFitId === itemId) return;
+    if (!itemId || !campaignId || updatingGoodFitId === itemId) return;
 
     const nextGoodFit = !Boolean(row.__raw?.goodFit);
 
     try {
       setUpdatingGoodFitId(itemId);
 
-      await api.post(`/pitch-folders/shared/${sharedToken}/good-fit/${itemId}`, {
-        goodFit: nextGoodFit,
-      });
+      await api.post(
+        `/brand/campaign/${encodeURIComponent(campaignId)}/good-fit/${encodeURIComponent(
+          itemId
+        )}`,
+        {
+          goodFit: nextGoodFit,
+          profile: row.__raw,
+        }
+      );
 
       setRows((prev) =>
         prev.map((item) => {

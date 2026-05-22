@@ -462,7 +462,7 @@ function ActionButtons({
   isViewContractLoading?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-max flex-nowrap items-center gap-2 whitespace-nowrap [&>button]:shrink-0">
       <button
         type="button"
         onClick={onPrimary}
@@ -559,8 +559,8 @@ function ActiveMilestoneActions({
   onViewContract?: () => void;
 }) {
   return (
-    <div className="flex items-start gap-2">
-      <div className="flex flex-col gap-2">
+    <div className="flex min-w-max flex-nowrap items-start gap-2 whitespace-nowrap [&>button]:shrink-0">
+      <div className="flex shrink-0 flex-col gap-2">
         {isAdminCreatedCampaign ? (
           <button
             type="button"
@@ -1882,132 +1882,136 @@ export default function InfluencerList() {
         setSortValue={setSortValue}
       />
 
-      <div className="mt-[3.5rem] px-[2rem] pb-[2.5rem]">
-        <div className="overflow-hidden rounded-[0.75rem] bg-white">
+<div className="mt-[3.5rem] px-3 pb-[2.5rem] md:px-[2rem]">
+        <div className="overflow-visible rounded-[0.75rem] bg-white">
           {loading ? (
             <div className="p-6 text-sm text-gray-600">Loading influencers...</div>
           ) : err ? (
             <div className="p-6 text-sm text-red-600">{err}</div>
           ) : (
-            <InfluencerTable
-              rows={visibleRows}
-              variant={tableVariant}
-              onActionClick={handleApplicantDecision}
-              // ── Bulk selection props ────────────────────────────────────
-              selectable
-              selectedIds={selectedBulkIds}
-              onToggleRow={toggleBulkRow}
-              onToggleAll={toggleBulkAllVisible}
-              onClearSelection={clearBulkSelection}
-              isRowSelectable={(row) => isBulkSelectable(row as InfluencerRow)}
-              // ── Bulk header banner ──────────────────────────────────────
-              renderBulkHeader={({ selectedIds, clearSelection }) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-[#F2F2F2] px-8 py-3">
-                  <div className="text-sm font-medium text-gray-800">
-                    {selectedIds.length} influencer{selectedIds.length > 1 ? "s" : ""} selected
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={clearSelection}>
-                      Clear
-                    </Button>
-                    <Button onClick={openBulkPayoutTypeDialog}>
-                      <PaperPlaneTilt className="mr-2 h-4 w-4" />
-                      Bulk Send Contract
-                    </Button>
-                  </div>
-                </div>
+            <div className="w-full overflow-x-auto overflow-y-visible">
+              <div className="min-w-[78rem]">
+                <InfluencerTable
+                  rows={visibleRows}
+                  variant={tableVariant}
+                  onActionClick={handleApplicantDecision}
+                  // ── Bulk selection props ────────────────────────────────────
+                  selectable
+                  selectedIds={selectedBulkIds}
+                  onToggleRow={toggleBulkRow}
+                  onToggleAll={toggleBulkAllVisible}
+                  onClearSelection={clearBulkSelection}
+                  isRowSelectable={(row) => isBulkSelectable(row as InfluencerRow)}
+                  // ── Bulk header banner ──────────────────────────────────────
+                  renderBulkHeader={({ selectedIds, clearSelection }) => (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-[#F2F2F2] px-8 py-3">
+                      <div className="text-sm font-medium text-gray-800">
+                        {selectedIds.length} influencer{selectedIds.length > 1 ? "s" : ""} selected
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" onClick={clearSelection}>
+                          Clear
+                        </Button>
+                        <Button onClick={openBulkPayoutTypeDialog}>
+                          <PaperPlaneTilt className="mr-2 h-4 w-4" />
+                          Bulk Send Contract
+                        </Button>
+                      </div>
+                    </div>
 
-              )}
-              renderDefaultActions={renderAllTabActions}
-              // ── Per-row action renderers ────────────────────────────────
-              renderShortlistedActions={(row) => {
-                const meta = contractMetaMap[row.id] ?? null;
-                const raw = (row as any)?.__raw ?? {};
-                const statusStr = String(meta?.status || "");
-                const showAccept = needsBrandAcceptance(statusStr);
-                const showSign = canSignNow(meta);
-                const isLoading = viewingPdfForId === row.id;
-                const { label: primaryLabel, viewOnly } = getPrimaryAction(raw, meta);
+                  )}
+                  renderDefaultActions={renderAllTabActions}
+                  // ── Per-row action renderers ────────────────────────────────
+                  renderShortlistedActions={(row) => {
+                    const meta = contractMetaMap[row.id] ?? null;
+                    const raw = (row as any)?.__raw ?? {};
+                    const statusStr = String(meta?.status || "");
+                    const showAccept = needsBrandAcceptance(statusStr);
+                    const showSign = canSignNow(meta);
+                    const isLoading = viewingPdfForId === row.id;
+                    const { label: primaryLabel, viewOnly } = getPrimaryAction(raw, meta);
 
-                return (
-                  <ActionButtons
-                    primaryLabel={isLoading ? "Opening…" : primaryLabel}
-                    onPrimary={() =>
-                      viewOnly ? handleViewContractPdf(row) : openContractSidebar(row)
-                    }
-                    onManage={() => handleManage(row)}
-                    onMail={() => handleMail(row)}
-                    moreMenu={
-                      <InfluencerContextMenu
-                        type="shortlisted"
-                        onViewProfile={() => handleManage(row)}
-                        onCopyProfileLink={() => console.log("copy profile link", row.id)}
-                        onSaveToHub={(hubId) => console.log("save to hub", row.id, hubId)}
-                        onMoveToWorkspace={(workspaceId) => console.log("move to workspace", row.id, workspaceId)}
-                        onCompare={() => console.log("compare", row.id)}
-                        onDelete={() => console.log("remove", row.id)}
-                      />
-                    }
-                    showAccept={showAccept}
-                    onAccept={() => handleBrandAccept(row)}
-                    showSign={showSign}
-                    onSign={() => openSignModal(meta)}
-                    showViewContract={!viewOnly && hasExistingContract(raw, meta)}
-                    onViewContract={() => handleViewContractPdf(row)}
-                  />
-                );
-              }}
-              renderActiveActions={(row) => {
-                const meta = contractMetaMap[row.id] ?? null;
-                const statusStr = String(meta?.status || "");
-                const showAccept = needsBrandAcceptance(statusStr);
-                const showSign = canSignNow(meta);
-                const showViewMilestone =
-                  isAdminCreatedCampaign || milestoneCreatedMap[row.id] || hasMilestonesCreated(meta);
-
-                return (
-                  <ActiveMilestoneActions
-                    onAddMilestone={() => handleOpenMilestoneModal(row)}
-                    showViewMilestone={showViewMilestone}
-                    onViewMilestone={() => handleViewMilestone(row)}
-                    onManage={() => handleManage(row)}
-                    onMail={() => handleMail(row)}
-                    isAdminCreatedCampaign={isAdminCreatedCampaign}
-                    moreMenu={
-                      <InfluencerContextMenu
-                        type="active"
-                        onViewProfile={() => handleManage(row)}
-                        onCopyProfileLink={() => console.log("copy profile link", row.id)}
-                        onAddMilestone={() => handleOpenMilestoneModal(row)}
-                        onAssignDeliverables={() => console.log("assign deliverables", row.id)}
-                        onSaveToHub={(hubId) => console.log("save to hub", row.id, hubId)}
-                        onMoveToWorkspace={(workspaceId) =>
-                          console.log("move to workspace", row.id, workspaceId)
+                    return (
+                      <ActionButtons
+                        primaryLabel={isLoading ? "Opening…" : primaryLabel}
+                        onPrimary={() =>
+                          viewOnly ? handleViewContractPdf(row) : openContractSidebar(row)
                         }
-                        onRaiseDispute={() => console.log("raise dispute", row.id)}
-                        onDelete={() => console.log("remove", row.id)}
+                        onManage={() => handleManage(row)}
+                        onMail={() => handleMail(row)}
+                        moreMenu={
+                          <InfluencerContextMenu
+                            type="shortlisted"
+                            onViewProfile={() => handleManage(row)}
+                            onCopyProfileLink={() => console.log("copy profile link", row.id)}
+                            onSaveToHub={(hubId) => console.log("save to hub", row.id, hubId)}
+                            onMoveToWorkspace={(workspaceId) => console.log("move to workspace", row.id, workspaceId)}
+                            onCompare={() => console.log("compare", row.id)}
+                            onDelete={() => console.log("remove", row.id)}
+                          />
+                        }
+                        showAccept={showAccept}
+                        onAccept={() => handleBrandAccept(row)}
+                        showSign={showSign}
+                        onSign={() => openSignModal(meta)}
+                        showViewContract={!viewOnly && hasExistingContract(raw, meta)}
+                        onViewContract={() => handleViewContractPdf(row)}
                       />
-                    }
-                    showAccept={isAdminCreatedCampaign ? false : showAccept}
-                    onAccept={() => openContractSidebar(row)}
-                    showSign={isAdminCreatedCampaign ? false : showSign}
-                    onSign={() => openSignModal(meta)}
-                  />
-                );
-              }}
-              renderStatus={(row) => {
-                const raw = (row as any)?.__raw ?? {};
-                const meta = contractMetaMap[row.id] ?? null;
+                    );
+                  }}
+                  renderActiveActions={(row) => {
+                    const meta = contractMetaMap[row.id] ?? null;
+                    const statusStr = String(meta?.status || "");
+                    const showAccept = needsBrandAcceptance(statusStr);
+                    const showSign = canSignNow(meta);
+                    const showViewMilestone =
+                      isAdminCreatedCampaign || milestoneCreatedMap[row.id] || hasMilestonesCreated(meta);
 
-                return (
-                  <div className="flex min-h-[1.75rem] items-center justify-center rounded-[1.25rem] px-3 bg-[#F9F9F9]">
-                    <span className="whitespace-nowrap text-[0.875rem] font-semibold text-[#1A1A1A]">
-                      {getProfessionalContractStatusMessage(raw, meta)}
-                    </span>
-                  </div>
-                );
-              }}
-            />
+                    return (
+                      <ActiveMilestoneActions
+                        onAddMilestone={() => handleOpenMilestoneModal(row)}
+                        showViewMilestone={showViewMilestone}
+                        onViewMilestone={() => handleViewMilestone(row)}
+                        onManage={() => handleManage(row)}
+                        onMail={() => handleMail(row)}
+                        isAdminCreatedCampaign={isAdminCreatedCampaign}
+                        moreMenu={
+                          <InfluencerContextMenu
+                            type="active"
+                            onViewProfile={() => handleManage(row)}
+                            onCopyProfileLink={() => console.log("copy profile link", row.id)}
+                            onAddMilestone={() => handleOpenMilestoneModal(row)}
+                            onAssignDeliverables={() => console.log("assign deliverables", row.id)}
+                            onSaveToHub={(hubId) => console.log("save to hub", row.id, hubId)}
+                            onMoveToWorkspace={(workspaceId) =>
+                              console.log("move to workspace", row.id, workspaceId)
+                            }
+                            onRaiseDispute={() => console.log("raise dispute", row.id)}
+                            onDelete={() => console.log("remove", row.id)}
+                          />
+                        }
+                        showAccept={isAdminCreatedCampaign ? false : showAccept}
+                        onAccept={() => openContractSidebar(row)}
+                        showSign={isAdminCreatedCampaign ? false : showSign}
+                        onSign={() => openSignModal(meta)}
+                      />
+                    );
+                  }}
+                  renderStatus={(row) => {
+                    const raw = (row as any)?.__raw ?? {};
+                    const meta = contractMetaMap[row.id] ?? null;
+
+                    return (
+                      <div className="flex min-h-[1.75rem] items-center justify-center rounded-[1.25rem] px-3 bg-[#F9F9F9]">
+                        <span className="whitespace-nowrap text-[0.875rem] font-semibold text-[#1A1A1A]">
+                          {getProfessionalContractStatusMessage(raw, meta)}
+                        </span>
+                      </div>
+                    );
+                  }}
+                />
+              </div>
+            </div>
           )}
 
           {updatingDecisionId && (

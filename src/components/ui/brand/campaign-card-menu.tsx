@@ -9,10 +9,13 @@ import {
   PaperPlaneTilt,
 } from "@phosphor-icons/react";
 import { apiEnableCampaignShare } from "@/app/brand/services/brandApi";
+import { toast } from "@/components/ui/toast";
 
 type Props = {
   viewHref: string;
   inviteHref: string;
+  campaignStatus?: string;
+  isDraft?: boolean | number;
 };
 
 const itemCls =
@@ -64,8 +67,18 @@ async function safeCopy(text: string) {
   return false;
 }
 
-export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
+export default function CampaignCardMenu({
+  viewHref,
+  inviteHref,
+  campaignStatus,
+  isDraft,
+}: Props) {
   const [open, setOpen] = useState(false);
+
+  const isDraftCampaign =
+    String(campaignStatus || "").trim().toLowerCase() === "draft" ||
+    isDraft === true ||
+    Number(isDraft) === 1;
 
   const goTo = (href: string) => {
     if (typeof window !== "undefined") {
@@ -85,8 +98,8 @@ export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
       const brandId =
         typeof window !== "undefined"
           ? window.localStorage.getItem("brandId") ||
-            window.localStorage.getItem("brandID") ||
-            window.localStorage.getItem("brand_id")
+          window.localStorage.getItem("brandID") ||
+          window.localStorage.getItem("brand_id")
           : null;
 
       if (!brandId) {
@@ -106,11 +119,29 @@ export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
 
       const copied = await safeCopy(shareUrl);
 
-      if (!copied) {
+      if (copied) {
+        toast({
+          icon: "success",
+          title: "Public link copied",
+          text: "Campaign public link has been copied to your clipboard.",
+        });
+      } else {
         window.prompt("Copy this public link:", shareUrl);
+
+        toast({
+          icon: "info",
+          title: "Public link ready",
+          text: "Copy the public campaign link from the popup.",
+        });
       }
     } catch (err) {
       console.error("Copy public link failed:", err);
+
+      toast({
+        icon: "error",
+        title: "Unable to copy link",
+        text: err instanceof Error ? err.message : "Please try again.",
+      });
     }
 
     setOpen(false);
@@ -144,23 +175,27 @@ export default function CampaignCardMenu({ viewHref, inviteHref }: Props) {
             <span>View</span>
           </button>
 
-          <button
-            type="button"
-            onClick={copyLink}
-            className={itemCls}
-          >
-            <LinkSimple size={18} weight="regular" />
-            <span>Copy Link</span>
-          </button>
+{!isDraftCampaign ? (
+  <>
+    <button
+      type="button"
+      onClick={copyLink}
+      className={itemCls}
+    >
+      <LinkSimple size={18} weight="regular" />
+      <span>Copy Link</span>
+    </button>
 
-          <button
-            type="button"
-            onClick={() => goTo(inviteHref)}
-            className={itemCls}
-          >
-            <PaperPlaneTilt size={18} weight="regular" />
-            <span>Invite Influencers</span>
-          </button>
+    <button
+      type="button"
+      onClick={() => goTo(inviteHref)}
+      className={itemCls}
+    >
+      <PaperPlaneTilt size={18} weight="regular" />
+      <span>Invite Influencers</span>
+    </button>
+  </>
+) : null}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
