@@ -36,6 +36,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableScrollArea,
+  TableCheckbox,
+} from "@/components/ui/table";
 import { MoreFiltersDropdown } from "../browse-influencer/MoreFiltersDropdown";
 
 type RelatedCampaign = {
@@ -123,6 +134,11 @@ type GoodFitInfluencer = {
   provider?: string;
   name?: string;
   handle?: string;
+  username?: string;
+  userId?: string;
+  modashId?: string;
+  profileUrl?: string;
+  url?: string;
   followers?: number | string;
   primaryLink?: string;
   links?: string[];
@@ -321,6 +337,17 @@ type BrandFolder = {
   archivedAt?: string | null;
 };
 
+type BrandFolderItemPagination = {
+  page?: number;
+  limit?: number;
+  total?: number;
+  totalItems?: number;
+  totalPages?: number;
+  hasNext?: boolean;
+  hasPrev?: boolean;
+  returnedCount?: number;
+};
+
 type BrandFolderListResponse = {
   success?: boolean;
   message?: string;
@@ -331,6 +358,9 @@ type BrandFolderListResponse = {
     bookmarkCount?: number;
     goodFitCount?: number;
     folders?: BrandFolder[];
+    items?: BrandFolderItem[];
+    pagination?: BrandFolderItemPagination | null;
+    itemPagination?: BrandFolderItemPagination | null;
     groups?: {
       folders?: BrandFolder[];
       bookmarks?: BrandFolder[];
@@ -344,11 +374,18 @@ const BRAND_FOLDER_CREATE_ENDPOINT = "/brand/folder/create";
 const NEW_INVITATIONS_LIST_ENDPOINT = "/newinvitations/list";
 const NEW_INVITATIONS_CREATE_ENDPOINT = "/newinvitations/create";
 const MISSING_EMAIL_CREATE_ENDPOINT = "/missing/create";
-const NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT = "/campaign/getNonFullManagedCampaigns";
+const NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT =
+  "/campaign/getNonFullManagedCampaigns";
 const SHAREMITRA_API_BASE =
-  process.env.NEXT_PUBLIC_SHAREMITRA_API_BASE_URL || "https://api.sharemitra.com";
-
-type InfluencerStatus = "Sent" | "Pending" | "Rejected" | "Good Fit" | "Media Kit";
+  process.env.NEXT_PUBLIC_SHAREMITRA_API_BASE_URL ||
+  "https://api.sharemitra.com";
+const BRAND_FOLDER_MOVE_TO_CAMPAIGN_ENDPOINT = "/brand/folder/move-to-campaign";
+type InfluencerStatus =
+  | "Sent"
+  | "Pending"
+  | "Rejected"
+  | "Good Fit"
+  | "Media Kit";
 
 type InfluencerRow = {
   id: string;
@@ -379,6 +416,7 @@ const statusStyles: Record<InfluencerStatus, string> = {
 
 const CREATOR_TIER_OPTIONS = ["Nano", "Micro", "Macro", "Mega"];
 const NO_CAMPAIGN_VALUE = "__no_campaign__";
+const ROWS_PER_PAGE = 10;
 
 type MoreFiltersState = {
   search?: {
@@ -411,7 +449,9 @@ const TIER_RANGES: Record<string, { min: number; max?: number }> = {
   mega: { min: 1000000 },
 };
 
-function getItemModash(item?: GoodFitInfluencer | null): ModashProfileData | null {
+function getItemModash(
+  item?: GoodFitInfluencer | null,
+): ModashProfileData | null {
   const source: any = item || {};
 
   return (
@@ -429,6 +469,177 @@ function getItemModash(item?: GoodFitInfluencer | null): ModashProfileData | nul
   );
 }
 
+function normalizeProfileProvider(value: unknown) {
+  const provider = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (provider.includes("youtube")) return "youtube";
+  if (provider.includes("instagram")) return "instagram";
+  if (provider.includes("tiktok") || provider.includes("tik tok")) {
+    return "tiktok";
+  }
+
+  return provider;
+}
+
+function cleanProfileHandle(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/\/+$/, "");
+}
+
+function normalizeProfileExternalUrl(value: unknown) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/^\/\//.test(text)) return `https:${text}`;
+  if (/^www\./i.test(text)) return `https://${text}`;
+
+  return "";
+}
+
+function getProfileUserIdFromInfluencer(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
+  const source: any = item || {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
+  const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+
+  return String(
+    source.userId ||
+      raw.userId ||
+      modash.userId ||
+      source.modash?.userId ||
+      source.modashProfile?.userId ||
+      "",
+  ).trim();
+}
+
+function getProfileHandleFromInfluencer(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
+  const source: any = item || {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
+  const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+
+  return cleanProfileHandle(
+    source.handle ||
+      source.username ||
+      raw.handle ||
+      raw.username ||
+      modash.handle ||
+      modash.username,
+  );
+}
+
+function getProfileProviderFromInfluencer(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
+  const source: any = item || {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
+  const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+
+  return normalizeProfileProvider(
+    source.provider ||
+      source.platform ||
+      raw.provider ||
+      raw.platform ||
+      modash.provider,
+  );
+}
+
+function buildMediaKitProfileUrlFromUserIdAndProvider(
+  providerValue: unknown,
+  userIdValue: unknown,
+) {
+  const provider = normalizeProfileProvider(providerValue);
+  const userId = String(userIdValue ?? "").trim();
+
+  if (!userId) return "";
+
+  const query = provider
+    ? `?platform=${encodeURIComponent(provider)}`
+    : "";
+
+  return `/mediakit/${encodeURIComponent(userId)}${query}`;
+}
+
+function buildProfileUrlFromUserIdAndProvider(
+  providerValue: unknown,
+  userIdValue: unknown,
+  handleValue?: unknown,
+) {
+  const provider = normalizeProfileProvider(providerValue);
+  const userId = String(userIdValue ?? "").trim();
+  const handle = cleanProfileHandle(handleValue || userId);
+
+  if (provider === "youtube") {
+    if (userId && /^UC[a-zA-Z0-9_-]{10,}$/.test(userId)) {
+      return `https://www.youtube.com/channel/${encodeURIComponent(userId)}`;
+    }
+
+    if (handle) {
+      return `https://www.youtube.com/@${encodeURIComponent(handle)}`;
+    }
+  }
+
+  if (provider === "instagram") {
+    const slug = cleanProfileHandle(handle || userId);
+    return slug ? `https://www.instagram.com/${encodeURIComponent(slug)}` : "";
+  }
+
+  if (provider === "tiktok") {
+    const slug = cleanProfileHandle(handle || userId);
+    return slug ? `https://www.tiktok.com/@${encodeURIComponent(slug)}` : "";
+  }
+
+  return "";
+}
+
+function buildCopyableProfileAccessUrl(url: string) {
+  const text = String(url || "").trim();
+
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+  if (typeof window === "undefined") return text;
+
+  const path = text.startsWith("/") ? text : `/${text}`;
+
+  return `${window.location.origin}${path}`;
+}
+
+function getInfluencerProfileAccessUrl(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
+  const source: any = item || {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
+  const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+  const provider = getProfileProviderFromInfluencer(item);
+  const userId = getProfileUserIdFromInfluencer(item);
+  const handle = getProfileHandleFromInfluencer(item);
+
+  return (
+    buildMediaKitProfileUrlFromUserIdAndProvider(provider, userId) ||
+    normalizeProfileExternalUrl(modash.url) ||
+    normalizeProfileExternalUrl(source.modash?.url) ||
+    normalizeProfileExternalUrl(source.modashProfile?.url) ||
+    normalizeProfileExternalUrl(raw.modash?.url) ||
+    normalizeProfileExternalUrl(raw.modashProfile?.url) ||
+    normalizeProfileExternalUrl(source.primaryLink) ||
+    normalizeProfileExternalUrl(source.profileUrl) ||
+    normalizeProfileExternalUrl(source.url) ||
+    normalizeProfileExternalUrl(source.links?.[0]) ||
+    normalizeProfileExternalUrl(raw.primaryLink) ||
+    normalizeProfileExternalUrl(raw.profileUrl) ||
+    normalizeProfileExternalUrl(raw.url) ||
+    normalizeProfileExternalUrl(raw.links?.[0]) ||
+    buildProfileUrlFromUserIdAndProvider(provider, "", handle)
+  );
+}
+
 function numberFromUnknown(value: unknown) {
   const n = Number(String(value ?? "").replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
@@ -443,7 +654,9 @@ function getFilterFollowerCount(item?: GoodFitInfluencer | null) {
 }
 
 function normalizeFilterText(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeGender(value: unknown) {
@@ -487,7 +700,7 @@ function parseAgeRange(value: unknown) {
 
 function rangesOverlap(
   left: { min?: number; max?: number } | null,
-  right: { min?: number; max?: number } | null
+  right: { min?: number; max?: number } | null,
 ) {
   if (!left || !right) return false;
 
@@ -508,7 +721,7 @@ function rowMatchesMoreFilters(row: InfluencerRow, filters: MoreFiltersState) {
   const influencerFilters = filters.influencer || {};
   const audienceFilters = filters.audience || {};
   const provider = normalizeFilterText(
-    filterData.provider || modash?.provider || item?.provider || item?.provider
+    filterData.provider || modash?.provider || item?.provider || item?.provider,
   );
 
   if (
@@ -568,12 +781,13 @@ function rowMatchesMoreFilters(row: InfluencerRow, filters: MoreFiltersState) {
   const wantedCountry = normalizeFilterText(audienceFilters.country);
   if (wantedCountry) {
     const rowCountry = normalizeFilterText(
-      filterData.country || getModashCountryText(item) || row.country
+      filterData.country || getModashCountryText(item) || row.country,
     );
 
     if (
       !rowCountry ||
-      (!wantedCountry.includes(rowCountry) && !rowCountry.includes(wantedCountry))
+      (!wantedCountry.includes(rowCountry) &&
+        !rowCountry.includes(wantedCountry))
     ) {
       return false;
     }
@@ -585,7 +799,8 @@ function rowMatchesMoreFilters(row: InfluencerRow, filters: MoreFiltersState) {
 function getModashCategories(item: GoodFitInfluencer) {
   const modash = getItemModash(item);
 
-  return Array.isArray(item?.filterData?.categories) && item.filterData.categories.length
+  return Array.isArray(item?.filterData?.categories) &&
+    item.filterData.categories.length
     ? item.filterData.categories
     : Array.isArray(modash?.categories)
       ? modash.categories
@@ -594,10 +809,7 @@ function getModashCategories(item: GoodFitInfluencer) {
         : [];
 }
 
-function buildGoodFitApiParams(
-  filters: MoreFiltersState,
-  searchText: string
-) {
+function buildGoodFitApiParams(filters: MoreFiltersState, searchText: string) {
   const params: Record<string, string | number | boolean> = {};
   const q = searchText.trim();
 
@@ -638,7 +850,7 @@ function buildGoodFitApiParams(
   const platformRanges = Object.values(filters.platform || {}).filter(
     (range) =>
       typeof range?.followersMin === "number" ||
-      typeof range?.followersMax === "number"
+      typeof range?.followersMax === "number",
   );
 
   if (platformRanges.length) {
@@ -661,7 +873,6 @@ function buildGoodFitApiParams(
 
   return params;
 }
-
 
 type CreatorHubTab = "hub" | "invited";
 
@@ -695,7 +906,6 @@ function getStoredBrandId() {
 
   return String(window.localStorage.getItem("brandId") || "").trim();
 }
-
 
 function getStoredAuthToken() {
   if (typeof window === "undefined") return "";
@@ -750,7 +960,7 @@ async function post2<T>(url: string, payload: unknown): Promise<T> {
 
   if (!response.ok) {
     const error = new Error(
-      data?.message || data?.error || `Request failed with ${response.status}`
+      data?.message || data?.error || `Request failed with ${response.status}`,
     ) as Error & { response?: { data?: any; status?: number } };
 
     error.response = {
@@ -764,7 +974,6 @@ async function post2<T>(url: string, payload: unknown): Promise<T> {
   return data as T;
 }
 
-
 function displayText(value?: string | number | null) {
   const text = String(value ?? "").trim();
   return text || "—";
@@ -774,7 +983,6 @@ function getDisplayLanguage(value?: string | number | null) {
   const text = String(value ?? "").trim();
   return text || "—";
 }
-
 
 const LANGUAGE_CODE_LABELS: Record<string, string> = {
   en: "English",
@@ -870,7 +1078,11 @@ function readFirstTextFromPaths(source: any, paths: string[]) {
   return "";
 }
 
-function findTextByKey(source: unknown, matcher: (key: string) => boolean, depth = 0): string {
+function findTextByKey(
+  source: unknown,
+  matcher: (key: string) => boolean,
+  depth = 0,
+): string {
   if (!source || depth > 4 || typeof source !== "object") return "";
 
   if (Array.isArray(source)) {
@@ -907,7 +1119,9 @@ function findTextByKey(source: unknown, matcher: (key: string) => boolean, depth
   return "";
 }
 
-function getModashLanguageText(item?: GoodFitInfluencer | BrandFolderItem | null) {
+function getModashLanguageText(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
   const source: any = item || {};
   const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
   const modash: any = getItemModash(source as GoodFitInfluencer) || {};
@@ -969,7 +1183,9 @@ function getModashLanguageText(item?: GoodFitInfluencer | BrandFolderItem | null
   return normalizeLanguageText(text);
 }
 
-function getModashCountryText(item?: GoodFitInfluencer | BrandFolderItem | null) {
+function getModashCountryText(
+  item?: GoodFitInfluencer | BrandFolderItem | null,
+) {
   const source: any = item || {};
   const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
   const modash: any = getItemModash(source as GoodFitInfluencer) || {};
@@ -1028,7 +1244,6 @@ function getModashCountryText(item?: GoodFitInfluencer | BrandFolderItem | null)
   );
 }
 
-
 function isUrlLikeLabel(value?: string | number | null) {
   const text = String(value ?? "").trim();
 
@@ -1045,7 +1260,7 @@ function isUrlLikeLabel(value?: string | number | null) {
 
 function getSafeDisplayLabel(
   candidates: Array<string | number | null | undefined>,
-  fallback: string
+  fallback: string,
 ) {
   for (const candidate of candidates) {
     const text = String(candidate ?? "").trim();
@@ -1066,7 +1281,9 @@ function getShortIdLabel(prefix: string, id: string) {
   return clean ? `${prefix} ${clean.slice(-6)}` : prefix;
 }
 
-function getIdString(value: RelatedCampaign["campaignId"] | string | number | null | undefined) {
+function getIdString(
+  value: RelatedCampaign["campaignId"] | string | number | null | undefined,
+) {
   if (value === null || value === undefined) return "";
 
   if (typeof value === "string" || typeof value === "number") {
@@ -1110,7 +1327,9 @@ function getStatus(item: GoodFitInfluencer): InfluencerStatus {
 }
 
 function getInvitationStatus(status?: InvitationStatus): InfluencerStatus {
-  const normalized = String(status || "").trim().toLowerCase();
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
 
   if (normalized === "available" || normalized === "sent") return "Sent";
   if (normalized === "rejected" || normalized === "blocked") return "Rejected";
@@ -1125,11 +1344,14 @@ function getInvitationProfileUrl(invitation: Invitation) {
 
   if (!handle) return "";
 
-  const platform = String(invitation.platform || "").trim().toLowerCase();
+  const platform = String(invitation.platform || "")
+    .trim()
+    .toLowerCase();
 
   if (platform.includes("youtube")) return `https://www.youtube.com/@${handle}`;
   if (platform.includes("tiktok")) return `https://www.tiktok.com/@${handle}`;
-  if (platform.includes("instagram")) return `https://www.instagram.com/${handle}`;
+  if (platform.includes("instagram"))
+    return `https://www.instagram.com/${handle}`;
 
   return "";
 }
@@ -1162,14 +1384,17 @@ function normalizeRelatedCampaigns(item: GoodFitInfluencer) {
 }
 
 function normalizeRelatedFolders(item: GoodFitInfluencer) {
-  const fromItem = Array.isArray(item.relatedFolders) ? item.relatedFolders : [];
+  const fromItem = Array.isArray(item.relatedFolders)
+    ? item.relatedFolders
+    : [];
   const fallbackFolder = item.folder ? [item.folder] : [];
   const map = new Map<string, RelatedFolder>();
 
   [...fromItem, ...fallbackFolder].forEach((folder, index) => {
     if (!folder) return;
 
-    const key = folder._id || folder.slug || `${folder.title || "folder"}-${index}`;
+    const key =
+      folder._id || folder.slug || `${folder.title || "folder"}-${index}`;
 
     if (!map.has(key)) {
       map.set(key, folder);
@@ -1204,8 +1429,13 @@ function getInfluencerMergeKey(item: GoodFitInfluencer) {
   const id = String(item._id || "").trim();
   if (id) return `id:${id}`;
 
-  const handle = String(item.handle || "").trim().toLowerCase().replace(/^@+/, "");
-  const provider = String(item.provider || "").trim().toLowerCase();
+  const handle = String(item.handle || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, "");
+  const provider = String(item.provider || "")
+    .trim()
+    .toLowerCase();
   if (handle) return `handle:${provider}:${handle}`;
 
   const link = String(item.primaryLink || item.links?.[0] || "")
@@ -1214,7 +1444,9 @@ function getInfluencerMergeKey(item: GoodFitInfluencer) {
     .replace(/\/+$/, "");
   if (link) return `link:${link}`;
 
-  const name = String(item.name || "").trim().toLowerCase();
+  const name = String(item.name || "")
+    .trim()
+    .toLowerCase();
   return name ? `name:${provider}:${name}` : "";
 }
 
@@ -1235,11 +1467,15 @@ function mergeGoodFitItems(items: GoodFitInfluencer[]) {
       ...existing,
       ...item,
       relatedCampaigns: [
-        ...(Array.isArray(existing.relatedCampaigns) ? existing.relatedCampaigns : []),
+        ...(Array.isArray(existing.relatedCampaigns)
+          ? existing.relatedCampaigns
+          : []),
         ...(Array.isArray(item.relatedCampaigns) ? item.relatedCampaigns : []),
       ],
       relatedFolders: [
-        ...(Array.isArray(existing.relatedFolders) ? existing.relatedFolders : []),
+        ...(Array.isArray(existing.relatedFolders)
+          ? existing.relatedFolders
+          : []),
         ...(Array.isArray(item.relatedFolders) ? item.relatedFolders : []),
       ],
     });
@@ -1265,7 +1501,9 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
   const modashCategories = getModashCategories(item);
 
   const name = displayText(item.name || modash?.fullname || modash?.username);
-  const handle = normalizeHandle(item.handle || modash?.handle || modash?.username);
+  const handle = normalizeHandle(
+    item.handle || modash?.handle || modash?.username,
+  );
   const cleanUsername = handle !== "—" ? handle.replace("@", "") : "username";
   const categoryFromPitch = displayCategory(item.niche);
   const category =
@@ -1274,16 +1512,21 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
       : modashCategories.length
         ? modashCategories.join(", ")
         : "—";
+  const profileAccessUrl = getInfluencerProfileAccessUrl(item);
 
   return {
-    id: String(item._id || `${item.handle || item.name || "good-fit"}-${index}`),
+    id: String(
+      item._id || `${item.handle || item.name || "good-fit"}-${index}`,
+    ),
     profile: name === "—" ? "Label" : name,
     username: cleanUsername,
     handle,
     status: getStatus(item),
     category,
     folder: getFoldersText(relatedFolders, firstFolder?.title),
-    campaignName: getCampaignName(firstCampaign || item.folder?.assignedCampaign),
+    campaignName: getCampaignName(
+      firstCampaign || item.folder?.assignedCampaign,
+    ),
     workspace: getWorkspace(item, relatedCampaigns),
     country: displayText(getModashCountryText(item)),
     language: getDisplayLanguage(getModashLanguageText(item)),
@@ -1291,22 +1534,27 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
       (item as any).invitedAt ||
         (item as any).invitationDate ||
         (item as any).invitationCreatedAt ||
-        (item as any).invitation?.createdAt
+        (item as any).invitation?.createdAt,
     ),
-    profileUrl: String(item.primaryLink || item.links?.[0] || modash?.url || "").trim(),
+    profileUrl: profileAccessUrl,
     relatedCampaigns,
     relatedFolders,
     raw: item,
   };
 }
 
-function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRow {
+function mapInvitationToRow(
+  invitation: Invitation,
+  index: number,
+): InfluencerRow {
   const handle = normalizeHandle(invitation.handle);
   const cleanUsername = handle !== "—" ? handle.replace("@", "") : "username";
   const campaignName = displayText(invitation.campaignName) || "—";
 
   return {
-    id: String(invitation.invitationId || `${invitation.handle || "invited"}-${index}`),
+    id: String(
+      invitation.invitationId || `${invitation.handle || "invited"}-${index}`,
+    ),
     profile: cleanUsername === "username" ? "Label" : cleanUsername,
     username: cleanUsername,
     handle,
@@ -1318,7 +1566,7 @@ function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRo
     country: displayText(
       (invitation as any).country ||
         (invitation as any).location ||
-        (invitation as any).modash?.country
+        (invitation as any).modash?.country,
     ),
     language: getDisplayLanguage(getModashLanguageText(invitation as any)),
     invitationDate: formatDate(invitation.createdAt),
@@ -1348,7 +1596,8 @@ function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRo
 function extractBrandFolderList(payload: any): BrandFolder[] {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data?.folders)) return payload.data.folders;
-  if (Array.isArray(payload?.data?.data?.folders)) return payload.data.data.folders;
+  if (Array.isArray(payload?.data?.data?.folders))
+    return payload.data.data.folders;
   if (Array.isArray(payload?.folders)) return payload.folders;
 
   const groupedFolders = [
@@ -1368,6 +1617,20 @@ function extractBrandFolderList(payload: any): BrandFolder[] {
   return [];
 }
 
+function extractBrandFolderPagination(
+  payload: any,
+): BrandFolderItemPagination | null {
+  return (
+    payload?.data?.itemPagination ||
+    payload?.data?.pagination ||
+    payload?.data?.data?.itemPagination ||
+    payload?.data?.data?.pagination ||
+    payload?.itemPagination ||
+    payload?.pagination ||
+    null
+  );
+}
+
 function getBrandFolderItems(folder?: BrandFolder | null): BrandFolderItem[] {
   return Array.isArray(folder?.items) ? folder.items : [];
 }
@@ -1379,18 +1642,19 @@ function getBrandFolderId(folder?: BrandFolder | null) {
 function getBrandFolderTitle(folder?: BrandFolder | null) {
   return getSafeDisplayLabel(
     [folder?.title, folder?.name, folder?.slug, getBrandFolderId(folder)],
-    "Folder"
+    "Folder",
   );
 }
 
 function mapBrandFolderItemToGoodFit(
   folder: BrandFolder,
   item: BrandFolderItem,
-  index: number
+  index: number,
 ): GoodFitInfluencer {
   const folderId = getBrandFolderId(folder);
   const folderTitle = getBrandFolderTitle(folder);
-  const linkedCampaign = folder.linkedCampaign || folder.assignedCampaign || null;
+  const linkedCampaign =
+    folder.linkedCampaign || folder.assignedCampaign || null;
   const raw = item.raw && typeof item.raw === "object" ? item.raw : item;
   const modash =
     raw?.modash ||
@@ -1402,25 +1666,28 @@ function mapBrandFolderItemToGoodFit(
     ...item,
     raw,
     modash,
-    modashProfile: raw?.modashProfile
+    modashProfile: raw?.modashProfile,
   } as any);
   const languageText = getModashLanguageText({
     ...item,
     raw,
     modash,
-    modashProfile: raw?.modashProfile
+    modashProfile: raw?.modashProfile,
   } as any);
-  const categories = Array.isArray(item.categories) && item.categories.length
-    ? item.categories
-    : Array.isArray(item.niche)
-      ? item.niche
-      : Array.isArray(raw?.categories)
-        ? raw.categories
-        : Array.isArray(raw?.niche)
-          ? raw.niche
-          : [];
+  const categories =
+    Array.isArray(item.categories) && item.categories.length
+      ? item.categories
+      : Array.isArray(item.niche)
+        ? item.niche
+        : Array.isArray(raw?.categories)
+          ? raw.categories
+          : Array.isArray(raw?.niche)
+            ? raw.niche
+            : [];
 
-  const handle = String(item.handle || item.username || raw?.handle || raw?.username || "").trim();
+  const handle = String(
+    item.handle || item.username || raw?.handle || raw?.username || "",
+  ).trim();
   const name = String(
     item.name ||
       item.fullname ||
@@ -1429,21 +1696,15 @@ function mapBrandFolderItemToGoodFit(
       raw?.fullname ||
       raw?.username ||
       handle ||
-      "Label"
+      "Label",
   ).trim();
 
-  const primaryLink = String(
-    item.primaryLink ||
-      item.profileUrl ||
-      item.url ||
-      item.links?.[0] ||
-      raw?.primaryLink ||
-      raw?.profileUrl ||
-      raw?.url ||
-      raw?.links?.[0] ||
-      modash?.url ||
-      ""
-  ).trim();
+  const primaryLink = getInfluencerProfileAccessUrl({
+    ...item,
+    raw,
+    modash,
+    modashProfile: raw?.modashProfile,
+  } as any);
 
   const folderPayload: RelatedFolder = {
     _id: folderId,
@@ -1454,17 +1715,28 @@ function mapBrandFolderItemToGoodFit(
   };
 
   return {
-    _id: String(item._id || item.id || item.profileKey || `${folderId}-${index}`),
+    _id: String(
+      item._id || item.id || item.profileKey || `${folderId}-${index}`,
+    ),
     provider: item.provider || item.platform || raw?.provider || raw?.platform,
+    userId:
+      item.userId ||
+      raw?.userId ||
+      modash?.userId ||
+      getProfileUserIdFromInfluencer(item),
+    modashId: item.modashId || raw?.modashId || modash?._id,
     name,
     handle,
     followers: item.followers ?? raw?.followers ?? modash?.followers,
     primaryLink,
-    links: Array.isArray(item.links) && item.links.length
-      ? item.links
-      : primaryLink
-        ? [primaryLink]
-        : [],
+    profileUrl: primaryLink,
+    url: primaryLink,
+    links:
+      Array.isArray(item.links) && item.links.length
+        ? item.links
+        : primaryLink
+          ? [primaryLink]
+          : [],
     niche: categories,
     email: item.email || raw?.email,
     country: countryText,
@@ -1493,12 +1765,18 @@ function mapBrandFolderItemToGoodFit(
         numberFromUnknown(modash?.averageViews),
       isVerified: Boolean(raw?.isVerified ?? modash?.isVerified ?? false),
       isPrivate: Boolean(raw?.isPrivate ?? modash?.isPrivate ?? false),
-      provider: item.provider || item.platform || raw?.provider || raw?.platform,
+      provider:
+        item.provider || item.platform || raw?.provider || raw?.platform,
       country: countryText,
       language: languageText,
       categories,
     },
-    picture: item.picture || item.avatarUrl || item.profileImage || raw?.picture || raw?.avatarUrl,
+    picture:
+      item.picture ||
+      item.avatarUrl ||
+      item.profileImage ||
+      raw?.picture ||
+      raw?.avatarUrl,
     avatarUrl: item.avatarUrl || item.picture || raw?.avatarUrl || raw?.picture,
     relatedCampaigns: linkedCampaign ? [linkedCampaign] : [],
     relatedCampaignCount: linkedCampaign ? 1 : 0,
@@ -1511,9 +1789,74 @@ function mapBrandFolderItemToGoodFit(
 function brandFoldersToGoodFitItems(folders: BrandFolder[]) {
   return folders.flatMap((folder) =>
     getBrandFolderItems(folder).map((item, index) =>
-      mapBrandFolderItemToGoodFit(folder, item, index)
-    )
+      mapBrandFolderItemToGoodFit(folder, item, index),
+    ),
   );
+}
+
+function getBrandFolderItemKey(item: BrandFolderItem, index: number) {
+  return String(
+    item.profileKey ||
+      item._id ||
+      item.id ||
+      item.userId ||
+      item.influencerId ||
+      item.creatorId ||
+      item.modashId ||
+      `${item.handle || item.username || "item"}-${index}`,
+  );
+}
+
+function mergeBrandFolderPages(
+  currentFolders: BrandFolder[],
+  nextFolders: BrandFolder[],
+) {
+  const folderMap = new Map<string, BrandFolder>();
+
+  currentFolders.forEach((folder) => {
+    const folderId = getBrandFolderId(folder);
+    if (!folderId) return;
+
+    folderMap.set(folderId, {
+      ...folder,
+      items: [...getBrandFolderItems(folder)],
+    });
+  });
+
+  nextFolders.forEach((folder) => {
+    const folderId = getBrandFolderId(folder);
+    if (!folderId) return;
+
+    const existing = folderMap.get(folderId);
+
+    if (!existing) {
+      folderMap.set(folderId, {
+        ...folder,
+        items: [...getBrandFolderItems(folder)],
+      });
+      return;
+    }
+
+    const itemMap = new Map<string, BrandFolderItem>();
+
+    getBrandFolderItems(existing).forEach((item, index) => {
+      itemMap.set(getBrandFolderItemKey(item, index), item);
+    });
+
+    getBrandFolderItems(folder).forEach((item, index) => {
+      const key = getBrandFolderItemKey(item, index);
+      if (!itemMap.has(key)) itemMap.set(key, item);
+    });
+
+    folderMap.set(folderId, {
+      ...existing,
+      ...folder,
+      items: Array.from(itemMap.values()),
+      itemCount: folder.itemCount ?? existing.itemCount,
+    });
+  });
+
+  return Array.from(folderMap.values());
 }
 
 function rowMatchesSearch(row: InfluencerRow, query: string) {
@@ -1554,16 +1897,14 @@ function getFolderAssignedCampaign(folder: any): RelatedCampaign | null {
   if (!campaign) return null;
 
   const campaignId = String(
-    getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    getIdString(campaign?.campaignId) || campaign?.campaignsId || "",
   ).trim();
 
   const hasLabel = Boolean(
     campaign?.campaignTitle ||
-      campaign?.productOrServiceName ||
-      campaign?.campaignsId ||
-      campaignId
+    campaign?.productOrServiceName ||
+    campaign?.campaignsId ||
+    campaignId,
   );
 
   if (!campaignId && !hasLabel) return null;
@@ -1577,15 +1918,13 @@ function mapFolderToCampaignOption(folder: any): CampaignOption | null {
 
   const campaign = getFolderAssignedCampaign(folder);
   const queryCampaignId = String(
-    getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    getIdString(campaign?.campaignId) || campaign?.campaignsId || "",
   ).trim();
 
   const fallbackFolderLabel = getShortIdLabel("Folder", folderId);
   const folderTitle = getSafeDisplayLabel(
     [folder?.title, folder?.name, folder?.slug],
-    fallbackFolderLabel
+    fallbackFolderLabel,
   );
 
   return {
@@ -1598,7 +1937,6 @@ function mapFolderToCampaignOption(folder: any): CampaignOption | null {
     goodFitCount: Number(folder?.itemCount || folder?.items?.length || 0),
   };
 }
-
 
 function looksLikeMongoId(value: unknown) {
   return /^[a-f0-9]{24}$/i.test(String(value ?? "").trim());
@@ -1666,10 +2004,26 @@ function findCampaignTitleDeep(value: any, depth = 0): string {
   if (displayName) return displayName;
 
   const nestedName =
-    pickCampaignTextFromKeys(value?.details, ["name", "campaignName", "title"]) ||
-    pickCampaignTextFromKeys(value?.campaign, ["campaignName", "name", "title"]) ||
-    pickCampaignTextFromKeys(value?.campaignData, ["campaignName", "name", "title"]) ||
-    pickCampaignTextFromKeys(value?.campaignDetails, ["campaignName", "name", "title"]) ||
+    pickCampaignTextFromKeys(value?.details, [
+      "name",
+      "campaignName",
+      "title",
+    ]) ||
+    pickCampaignTextFromKeys(value?.campaign, [
+      "campaignName",
+      "name",
+      "title",
+    ]) ||
+    pickCampaignTextFromKeys(value?.campaignData, [
+      "campaignName",
+      "name",
+      "title",
+    ]) ||
+    pickCampaignTextFromKeys(value?.campaignDetails, [
+      "campaignName",
+      "name",
+      "title",
+    ]) ||
     pickCampaignTextFromKeys(value?.brief, ["campaignName", "name", "title"]) ||
     pickCampaignTextFromKeys(value?.category, ["name", "title"]);
 
@@ -1738,10 +2092,9 @@ function getCampaignOptionDisplayName(campaign: any, id: string) {
       campaign?.campaignData?.campaignTitle ||
       campaign?.campaignDetails?.campaignTitle ||
       campaign?.details?.campaignTitle ||
-      ""
+      "",
   ).trim();
 }
-
 
 function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
   const id = String(
@@ -1749,7 +2102,7 @@ function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
       getIdString(campaign?._id) ||
       campaign?.campaignsId ||
       campaign?.id ||
-      ""
+      "",
   ).trim();
 
   if (!id) return null;
@@ -1764,7 +2117,9 @@ function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
   };
 }
 
-function buildCampaignOptionsFromGoodFitFolders(folders: any[]): CampaignOption[] {
+function buildCampaignOptionsFromGoodFitFolders(
+  folders: any[],
+): CampaignOption[] {
   const map = new Map<string, CampaignOption>();
 
   folders.forEach((folder) => {
@@ -1775,7 +2130,7 @@ function buildCampaignOptionsFromGoodFitFolders(folders: any[]): CampaignOption[
   });
 
   return Array.from(map.values()).sort((a, b) =>
-    a.label.localeCompare(b.label)
+    a.label.localeCompare(b.label),
   );
 }
 
@@ -1789,10 +2144,9 @@ function buildCreateCampaignOptions(campaigns: any[]): CampaignOption[] {
   });
 
   return Array.from(map.values()).sort((a, b) =>
-    a.label.localeCompare(b.label)
+    a.label.localeCompare(b.label),
   );
 }
-
 
 function getRowCampaignId(row: InfluencerRow) {
   const campaign = row.relatedCampaigns.find((item) => {
@@ -1801,9 +2155,7 @@ function getRowCampaignId(row: InfluencerRow) {
   });
 
   return String(
-    getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    getIdString(campaign?.campaignId) || campaign?.campaignsId || "",
   ).trim();
 }
 
@@ -1813,7 +2165,7 @@ function getRowCampaignName(row: InfluencerRow) {
   return String(
     campaign?.campaignTitle ||
       row.raw?.relatedCampaigns?.[0]?.campaignTitle ||
-      ""
+      "",
   ).trim();
 }
 
@@ -1822,21 +2174,27 @@ function getRowPlatform(row: InfluencerRow) {
     row.raw?.provider ||
       row.raw?.filterData?.provider ||
       getItemModash(row.raw)?.provider ||
-      "youtube"
+      "youtube",
   )
     .trim()
     .toLowerCase();
 }
 
+function getRowProfileAccessUrl(row: InfluencerRow) {
+  return String(
+    row.profileUrl || getInfluencerProfileAccessUrl(row.raw) || "",
+  ).trim();
+}
+
 function getInvitationHandle(row: InfluencerRow) {
-  const handle = String(row.handle || row.raw?.handle || row.username || "")
-    .trim();
+  const handle = String(
+    row.handle || row.raw?.handle || row.username || "",
+  ).trim();
 
   if (!handle || handle === "—") return "";
 
   return handle.startsWith("@") ? handle : `@${handle}`;
 }
-
 
 function getInvitationCreatedAtFromResponse(payload: any) {
   return String(
@@ -1845,7 +2203,7 @@ function getInvitationCreatedAtFromResponse(payload: any) {
       payload?.data?.data?.createdAt ||
       payload?.data?.data?.invitation?.createdAt ||
       payload?.createdAt ||
-      ""
+      "",
   ).trim();
 }
 
@@ -1854,7 +2212,7 @@ function getInvitationCreateStatus(payload: any): "saved" | "exists" | "error" {
     payload?.status ||
       payload?.data?.status ||
       payload?.data?.data?.status ||
-      ""
+      "",
   )
     .trim()
     .toLowerCase();
@@ -1873,7 +2231,7 @@ function isDuplicateInvitationError(error: any) {
     error?.response?.data?.message ||
       error?.response?.data?.error ||
       error?.message ||
-      ""
+      "",
   ).toLowerCase();
 
   return (
@@ -1888,10 +2246,9 @@ function isSupportedInvitationPlatform(platform: string) {
   return ["youtube", "instagram", "tiktok"].includes(platform);
 }
 
-
 function getCampaignOptionById(
   campaignOptions: CampaignOption[],
-  campaignId?: string | null
+  campaignId?: string | null,
 ) {
   const id = String(campaignId || "").trim();
 
@@ -1906,11 +2263,10 @@ function getCampaignOptionById(
 
 function getCampaignLabelById(
   campaignOptions: CampaignOption[],
-  campaignId?: string | null
+  campaignId?: string | null,
 ) {
   return getCampaignOptionById(campaignOptions, campaignId)?.label || "";
 }
-
 
 function Avatar({ index, name }: { index: number; name: string }) {
   const colors = [
@@ -2022,10 +2378,20 @@ export default function CreatorHubPage() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
   const [brandFolders, setBrandFolders] = React.useState<BrandFolder[]>([]);
-  const [campaignOptions, setCampaignOptions] = React.useState<CampaignOption[]>([]);
-  const [createCampaignOptions, setCreateCampaignOptions] = React.useState<CampaignOption[]>([]);
+  const [campaignOptions, setCampaignOptions] = React.useState<
+    CampaignOption[]
+  >([]);
+  const [createCampaignOptions, setCreateCampaignOptions] = React.useState<
+    CampaignOption[]
+  >([]);
   const [selectedCampaignId, setSelectedCampaignId] = React.useState("all");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [activeMoveCampaignPickerId, setActiveMoveCampaignPickerId] =
+    React.useState<string | null>(null);
+  const [movingToFolderId, setMovingToFolderId] = React.useState<string | null>(
+    null,
+  );
+  const moveRequestKeysRef = React.useRef<Set<string>>(new Set());
   const [moreFilters, setMoreFilters] = React.useState<MoreFiltersState>({
     search: { mode: "combined" },
     influencer: {},
@@ -2042,16 +2408,28 @@ export default function CreatorHubPage() {
   const [createFolderName, setCreateFolderName] = React.useState("");
   const [createFolderTier, setCreateFolderTier] = React.useState("");
   const [createFolderCampaign, setCreateFolderCampaign] = React.useState("");
-  const [createFolderSubmitting, setCreateFolderSubmitting] = React.useState(false);
+  const [createFolderSubmitting, setCreateFolderSubmitting] =
+    React.useState(false);
   const [createFolderError, setCreateFolderError] = React.useState("");
   const [refreshFolderListKey, setRefreshFolderListKey] = React.useState(0);
-  const [creatorTierComboboxOpen, setCreatorTierComboboxOpen] = React.useState(false);
-  const [linkCampaignComboboxOpen, setLinkCampaignComboboxOpen] = React.useState(false);
+  const [creatorTierComboboxOpen, setCreatorTierComboboxOpen] =
+    React.useState(false);
+  const [linkCampaignComboboxOpen, setLinkCampaignComboboxOpen] =
+    React.useState(false);
   const [filterDropdownOpen, setFilterDropdownOpen] = React.useState(false);
   const filterAnchorRef = React.useRef<HTMLDivElement | null>(null);
-  const [activeActionComboboxId, setActiveActionComboboxId] = React.useState<string | null>(null);
-  const [activeInviteCampaignPickerId, setActiveInviteCampaignPickerId] = React.useState<string | null>(null);
-  const [sendingInvitationId, setSendingInvitationId] = React.useState<string | null>(null);
+  const [activeActionComboboxId, setActiveActionComboboxId] = React.useState<
+    string | null
+  >(null);
+  const [activeInviteCampaignPickerId, setActiveInviteCampaignPickerId] =
+    React.useState<string | null>(null);
+  const [sendingInvitationId, setSendingInvitationId] = React.useState<
+    string | null
+  >(null);
+  const [hubPage, setHubPage] = React.useState(1);
+  const [hubTotalRows, setHubTotalRows] = React.useState(0);
+  const [hubHasNextPage, setHubHasNextPage] = React.useState(false);
+  const [loadingMoreRows, setLoadingMoreRows] = React.useState(false);
 
   React.useEffect(() => {
     const initialTab = getTabFromSearchParam();
@@ -2182,13 +2560,11 @@ export default function CreatorHubPage() {
 
       const response = await api.post<CreateFolderResponse>(
         BRAND_FOLDER_CREATE_ENDPOINT,
-        payload
+        payload,
       );
 
       const createdFolderId = String(
-        response?.data?.data?._id ||
-          response?.data?.data?.id ||
-          ""
+        response?.data?.data?._id || response?.data?.data?.id || "",
       );
 
       resetCreateFolderForm();
@@ -2203,7 +2579,7 @@ export default function CreatorHubPage() {
         err?.response?.data?.error ||
           err?.response?.data?.message ||
           err?.message ||
-          "Failed to create folder."
+          "Failed to create folder.",
       );
     } finally {
       setCreateFolderSubmitting(false);
@@ -2244,7 +2620,7 @@ export default function CreatorHubPage() {
       }
 
       const campaignId = String(
-        campaignIdOverride || getRowCampaignId(row) || ""
+        campaignIdOverride || getRowCampaignId(row) || "",
       ).trim();
 
       if (!campaignId) {
@@ -2291,7 +2667,7 @@ export default function CreatorHubPage() {
           }),
           post<CreateInvitationResponse>(
             NEW_INVITATIONS_CREATE_ENDPOINT,
-            invitationPayload
+            invitationPayload,
           ),
         ]);
 
@@ -2327,7 +2703,7 @@ export default function CreatorHubPage() {
 
         if (invitationStatus === "error") {
           setError(
-            "We couldn’t send the invitation. Please try again in a moment."
+            "We couldn’t send the invitation. Please try again in a moment.",
           );
           return;
         }
@@ -2344,11 +2720,13 @@ export default function CreatorHubPage() {
               assignedAt: sentAt,
             };
 
-            const alreadyHasCampaign = item.relatedCampaigns.some((campaign) => {
-              const existingId =
-                getIdString(campaign.campaignId) || campaign.campaignsId;
-              return existingId === campaignId;
-            });
+            const alreadyHasCampaign = item.relatedCampaigns.some(
+              (campaign) => {
+                const existingId =
+                  getIdString(campaign.campaignId) || campaign.campaignsId;
+                return existingId === campaignId;
+              },
+            );
 
             return {
               ...item,
@@ -2373,7 +2751,7 @@ export default function CreatorHubPage() {
                   })
                 : [...item.relatedCampaigns, campaignPayload],
             };
-          })
+          }),
         );
 
         setActiveInviteCampaignPickerId(null);
@@ -2382,34 +2760,34 @@ export default function CreatorHubPage() {
           err?.response?.data?.error ||
             err?.response?.data?.message ||
             err?.message ||
-            "Failed to send invitation."
+            "Failed to send invitation.",
         );
       } finally {
         setSendingInvitationId(null);
       }
     },
-    [campaignOptions, createCampaignOptions]
+    [campaignOptions, createCampaignOptions],
   );
 
   const filteredCampaignOptions = React.useMemo(() => {
     const q = folderMenuSearch.trim().toLowerCase();
     if (!q) return campaignOptions;
     return campaignOptions.filter((campaign) =>
-      campaign.label.toLowerCase().includes(q)
+      campaign.label.toLowerCase().includes(q),
     );
   }, [campaignOptions, folderMenuSearch]);
 
   const selectedCampaignLabel = React.useMemo(() => {
     if (selectedCampaignId === "all") return "All";
     return (
-      campaignOptions.find((campaign) => campaign.id === selectedCampaignId)?.label ||
-      "All"
+      campaignOptions.find((campaign) => campaign.id === selectedCampaignId)
+        ?.label || "All"
     );
   }, [campaignOptions, selectedCampaignId]);
 
   const folderComboboxItems = React.useMemo(
     () => ["all", ...filteredCampaignOptions.map((campaign) => campaign.id)],
-    [filteredCampaignOptions]
+    [filteredCampaignOptions],
   );
 
   const getCampaignOptionLabel = React.useCallback(
@@ -2419,16 +2797,106 @@ export default function CreatorHubPage() {
 
       return (
         campaignOptions.find((campaign) => campaign.id === value)?.label ||
-        createCampaignOptions.find((campaign) => campaign.id === value)?.label ||
+        createCampaignOptions.find((campaign) => campaign.id === value)
+          ?.label ||
         ""
       );
     },
-    [campaignOptions, createCampaignOptions]
+    [campaignOptions, createCampaignOptions],
+  );
+
+  const handleMoveToCampaignFolder = React.useCallback(
+    async (row: InfluencerRow, campaignId: string) => {
+      const selectedCampaignId = String(campaignId || "").trim();
+
+      if (!selectedCampaignId) return;
+
+      const requestKey = `${row.id}:${selectedCampaignId}`;
+
+      if (moveRequestKeysRef.current.has(requestKey)) return;
+
+      moveRequestKeysRef.current.add(requestKey);
+
+      const campaignTitle =
+        getCampaignLabelById(createCampaignOptions, selectedCampaignId) ||
+        getCampaignLabelById(campaignOptions, selectedCampaignId) ||
+        getCampaignOptionLabel(selectedCampaignId);
+
+      try {
+        setMovingToFolderId(row.id);
+        setError("");
+
+        const platform = getRowPlatform(row);
+        const rowProfileUrl = getRowProfileAccessUrl(row);
+        const profilePayload = {
+          ...row.raw,
+          _id: row.raw?._id || row.id,
+          id: row.raw?._id || row.id,
+          name: row.raw?.name || row.profile,
+          fullname:
+            row.raw?.modash?.fullname ||
+            row.raw?.modashProfile?.fullname ||
+            row.profile,
+          username: row.username,
+          handle: row.handle,
+          provider: platform,
+          platform,
+          country: row.country === "—" ? "" : row.country,
+          language: row.language === "—" ? "" : row.language,
+          primaryLink: rowProfileUrl || row.raw?.primaryLink,
+          profileUrl: rowProfileUrl || row.raw?.primaryLink,
+          url: rowProfileUrl || row.raw?.primaryLink,
+          niche: Array.isArray(row.raw?.niche)
+            ? row.raw.niche
+            : row.category && row.category !== "—"
+              ? [row.category]
+              : [],
+        };
+
+        const response = await api.post(
+          BRAND_FOLDER_MOVE_TO_CAMPAIGN_ENDPOINT,
+          {
+            campaignId: selectedCampaignId,
+            campaignTitle,
+            influencer: profilePayload,
+          },
+        );
+
+        const movedFolderId = String(
+          response?.data?.data?.folder?._id ||
+            response?.data?.data?.folder?.id ||
+            "",
+        );
+
+        setActiveActionComboboxId(null);
+        setActiveMoveCampaignPickerId(null);
+        setSelectedIds([]);
+        setRefreshFolderListKey((prev) => prev + 1);
+
+        if (movedFolderId) {
+          setSelectedCampaignId(movedFolderId);
+        }
+      } catch (err: any) {
+        setError(
+          err?.response?.data?.error ||
+            err?.response?.data?.message ||
+            err?.message ||
+            "Failed to move influencer to folder.",
+        );
+      } finally {
+        moveRequestKeysRef.current.delete(requestKey);
+        setMovingToFolderId(null);
+      }
+    },
+    [campaignOptions, createCampaignOptions, getCampaignOptionLabel],
   );
 
   const campaignComboboxItems = React.useMemo(
-    () => [NO_CAMPAIGN_VALUE, ...createCampaignOptions.map((campaign) => campaign.id)],
-    [createCampaignOptions]
+    () => [
+      NO_CAMPAIGN_VALUE,
+      ...createCampaignOptions.map((campaign) => campaign.id),
+    ],
+    [createCampaignOptions],
   );
 
   React.useEffect(() => {
@@ -2441,11 +2909,28 @@ export default function CreatorHubPage() {
 
         const cacheBust = `${Date.now()}-${refreshFolderListKey}`;
 
-        const [folderResponse, nonFullManagedCampaignResponse] = await Promise.all([
+        const [
+          folderMetaResponse,
+          folderItemsResponse,
+          nonFullManagedCampaignResponse,
+        ] = await Promise.all([
+          api.get<BrandFolderListResponse>(BRAND_FOLDER_LIST_ENDPOINT, {
+            params: {
+              type: "all",
+              includeItems: false,
+              _t: cacheBust,
+            },
+          }),
           api.get<BrandFolderListResponse>(BRAND_FOLDER_LIST_ENDPOINT, {
             params: {
               type: "all",
               includeItems: true,
+              paginateItems: true,
+              page: 1,
+              limit: ROWS_PER_PAGE,
+              folderId:
+                selectedCampaignId === "all" ? undefined : selectedCampaignId,
+              itemSearch: debouncedSearch || undefined,
               _t: cacheBust,
             },
           }),
@@ -2458,25 +2943,38 @@ export default function CreatorHubPage() {
                   limit: 500,
                   _t: cacheBust,
                 },
-              }
+              },
             )
             .catch(() => null),
         ]);
 
-        const folders = extractBrandFolderList(folderResponse.data);
-        const options = buildCampaignOptionsFromGoodFitFolders(folders);
+        const folderCards = extractBrandFolderList(folderMetaResponse.data);
+        const pagedFolders = extractBrandFolderList(folderItemsResponse.data);
+        const pagination = extractBrandFolderPagination(
+          folderItemsResponse.data,
+        );
+        const options = buildCampaignOptionsFromGoodFitFolders(folderCards);
         const createOptions = buildCreateCampaignOptions(
-          extractNonFullManagedCampaignList(nonFullManagedCampaignResponse?.data)
+          extractNonFullManagedCampaignList(
+            nonFullManagedCampaignResponse?.data,
+          ),
         );
 
         if (!mounted) return;
 
-        setBrandFolders(folders);
+        setBrandFolders(pagedFolders);
+        setHubPage(Number(pagination?.page || 1));
+        setHubTotalRows(
+          Number(pagination?.totalItems || pagination?.total || 0),
+        );
+        setHubHasNextPage(Boolean(pagination?.hasNext));
         setCampaignOptions(options);
         setCreateCampaignOptions(createOptions);
         setSelectedCampaignId((current) => {
           if (current === "all") return "all";
-          return options.some((option) => option.id === current) ? current : "all";
+          return options.some((option) => option.id === current)
+            ? current
+            : "all";
         });
         setSelectedIds([]);
       } catch (err: any) {
@@ -2486,11 +2984,14 @@ export default function CreatorHubPage() {
           err?.response?.data?.error ||
             err?.response?.data?.message ||
             err?.message ||
-            "Failed to load brand folders."
+            "Failed to load brand folders.",
         );
 
         setBrandFolders([]);
         setHubRows([]);
+        setHubPage(1);
+        setHubTotalRows(0);
+        setHubHasNextPage(false);
         setCampaignOptions([]);
         setCreateCampaignOptions([]);
         setSelectedCampaignId("all");
@@ -2505,15 +3006,75 @@ export default function CreatorHubPage() {
     return () => {
       mounted = false;
     };
-  }, [refreshFolderListKey]);
+  }, [refreshFolderListKey, selectedCampaignId, debouncedSearch]);
+
+  const handleLoadMoreHubRows = React.useCallback(async () => {
+    if (activeTab !== "hub" || loadingMoreRows || !hubHasNextPage) return;
+
+    const nextPage = hubPage + 1;
+
+    try {
+      setLoadingMoreRows(true);
+      setError("");
+
+      const response = await api.get<BrandFolderListResponse>(
+        BRAND_FOLDER_LIST_ENDPOINT,
+        {
+          params: {
+            type: "all",
+            includeItems: true,
+            paginateItems: true,
+            page: nextPage,
+            limit: ROWS_PER_PAGE,
+            folderId:
+              selectedCampaignId === "all" ? undefined : selectedCampaignId,
+            itemSearch: debouncedSearch || undefined,
+            _t: `${Date.now()}-${refreshFolderListKey}-${nextPage}`,
+          },
+        },
+      );
+
+      const nextFolders = extractBrandFolderList(response.data);
+      const pagination = extractBrandFolderPagination(response.data);
+
+      setBrandFolders((prev) => mergeBrandFolderPages(prev, nextFolders));
+      setHubPage(Number(pagination?.page || nextPage));
+      setHubTotalRows(
+        Number(pagination?.totalItems || pagination?.total || hubTotalRows),
+      );
+      setHubHasNextPage(Boolean(pagination?.hasNext));
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load more influencers.",
+      );
+    } finally {
+      setLoadingMoreRows(false);
+    }
+  }, [
+    activeTab,
+    debouncedSearch,
+    hubHasNextPage,
+    hubPage,
+    hubTotalRows,
+    loadingMoreRows,
+    refreshFolderListKey,
+    selectedCampaignId,
+  ]);
 
   React.useEffect(() => {
     const selectedFolders =
       selectedCampaignId === "all"
         ? brandFolders
-        : brandFolders.filter((folder) => getBrandFolderId(folder) === selectedCampaignId);
+        : brandFolders.filter(
+            (folder) => getBrandFolderId(folder) === selectedCampaignId,
+          );
 
-    const items = mergeGoodFitItems(brandFoldersToGoodFitItems(selectedFolders));
+    const items = mergeGoodFitItems(
+      brandFoldersToGoodFitItems(selectedFolders),
+    );
 
     const rows = items
       .map(mapGoodFitItem)
@@ -2549,7 +3110,7 @@ export default function CreatorHubPage() {
             page: 1,
             limit: 100,
             status: "all",
-          }
+          },
         );
 
         const items = Array.isArray(response.data?.data)
@@ -2567,7 +3128,7 @@ export default function CreatorHubPage() {
           err?.response?.data?.error ||
             err?.response?.data?.message ||
             err?.message ||
-            "Failed to load invited influencers."
+            "Failed to load invited influencers.",
         );
 
         setInvitedRows([]);
@@ -2590,28 +3151,38 @@ export default function CreatorHubPage() {
     return displayRows;
   }, [displayRows]);
 
+  React.useEffect(() => {
+    setSelectedIds([]);
+  }, [activeTab, selectedCampaignId, debouncedSearch, moreFilters]);
+
+  const visibleRows = filteredRows;
+  const visibleRowsCount = filteredRows.length;
+  const totalRowsCount =
+    activeTab === "hub" ? hubTotalRows : filteredRows.length;
+  const hasMoreRows = activeTab === "hub" && hubHasNextPage;
+
   const allVisibleSelected =
-    filteredRows.length > 0 &&
-    filteredRows.every((row) => selectedIds.includes(row.id));
+    visibleRows.length > 0 &&
+    visibleRows.every((row) => selectedIds.includes(row.id));
 
   const toggleAllVisible = () => {
     if (allVisibleSelected) {
       setSelectedIds((prev) =>
-        prev.filter((id) => !filteredRows.some((row) => row.id === id))
+        prev.filter((id) => !visibleRows.some((row) => row.id === id)),
       );
       return;
     }
 
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      filteredRows.forEach((row) => next.add(row.id));
+      visibleRows.forEach((row) => next.add(row.id));
       return Array.from(next);
     });
   };
 
   const toggleRow = (id: string) => {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
     );
   };
 
@@ -2668,10 +3239,10 @@ export default function CreatorHubPage() {
                 open={folderComboboxOpen}
                 onOpenChange={setFolderComboboxOpen}
               >
-                <ComboboxTrigger
-                  className="inline-flex h-7 min-w-[120px] items-center justify-between gap-3 rounded-md bg-[#EFEFEF] px-3 text-xs font-medium text-[#111111]"
-                >
-                  <span className="max-w-[140px] truncate">{selectedCampaignLabel}</span>
+                <ComboboxTrigger className="inline-flex h-7 min-w-[120px] items-center justify-between gap-3 rounded-md bg-[#EFEFEF] px-3 text-xs font-medium text-[#111111]">
+                  <span className="max-w-[140px] truncate">
+                    {selectedCampaignLabel}
+                  </span>
                 </ComboboxTrigger>
 
                 <ComboboxContent
@@ -2682,7 +3253,7 @@ export default function CreatorHubPage() {
                     value: folderMenuSearch,
                     onChange: (event) =>
                       setFolderMenuSearch(
-                        (event.target as HTMLInputElement).value
+                        (event.target as HTMLInputElement).value,
                       ),
                   }}
                 >
@@ -2801,108 +3372,124 @@ export default function CreatorHubPage() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-[#DCDCDC] bg-white">
-          <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full border-collapse text-left text-[12px]">
-              <thead>
-                <tr className="h-10 border-b border-[#DCDCDC] bg-white text-xs font-semibold text-[#171717]">
-                  <th className="w-12 border-r border-[#E5E5E5] px-4">
-                    <input
-                      type="checkbox"
+        <TableContainer className="border-0 bg-transparent shadow-none ring-0 outline-none">
+          <TableScrollArea className="overflow-x-auto rounded-none border-0 shadow-none ring-0 outline-none">
+            <Table className="min-w-[1240px] w-full border-collapse border-spacing-0 text-left text-[12px]">
+              <TableHeader>
+                <TableRow className="h-10 border-b border-[#DCDCDC] bg-white text-xs font-semibold text-[#171717] hover:bg-white">
+                  <TableHead
+                    variant="checkbox"
+                    className="w-12 border-r border-[#E5E5E5] px-4"
+                  >
+                    <TableCheckbox
                       checked={allVisibleSelected}
-                      onChange={toggleAllVisible}
-                      disabled={!filteredRows.length}
-                      className="h-4 w-4 rounded border-[#CFCFCF] accent-black disabled:opacity-40"
+                      onCheckedChange={() => toggleAllVisible()}
+                      disabled={!visibleRows.length}
+                      aria-label="Select all influencers"
                     />
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[180px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[180px] border-r border-[#E5E5E5] px-4 text-left">
                     Profile
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[110px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[110px] border-r border-[#E5E5E5] px-4 text-left">
                     Status
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[190px] border-r border-[#E5E5E5] px-4 text-left">
                     Category
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[145px] border-r border-[#E5E5E5] px-4 text-left">
                     Folder
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[145px] border-r border-[#E5E5E5] px-4 text-left">
                     Campaign
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
-                    Workspace
-                  </th>
-
-                  <th className="w-[145px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[120px] border-r border-[#E5E5E5] px-4 text-left">
                     Country
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[120px] border-r border-[#E5E5E5] px-4 text-left">
                     Language
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[110px] border-r border-[#E5E5E5] px-4">
+                  <TableHead className="w-[110px] border-r border-[#E5E5E5] px-4 text-left">
                     Invitation Date
-                  </th>
+                  </TableHead>
 
-                  <th className="w-[170px] px-4">
+                  <TableHead className="w-[190px] px-4 text-left">
                     Action
-                  </th>
-                </tr>
-              </thead>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
 
-              <tbody>
+              <TableBody>
                 {loading ? (
-                  <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-[#666666]">
-                      {activeTab === "invited" ? "Loading invited influencers..." : "Loading influencers..."}
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <TableCell
+                      colSpan={10}
+                      className="h-40 text-center text-sm text-[#666666]"
+                    >
+                      {activeTab === "invited"
+                        ? "Loading invited influencers..."
+                        : "Loading influencers..."}
+                    </TableCell>
+                  </TableRow>
                 ) : error ? (
-                  <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-red-600">
+                  <TableRow>
+                    <TableCell
+                      colSpan={10}
+                      className="h-40 text-center text-sm text-red-600"
+                    >
                       {error}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ) : filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-[#666666]">
-                      {activeTab === "invited" ? "No invited influencers found." : "No influencers found."}
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <TableCell
+                      colSpan={10}
+                      className="h-40 text-center text-sm text-[#666666]"
+                    >
+                      {activeTab === "invited"
+                        ? "No invited influencers found."
+                        : "No influencers found."}
+                    </TableCell>
+                  </TableRow>
                 ) : (
-                  filteredRows.map((row, index) => {
+                  visibleRows.map((row, index) => {
                     const checked = selectedIds.includes(row.id);
 
                     return (
-                      <tr
+                      <TableRow
                         key={row.id}
-                        className="h-[52px] border-b border-[#E9E9E9] last:border-b-0 hover:bg-[#FAFAFA]"
+                        data-state={checked ? "selected" : undefined}
+                        className="h-[52px] !rounded-none hover:bg-[#FAFAFA]"
                       >
-                        <td className="border-r border-[#E5E5E5] px-4">
-                          <input
-                            type="checkbox"
+                        <TableCell
+                          variant="checkbox"
+                          className="border-r border-[#E5E5E5] px-4"
+                        >
+                          <TableCheckbox
                             checked={checked}
-                            onChange={() => toggleRow(row.id)}
-                            className="h-4 w-4 rounded border-[#CFCFCF] accent-black"
+                            onCheckedChange={() => toggleRow(row.id)}
+                            aria-label={`Select ${row.profile}`}
                           />
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4">
+                        <TableCell className="border-r border-[#E5E5E5] px-4">
                           <div className="flex min-w-0 items-center gap-3">
                             <Avatar index={index} name={row.profile} />
 
                             <button
                               type="button"
-                              onClick={() => openProfile(row.profileUrl)}
-                              disabled={!row.profileUrl}
+                              onClick={() =>
+                                openProfile(getRowProfileAccessUrl(row))
+                              }
+                              disabled={!getRowProfileAccessUrl(row)}
                               className="min-w-0 text-left disabled:cursor-default"
                             >
                               <span
@@ -2919,80 +3506,102 @@ export default function CreatorHubPage() {
                               </span>
                             </button>
                           </div>
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4">
+                        <TableCell className="border-r border-[#E5E5E5] px-4">
                           <StatusBadge status={row.status} />
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          <span className="block max-w-[165px] truncate" title={row.category}>
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                          <span
+                            className="block max-w-[165px] truncate"
+                            title={row.category}
+                          >
                             {row.category}
                           </span>
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
                           <span
                             className="block max-w-[115px] truncate"
                             title={row.folder}
                           >
                             {row.folder}
                           </span>
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
                           <span
                             className="block max-w-[115px] truncate"
                             title={getRowCampaignName(row)}
                           >
                             {getRowCampaignName(row)}
                           </span>
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          <span className="block max-w-[115px] truncate" title={row.workspace}>
-                            {row.workspace}
-                          </span>
-                        </td>
-
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
                           <CountryCell country={row.country} />
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          <span className="block max-w-[115px] truncate capitalize" title={row.language}>
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                          <span
+                            className="block max-w-[115px] truncate capitalize"
+                            title={row.language}
+                          >
                             {row.language}
                           </span>
-                        </td>
+                        </TableCell>
 
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          {row.invitationDate}
-                        </td>
+                        <TableCell className="border-r border-[#E5E5E5] px-4 text-[#222222]">
+                          {row.invitationDate && row.invitationDate !== "-" ? (
+                            <button
+                              type="button"
+                              onClick={() => handleTabChange("invited")}
+                              className="text-left font-medium text-[#111111] underline decoration-[#BDBDBD] underline-offset-2 hover:decoration-black"
+                              title="View invited influencers"
+                            >
+                              {row.invitationDate}
+                            </button>
+                          ) : (
+                            row.invitationDate
+                          )}
+                        </TableCell>
 
-                        <td className="px-4">
+                        <TableCell className="px-4">
                           <div className="flex items-center gap-2">
-                            <div className="flex overflow-visible rounded-md bg-[#171717]">
+                            <div className="flex overflow-visible bg-[#171717]">
                               <button
                                 type="button"
                                 disabled={sendingInvitationId === row.id}
                                 onClick={() => handleSendInvitation(row)}
                                 className="inline-flex h-7 min-w-[112px] items-center justify-center whitespace-nowrap rounded-l-md bg-[#171717] px-3 text-[11px] font-medium leading-none text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {sendingInvitationId === row.id ? "Sending..." : "Send Invitation"}
+                                {sendingInvitationId === row.id
+                                  ? "Sending..."
+                                  : "Send Invitation"}
                               </button>
 
                               <Combobox
-                                items={createCampaignOptions.map((campaign) => campaign.id)}
+                                items={createCampaignOptions.map(
+                                  (campaign) => campaign.id,
+                                )}
                                 value=""
                                 open={activeInviteCampaignPickerId === row.id}
                                 onOpenChange={(open) =>
-                                  setActiveInviteCampaignPickerId(open ? row.id : null)
+                                  setActiveInviteCampaignPickerId(
+                                    open ? row.id : null,
+                                  )
                                 }
                                 onValueChange={(campaignId) => {
-                                  const selectedCampaignId = String(campaignId || "");
+                                  const selectedCampaignId = String(
+                                    campaignId || "",
+                                  );
                                   setActiveInviteCampaignPickerId(null);
                                   if (selectedCampaignId) {
-                                    handleSendInvitation(row, selectedCampaignId);
+                                    handleSendInvitation(
+                                      row,
+                                      selectedCampaignId,
+                                    );
                                   }
                                 }}
                               >
@@ -3014,7 +3623,9 @@ export default function CreatorHubPage() {
                                   showSearch
                                   searchPlaceholder="Search campaign..."
                                 >
-                                  <ComboboxEmpty>No non fully managed campaigns found.</ComboboxEmpty>
+                                  <ComboboxEmpty>
+                                    No non fully managed campaigns found.
+                                  </ComboboxEmpty>
                                   <ComboboxList className="max-h-[220px] px-0">
                                     {(campaignId) => (
                                       <ComboboxItem
@@ -3022,15 +3633,22 @@ export default function CreatorHubPage() {
                                         value={campaignId}
                                         showIndicator={false}
                                         onClick={() => {
-                                          const selectedCampaignId = String(campaignId || "");
+                                          const selectedCampaignId = String(
+                                            campaignId || "",
+                                          );
                                           setActiveInviteCampaignPickerId(null);
                                           if (selectedCampaignId) {
-                                            handleSendInvitation(row, selectedCampaignId);
+                                            handleSendInvitation(
+                                              row,
+                                              selectedCampaignId,
+                                            );
                                           }
                                         }}
                                       >
                                         <span className="truncate">
-                                          {getCampaignOptionLabel(String(campaignId))}
+                                          {getCampaignOptionLabel(
+                                            String(campaignId),
+                                          )}
                                         </span>
                                       </ComboboxItem>
                                     )}
@@ -3061,7 +3679,7 @@ export default function CreatorHubPage() {
                                     value="view-profile"
                                     showIndicator={false}
                                     onClick={() => {
-                                      openProfile(row.profileUrl);
+                                      openProfile(getRowProfileAccessUrl(row));
                                       setActiveActionComboboxId(null);
                                     }}
                                   >
@@ -3069,23 +3687,100 @@ export default function CreatorHubPage() {
                                     View profile
                                   </ComboboxItem>
 
-                                  <ComboboxItem value="move-folder" showIndicator={false}>
-                                    <FolderSimpleIcon size={14} />
-                                    Move to folder
-                                  </ComboboxItem>
+                                  <Combobox
+                                    items={createCampaignOptions.map(
+                                      (campaign) => campaign.id,
+                                    )}
+                                    value=""
+                                    open={activeMoveCampaignPickerId === row.id}
+                                    onOpenChange={(open) =>
+                                      setActiveMoveCampaignPickerId(
+                                        open ? row.id : null,
+                                      )
+                                    }
+                                    onValueChange={(campaignId) => {
+                                      const nextCampaignId = String(
+                                        campaignId || "",
+                                      );
 
-                                  <ComboboxItem value="view-rate-card" showIndicator={false}>
+                                      setActiveMoveCampaignPickerId(null);
+                                      setActiveActionComboboxId(null);
+
+                                      if (nextCampaignId) {
+                                        handleMoveToCampaignFolder(
+                                          row,
+                                          nextCampaignId,
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <ComboboxTrigger
+                                      hideIcon
+                                      disabled={
+                                        activeTab === "invited" ||
+                                        movingToFolderId === row.id
+                                      }
+                                      className="flex h-8 w-full items-center justify-between rounded-sm px-2 text-sm text-[#111111] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <FolderSimpleIcon size={14} />
+                                        {movingToFolderId === row.id
+                                          ? "Moving..."
+                                          : "Move to folder"}
+                                      </span>
+                                      <CaretRightIcon size={12} />
+                                    </ComboboxTrigger>
+
+                                    <ComboboxContent
+                                      align="end"
+                                      className="z-[90] w-[250px] px-2 py-2"
+                                      showSearch
+                                      searchPlaceholder="Search campaign..."
+                                    >
+                                      <ComboboxEmpty>
+                                        No non fully managed campaigns found.
+                                      </ComboboxEmpty>
+
+                                      <ComboboxList className="max-h-[240px] px-0">
+                                        {(campaignId) => (
+                                          <ComboboxItem
+                                            key={campaignId}
+                                            value={campaignId}
+                                            showIndicator={false}
+                                          >
+                                            <span className="truncate">
+                                              {getCampaignOptionLabel(
+                                                String(campaignId),
+                                              )}
+                                            </span>
+                                          </ComboboxItem>
+                                        )}
+                                      </ComboboxList>
+                                    </ComboboxContent>
+                                  </Combobox>
+
+                                  {/* <ComboboxItem value="view-rate-card" showIndicator={false}>
                                     <FileTextIcon size={14} />
                                     View rate card
-                                  </ComboboxItem>
+                                  </ComboboxItem> */}
 
                                   <ComboboxItem
                                     value="copy-profile-link"
                                     showIndicator={false}
                                     onClick={async () => {
                                       try {
-                                        if (row.profileUrl && navigator.clipboard) {
-                                          await navigator.clipboard.writeText(row.profileUrl);
+                                        const profileAccessUrl =
+                                          getRowProfileAccessUrl(row);
+
+                                        if (
+                                          profileAccessUrl &&
+                                          navigator.clipboard
+                                        ) {
+                                          await navigator.clipboard.writeText(
+                                            buildCopyableProfileAccessUrl(
+                                              profileAccessUrl,
+                                            ),
+                                          );
                                         }
                                       } catch (_error) {}
                                       setActiveActionComboboxId(null);
@@ -3095,18 +3790,30 @@ export default function CreatorHubPage() {
                                     Copy profile link
                                   </ComboboxItem>
 
-                                  <ComboboxItem value="move-workspace" showIndicator={false}>
+                                  {/* <ComboboxItem value="move-workspace" showIndicator={false}>
                                     <span className="flex flex-1 items-center gap-2">
                                       <BriefcaseIcon size={14} />
                                       Move to workspace
                                     </span>
                                     <CaretRightIcon size={12} />
-                                  </ComboboxItem>
+                                  </ComboboxItem> */}
 
                                   <ComboboxItem
                                     value="delete"
                                     showIndicator={false}
-                                    className="text-[#EF4C3C] data-[highlighted]:bg-[#FFF5F3] data-[highlighted]:text-[#EF4C3C]"
+                                    disabled={activeTab === "invited"}
+                                    onClick={(event) => {
+                                      if (activeTab === "invited") {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        return;
+                                      }
+                                    }}
+                                    className={
+                                      activeTab === "invited"
+                                        ? "cursor-not-allowed text-[#B8B8B8] opacity-60 data-[disabled]:pointer-events-none data-[highlighted]:bg-transparent data-[highlighted]:text-[#B8B8B8]"
+                                        : "text-[#EF4C3C] data-[highlighted]:bg-[#FFF5F3] data-[highlighted]:text-[#EF4C3C]"
+                                    }
                                   >
                                     <TrashIcon size={14} />
                                     Delete
@@ -3115,15 +3822,35 @@ export default function CreatorHubPage() {
                               </ComboboxContent>
                             </Combobox>
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
+          </TableScrollArea>
+        </TableContainer>
+
+        {!loading && !error && filteredRows.length > 0 ? (
+          <div className="mt-5 flex flex-col items-center justify-center gap-3">
+            <p className="text-[12px] text-[#777777]">
+              Showing {visibleRowsCount} of {totalRowsCount || visibleRowsCount}{" "}
+              influencers
+            </p>
+
+            {hasMoreRows ? (
+              <button
+                type="button"
+                onClick={handleLoadMoreHubRows}
+                disabled={loadingMoreRows}
+                className="inline-flex h-9 items-center justify-center rounded-md border border-[#DCDCDC] bg-white px-5 text-[12px] font-medium text-[#111111] hover:bg-[#F7F7F7] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loadingMoreRows ? "Loading..." : "Load more"}
+              </button>
+            ) : null}
           </div>
-        </div>
+        ) : null}
       </main>
 
       <Dialog
@@ -3152,8 +3879,8 @@ export default function CreatorHubPage() {
               Create New folder
             </DialogTitle>
             <DialogDescription className="max-w-[360px] text-[11px] leading-5 text-[#A1A1A1]">
-              Provide your basic business information so we can set up your workspace
-              and tailor recommendations accordingly.
+              Provide your basic business information so we can set up your
+              workspace and tailor recommendations accordingly.
             </DialogDescription>
           </DialogHeader>
 
@@ -3227,7 +3954,7 @@ export default function CreatorHubPage() {
               onValueChange={(value) => {
                 const nextValue = String(value || "");
                 setCreateFolderCampaign(
-                  nextValue === NO_CAMPAIGN_VALUE ? "" : nextValue
+                  nextValue === NO_CAMPAIGN_VALUE ? "" : nextValue,
                 );
                 setLinkCampaignComboboxOpen(false);
               }}
@@ -3241,7 +3968,7 @@ export default function CreatorHubPage() {
               <ComboboxTrigger className="inline-flex h-11 w-full items-center justify-between rounded-lg border border-[#E2E2E2] bg-white px-3 text-sm text-[#111111]">
                 <span className="truncate">
                   {createCampaignOptions.find(
-                    (campaign) => campaign.id === createFolderCampaign
+                    (campaign) => campaign.id === createFolderCampaign,
                   )?.label || "Link Campaign"}
                 </span>
               </ComboboxTrigger>
@@ -3251,7 +3978,9 @@ export default function CreatorHubPage() {
                 showSearch
                 searchPlaceholder="Search campaign..."
               >
-                <ComboboxEmpty>No non fully managed campaigns found.</ComboboxEmpty>
+                <ComboboxEmpty>
+                  No non fully managed campaigns found.
+                </ComboboxEmpty>
                 <ComboboxList className="px-0">
                   {(campaignId) => (
                     <ComboboxItem
@@ -3261,7 +3990,7 @@ export default function CreatorHubPage() {
                       onClick={() => {
                         const nextValue = String(campaignId || "");
                         setCreateFolderCampaign(
-                          nextValue === NO_CAMPAIGN_VALUE ? "" : nextValue
+                          nextValue === NO_CAMPAIGN_VALUE ? "" : nextValue,
                         );
                         setLinkCampaignComboboxOpen(false);
                       }}
