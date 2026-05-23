@@ -3,17 +3,14 @@
 import * as React from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { AlertCircle, CheckCircle2, Loader2, X } from "lucide-react"
-import { useParams, useRouter } from "next/navigation"
 
-import api, { getApiErrorMessage } from "@/lib/api"
+import api, { post } from "@/lib/api"
 import { Button } from "@/components/ui/buttonComp"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { cn } from "@/lib/utils"
 
-type ReviewType = "brand_to_influencer" | "influencer_to_brand"
+type ReviewType = "brand_to_influencer"
 type AnswerType = "emoji_rating" | "single_select" | "multi_select" | "text"
-type ReviewStatus = "pending" | "submitted" | "skipped" | "expired" | "revoked"
-type ReviewerRole = "brand" | "influencer"
 type HeroVariant = "creator" | "brand"
 type Answers = Record<string, unknown>
 
@@ -52,51 +49,16 @@ type Questionnaire = {
   questions: QuestionnaireQuestion[]
 }
 
-type ReviewPayload = {
-  _id: string
-  reviewRequestId: string
-  reviewType: ReviewType
-  reviewerRole: ReviewerRole
-  revieweeRole: ReviewerRole
-  status: ReviewStatus
-  rating?: number | null
-  noteStarRating?: number | null
-  responses?: Array<{ questionKey: string; value: unknown }>
-  responseMap?: Record<string, { value: unknown; score?: number | null }>
-  campaign?: { _id: string; name: string }
-  brand?: {
-    _id: string
-    name: string
-    email?: string
-    logo?: string
-    image?: string
-    avatar?: string
-    profileImage?: string
-    brandLogo?: string
-    profilePic?: string
-    picture?: string
-  }
-  influencer?: {
-    _id: string
-    name: string
-    email?: string
-    handle?: string
-    image?: string
-    avatar?: string
-    profileImage?: string
-    profilePicture?: string
-    profilePic?: string
-    picture?: string
-  }
-  questionnaire: Questionnaire
-}
-
-type PublicReviewResponse = {
-  success: boolean
-  message?: string
-  canUpdate?: boolean
-  canSubmit?: boolean
-  data: ReviewPayload
+type CampaignFeedbackModalProps = {
+  open: boolean
+  campaignId: string
+  brandId: string
+  influencerId: string
+  influencerName?: string
+  campaignName?: string
+  influencerAvatarSrc?: string
+  onClose: () => void
+  onSubmitted?: () => void
 }
 
 type SubmitResponse = {
@@ -155,77 +117,193 @@ const BRAND_STARS = [
   "right-[39px] top-[5px] text-[18px]",
 ]
 
+function unwrap<T = any>(res: any): T {
+  return (res?.data ?? res) as T
+}
+
+function getApiErrorMessage(err: any, fallback = "Something went wrong.") {
+  const responseData = err?.response?.data
+
+  if (typeof responseData?.message === "string") return responseData.message
+  if (typeof responseData?.error === "string") return responseData.error
+  if (typeof err?.message === "string") return err.message
+
+  return fallback
+}
+
 function getNotoEmojiGifUrl(emoji?: string) {
   const codepoint = emoji ? EMOJI_CODEPOINTS[emoji] : ""
   return codepoint ? `${NOTO_EMOJI_GIF_BASE}/${codepoint}/512.gif` : ""
 }
 
-export default function RatingReviewTokenPage() {
-  const params = useParams<{ token?: string }>()
-  const router = useRouter()
-  const token = String(params?.token || "")
+function renderText(value = "", variables: Record<string, string>) {
+  return String(value || "")
+    .replace(/{{brandName}}/g, variables.brandName || "the brand")
+    .replace(/{{influencerName}}/g, variables.influencerName || "the creator")
+    .replace(/{{campaignName}}/g, variables.campaignName || "the campaign")
+}
 
-  const [loading, setLoading] = React.useState(true)
+function extractQuestionnaire(payload: any) {
+  const data = payload?.data ?? payload
+
+  if (data?.brand_to_influencer?.questions?.length) {
+    return data.brand_to_influencer as Questionnaire
+  }
+
+  if (data?.questionnaires?.brand_to_influencer?.questions?.length) {
+    return data.questionnaires.brand_to_influencer as Questionnaire
+  }
+
+  return null
+}
+
+function hydrateQuestionnaire(questionnaire: Questionnaire, variables: Record<string, string>): Questionnaire {
+  return {
+    ...questionnaire,
+    title: renderText(questionnaire.title, variables),
+    description: renderText(questionnaire.description, variables),
+    questions: questionnaire.questions.map((question) => ({
+      ...question,
+      label: renderText(question.label, variables),
+      description: renderText(question.description || "", variables),
+      placeholder: renderText(question.placeholder || "", variables),
+    })),
+  }
+}
+
+function buildInitialAnswers(questionnaire?: Questionnaire | null): Answers {
+  const answers: Answers = {}
+
+  for (const question of questionnaire?.questions || []) {
+    answers[question.key] = question.type === "multi_select" ? [] : ""
+
+    if (question.noteStarRating?.enabled) {
+      answers[question.noteStarRating.key] = 0
+    }
+  }
+
+  return answers
+}
+
+export default function CampaignFeedbackModal({
+  open,
+  campaignId,
+  brandId,
+  influencerId,
+  influencerName = "the creator",
+  campaignName = "Campaign",
+  influencerAvatarSrc = "",
+  onClose,
+  onSubmitted,
+}: CampaignFeedbackModalProps) {
+  const [loading, setLoading] = React.useState(false)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState("")
-  const [review, setReview] = React.useState<ReviewPayload | null>(null)
-  const [canSubmit, setCanSubmit] = React.useState(false)
-  const [canUpdate, setCanUpdate] = React.useState(false)
+  const [questionnaire, setQuestionnaire] = React.useState<Questionnaire | null>(null)
   const [started, setStarted] = React.useState(false)
   const [step, setStep] = React.useState(0)
   const [answers, setAnswers] = React.useState<Answers>({})
   const [submitted, setSubmitted] = React.useState(false)
 
+  const variables = React.useMemo(
+    () => ({
+      brandName: "the brand",
+      influencerName,
+      campaignName,
+    }),
+    [influencerName, campaignName]
+  )
+
   React.useEffect(() => {
+    if (!open) {
+      setLoading(false)
+      setSubmitting(false)
+      setError("")
+      setQuestionnaire(null)
+      setStarted(false)
+      setStep(0)
+      setAnswers({})
+      setSubmitted(false)
+      return
+    }
+
     let isMounted = true
 
-    async function loadReview() {
-      if (!token) {
-        setError("Review token is missing.")
+    async function loadModal() {
+      if (!campaignId || !brandId || !influencerId) {
+        setError("Campaign, brand, or influencer id is missing.")
         setLoading(false)
         return
       }
 
       setLoading(true)
       setError("")
+      setSubmitted(false)
+      setStarted(false)
+      setStep(0)
 
       try {
-        const res = await api.get<PublicReviewResponse>(`${API_PREFIX}/public/${token}`)
-        const payload = res.data?.data
+        const stateRes = await post<any>(`${API_PREFIX}/brand/prompt-state`, {
+          campaignId,
+          brandId,
+          influencerId,
+        })
+
+        const statePayload = unwrap<any>(stateRes)
+        const shouldPrompt = Boolean(
+          statePayload?.shouldPrompt ?? statePayload?.data?.shouldPrompt
+        )
+
+        if (!shouldPrompt) {
+          if (isMounted) onClose()
+          return
+        }
+
+        const questionnaireRes = await api.get(`${API_PREFIX}/questionnaires`)
+        const questionnairePayload = unwrap<any>(questionnaireRes)
+        const brandQuestionnaire = extractQuestionnaire(questionnairePayload)
+
+        if (!brandQuestionnaire?.questions?.length) {
+          throw new Error("Brand feedback questionnaire not found.")
+        }
+
+        const preparedQuestionnaire = hydrateQuestionnaire(brandQuestionnaire, variables)
 
         if (!isMounted) return
 
-        setReview(payload)
-        setCanSubmit(Boolean(res.data?.canSubmit))
-        setCanUpdate(false)
-        setAnswers(buildInitialAnswers(payload))
+        setQuestionnaire(preparedQuestionnaire)
+        setAnswers(buildInitialAnswers(preparedQuestionnaire))
       } catch (err) {
         if (!isMounted) return
-        setError(await getApiErrorMessage(err, "Failed to load this review link."))
+        setError(getApiErrorMessage(err, "Failed to load feedback form."))
       } finally {
         if (isMounted) setLoading(false)
       }
     }
 
-    loadReview()
+    void loadModal()
 
     return () => {
       isMounted = false
     }
-  }, [token])
+  }, [open, campaignId, brandId, influencerId, onClose, variables])
 
-  const questions = React.useMemo(
-    () => review?.questionnaire?.questions || [],
-    [review?.questionnaire?.questions]
-  )
+  React.useEffect(() => {
+    if (!submitted) return
 
+    const timer = window.setTimeout(() => {
+      onSubmitted?.()
+      onClose()
+    }, 1500)
+
+    return () => window.clearTimeout(timer)
+  }, [submitted, onClose, onSubmitted])
+
+  const questions = React.useMemo(() => questionnaire?.questions || [], [questionnaire])
   const currentQuestion = questions[step]
-  const targetName = getTargetName(review)
-  const targetAvatarSrc = getTargetAvatarSrc(review)
-  const heroVariant: HeroVariant = review?.reviewType === "influencer_to_brand" ? "brand" : "creator"
-  const reviewerLabel = review?.reviewerRole === "brand" ? "Brand Feedback" : "Influencer Feedback"
   const isLastQuestion = step === questions.length - 1
   const submittedRating = getSubmittedRating(answers)
+  const heroVariant: HeroVariant = "creator"
 
   const canGoNext = currentQuestion
     ? currentQuestion.key === "note"
@@ -237,10 +315,11 @@ export default function RatingReviewTokenPage() {
 
   const updateAnswer = React.useCallback((key: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [key]: value }))
+    setError("")
   }, [])
 
   const submitReview = React.useCallback(async () => {
-    if (!review?.questionnaire) return
+    if (!questionnaire) return
 
     const missingQuestion = questions.find(
       (question) => question.required && !isQuestionAnswered(question, answers[question.key])
@@ -263,16 +342,20 @@ export default function RatingReviewTokenPage() {
     setError("")
 
     try {
-      await api.post<SubmitResponse>(`${API_PREFIX}/public/${token}`, {
+      await post<SubmitResponse>(`${API_PREFIX}/brand/submit`, {
+        campaignId,
+        brandId,
+        influencerId,
         answers: buildSubmitAnswers(answers, questions),
       })
+
       setSubmitted(true)
     } catch (err) {
-      setError(await getApiErrorMessage(err, "Failed to submit review."))
+      setError(getApiErrorMessage(err, "Failed to submit review."))
     } finally {
       setSubmitting(false)
     }
-  }, [answers, questions, review?.questionnaire, token])
+  }, [answers, brandId, campaignId, influencerId, questionnaire, questions])
 
   const handleNext = React.useCallback(async () => {
     if (!currentQuestion) return
@@ -319,103 +402,87 @@ export default function RatingReviewTokenPage() {
     else setStep((prev) => Math.max(0, prev - 1))
   }, [step])
 
-  if (loading) {
-    return <CenteredState icon="loading" title="Loading review" description="Please wait while we open this review link." />
-  }
-
-  if (error && !review) {
-    return (
-      <CenteredState
-        icon="error"
-        title="Review link unavailable"
-        description={error}
-        actionLabel="Go back"
-        onAction={() => router.back()}
-      />
-    )
-  }
-
-  if (!review?.questionnaire || questions.length === 0) {
-    return (
-      <CenteredState
-        icon="error"
-        title="Review not found"
-        description="We could not find a valid questionnaire for this review link."
-        actionLabel="Go back"
-        onAction={() => router.back()}
-      />
-    )
-  }
-
-  if (!canSubmit) {
-    return (
-      <CenteredState
-        icon="error"
-        title="Review cannot be submitted"
-        description="This review link is no longer active."
-        actionLabel="Close"
-        onAction={() => router.back()}
-      />
-    )
-  }
+  if (!open) return null
 
   if (submitted) {
     return (
-      <SubmitSuccessScreen
-        rating={submittedRating}
-        targetName={targetName}
-        avatarSrc={targetAvatarSrc}
-        avatarVariant={heroVariant}
-      />
+      <div className="fixed inset-0 z-[99999] bg-black/40">
+        <SubmitSuccessScreen
+          rating={submittedRating}
+          targetName={influencerName}
+          avatarSrc={influencerAvatarSrc}
+          avatarVariant={heroVariant}
+        />
+      </div>
     )
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-0 sm:bg-[#F4F4F4] sm:px-5">
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/40 px-0 sm:px-5">
       <section className="relative min-h-screen w-full overflow-hidden bg-white shadow-none sm:min-h-[560px] sm:max-w-[444px] sm:rounded-[24px] sm:shadow-[0_22px_70px_rgba(0,0,0,0.10)]">
-        <AnimatePresence mode="wait">
-          {!started ? (
-            <IntroScreen
-              key="intro"
-              targetName={targetName}
-              campaignName={review.campaign?.name || "Campaign"}
-              // reviewerLabel={reviewerLabel}
-              canUpdate={canUpdate}
-              avatarSrc={targetAvatarSrc}
-              heroVariant={heroVariant}
-              onClose={() => router.back()}
-              onStart={() => setStarted(true)}
-            />
-          ) : (
-            <QuestionScreen
-              key={currentQuestion?.key || step}
-              question={currentQuestion}
-              value={answers[currentQuestion.key]}
-              answers={answers}
-              step={step}
-              total={questions.length}
-              error={error}
-              submitting={submitting}
-              canGoNext={canGoNext}
-              onChange={(value) => updateAnswer(currentQuestion.key, value)}
-              onMetaChange={updateAnswer}
-              onBack={handleBack}
-              onClose={() => router.back()}
-              onNext={handleNext}
-              onSkip={handleSkip}
-            />
-          )}
-        </AnimatePresence>
+        {loading ? (
+          <CenteredStateContent
+            icon="loading"
+            title="Loading review"
+            description="Please wait while we open this review."
+          />
+        ) : error && !questionnaire ? (
+          <CenteredStateContent
+            icon="error"
+            title="Review unavailable"
+            description={error}
+            actionLabel="Close"
+            onAction={onClose}
+          />
+        ) : !questionnaire || questions.length === 0 ? (
+          <CenteredStateContent
+            icon="error"
+            title="Review not found"
+            description="We could not find a valid questionnaire for this feedback."
+            actionLabel="Close"
+            onAction={onClose}
+          />
+        ) : (
+          <AnimatePresence mode="wait">
+            {!started ? (
+              <IntroScreen
+                key="intro"
+                targetName={influencerName}
+                campaignName={campaignName || "Campaign"}
+                avatarSrc={influencerAvatarSrc}
+                heroVariant={heroVariant}
+                onClose={onClose}
+                onStart={() => setStarted(true)}
+              />
+            ) : (
+              <QuestionScreen
+                key={currentQuestion?.key || step}
+                question={currentQuestion}
+                value={answers[currentQuestion.key]}
+                answers={answers}
+                step={step}
+                total={questions.length}
+                error={error}
+                submitting={submitting}
+                canGoNext={canGoNext}
+                onChange={(value) => updateAnswer(currentQuestion.key, value)}
+                onMetaChange={updateAnswer}
+                onBack={handleBack}
+                onClose={onClose}
+                onNext={handleNext}
+                onSkip={handleSkip}
+              />
+            )}
+          </AnimatePresence>
+        )}
       </section>
-    </main>
+    </div>
   )
 }
 
 function IntroScreen({
   targetName,
   campaignName,
-  // reviewerLabel,
-  canUpdate,
   avatarSrc,
   heroVariant,
   onClose,
@@ -423,8 +490,6 @@ function IntroScreen({
 }: {
   targetName: string
   campaignName: string
-  // reviewerLabel: string
-  canUpdate: boolean
   avatarSrc?: string
   heroVariant: HeroVariant
   onClose: () => void
@@ -443,7 +508,7 @@ function IntroScreen({
 
         <button
           type="button"
-          aria-label="Close rating page"
+          aria-label="Close rating modal"
           onClick={onClose}
           className="absolute right-[18px] top-[18px] z-40 flex size-9 items-center justify-center rounded-full bg-white text-[#1C1C1C] shadow-sm transition hover:scale-105"
         >
@@ -459,10 +524,6 @@ function IntroScreen({
       </div>
 
       <div className="relative z-20 flex flex-1 flex-col px-5 pb-5 pt-[62px] text-center">
-        {/* <p className="mb-3 text-[12px] font-semibold uppercase tracking-[0.2em] text-[#9A9A9A]">
-          {reviewerLabel}
-        </p> */}
-
         <h1 className="mx-auto max-w-[365px] text-[18px] font-bold leading-[1.25] tracking-[-0.01em] text-[#222222]">
           How was working with {targetName}?
         </h1>
@@ -520,9 +581,9 @@ function CreatorHeroBeams() {
         fill="none"
         preserveAspectRatio="none"
       >
-        <path d="M1.43813 -94.66L21.9102 -95.7299L49.4364 86.0813L0.00385993 88.6647L1.43813 -94.66Z" fill="url(#hero_beam_left)" />
+        <path d="M1.43813 -94.66L21.9102 -95.7299L49.4364 86.0813L0.00385993 88.6647L1.43813 -94.66Z" fill="url(#modal_hero_beam_left)" />
         <defs>
-          <linearGradient id="hero_beam_left" x1="15.1694" y1="-95.3776" x2="24.7201" y2="87.373" gradientUnits="userSpaceOnUse">
+          <linearGradient id="modal_hero_beam_left" x1="15.1694" y1="-95.3776" x2="24.7201" y2="87.373" gradientUnits="userSpaceOnUse">
             <stop stopColor="#FFE28A" />
             <stop offset="1" stopColor="white" stopOpacity="0" />
           </linearGradient>
@@ -536,9 +597,9 @@ function CreatorHeroBeams() {
         fill="none"
         preserveAspectRatio="none"
       >
-        <path d="M0.00328702 -85.202L26.3624 -90.951L88.5029 82.798L24.8553 96.6797L0.00328702 -85.202Z" fill="url(#hero_beam_middle)" />
+        <path d="M0.00328702 -85.202L26.3624 -90.951L88.5029 82.798L24.8553 96.6797L0.00328702 -85.202Z" fill="url(#modal_hero_beam_middle)" />
         <defs>
-          <linearGradient id="hero_beam_middle" x1="17.6832" y1="-89.058" x2="56.6791" y2="89.7389" gradientUnits="userSpaceOnUse">
+          <linearGradient id="modal_hero_beam_middle" x1="17.6832" y1="-89.058" x2="56.6791" y2="89.7389" gradientUnits="userSpaceOnUse">
             <stop stopColor="#FFEBB0" />
             <stop offset="0.865385" stopColor="white" stopOpacity="0" />
           </linearGradient>
@@ -552,9 +613,9 @@ function CreatorHeroBeams() {
         fill="none"
         preserveAspectRatio="none"
       >
-        <path d="M53.8477 -112.173L76.306 -106.903L54.2247 75.8852L-0.00381671 63.162L53.8477 -112.173Z" fill="url(#hero_beam_right)" />
+        <path d="M53.8477 -112.173L76.306 -106.903L54.2247 75.8852L-0.00381671 63.162L53.8477 -112.173Z" fill="url(#modal_hero_beam_right)" />
         <defs>
-          <linearGradient id="hero_beam_right" x1="68.9112" y1="-108.638" x2="27.1105" y2="69.5236" gradientUnits="userSpaceOnUse">
+          <linearGradient id="modal_hero_beam_right" x1="68.9112" y1="-108.638" x2="27.1105" y2="69.5236" gradientUnits="userSpaceOnUse">
             <stop stopColor="#FFEBB0" />
             <stop offset="0.889423" stopColor="white" stopOpacity="0" />
           </linearGradient>
@@ -705,7 +766,7 @@ function QuestionScreen({
 
         <button
           type="button"
-          aria-label="Close rating page"
+          aria-label="Close rating modal"
           onClick={onClose}
           className="flex size-9 items-center justify-center rounded-full bg-[#FAFAFA] text-black transition hover:bg-[#F3F3F3]"
         >
@@ -1075,7 +1136,7 @@ function SubmitSuccessScreen({
   )
 }
 
-function CenteredState({
+function CenteredStateContent({
   icon,
   title,
   description,
@@ -1089,8 +1150,8 @@ function CenteredState({
   onAction?: () => void
 }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-5 sm:bg-[#F5F5F5]">
-      <section className="w-full max-w-[444px] rounded-[22px] bg-white px-6 py-10 text-center shadow-none sm:shadow-[0_20px_60px_rgba(0,0,0,0.10)]">
+    <div className="flex min-h-screen items-center justify-center bg-white px-5 sm:min-h-[560px]">
+      <section className="w-full max-w-[444px] px-6 py-10 text-center">
         <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[#F7F7F7] text-[#1C1C1C]">
           {icon === "loading" ? (
             <Loader2 className="size-7 animate-spin" />
@@ -1111,7 +1172,7 @@ function CenteredState({
           </Button>
         ) : null}
       </section>
-    </main>
+    </div>
   )
 }
 
@@ -1121,28 +1182,6 @@ function getQuestionHint(question: QuestionnaireQuestion) {
   if (question.key === "content_vision_match") return "Tell us how closely the final output matched the brief."
   if (question.key === "note") return "Share a quick appreciation, feedback, or memorable takeaway from this collaboration."
   return "Share your overall collaboration experience with the creator."
-}
-
-function buildInitialAnswers(review?: ReviewPayload | null): Answers {
-  if (!review) return {}
-
-  const answers: Answers = {}
-
-  for (const [key, answer] of Object.entries(review.responseMap || {})) {
-    answers[key] = answer?.value
-  }
-
-  for (const response of review.responses || []) {
-    if (answers[response.questionKey] === undefined) {
-      answers[response.questionKey] = response.value
-    }
-  }
-
-  if (review.noteStarRating && answers.note_star_rating === undefined) {
-    answers.note_star_rating = review.noteStarRating
-  }
-
-  return answers
 }
 
 function getSubmittedRating(answers: Answers) {
@@ -1189,43 +1228,6 @@ function isQuestionAnswered(question: QuestionnaireQuestion, value: unknown) {
   if (question.type === "multi_select") return Array.isArray(value) && value.length > 0
   if (question.type === "text") return String(value || "").trim().length > 0
   return true
-}
-
-function getTargetName(review?: ReviewPayload | null) {
-  if (!review) return "the creator"
-
-  if (review.reviewType === "brand_to_influencer") {
-    return review.influencer?.name || review.influencer?.handle || "the creator"
-  }
-
-  return review.brand?.name || "the brand"
-}
-
-function getTargetAvatarSrc(review?: ReviewPayload | null) {
-  if (!review) return ""
-
-  if (review.reviewType === "influencer_to_brand") {
-    return (
-      review.brand?.profilePic ||
-      review.brand?.logo ||
-      review.brand?.brandLogo ||
-      review.brand?.image ||
-      review.brand?.avatar ||
-      review.brand?.profileImage ||
-      review.brand?.picture ||
-      ""
-    )
-  }
-
-  return (
-    review.influencer?.image ||
-    review.influencer?.avatar ||
-    review.influencer?.profileImage ||
-    review.influencer?.profilePicture ||
-    review.influencer?.profilePic ||
-    review.influencer?.picture ||
-    ""
-  )
 }
 
 function getInitials(name = "") {
