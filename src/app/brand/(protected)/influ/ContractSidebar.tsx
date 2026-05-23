@@ -3320,7 +3320,11 @@ export function ContractSidebarShell({
           {previewUrl ? (
             <div className="hidden xl:flex xl:w-1/2 flex-col border-l border-gray-100 bg-white">
               <div className="flex-1 min-h-0">
-                {previewBlob ? <MinimalPdfPreview file={previewBlob} /> : null}
+               <iframe
+  src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+  title="Contract PDF preview"
+  className="h-full w-full border-0"
+/>
               </div>
             </div>
           ) : (
