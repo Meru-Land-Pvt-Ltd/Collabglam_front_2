@@ -1,7 +1,7 @@
 "use client";
 
-import { JSXElementConstructor, Key, ReactElement, ReactNode, ReactPortal, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, Fragment } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Icon as IconifyIcon } from "@iconify/react";
 import {
     ArrowDownRight,
@@ -9,19 +9,34 @@ import {
     ArrowUpRight,
     CalendarDots,
     Coins,
-    DownloadSimple,
+    Eye,
     MoneyWavy,
     PlusCircle,
     Wallet,
 } from "@phosphor-icons/react";
-import { apiGetContractDetails } from "../../services/brandApi";
+import {
+    apiGetContractDetails,
+    apiViewContractPdf,
+    apiGetMilestonesByCampaign,
+} from "../../services/brandApi";
 import { InfluencerViewModel } from "./utils";
 
 type PaymentTabProps = {
     view: InfluencerViewModel;
     contractLoading: boolean;
-    onViewContract: () => void;
-    onDownloadContract: () => void;
+    onViewContract?: () => void;
+    onDownloadContract?: () => void;
+};
+
+type PaymentHistoryRow = {
+    id: string;
+    title: string;
+    subtitle: string;
+    transactionId: string;
+    amount: string;
+    amountClassName: string;
+    icon: any;
+    iconClassName: string;
 };
 
 function getContractDoc(data: any) {
@@ -56,6 +71,12 @@ function formatDateTime(value?: string | Date | null) {
         hour: "2-digit",
         minute: "2-digit",
     });
+}
+
+function getReleasedMilestoneTotal(milestones: any[]) {
+    return milestones
+        .filter((item) => isReleasedMilestone(item))
+        .reduce((sum, item) => sum + getMilestoneAmount(item), 0);
 }
 
 function formatStatus(status?: string | null) {
@@ -159,7 +180,7 @@ function getUpcomingPayout(contract: any) {
         : [];
 
     const nextMilestone = milestones.find(
-        (item: { released: any; amount: any; milestoneBudget: any; }) => !item?.released && (item?.amount || item?.milestoneBudget)
+        (item: any) => !item?.released && (item?.amount || item?.milestoneBudget)
     );
 
     if (!nextMilestone) return "-";
@@ -176,8 +197,8 @@ function getLastPayout(contract: any) {
         : [];
 
     const released = milestones
-        .filter((item: { released: any; }) => item?.released)
-        .sort((a: { releasedAt: any; updatedAt: any; }, b: { releasedAt: any; updatedAt: any; }) => {
+        .filter((item: any) => item?.released)
+        .sort((a: any, b: any) => {
             const aTime = new Date(a?.releasedAt || a?.updatedAt || 0).getTime();
             const bTime = new Date(b?.releasedAt || b?.updatedAt || 0).getTime();
             return bTime - aTime;
@@ -299,7 +320,7 @@ function getLastEmailSent(contract: any) {
         : formatDateTime(sorted[0]?.sentAt);
 }
 
-function getPaymentHistoryRows(contract: any) {
+function getPaymentHistoryRows(contract: any): PaymentHistoryRow[] {
     const currency = getCurrency(contract);
 
     const milestones = Array.isArray(contract?.milestones)
@@ -307,11 +328,11 @@ function getPaymentHistoryRows(contract: any) {
         : [];
 
     if (milestones.length > 0) {
-        return milestones.map((item: { milestoneHistoryId: any; _id: any; milestoneTitle: any; payoutStatus: any; status: any; milestoneId: any; amount: any; milestoneBudget: any; released: any; }, index: number) => ({
-            id: item?.milestoneHistoryId || item?._id || String(index),
+        return milestones.map((item: any, index: number) => ({
+            id: String(item?.milestoneHistoryId || item?._id || index),
             title: item?.milestoneTitle || `Milestone ${index + 1}`,
             subtitle: item?.payoutStatus || item?.status || "Milestone",
-            transactionId: item?.milestoneHistoryId || item?.milestoneId || "-",
+            transactionId: String(item?.milestoneHistoryId || item?.milestoneId || "-"),
             amount: formatMoney(item?.amount || item?.milestoneBudget || 0, currency),
             amountClassName: item?.released ? "text-[#16A34A]" : "text-[#1A1A1A]",
             icon: item?.released ? ArrowDownRight : ArrowUpLeft,
@@ -320,14 +341,16 @@ function getPaymentHistoryRows(contract: any) {
     }
 
     const audit = Array.isArray(contract?.audit) ? contract.audit : [];
-    const milestoneAudits = audit.filter((item: { type: string; }) => item?.type === "MILESTONES_CREATED");
+    const milestoneAudits = audit.filter(
+        (item: any) => item?.type === "MILESTONES_CREATED"
+    );
 
     if (milestoneAudits.length > 0) {
-        return milestoneAudits.map((item: { details: { milestoneHistoryId: any; milestoneBudget: any; }; at: string | Date | null | undefined; }, index: any) => ({
-            id: item?.details?.milestoneHistoryId || String(index),
+        return milestoneAudits.map((item: any, index: number) => ({
+            id: String(item?.details?.milestoneHistoryId || index),
             title: "Milestone Created",
             subtitle: formatDateTime(item?.at),
-            transactionId: item?.details?.milestoneHistoryId || "-",
+            transactionId: String(item?.details?.milestoneHistoryId || "-"),
             amount: formatMoney(item?.details?.milestoneBudget || 0, currency),
             amountClassName: "text-[#1A1A1A]",
             icon: ArrowUpLeft,
@@ -338,36 +361,121 @@ function getPaymentHistoryRows(contract: any) {
     return [];
 }
 
+function extractMilestonesFromResponse(res: any): any[] {
+    const candidates = [
+        res?.milestones,
+        res?.data?.milestones,
+        res?.data?.data?.milestones,
+        res?.items,
+        res?.data?.items,
+        res?.data,
+    ];
+
+    for (const candidate of candidates) {
+        if (Array.isArray(candidate)) return candidate;
+    }
+
+    return [];
+}
+
+function sameId(a: any, b: any) {
+    if (!a || !b) return false;
+    return String(a) === String(b);
+}
+
+function getMilestoneAmount(item: any) {
+    return Number(item?.amount || item?.milestoneBudget || item?.raw?.amount || item?.raw?.milestoneBudget || 0);
+}
+
+function getMilestoneCreatedTime(item: any) {
+    return new Date(
+        item?.createdAt ||
+        item?.raw?.createdAt ||
+        item?.updatedAt ||
+        item?.raw?.updatedAt ||
+        0
+    ).getTime();
+}
+
+function getMilestoneReleasedTime(item: any) {
+    return new Date(
+        item?.releasedAt ||
+        item?.raw?.releasedAt ||
+        item?.paidAt ||
+        item?.raw?.paidAt ||
+        item?.updatedAt ||
+        item?.raw?.updatedAt ||
+        0
+    ).getTime();
+}
+
+function isReleasedMilestone(item: any) {
+    const payoutStatus = String(
+        item?.payoutStatus || item?.raw?.payoutStatus || ""
+    ).toLowerCase();
+
+    return (
+        Boolean(item?.released || item?.raw?.released) ||
+        Boolean(item?.releasedAt || item?.raw?.releasedAt) ||
+        payoutStatus === "initiated" ||
+        payoutStatus === "paid"
+    );
+}
+
+function getUpcomingPayoutFromMilestones(milestones: any[], currency = "USD") {
+    const latestUnreleased = milestones
+        .filter((item) => !isReleasedMilestone(item) && getMilestoneAmount(item) > 0)
+        .sort((a, b) => getMilestoneCreatedTime(b) - getMilestoneCreatedTime(a))[0];
+
+    if (!latestUnreleased) return "-";
+
+    return formatMoney(getMilestoneAmount(latestUnreleased), currency);
+}
+
+function getLastPayoutFromMilestones(milestones: any[], currency = "USD") {
+    const latestReleased = milestones
+        .filter((item) => isReleasedMilestone(item) && getMilestoneAmount(item) > 0)
+        .sort((a, b) => getMilestoneReleasedTime(b) - getMilestoneReleasedTime(a))[0];
+
+    if (!latestReleased) return "-";
+
+    return formatMoney(getMilestoneAmount(latestReleased), currency);
+}
+
 export default function PaymentTab({
     view,
     contractLoading,
-    onViewContract,
-    onDownloadContract,
 }: PaymentTabProps) {
     const searchParams = useSearchParams();
+    const router = useRouter();
+
+    const [paymentView, setPaymentView] = useState<"total" | "pending">("total");
 
     const urlContractId = searchParams.get("contractId") || "";
+    const urlCampaignId = searchParams.get("campaignId") || "";
+    const urlBrandId = searchParams.get("brandId") || "";
+    const urlInfluencerId = searchParams.get("influencerId") || "";
 
     const resolvedApiContractId = useMemo(() => {
         const anyView: any = view || {};
 
         return String(
             urlContractId ||
-                anyView?.printableContractId ||
-                anyView?.contractId ||
-                anyView?.contractMongoId ||
-                anyView?.contract_id ||
-                anyView?.contract?._id ||
-                anyView?.contract?.contractId ||
-                anyView?.contract?.id ||
-                anyView?.raw?.contractId ||
-                anyView?.raw?._id ||
-                anyView?.raw?.contract?._id ||
-                anyView?.raw?.contract?.contractId ||
-                anyView?.applicant?.contractId ||
-                anyView?.applicant?.contract?._id ||
-                anyView?.applicant?.contract?.contractId ||
-                ""
+            anyView?.printableContractId ||
+            anyView?.contractId ||
+            anyView?.contractMongoId ||
+            anyView?.contract_id ||
+            anyView?.contract?._id ||
+            anyView?.contract?.contractId ||
+            anyView?.contract?.id ||
+            anyView?.raw?.contractId ||
+            anyView?.raw?._id ||
+            anyView?.raw?.contract?._id ||
+            anyView?.raw?.contract?.contractId ||
+            anyView?.applicant?.contractId ||
+            anyView?.applicant?.contract?._id ||
+            anyView?.applicant?.contract?.contractId ||
+            ""
         ).trim();
     }, [view, urlContractId]);
 
@@ -375,11 +483,64 @@ export default function PaymentTab({
 
     const [contractDetailsLoading, setContractDetailsLoading] = useState(false);
     const [contractDetailsData, setContractDetailsData] = useState<any | null>(null);
+    const [contractPdfViewing, setContractPdfViewing] = useState(false);
+    const [milestoneRows, setMilestoneRows] = useState<any[]>([]);
+    const [milestonesLoading, setMilestonesLoading] = useState(false);
 
     const contract = useMemo(
         () => getContractDoc(contractDetailsData),
         [contractDetailsData]
     );
+
+    const resolvedCampaignId = useMemo(() => {
+        const anyView: any = view || {};
+
+        return String(
+            urlCampaignId ||
+            contract?.campaignId ||
+            contract?.content?.campaign?.campaignId ||
+            contract?.content?.campaign?._id ||
+            contract?.campaign?._id ||
+            anyView?.campaignId ||
+            anyView?.raw?.campaignId ||
+            anyView?.raw?.contract?.campaignId ||
+            anyView?.contract?.campaignId ||
+            ""
+        ).trim();
+    }, [urlCampaignId, contract, view]);
+
+    const resolvedBrandId = useMemo(() => {
+        const anyView: any = view || {};
+
+        return String(
+            urlBrandId ||
+            contract?.brandId ||
+            contract?.content?.brand?._id ||
+            contract?.brand?._id ||
+            anyView?.brandId ||
+            anyView?.raw?.brandId ||
+            anyView?.raw?.contract?.brandId ||
+            anyView?.contract?.brandId ||
+            ""
+        ).trim();
+    }, [urlBrandId, contract, view]);
+
+    const resolvedInfluencerId = useMemo(() => {
+        const anyView: any = view || {};
+
+        return String(
+            urlInfluencerId ||
+            contract?.influencerId ||
+            contract?.content?.influencer?._id ||
+            contract?.influencer?._id ||
+            anyView?.influencerId ||
+            anyView?.raw?.influencerId ||
+            anyView?.raw?.influencer?._id ||
+            anyView?.raw?.contract?.influencerId ||
+            anyView?.contract?.influencerId ||
+            ""
+        ).trim();
+    }, [urlInfluencerId, contract, view]);
 
     useEffect(() => {
         if (!resolvedApiContractId) {
@@ -419,9 +580,105 @@ export default function PaymentTab({
         };
     }, [resolvedApiContractId]);
 
+    useEffect(() => {
+        if (!resolvedCampaignId) {
+            setMilestoneRows([]);
+            return;
+        }
+
+        let isMounted = true;
+
+        async function fetchMilestonesByCampaign() {
+            try {
+                setMilestonesLoading(true);
+
+                const res = await apiGetMilestonesByCampaign({
+                    campaignId: resolvedCampaignId,
+                    brandId: resolvedBrandId || "",
+                } as any);
+
+                if (!isMounted) return;
+
+                const rows = extractMilestonesFromResponse(res);
+
+                const filteredRows = resolvedInfluencerId
+                    ? rows.filter((item: any) =>
+                        sameId(
+                            item?.influencerId || item?.raw?.influencerId,
+                            resolvedInfluencerId
+                        )
+                    )
+                    : rows;
+
+                setMilestoneRows(filteredRows);
+            } catch (error) {
+                console.error("Failed to fetch milestones by campaign:", error);
+
+                if (isMounted) {
+                    setMilestoneRows([]);
+                }
+            } finally {
+                if (isMounted) {
+                    setMilestonesLoading(false);
+                }
+            }
+        }
+
+        fetchMilestonesByCampaign();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [resolvedCampaignId, resolvedBrandId, resolvedInfluencerId]);
+
     const currency = getCurrency(contract);
     const totalCampaignFee = getTotalCampaignFee(contract);
     const influencerBudget = getInfluencerBudget(contract);
+
+    const paymentMilestones = useMemo(() => {
+        const contractMilestones = Array.isArray(contract?.milestones)
+            ? contract.milestones
+            : [];
+
+        return milestoneRows.length > 0 ? milestoneRows : contractMilestones;
+    }, [milestoneRows, contract]);
+
+    const releasedMilestoneAmount = useMemo(() => {
+        return getReleasedMilestoneTotal(paymentMilestones);
+    }, [paymentMilestones]);
+
+    const pendingPayoutAmount = Math.max(
+        0,
+        Number(influencerBudget || 0) - Number(releasedMilestoneAmount || 0)
+    );
+
+    const totalPayoutValue = formatMoney(influencerBudget, currency);
+
+
+    const pendingPayoutValue = milestonesLoading
+        ? "Loading..."
+        : formatMoney(pendingPayoutAmount, currency);
+
+    const selectedPaymentLabel =
+        paymentView === "total" ? "Total Payout" : "Pending amount";
+
+    const selectedPaymentValue =
+        paymentView === "total" ? totalPayoutValue : pendingPayoutValue;
+
+    const releasedPayoutValue = milestonesLoading
+        ? "Loading..."
+        : formatMoney(releasedMilestoneAmount, currency);
+    const upcomingPayoutValue = milestonesLoading
+        ? "Loading..."
+        : milestoneRows.length > 0
+            ? getUpcomingPayoutFromMilestones(milestoneRows, currency)
+            : getUpcomingPayout(contract);
+
+    const lastPayoutValue = milestonesLoading
+        ? "Loading..."
+        : milestoneRows.length > 0
+            ? getLastPayoutFromMilestones(milestoneRows, currency)
+            : getLastPayout(contract);
 
     const milestoneCards = useMemo(
         () => [
@@ -440,15 +697,15 @@ export default function PaymentTab({
             {
                 icon: CalendarDots,
                 label: "Upcoming Payout",
-                value: getUpcomingPayout(contract),
+                value: upcomingPayoutValue,
             },
             {
                 icon: ArrowUpRight,
                 label: "Last payout",
-                value: getLastPayout(contract),
+                value: lastPayoutValue,
             },
         ],
-        [contract]
+        [contract, upcomingPayoutValue, lastPayoutValue]
     );
 
     const contractRows = useMemo(() => {
@@ -469,28 +726,6 @@ export default function PaymentTab({
                     "-",
             },
             {
-                label: "Brand Email",
-                value:
-                    contract?.other?.brandProfile?.email ||
-                    contract?.content?.brand?.noticeEmail ||
-                    "-",
-            },
-            {
-                label: "Influencer Email",
-                value:
-                    contract?.other?.influencerProfile?.email ||
-                    contract?.content?.influencer?.email ||
-                    "-",
-            },
-            {
-                label: "Signed by Influencer",
-                value: formatDateTime(contract?.signatures?.influencer?.at),
-            },
-            {
-                label: "Signed by Brand",
-                value: formatDateTime(contract?.signatures?.brand?.at),
-            },
-            {
                 label: "Effective Date",
                 value: formatDate(contract?.content?.campaign?.effectiveDate),
             },
@@ -499,75 +734,21 @@ export default function PaymentTab({
                 value: formatDateTime(contract?.requestedEffectiveDate),
             },
             {
-                label: "Usage Rights",
-                value: getUsageRights(contract),
-            },
-            {
-                label: "Content Ownership",
-                value: getContentOwnership(contract),
-            },
-            {
                 label: "Payment Type",
                 value: formatPaymentType(
                     contract?.content?.campaign?.paymentType || contract?.paymentType
                 ),
             },
             {
-                label: "Payment Terms",
-                value: getPaymentTerms(contract),
-            },
-            {
-                label: "Total Campaign Fee",
-                value: formatMoney(totalCampaignFee, currency),
-            },
-            {
                 label: "Influencer Budget",
                 value: formatMoney(influencerBudget, currency),
-            },
-            {
-                label: "Exclusivity Period",
-                value: getExclusivityPeriod(contract),
-            },
-            {
-                label: "Deliverables",
-                value: getDeliverablesSummary(contract),
-            },
-            {
-                label: "Revision Rounds",
-                value: String(
-                    contract?.content?.scheduleA?.review?.includedRevisionRounds ?? "-"
-                ),
-            },
-            {
-                label: "Governing Law",
-                value: contract?.content?.scheduleA?.dispute?.governingLaw || "-",
-            },
-            {
-                label: "Last Sent",
-                value: formatDateTime(contract?.lastSentAt),
             },
             {
                 label: "Last Viewed",
                 value: formatDateTime(
                     contract?.lastViewedAt?.brand ||
-                        contract?.lastViewedAt?.influencer
+                    contract?.lastViewedAt?.influencer
                 ),
-            },
-            {
-                label: "Milestones Created",
-                value: formatDateTime(contract?.milestonesCreatedAt),
-            },
-            {
-                label: "Email Log",
-                value: getEmailLogSummary(contract),
-            },
-            {
-                label: "Last Email",
-                value: getLastEmailSent(contract),
-            },
-            {
-                label: "Created At",
-                value: formatDateTime(contract?.createdAt),
             },
             {
                 label: "Updated At",
@@ -582,22 +763,81 @@ export default function PaymentTab({
 
     const resolvedContractId = String(
         contract?.contractId ||
-            contract?._id ||
-            resolvedApiContractId ||
-            "-"
+        contract?._id ||
+        resolvedApiContractId ||
+        "-"
     );
 
     const resolvedContractStatus = contractDetailsLoading
         ? "Loading..."
         : formatStatus(contract?.status);
 
-    const isContractActionLoading = contractLoading || contractDetailsLoading;
+    const isContractActionLoading =
+        contractLoading || contractDetailsLoading || contractPdfViewing;
 
     const contractFileName = hasContract
-        ? view?.contractFileName || `Contract-${resolvedContractId}.pdf`
+        ? (view as any)?.contractFileName || `Contract-${resolvedContractId}.pdf`
         : "BrandxInfluencer_contract.pdf";
 
-    const contractSize = hasContract ? view?.contractSize || "10.5 MB" : "10.5 MB";
+    const contractSize = hasContract
+        ? (view as any)?.contractSize || "10.5 MB"
+        : "10.5 MB";
+
+    const handleViewContractPdf = async () => {
+        const contractId = String(
+            contract?.contractId ||
+            (view as any)?.printableContractId ||
+            (view as any)?.contractId ||
+            resolvedApiContractId ||
+            ""
+        ).trim();
+
+        if (!contractId) {
+            console.error("contractId is required");
+            return;
+        }
+
+        try {
+            setContractPdfViewing(true);
+
+            const response = await apiViewContractPdf({ contractId });
+
+            const blob =
+                response instanceof Blob
+                    ? response
+                    : (response as any)?.data instanceof Blob
+                        ? (response as any).data
+                        : new Blob([response as any], {
+                            type: "application/pdf",
+                        });
+
+            const finalBlob =
+                blob.type === "application/pdf"
+                    ? blob
+                    : new Blob([blob], { type: "application/pdf" });
+
+            const pdfUrl = window.URL.createObjectURL(finalBlob);
+            const opened = window.open(pdfUrl, "_blank", "noopener,noreferrer");
+
+            if (!opened) {
+                const link = document.createElement("a");
+                link.href = pdfUrl;
+                link.target = "_blank";
+                link.rel = "noopener noreferrer";
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            }
+
+            window.setTimeout(() => {
+                window.URL.revokeObjectURL(pdfUrl);
+            }, 60_000);
+        } catch (error) {
+            console.error("Failed to view contract PDF:", error);
+        } finally {
+            setContractPdfViewing(false);
+        }
+    };
 
     return (
         <section className="flex w-full flex-col items-start gap-4 px-4 py-5">
@@ -621,13 +861,13 @@ export default function PaymentTab({
                     <div className="flex items-center gap-5 self-stretch">
                         <InfoItem
                             label="Total Payout"
-                            value={formatMoney(totalCampaignFee, currency)}
+                            value={formatMoney(influencerBudget, currency)}
                         />
                         <InfoItem
                             label="Payment Model"
                             value={formatPaymentType(
                                 contract?.content?.campaign?.paymentType ||
-                                    contract?.paymentType
+                                contract?.paymentType
                             )}
                         />
                         <InfoItem
@@ -665,49 +905,57 @@ export default function PaymentTab({
             </div>
 
             {/* Payment */}
-            <div className="flex w-full flex-col gap-6 rounded-[0.75rem] border border-[#E6E6E6] bg-white p-4">
+            <div className="flex w-full flex-col gap-3">
                 <h2 className="text-base font-semibold text-[#1A1A1A]">Payment</h2>
 
-                <div className="flex min-h-[10.5rem] flex-col justify-between self-stretch">
-                    <div className="flex items-start justify-between self-stretch">
-                        <div className="flex h-12 w-12 items-center justify-center gap-2.5 rounded-[0.5rem] border border-[#E6E6E6] p-3">
-                            <MoneyWavy size={24} />
+                <div className="flex w-full flex-col gap-6 rounded-[0.75rem] border border-[#E6E6E6] bg-white p-4">
+                    <div className="flex min-h-[10.5rem] flex-col justify-between self-stretch">
+                        <div className="flex items-start justify-between self-stretch">
+                            <div className="flex h-12 w-12 items-center justify-center gap-2.5 rounded-[0.5rem] border border-[#E6E6E6] p-3">
+                                <MoneyWavy size={24} />
+                            </div>
+
+                            <div className="flex items-center gap-2 rounded-[0.75rem] bg-[#F9F9F9] p-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentView("total")}
+                                    className={`rounded-[0.5rem] px-3 py-2 text-xs font-medium text-[#1A1A1A] ${paymentView === "total" ? "bg-white" : ""
+                                        }`}
+                                >
+                                    Total Payout
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentView("pending")}
+                                    className={`rounded-[0.5rem] px-3 py-2 text-xs font-medium text-[#1A1A1A] ${paymentView === "pending" ? "bg-white" : ""
+                                        }`}
+                                >
+                                    Pending amount
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="flex items-center gap-2 rounded-[0.75rem] bg-[#F9F9F9] p-2">
+                        <div className="flex items-end justify-between self-stretch">
+                            <div className="flex flex-col items-start gap-2">
+                                <p className="text-sm font-medium leading-5 tracking-[0] text-[#B8B8B8]">
+                                    {selectedPaymentLabel}
+                                </p>
+
+                                <p className="text-base font-medium leading-6 tracking-[0] text-[#1A1A1A]">
+                                    {selectedPaymentValue}
+                                </p>
+                            </div>
+
                             <button
                                 type="button"
-                                className="rounded-[0.5rem] bg-white px-3 py-2 text-xs font-medium text-[#1A1A1A]"
+                                onClick={() => router.push("/brand/wallet")}
+                                className="flex h-8 items-center justify-center gap-1 rounded-[0.75rem] border border-[#E6E6E6] px-2 text-sm font-medium text-[#1A1A1A]"
                             >
-                                Total Payout
-                            </button>
-
-                            <button
-                                type="button"
-                                className="rounded-[0.5rem] px-3 py-2 text-xs font-medium text-[#1A1A1A]"
-                            >
-                                Pending amount
+                                <PlusCircle size={16} />
+                                Add funds
                             </button>
                         </div>
-                    </div>
-
-                    <div className="flex items-end justify-between self-stretch">
-                        <div className="flex flex-col items-start gap-2">
-                            <p className="text-sm font-medium leading-5 tracking-[0] text-[#B8B8B8]">
-                                Remaining Budget
-                            </p>
-                            <p className="text-base font-medium leading-6 tracking-[0] text-[#1A1A1A]">
-                                {getRemainingBudget(contract)}
-                            </p>
-                        </div>
-
-                        <button
-                            type="button"
-                            className="flex h-8 items-center justify-center gap-1 rounded-[0.75rem] border border-[#E6E6E6] px-2 text-sm font-medium text-[#1A1A1A]"
-                        >
-                            <PlusCircle size={16} />
-                            Add funds
-                        </button>
                     </div>
                 </div>
             </div>
@@ -720,28 +968,26 @@ export default function PaymentTab({
 
                 <div className="flex w-full items-stretch">
                     <div className="flex w-[39.5625rem] flex-col items-start gap-5 rounded-l-[1rem] rounded-r-none border border-[#E6E6E6] px-3 py-4">
-                        <ContractDetailRow
-                            label="Contract ID"
-                            value={resolvedContractId}
-                        />
-
-                        <div className="flex w-full items-center gap-4">
-                            <p className="w-[8.5rem] shrink-0 text-sm font-medium leading-5 text-[#969696]">
-                                Status
-                            </p>
-
-                            <span className="flex items-center gap-1 rounded-[1.5rem] bg-[#F9F9F9] px-2 py-1 text-xs font-medium text-[#969696]">
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#7DB1FF]" />
-                                {resolvedContractStatus}
-                            </span>
-                        </div>
-
                         {contractRows.map((item) => (
-                            <ContractDetailRow
-                                key={item.label}
-                                label={item.label}
-                                value={item.value}
-                            />
+                            <Fragment key={item.label}>
+                                <ContractDetailRow
+                                    label={item.label}
+                                    value={item.value}
+                                />
+
+                                {item.label === "Campaign" ? (
+                                    <div className="flex w-full items-center gap-4">
+                                        <p className="w-[8.5rem] shrink-0 text-sm font-medium leading-5 text-[#969696]">
+                                            Status
+                                        </p>
+
+                                        <span className="flex items-center gap-1 rounded-[1.5rem] bg-[#F9F9F9] px-2 py-1 text-xs font-medium text-[#969696]">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-[#7DB1FF]" />
+                                            {resolvedContractStatus}
+                                        </span>
+                                    </div>
+                                ) : null}
+                            </Fragment>
                         ))}
                     </div>
 
@@ -765,28 +1011,26 @@ export default function PaymentTab({
                         <div className="flex w-full items-center justify-end gap-2">
                             <button
                                 type="button"
-                                onClick={onDownloadContract}
-                                disabled={isContractActionLoading}
-                                className="flex h-8 items-center justify-center gap-1 rounded-[0.5rem] px-2 text-xs font-medium text-[#1A1A1A] hover:bg-[#F9F9F9] disabled:opacity-50"
+                                onClick={handleViewContractPdf}
+                                disabled={!hasContract || isContractActionLoading}
+                                className="flex h-8 items-center justify-center gap-1 rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F9F9F9] disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                                <DownloadSimple size={14} />
-                                download
+                                <Eye size={14} />
+                                {contractPdfViewing ? "Opening..." : "View"}
                             </button>
 
                             <button
                                 type="button"
-                                onClick={onViewContract}
-                                disabled={isContractActionLoading}
-                                className="flex h-8 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-xs font-medium text-[#1A1A1A] hover:bg-[#F9F9F9] disabled:opacity-50"
+                                disabled
+                                className="flex h-8 cursor-not-allowed items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-[#F9F9F9] px-3 text-xs font-medium text-[#969696] opacity-70"
                             >
                                 Edit
                             </button>
 
                             <button
                                 type="button"
-                                onClick={onViewContract}
-                                disabled={isContractActionLoading}
-                                className="flex h-8 items-center justify-center rounded-[0.5rem] bg-[#1A1A1A] px-3 text-xs font-medium text-white hover:bg-black disabled:opacity-50"
+                                disabled
+                                className="flex h-8 cursor-not-allowed items-center justify-center rounded-[0.5rem] bg-[#E6E6E6] px-3 text-xs font-medium text-[#969696] opacity-70"
                             >
                                 Re-send
                             </button>
@@ -794,72 +1038,7 @@ export default function PaymentTab({
                     </div>
                 </div>
             </div>
-
-            {/* Payment History */}
-            <div className="flex w-full flex-col gap-4 bg-white">
-                <h2 className="self-stretch text-xl font-semibold leading-7 tracking-[0] text-[#1A1A1A]">
-                    Payment History
-                </h2>
-
-                <div className="flex flex-col gap-4 self-stretch">
-                    {paymentHistory.length === 0 ? (
-                        <div className="rounded-[0.75rem] border border-[#E6E6E6] bg-white p-4 text-sm font-medium text-[#969696]">
-                            No payment history available.
-                        </div>
-                    ) : (
-                        paymentHistory.map((payment: { icon: any; id: Key | null | undefined; iconClassName: any; title: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; subtitle: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; transactionId: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; amountClassName: any; amount: string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | ReactPortal | Promise<string | number | bigint | boolean | ReactPortal | ReactElement<unknown, string | JSXElementConstructor<any>> | Iterable<ReactNode> | null | undefined> | null | undefined; }) => {
-                            const PaymentIcon = payment.icon;
-
-                            return (
-                                <div
-                                    key={payment.id}
-                                    className="flex w-full items-center justify-between rounded-[0.75rem] border border-[#E6E6E6] bg-white p-4"
-                                >
-                                    <div className="flex min-w-[15rem] items-center gap-3">
-                                        <PaymentIcon
-                                            size={22}
-                                            className={payment.iconClassName}
-                                        />
-
-                                        <div className="flex flex-col">
-                                            <p className="text-base font-medium leading-6 text-[#1A1A1A]">
-                                                {payment.title}
-                                            </p>
-                                            <p className="text-sm font-medium leading-5 text-[#969696]">
-                                                {payment.subtitle}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <p className="text-sm font-medium leading-5 text-[#1A1A1A]">
-                                        {payment.transactionId}
-                                    </p>
-
-                                    <span
-                                        className={`rounded-[1.5rem] bg-[#F9F9F9] px-3 py-1 text-sm font-medium leading-5 ${payment.amountClassName}`}
-                                    >
-                                        {payment.amount}
-                                    </span>
-
-                                    <button
-                                        type="button"
-                                        className="text-sm font-medium leading-5 text-[#1A1A1A] hover:opacity-80"
-                                    >
-                                        View Transaction
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="flex h-9 items-center justify-center rounded-[0.5rem] bg-[#1A1A1A] px-4 text-sm font-medium text-white hover:bg-black"
-                                    >
-                                        Download Receipt
-                                    </button>
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-            </div>
+            
         </section>
     );
 }

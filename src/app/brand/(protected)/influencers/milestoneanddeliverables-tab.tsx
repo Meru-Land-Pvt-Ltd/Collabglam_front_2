@@ -13,6 +13,7 @@ import {
     apiGetMilestonesByCampaign,
     apiReleaseMilestone,
     apiApproveDeliverable,
+    apiGetContractDetails
 } from "../../services/brandApi";
 
 const NA = "N/A";
@@ -295,6 +296,36 @@ const isReleasedMilestone = (milestone: any) => {
         status.includes("released") ||
         status.includes("paid") ||
         status.includes("approved")
+    );
+};
+
+const getContractDoc = (data: any) => {
+    return data?.contract || data?.data?.contract || data?.data || data || null;
+};
+
+const firstPositiveNumber = (...values: any[]) => {
+    for (const value of values) {
+        const num = Number(value);
+
+        if (Number.isFinite(num) && num > 0) {
+            return num;
+        }
+    }
+
+    return 0;
+};
+
+const getInfluencerBudgetFromContract = (contract: any) => {
+    const commercial =
+        contract?.content?.scheduleA?.commercial ||
+        contract?.scheduleA?.commercial ||
+        {};
+
+    return firstPositiveNumber(
+        commercial?.influencerBudget,
+        commercial?.feeAmount,
+        contract?.influencerBudget,
+        contract?.feeAmount
     );
 };
 
@@ -1674,6 +1705,8 @@ export default function MilestoneAndDeliverablesTab({
         milestone: any;
         deliverable: any;
     } | null>(null);
+    const [contractDetailsData, setContractDetailsData] = useState<any | null>(null);
+    const [contractDetailsLoading, setContractDetailsLoading] = useState(false);
 
     const [viewDeliverableTarget, setViewDeliverableTarget] = useState<{
         milestone: any;
@@ -1728,6 +1761,43 @@ export default function MilestoneAndDeliverablesTab({
         (view as any)?.raw?.contractId ||
         (view as any)?.contractId ||
         "";
+
+    useEffect(() => {
+        if (!resolvedContractId) {
+            setContractDetailsData(null);
+            return;
+        }
+
+        let isMounted = true;
+
+        const fetchContractDetails = async () => {
+            try {
+                setContractDetailsLoading(true);
+
+                const data = await apiGetContractDetails(resolvedContractId);
+
+                if (isMounted) {
+                    setContractDetailsData(data);
+                }
+            } catch (err) {
+                console.error("Failed to fetch contract details for influencer budget", err);
+
+                if (isMounted) {
+                    setContractDetailsData(null);
+                }
+            } finally {
+                if (isMounted) {
+                    setContractDetailsLoading(false);
+                }
+            }
+        };
+
+        fetchContractDetails();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [resolvedContractId]);
 
     const resolvedInfluencerName =
         (view as any)?.profileName ||
@@ -1825,14 +1895,19 @@ export default function MilestoneAndDeliverablesTab({
         );
     }, [apiMilestones, fallbackMilestones, defaultPlatform]);
 
+    const detailedContract = useMemo(() => {
+        return getContractDoc(contractDetailsData);
+    }, [contractDetailsData]);
+
     const selectedContractMeta = useMemo(() => {
         return (
+            detailedContract ||
             (view as any)?.raw?.contract ||
             (view as any)?.contract ||
             (view as any)?.raw?.contractData ||
             null
         );
-    }, [view]);
+    }, [detailedContract, view]);
 
     const firstMilestoneForCurrentInfluencer = useMemo(() => {
         return milestones.find(
@@ -1843,23 +1918,32 @@ export default function MilestoneAndDeliverablesTab({
     }, [milestones, resolvedInfluencerId]);
 
     const selectedInfluencerBudget = useMemo(() => {
-        const commercial =
-            (selectedContractMeta as any)?.content?.scheduleA?.commercial ||
-            (selectedContractMeta as any)?.scheduleA?.commercial ||
-            {};
+        const contractBudget = getInfluencerBudgetFromContract(selectedContractMeta);
 
-        return Number(
-            commercial?.totalCampaignFee ||
-            commercial?.influencerBudget ||
-            commercial?.feeAmount ||
-            (selectedContractMeta as any)?.totalCampaignFee ||
-            (selectedContractMeta as any)?.influencerBudget ||
-            (selectedContractMeta as any)?.amount ||
-            firstMilestoneForCurrentInfluencer?.raw?.totalCampaignFee ||
-            firstMilestoneForCurrentInfluencer?.totalCampaignFee ||
-            0
+        if (contractBudget > 0) {
+            return contractBudget;
+        }
+
+        // If this is contract flow, do not fallback to milestone/byCampaign values,
+        // because those can contain campaign budget / wrong influencerBudget.
+        if (resolvedContractId) {
+            return 0;
+        }
+
+        // Only fallback for admin/no-contract flow.
+        const rawMilestone = firstMilestoneForCurrentInfluencer?.raw || {};
+
+        return firstPositiveNumber(
+            rawMilestone?.influencerBudget,
+            firstMilestoneForCurrentInfluencer?.influencerBudget,
+            rawMilestone?.feeAmount,
+            firstMilestoneForCurrentInfluencer?.feeAmount
         );
-    }, [selectedContractMeta, firstMilestoneForCurrentInfluencer]);
+    }, [
+        selectedContractMeta,
+        resolvedContractId,
+        firstMilestoneForCurrentInfluencer,
+    ]);
 
     const selectedInfluencerUsedMilestoneBudget = useMemo(() => {
         return milestones
@@ -2314,6 +2398,14 @@ export default function MilestoneAndDeliverablesTab({
                 icon: "warning",
                 title: "Cannot add milestone",
                 text: "Missing contract id.",
+            });
+            return;
+        }
+        if (resolvedContractId && contractDetailsLoading) {
+            toast({
+                icon: "info",
+                title: "Loading contract budget",
+                text: "Please wait while we fetch the influencer budget from the contract.",
             });
             return;
         }

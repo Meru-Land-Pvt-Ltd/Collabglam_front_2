@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
+    BookmarkSimple,
     CaretRight,
     DotsThree,
-    Eye,
-    IdentificationCard,
+    EnvelopeOpen,
+    Gavel,
     Link as LinkIcon,
     MapPinSimpleArea,
     Newspaper,
@@ -24,13 +26,19 @@ import {
 } from "./utils";
 import Tabs from "./tabs";
 
-const menuItems = [
-    { label: "Copy Link", icon: LinkIcon, key: "copylink" },
-    { label: "View Influencer list", icon: Eye, key: "viewinfluencerlist" },
-    { label: "Invite Influencer", icon: IdentificationCard, key: "inviteinfluencer" },
-    { label: "Link IEM Folder", icon: Newspaper, key: "linkiemfolder" },
-    { label: "Move to workspace", icon: null, key: "moveToWorkspace", hasArrow: true },
-] as const;
+type MenuItem = {
+    label: string;
+    icon: typeof Gavel;
+    key: "raiseDispute" | "copyProfileLink" | "saveToHub" | "moveToWorkspace";
+    hasArrow?: boolean;
+};
+
+const menuItems: MenuItem[] = [
+    { label: "Raise Dispute", icon: Gavel, key: "raiseDispute" },
+    { label: "Copy profile link", icon: LinkIcon, key: "copyProfileLink" },
+    { label: "Save to HUB", icon: BookmarkSimple, key: "saveToHub", hasArrow: true },
+    { label: "Move to workspace", icon: Newspaper, key: "moveToWorkspace", hasArrow: true },
+];
 
 function Dot() {
     return (
@@ -83,6 +91,8 @@ const getProfileUrl = (view: InfluencerViewModel) => {
 };
 
 export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
+    const router = useRouter();
+
     const [expanded, setExpanded] = useState(false);
     const [workspaceSubmenuOpen, setWorkspaceSubmenuOpen] = useState(false);
 
@@ -91,6 +101,7 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
         { id: 2, name: "Workspace Beta", logo: "B" },
         { id: 3, name: "Workspace Gamma", logo: "G" },
     ];
+
     const profileUrl = getProfileUrl(view);
 
     const description = view.profileBio || "-";
@@ -99,10 +110,10 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
         !expanded && shouldClamp ? description.slice(0, 210) : description;
 
     const handlers: Record<string, (() => void) | undefined> = {
-        copylink: () => navigator.clipboard.writeText(window.location.href),
-        viewinfluencerlist: () => console.log("View influencer list"),
-        inviteinfluencer: () => console.log("Invite influencer"),
-        linkiemfolder: () => console.log("Link IEM folder"),
+        raiseDispute: () => router.push("/brand/disputes"),
+        copyProfileLink: () =>
+            navigator.clipboard.writeText(profileUrl || window.location.href),
+        saveToHub: () => console.log("Save to HUB"),
     };
 
     return (
@@ -119,6 +130,7 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
                             alt={view.profileName}
                             className="h-full w-full object-cover"
                         />
+
                         <span className="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-black text-white">
                             <SealCheck size={18} weight="fill" />
                         </span>
@@ -189,41 +201,45 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
                         Active
                     </div>
 
-                    <button className="h-9 rounded-lg border border-[#E6E6E6] bg-white px-4 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]">
-                        Connect With Influencer
+                    <button className="flex h-8 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white px-4 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F7] cursor-pointer">
+                        View media kit
                     </button>
 
-                    <button className="h-9 rounded-lg border border-[#E6E6E6] bg-white px-4 text-xs font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]">
-                        View media kit
+                    <button
+                        type="button"
+                        aria-label="Message influencer"
+                        onClick={() => router.push("/brand/inbox")}
+                        className="flex h-8 w-8 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white p-2 text-[#1A1A1A] hover:bg-[#F7F7F7] cursor-pointer"
+                    >
+                        <EnvelopeOpen size={16} />
                     </button>
 
                     <Combobox>
                         <ComboboxTrigger hideIcon>
-                            <Button
-                                variant="raised"
-                                size="sm"
+                            <button
+                                type="button"
                                 aria-label="More actions"
-                                className="my-0 h-9 w-9 rounded-lg border border-[#E6E6E6] bg-white px-0 shadow-none"
+                                className="flex h-8 w-8 min-w-0 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white p-0 text-[#1A1A1A] shadow-none hover:bg-[#F7F7F7]"
                             >
-                                <DotsThree size={18} weight="bold" />
-                            </Button>
+                                <DotsThree
+                                    weight="bold"
+                                    className="h-4 w-4 shrink-0"
+                                />
+                            </button>
                         </ComboboxTrigger>
 
                         <ComboboxContent
                             align="end"
-                            className="w-[13.6875rem] rounded-xl bg-white px-3 py-4 shadow-[0_8px_32px_rgba(0,0,0,0.13)]"
+                            className="flex w-[13.6875rem] flex-col items-start gap-4 rounded-[0.75rem] bg-white px-3 py-4 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]"
                         >
-                            <div className="flex flex-col gap-2">
-                                {menuItems.map(({ label, icon: Icon, key }) => {
-                                    const isCaretRight =
-                                        key === "moveToWorkspace" ||
-                                        key === "linkiemfolder" ||
-                                        key === "inviteinfluencer";
+                            <div className="flex w-full flex-col items-start gap-3">
+                                {menuItems.map(({ label, icon: Icon, key, hasArrow }) => {
                                     const isWorkspace = key === "moveToWorkspace";
 
                                     return (
-                                        <div key={key} className="relative">
+                                        <div key={key} className="relative w-full">
                                             <button
+                                                type="button"
                                                 onClick={(e) => {
                                                     e.preventDefault();
                                                     e.stopPropagation();
@@ -236,22 +252,29 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
                                                     setWorkspaceSubmenuOpen(false);
                                                     handlers[key]?.();
                                                 }}
-                                                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-normal text-[#1A1A1A] hover:bg-[#F5F5F5]"
+                                                className="flex h-8 w-full cursor-pointer items-center gap-2 self-stretch rounded-[0.5rem] bg-white py-2 pl-2 pr-0 text-center font-['Inter'] text-sm font-normal leading-5 tracking-[0] text-[#1A1A1A] transition hover:bg-[#F9F9F9]"
                                             >
-                                                {Icon ? <Icon size={16} /> : <span className="h-4 w-4" />}
-                                                <span className="flex-1 text-left">{label}</span>
-                                                {isCaretRight ? <CaretRight size={16} /> : null}
+                                                <Icon size={16} className="shrink-0" />
+
+                                                <span className="min-w-0 flex-1 text-left">
+                                                    {label}
+                                                </span>
+
+                                                {hasArrow ? (
+                                                    <CaretRight size={16} className="shrink-0" />
+                                                ) : null}
                                             </button>
 
                                             {isWorkspace && workspaceSubmenuOpen ? (
                                                 <div className="absolute top-0 -left-56 z-50 flex w-[13rem] flex-col gap-1 rounded-xl bg-white p-2 shadow-[0_8px_32px_rgba(0,0,0,0.13)]">
-                                                    <p className="ml-2 mb-1 text-[0.7rem] font-medium uppercase tracking-wide text-[#999]">
+                                                    <p className="mb-1 ml-2 text-[0.7rem] font-medium uppercase tracking-wide text-[#999]">
                                                         Workspace name
                                                     </p>
 
                                                     {workspaces.map((ws) => (
                                                         <button
                                                             key={ws.id}
+                                                            type="button"
                                                             onClick={(e) => {
                                                                 e.preventDefault();
                                                                 e.stopPropagation();
@@ -262,6 +285,7 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
                                                             <span className="flex h-8 w-8 items-center justify-center rounded-md bg-black text-white">
                                                                 {ws.logo}
                                                             </span>
+
                                                             {ws.name}
                                                         </button>
                                                     ))}
@@ -270,14 +294,18 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
                                         </div>
                                     );
                                 })}
-
-                                <div className="my-2 border-t border-[#F0F0F0]" />
-
-                                <button className="flex items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-[#E53935] hover:bg-[#F5F5F5]">
-                                    <Trash size={16} />
-                                    Delete
-                                </button>
                             </div>
+
+                            <div className="h-px w-full bg-[#E6E6E6]" />
+
+                            <button
+                                type="button"
+                                disabled
+                                className="flex h-8 w-full cursor-not-allowed items-center gap-2 self-stretch rounded-[0.5rem] bg-white py-2 pl-2 pr-0 text-center font-['Inter'] text-sm font-normal leading-5 tracking-[0] text-[#F04438] opacity-60"
+                            >
+                                <Trash size={16} />
+                                Remove
+                            </button>
                         </ComboboxContent>
                     </Combobox>
                 </div>
@@ -285,6 +313,7 @@ export default function Header({ view, activeTab, onTabChange }: HeaderProps) {
 
             <div className="w-[999px] max-w-full overflow-hidden font-['Inter'] text-[0.875rem] font-normal leading-[1.25rem] tracking-[0] text-[#969696]">
                 <span>{visibleDescription}</span>
+
                 {!expanded && shouldClamp ? (
                     <>
                         <span> </span>

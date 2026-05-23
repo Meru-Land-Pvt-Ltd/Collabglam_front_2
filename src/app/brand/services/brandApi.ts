@@ -1908,6 +1908,29 @@ export async function apiGetContractDetails(contractId: string) {
   return (res?.contract ?? res) as any;
 }
 
+export type ViewContractPdfPayload = {
+  contractId: string;
+};
+
+export async function apiViewContractPdf(payload: ViewContractPdfPayload) {
+  const contractId = String(payload.contractId || "").trim();
+
+  if (!contractId) {
+    throw new Error("contractId is required");
+  }
+
+  return apiGet<Blob>(
+    `${CONTRACT_BASE}/preview`,
+    { contractId },
+    {
+      responseType: "blob",
+      headers: {
+        Accept: "application/pdf",
+      },
+    }
+  );
+}
+
 // Add these types and functions near the bottom of services/brandApi.t
 
 export type UpdateBrandProfilePayload = {
@@ -2192,6 +2215,8 @@ export async function apiBrandWalletTopup(payload: BrandWalletTopupPayload) {
   });
 }
 
+
+
 export type ConfirmBrandWalletTopupPayload = {
   brandId: string;
   sessionId: string;
@@ -2244,6 +2269,48 @@ export async function apiGetFrozenAmountForCampaign(params: {
 }) {
   return apiGet<FrozenAmountResponse>(`${WALLET_BASE}/freeze-amount`, params);
 }
+
+
+
+export type WalletTopupHistoryPayload = {
+  brandId: string;
+};
+
+export type WalletTopupItem = {
+  _id?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  paymentId?: string;
+  orderId?: string;
+  transactionId?: string;
+  method?: string;
+  note?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: any;
+};
+
+export type WalletTopupHistoryResponse = {
+  brandId: string;
+  wallettopup: WalletTopupItem[];
+};
+
+export async function apiGetWalletTopupHistory(
+  payload: WalletTopupHistoryPayload
+) {
+  const brandId = String(payload.brandId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  return apiGet<WalletTopupHistoryResponse>(
+    `${WALLET_BASE}/topupHistory`,
+    { brandId }
+  );
+}
+
 
 export async function apiUploadImages(files: File[]) {
   const formData = new FormData();

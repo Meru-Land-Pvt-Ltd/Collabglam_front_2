@@ -65,7 +65,7 @@ const ROUTES: Record<string, string> = {
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
   insight_os: "/brand/insight-os",
-  wallet: "",
+  wallet: "/brand/wallet",
   invite_user: "",
   notification: "/brand/notifications",
   help: "",
@@ -1111,7 +1111,7 @@ export default function BrandSidebar({
             }
             tight={tight}
             collapsed={isCollapsed}
-            disabled
+            onClick={() => handleSetActive("wallet")}
           />
         );
       }

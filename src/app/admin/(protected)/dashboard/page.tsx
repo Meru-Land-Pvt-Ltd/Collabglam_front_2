@@ -2613,7 +2613,7 @@ export default function AdminDashboardPage() {
             </div>
           </Card>
 
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
             <Card
               title="Top Performing Campaigns"
               subtitle="Admin table UI is preserved. Fully managed means Main Admin created the campaign."
@@ -2974,7 +2974,7 @@ function Card({
   return (
     <div
       className={cn(
-        "rounded-[28px] border bg-white p-5 shadow-sm sm:p-6",
+        "min-w-0 rounded-[28px] border bg-white p-5 shadow-sm sm:p-6",
         danger ? "border-rose-200" : "border-slate-200",
         className
       )}
@@ -4445,17 +4445,19 @@ function SimpleTable({
   );
 
   return (
-    <AdminTable<DashboardTableRow>
-      data={tableRows}
-      columns={tableColumns}
-      rowKey={(row) => row.id}
-      loading={false}
-      loadingRows={5}
-      emptyTitle={emptyText}
-      emptyDescription="No records are available for this section."
-      tableClassName={tableClassName || "min-w-[920px]"}
-      headerRowClassName="bg-slate-50/90"
-      className="py-1"
-    />
+    <div className="w-full min-w-0 overflow-x-auto">
+      <AdminTable<DashboardTableRow>
+        data={tableRows}
+        columns={tableColumns}
+        rowKey={(row) => row.id}
+        loading={false}
+        loadingRows={5}
+        emptyTitle={emptyText}
+        emptyDescription="No records are available for this section."
+        tableClassName={tableClassName || "min-w-[920px]"}
+        headerRowClassName="bg-slate-50/90"
+        className="py-1"
+      />
+    </div>
   );
 } 
