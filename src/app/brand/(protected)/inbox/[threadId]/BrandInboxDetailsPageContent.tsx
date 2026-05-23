@@ -308,6 +308,11 @@ export default function BrandInboxMailDetailPage() {
         Array.isArray(messagesRes?.messages) ? messagesRes.messages : [],
       );
 
+      post(`${EMAIL_API_BASE}/threads/${threadId}/read`, {
+        role: "brand",
+        brandId: storedBrandId,
+      }).catch(() => {});
+
       try {
         const participantsRes = await get<EmailParticipantsResponse>(
           `${EMAIL_API_BASE}/participants?threadId=${encodeURIComponent(threadId)}`,

@@ -108,6 +108,9 @@ type BrandInboxThread = {
   lastMessageAt: string | null;
   lastMessageDirection: string | null;
   lastMessageSnippet: string;
+  unreadCount?: number;
+  isUnread?: boolean;
+  lastReadAt?: string | null;
   campaign?: CampaignRef | null;
   influencer: {
     _id?: string | null;
@@ -212,14 +215,22 @@ function ContactAvatar({
 function FilterPopover({
   label,
   options,
+  selectedId,
+  onChange,
 }: {
   label: string;
   options: FilterOption[];
+  selectedId?: string;
+  onChange?: (id: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
-  const [selectedOption, setSelectedOption] = React.useState<FilterOption>(
-    options[0],
+  const [internalSelectedId, setInternalSelectedId] = React.useState(
+    options[0]?.id || "",
   );
+
+  const activeId = selectedId ?? internalSelectedId;
+  const selectedOption =
+    options.find((option) => option.id === activeId) || options[0];
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -227,13 +238,13 @@ function FilterPopover({
         <button
           type="button"
           className={cn(
-            "h-[32px] rounded-[0.5rem] px-3 inline-flex items-center gap-2 transition-colors",
+            "inline-flex h-[32px] items-center gap-2 rounded-[0.5rem] px-3 transition-colors",
             "text-[14px] font-medium text-[#1A1A1A]",
             open ? "bg-[#ECEEF2]" : "bg-transparent",
           )}
         >
           <span>{label}</span>
-          <span className="text-muted-foreground">{selectedOption.name}</span>
+          <span className="text-muted-foreground">{selectedOption?.name}</span>
           <CaretDown className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
@@ -262,15 +273,17 @@ function FilterPopover({
                 key={option.id}
                 value={option.name}
                 onSelect={() => {
-                  setSelectedOption(option);
+                  if (onChange) {
+                    onChange(option.id);
+                  } else {
+                    setInternalSelectedId(option.id);
+                  }
                   setOpen(false);
                 }}
                 className="rounded-[10px]"
               >
                 <span className="flex-1">{option.name}</span>
-                {selectedOption.id === option.id ? (
-                  <Check className="h-4 w-4" />
-                ) : null}
+                {activeId === option.id ? <Check className="h-4 w-4" /> : null}
               </CommandItem>
             ))}
           </CommandGroup>
@@ -371,6 +384,9 @@ export default function BrandInboxPageContent() {
   const searchParams = useSearchParams();
 
   const [search, setSearch] = React.useState("");
+  const [readStatus, setReadStatus] = React.useState<
+    "all" | "read" | "unread" | "starred"
+  >("all");
   const [loading, setLoading] = React.useState(true);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -454,9 +470,15 @@ export default function BrandInboxPageContent() {
 
   const filteredThreads = React.useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return threads;
 
     return threads.filter((item) => {
+      const isUnread = Boolean(item.isUnread || Number(item.unreadCount || 0) > 0);
+
+      if (readStatus === "read" && isUnread) return false;
+      if (readStatus === "unread" && !isUnread) return false;
+
+      if (!q) return true;
+
       const influencerName = item.influencer?.name?.toLowerCase() || "";
       const influencerAlias = item.influencer?.aliasEmail?.toLowerCase() || "";
       const subject = item.subject?.toLowerCase() || "";
@@ -469,7 +491,7 @@ export default function BrandInboxPageContent() {
         preview.includes(q)
       );
     });
-  }, [threads, search]);
+  }, [threads, search, readStatus]);
 
   const resolveRecipientFromTo = React.useCallback(
     (toValue: string) => {
@@ -689,7 +711,12 @@ export default function BrandInboxPageContent() {
       <div className="mx-auto flex min-h-[calc(100vh-2rem)] w-full max-w-full flex-col rounded-[24px] border border-border/60 bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-1 md:gap-3">
-            <FilterPopover label="Read Status" options={readStatusOptions} />
+            <FilterPopover
+              label="Read Status"
+              options={readStatusOptions}
+              selectedId={readStatus}
+              onChange={(id) => setReadStatus(id as typeof readStatus)}
+            />
             <FilterPopover
               label="Collaboration Stage"
               options={collaborationStageOptions}
@@ -698,7 +725,11 @@ export default function BrandInboxPageContent() {
             <FilterPopover label="Date" options={dateOptions} />
             <Badge
               variant="secondary"
-              className="h-8 rounded-md bg-muted px-3 text-xs font-medium text-foreground"
+              className="h-8 cursor-pointer rounded-md bg-muted px-3 text-xs font-medium text-foreground"
+              onClick={() => {
+                setReadStatus("all");
+                setSearch("");
+              }}
             >
               Clear ×
             </Badge>
@@ -789,6 +820,10 @@ export default function BrandInboxPageContent() {
               filteredThreads.map((item) => {
                 const checked = selectedIds.includes(item.threadId);
                 const itemCampaignId = item.campaign?._id || null;
+                const isUnread = Boolean(
+                  item.isUnread || Number(item.unreadCount || 0) > 0,
+                );
+                const unreadCount = Number(item.unreadCount || 0);
 
                 return (
                   <div
@@ -804,6 +839,7 @@ export default function BrandInboxPageContent() {
                     }
                     className={cn(
                       "cursor-pointer grid grid-cols-[24px_minmax(180px,1.1fr)_minmax(0,4fr)_minmax(120px,140px)] items-center gap-3 border-b border-[#D6D6D6] px-3 py-4 transition-colors hover:bg-[#EDEDED]",
+                      isUnread && "bg-[#F8FAFF]",
                     )}
                   >
                     <div onClick={(e) => e.stopPropagation()}>
@@ -819,7 +855,12 @@ export default function BrandInboxPageContent() {
                         avatar={pickAvatar(item.influencer)}
                       />
                       <div className="flex min-w-0 flex-col">
-                        <span className="truncate text-sm font-semibold text-foreground">
+                        <span
+                          className={cn(
+                            "truncate text-sm text-foreground",
+                            isUnread ? "font-bold" : "font-semibold",
+                          )}
+                        >
                           {item.influencer?.name || "Influencer"}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">
@@ -829,14 +870,40 @@ export default function BrandInboxPageContent() {
                     </div>
 
                     <div className="flex min-w-0 items-center gap-3">
-                      <div className="hidden h-8 w-8 items-center justify-center rounded-full bg-muted sm:flex">
-                        <Envelope className="h-4 w-4 text-muted-foreground" />
+                      <div
+                        className={cn(
+                          "hidden h-8 w-8 items-center justify-center rounded-full bg-muted sm:flex",
+                          isUnread && "bg-[#111111]",
+                        )}
+                      >
+                        <Envelope
+                          className={cn(
+                            "h-4 w-4",
+                            isUnread ? "text-white" : "text-muted-foreground",
+                          )}
+                        />
                       </div>
-                      <p className="truncate text-sm text-muted-foreground">
-                        {item.lastMessageSnippet ||
-                          item.subject ||
-                          "No message preview"}
-                      </p>
+
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p
+                          className={cn(
+                            "truncate text-sm",
+                            isUnread
+                              ? "font-semibold text-[#111111]"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {item.lastMessageSnippet ||
+                            item.subject ||
+                            "No message preview"}
+                        </p>
+
+                        {unreadCount > 0 ? (
+                          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#111111] px-1.5 text-[10px] font-semibold text-white">
+                            {unreadCount > 99 ? "99+" : unreadCount}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
 
                     <div className="ml-auto flex items-center justify-end gap-4">
@@ -851,7 +918,14 @@ export default function BrandInboxPageContent() {
                         <Star className="h-4 w-4 text-muted-foreground" />
                       </button>
 
-                      <span className="whitespace-nowrap text-xs text-muted-foreground">
+                      <span
+                        className={cn(
+                          "whitespace-nowrap text-xs",
+                          isUnread
+                            ? "font-semibold text-[#111111]"
+                            : "text-muted-foreground",
+                        )}
+                      >
                         {formatRelativeTime(item.lastMessageAt)}
                       </span>
                     </div>
