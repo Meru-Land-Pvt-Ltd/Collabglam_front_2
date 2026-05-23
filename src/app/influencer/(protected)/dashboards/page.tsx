@@ -19,6 +19,7 @@ import {
   type CampaignInvitationItem,
   type MyCampaignItem,
 } from "@/app/influencer/services/influencerApi";
+import PlatformReviewPrompt from "@/components/common/PlatformReviewPrompt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type PayoutSummary = {
@@ -532,10 +533,10 @@ export default function Dashboard() {
         const invitationItems = Array.isArray(invitationRes?.invitations)
           ? invitationRes.invitations
           : Array.isArray(invitationRes?.items)
-          ? invitationRes.items
-          : Array.isArray(invitationRes?.data)
-          ? invitationRes.data
-          : [];
+            ? invitationRes.items
+            : Array.isArray(invitationRes?.data)
+              ? invitationRes.data
+              : [];
 
         setInvitations(invitationItems);
 
@@ -695,6 +696,11 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
+        <PlatformReviewPrompt
+          role="influencer"
+          influencerId={influencerId}
+        />
 
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-4">
@@ -967,9 +973,9 @@ export default function Dashboard() {
                 const daysLeft =
                   end && !isNaN(end.getTime())
                     ? Math.max(
-                        0,
-                        Math.ceil((end.getTime() - now.getTime()) / 86400000)
-                      )
+                      0,
+                      Math.ceil((end.getTime() - now.getTime()) / 86400000)
+                    )
                     : null;
 
                 return (

@@ -14,6 +14,7 @@ import {
   type InfluencerRow,
 } from "@/components/ui/brand/Influencertable";
 import AddMilestoneCard from "@/components/ui/brand/AddMilestoneCard";
+import CampaignFeedbackModal from "@/components/common/CampaignFeedbackModal";
 import { InfluencerContextMenu } from "@/components/ui/brand/InfluencerContextMenu";
 import { Button } from "@/components/ui/button";
 import {
@@ -533,6 +534,8 @@ function ActiveMilestoneActions({
   onAddMilestone,
   showViewMilestone,
   onViewMilestone,
+  onSendFeedback,
+  showSendFeedback,
   onManage,
   onMail,
   moreMenu,
@@ -547,6 +550,8 @@ function ActiveMilestoneActions({
   onAddMilestone: () => void;
   showViewMilestone: boolean;
   onViewMilestone: () => void;
+  onSendFeedback?: () => void;
+  showSendFeedback?: boolean;
   onManage: () => void;
   onMail: () => void;
   moreMenu?: React.ReactNode;
@@ -598,6 +603,16 @@ function ActiveMilestoneActions({
             className="inline-flex h-8 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#F7F7F7]"
           >
             View Contract
+          </button>
+        ) : null}
+
+        {showSendFeedback && onSendFeedback ? (
+          <button
+            type="button"
+            onClick={onSendFeedback}
+            className="inline-flex h-8 items-center justify-center rounded-[0.5rem] border border-[#BCE4C5] bg-[#EAF6EC] px-3 text-[12px] font-medium text-[#1A1A1A] hover:bg-[#DCF1E1]"
+          >
+            Send Feedback
           </button>
         ) : null}
       </div>
@@ -891,6 +906,9 @@ export default function InfluencerList() {
 
   const [milestoneCreatedMap, setMilestoneCreatedMap] = useState<Record<string, boolean>>({});
   const [milestoneTargetRow, setMilestoneTargetRow] = useState<InfluencerRow | null>(null);
+  const [campaignFeedbackTarget, setCampaignFeedbackTarget] = useState<InfluencerRow | null>(null);
+  const [campaignFeedbackPromptMap, setCampaignFeedbackPromptMap] = useState<Record<string, boolean>>({});
+  const [campaignFeedbackRefreshKey, setCampaignFeedbackRefreshKey] = useState(0);
 
   // ── Bulk selection state ────────────────────────────────────────────────────
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
@@ -1726,9 +1744,118 @@ export default function InfluencerList() {
     [campaignId, brandId, contractMetaMap, router, isAdminCreatedCampaign]
   );
 
+  const getRowInfluencerId = useCallback((row: InfluencerRow) => {
+    const raw = (row as any)?.__raw ?? {};
+
+    return String(
+      raw?.influencerId ||
+      raw?.influencer?._id ||
+      raw?.influencer?.id ||
+      row.id ||
+      ""
+    ).trim();
+  }, []);
+
+  const buildCampaignFeedbackPayload = useCallback(
+    (row: InfluencerRow) => {
+      const influencerId = getRowInfluencerId(row);
+
+      if (!campaignId || !brandId || !influencerId) return null;
+
+      return {
+        campaignId,
+        brandId,
+        influencerId,
+      };
+    },
+    [campaignId, brandId, getRowInfluencerId]
+  );
+
+  const isCampaignFeedbackActiveRow = useCallback((row: InfluencerRow) => {
+    const raw = (row as any)?.__raw ?? {};
+    return doesApplicantBelongToTab(raw, "active");
+  }, []);
+
+  const checkCampaignFeedbackState = useCallback(
+    async (row: InfluencerRow) => {
+      const payload = buildCampaignFeedbackPayload(row);
+
+      if (!payload) return false;
+
+      try {
+        const res = await post<any>("/campaign-reviews/brand/prompt-state", payload);
+        const result = res?.data ?? res;
+
+        return Boolean(result?.data?.shouldPrompt ?? result?.shouldPrompt);
+      } catch {
+        return false;
+      }
+    },
+    [buildCampaignFeedbackPayload]
+  );
+
+  const openCampaignFeedbackModal = useCallback(
+    async (row: InfluencerRow) => {
+      const shouldPrompt =
+        campaignFeedbackPromptMap[row.id] ??
+        (await checkCampaignFeedbackState(row));
+
+      if (!shouldPrompt) {
+        toast({
+          icon: "info",
+          title: "Feedback already submitted",
+          text: "Campaign feedback has already been submitted for this influencer.",
+        });
+        setCampaignFeedbackPromptMap((prev) => ({ ...prev, [row.id]: false }));
+        return;
+      }
+
+      setCampaignFeedbackTarget(row);
+    },
+    [campaignFeedbackPromptMap, checkCampaignFeedbackState]
+  );
+
   // ── Visible rows ───────────────────────────────────────────────────────────
   const visibleRows = useMemo(() => applicantRows.slice(0, visibleCount), [applicantRows, visibleCount]);
   const hasMore = visibleCount < applicantRows.length;
+
+  useEffect(() => {
+    if (!campaignId || !brandId || visibleRows.length === 0) return;
+
+    let cancelled = false;
+    const rowsToCheck = visibleRows.filter(isCampaignFeedbackActiveRow);
+
+    if (rowsToCheck.length === 0) return;
+
+    async function run() {
+      const results = await Promise.all(
+        rowsToCheck.map(async (row) => {
+          const shouldPrompt = await checkCampaignFeedbackState(row);
+          return [row.id, shouldPrompt] as const;
+        })
+      );
+
+      if (cancelled) return;
+
+      setCampaignFeedbackPromptMap((prev) => ({
+        ...prev,
+        ...Object.fromEntries(results),
+      }));
+    }
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    campaignId,
+    brandId,
+    visibleRows,
+    isCampaignFeedbackActiveRow,
+    checkCampaignFeedbackState,
+    campaignFeedbackRefreshKey,
+  ]);
 
   const loadMore = async () => {
     if (!hasMore || loadingMore) return;
@@ -1801,6 +1928,8 @@ export default function InfluencerList() {
             onAddMilestone={() => handleOpenMilestoneModal(row)}
             showViewMilestone={showViewMilestone}
             onViewMilestone={() => handleViewMilestone(row)}
+            showSendFeedback={campaignFeedbackPromptMap[row.id] === true}
+            onSendFeedback={() => openCampaignFeedbackModal(row)}
             onManage={() => handleManage(row)}
             onMail={() => handleMail(row)}
             moreMenu={
@@ -1868,6 +1997,8 @@ export default function InfluencerList() {
       openContractSidebar,
       handleBrandAccept,
       openSignModal,
+      campaignFeedbackPromptMap,
+      openCampaignFeedbackModal,
     ]
   );
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1972,6 +2103,8 @@ export default function InfluencerList() {
                         onAddMilestone={() => handleOpenMilestoneModal(row)}
                         showViewMilestone={showViewMilestone}
                         onViewMilestone={() => handleViewMilestone(row)}
+                        showSendFeedback={campaignFeedbackPromptMap[row.id] === true}
+                        onSendFeedback={() => openCampaignFeedbackModal(row)}
                         onManage={() => handleManage(row)}
                         onMail={() => handleMail(row)}
                         isAdminCreatedCampaign={isAdminCreatedCampaign}
@@ -2105,6 +2238,33 @@ export default function InfluencerList() {
         influencerId={milestoneTargetRow?.id}
         influencerName={milestoneTargetRow?.profile?.name}
         onSubmit={handleMilestoneSubmit}
+      />
+
+      <CampaignFeedbackModal
+        open={Boolean(campaignFeedbackTarget)}
+        onClose={() => setCampaignFeedbackTarget(null)}
+        campaignId={campaignId}
+        brandId={brandId || ""}
+        influencerId={campaignFeedbackTarget ? getRowInfluencerId(campaignFeedbackTarget) : ""}
+        influencerName={campaignFeedbackTarget?.profile?.name || "the creator"}
+        campaignName={campaignTitle || "the campaign"}
+        onSubmitted={() => {
+          if (campaignFeedbackTarget?.id) {
+            setCampaignFeedbackPromptMap((prev) => ({
+              ...prev,
+              [campaignFeedbackTarget.id]: false,
+            }));
+          }
+
+          setCampaignFeedbackTarget(null);
+          setCampaignFeedbackRefreshKey((value) => value + 1);
+
+          toast({
+            icon: "success",
+            title: "Feedback submitted",
+            text: "Campaign feedback has been submitted successfully.",
+          });
+        }}
       />
 
       {/* ── Signature modal ───────────────────────────────────────────────────── */}

@@ -5,6 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CaretDown, CaretUp, CopySimple, Check } from "@phosphor-icons/react";
 import { toast, ToastStyles } from "@/components/ui/toast";
+import { post } from "@/lib/api";
+import CampaignFeedbackModal from "@/components/common/CampaignFeedbackModal";
 import AddRevision from "@/components/ui/brand/AddRevision";
 import AddMilestoneCard from "@/components/ui/brand/AddMilestoneCard";
 import { InfluencerViewModel } from "./utils";
@@ -1730,6 +1732,7 @@ export default function MilestoneAndDeliverablesTab({
     const [releasingMilestoneIds, setReleasingMilestoneIds] = useState<
         Record<string, boolean>
     >({});
+    const [campaignFeedbackOpen, setCampaignFeedbackOpen] = useState(false);
 
     const resolvedCampaignId =
         searchParams.get("campaignId") ||
@@ -1805,6 +1808,14 @@ export default function MilestoneAndDeliverablesTab({
         (view as any)?.raw?.influencer?.name ||
         (view as any)?.influencer?.name ||
         "";
+
+    const resolvedCampaignName =
+        (view as any)?.raw?.campaign?.campaignTitle ||
+        (view as any)?.raw?.campaign?.productOrServiceName ||
+        (view as any)?.contract?.content?.campaign?.campaignTitle ||
+        (view as any)?.contract?.content?.campaign?.productOrServiceName ||
+        "the campaign";
+
     const defaultPlatform = getDefaultPlatformFromView(view);
 
     useEffect(() => {
@@ -2267,6 +2278,26 @@ export default function MilestoneAndDeliverablesTab({
         }
     };
 
+    const shouldOpenCampaignFeedbackAfterRelease = async () => {
+        if (!resolvedCampaignId || !resolvedBrandId || !resolvedInfluencerId) {
+            return false;
+        }
+
+        try {
+            const res = await post<any>("/campaign-reviews/brand/prompt-state", {
+                campaignId: resolvedCampaignId,
+                brandId: resolvedBrandId,
+                influencerId: resolvedInfluencerId,
+            });
+
+            const result = res?.data ?? res;
+
+            return Boolean(result?.data?.shouldPrompt ?? result?.shouldPrompt);
+        } catch {
+            return false;
+        }
+    };
+
     const handleReleaseMilestone = async (milestone: any) => {
         const milestoneId = getResolvedMilestoneId(milestone);
         const milestoneHistoryId = getResolvedMilestoneHistoryId(milestone);
@@ -2290,6 +2321,9 @@ export default function MilestoneAndDeliverablesTab({
         }
 
         const loadingKey = milestoneHistoryId;
+        const isFirstMilestoneRelease = !apiMilestones.some((item) =>
+            isReleasedMilestone(item)
+        );
 
         try {
             setReleasingMilestoneIds((prev) => ({
@@ -2344,6 +2378,14 @@ export default function MilestoneAndDeliverablesTab({
                 title: "Milestone approved",
                 text: "The milestone has been released successfully.",
             });
+
+            if (isFirstMilestoneRelease) {
+                const shouldOpenFeedback = await shouldOpenCampaignFeedbackAfterRelease();
+
+                if (shouldOpenFeedback) {
+                    setCampaignFeedbackOpen(true);
+                }
+            }
         } catch (err) {
             const message = getErrorMessage(
                 err,
@@ -2632,6 +2674,25 @@ export default function MilestoneAndDeliverablesTab({
                 }
                 onRaiseRevision={handleRaiseRevisionFromView}
                 onEditMilestone={handleEditMilestoneFromDeliverableView}
+            />
+
+            <CampaignFeedbackModal
+                open={campaignFeedbackOpen}
+                onClose={() => setCampaignFeedbackOpen(false)}
+                campaignId={resolvedCampaignId || ""}
+                brandId={resolvedBrandId || ""}
+                influencerId={resolvedInfluencerId || ""}
+                influencerName={resolvedInfluencerName || "the creator"}
+                campaignName={resolvedCampaignName || "the campaign"}
+                onSubmitted={() => {
+                    setCampaignFeedbackOpen(false);
+
+                    toast({
+                        icon: "success",
+                        title: "Feedback submitted",
+                        text: "Campaign feedback has been submitted successfully.",
+                    });
+                }}
             />
 
             <div className="flex w-full items-start justify-between gap-6">
