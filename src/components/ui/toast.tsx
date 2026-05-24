@@ -79,6 +79,9 @@ const ICONS: Record<ToastIcon, string> = {
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]!));
 
+const isToastIcon = (value: unknown): value is ToastIcon =>
+  typeof value === "string" &&
+  Object.prototype.hasOwnProperty.call(THEME, value);
 /** Drop this once anywhere in your app (layout providers, etc.) */
 export function ToastStyles() {
   return (
@@ -135,7 +138,8 @@ export function ToastStyles() {
 
 /** Call this anywhere: toast({ icon:"success", title:"...", text:"..." }) */
 export function toast({ icon, title, text, timer = 2500 }: ToastOptions) {
-  const t = THEME[icon];
+  const safeIcon: ToastIcon = isToastIcon(icon) ? icon : "info";
+  const t = THEME[safeIcon];
 
   // Optional: avoid stacking / jitter by closing previous toast
   Swal.close();
@@ -164,7 +168,7 @@ export function toast({ icon, title, text, timer = 2500 }: ToastOptions) {
     html: `
       <div style="display:flex; gap:12px; align-items:flex-start; padding-right:6px;">
         <div style="margin-top:2px; flex:0 0 auto;">
-          ${ICONS[icon]}
+          ${ICONS[safeIcon]}
         </div>
         <div style="min-width:0;">
           <div style="font-size:20px; font-weight:600; line-height:1.2; color:${t.title};">
@@ -180,14 +184,12 @@ export function toast({ icon, title, text, timer = 2500 }: ToastOptions) {
       </div>
     `,
     didOpen: (popup) => {
-      // ✅ set accent bar color (error uses: background: var(--Errors-500, #E35141);)
-      popup.style.setProperty("--emc-accent", ACCENT[icon]);
+      popup.style.setProperty("--emc-accent", ACCENT[safeIcon]);
 
       popup.style.border = `0.5px solid ${t.border}`;
       popup.style.borderRadius = "8px";
       popup.style.boxShadow = "0 10px 30px rgba(0,0,0,.08)";
 
-      // ✅ Force close button to top-right corner
       const close = popup.querySelector(".swal2-close") as HTMLElement | null;
       if (close) {
         close.style.position = "absolute";
