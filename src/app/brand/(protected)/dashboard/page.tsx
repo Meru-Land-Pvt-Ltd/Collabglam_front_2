@@ -23,6 +23,7 @@ import {
 } from "@phosphor-icons/react";
 import { post, get } from "@/lib/api";
 import { apiGetMilestonesByBrand } from "../../services/brandApi";
+import PlatformReviewPrompt from "@/components/common/PlatformReviewPrompt";
 
 const FULLY_MANAGED_PLAN_ID = "1f46c6f6-63ae-4c4f-943d-798d644257f9";
 const FULLY_MANAGED_PLAN_NAME = "fully_managed";
@@ -813,7 +814,12 @@ export default function BrandDashboardHome() {
 
   return (
     <div className="min-h-full w-full overflow-x-hidden bg-white">
+
       <main className="flex w-full flex-col items-start gap-8 p-4 sm:p-6 lg:p-8">
+        <PlatformReviewPrompt
+          role="brand"
+          brandId={data?.brandId}
+        />
         <header className="flex w-full flex-col gap-4 lg:flex-row lg:items-stretch">
           <div className="flex w-full flex-col items-start gap-1 lg:w-[29rem] lg:shrink-0">
             <h1 className="font-inter text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0] text-[#1A1A1A]">

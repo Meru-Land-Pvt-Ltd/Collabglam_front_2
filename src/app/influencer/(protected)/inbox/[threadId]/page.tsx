@@ -169,6 +169,31 @@ function readStoredInfluencerProfile() {
   }
 }
 
+function getStoredInfluencerId(): string {
+  if (typeof window === "undefined") return "";
+
+  const directInfluencerId = localStorage.getItem("influencerId");
+  if (directInfluencerId) return directInfluencerId;
+
+  const influencerRaw = localStorage.getItem("influencer");
+  if (influencerRaw) {
+    try {
+      const parsed = JSON.parse(influencerRaw);
+      return parsed?.influencerId || parsed?._id || "";
+    } catch {}
+  }
+
+  const userRaw = localStorage.getItem("user");
+  if (userRaw) {
+    try {
+      const parsed = JSON.parse(userRaw);
+      return parsed?.influencerId || parsed?._id || "";
+    } catch {}
+  }
+
+  return "";
+}
+
 function formatMailDate(dateString?: string | null) {
   if (!dateString) return "";
   const date = new Date(dateString);
@@ -261,6 +286,14 @@ export default function InfluencerInboxMailDetailPage() {
 
       setThread(res.thread);
       setMessages(Array.isArray(res?.messages) ? res.messages : []);
+
+      const storedInfluencerId = getStoredInfluencerId();
+      if (storedInfluencerId) {
+        post(`${EMAIL_API_BASE}/threads/${threadId}/read`, {
+          role: "influencer",
+          influencerId: storedInfluencerId,
+        }).catch(() => {});
+      }
 
       try {
         const participantsRes = await get<EmailParticipantsResponse>(
