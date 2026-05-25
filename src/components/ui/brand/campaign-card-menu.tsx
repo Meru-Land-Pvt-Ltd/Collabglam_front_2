@@ -30,7 +30,21 @@ function toAbsoluteUrl(href: string) {
 function extractCampaignId(viewHref: string) {
   try {
     const url = new URL(toAbsoluteUrl(viewHref));
-    return url.searchParams.get("id");
+
+    const queryId =
+      url.searchParams.get("campaignId") ||
+      url.searchParams.get("id");
+
+    if (queryId) return queryId;
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    const campaignIndex = parts.indexOf("campaign");
+
+    if (campaignIndex >= 0 && parts[campaignIndex + 1]) {
+      return decodeURIComponent(parts[campaignIndex + 1]);
+    }
+
+    return null;
   } catch {
     return null;
   }
