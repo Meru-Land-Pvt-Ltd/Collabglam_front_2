@@ -420,7 +420,206 @@ function allImages(c: any): string[] {
 
   return Array.from(new Set(out.filter(Boolean)));
 }
+function normalizeFilterText(value: any) {
+  return String(value ?? "").trim().toLowerCase();
+}
 
+function normalizeFilterKey(value: any) {
+  return normalizeFilterText(value).replace(/[\s-]+/g, "_");
+}
+
+function getCampaignTypeValue(c: any) {
+  return normalizeFilterKey(
+    c?.campaignType ??
+    c?.type ??
+    c?.details?.campaignType ??
+    c?.details?.type ??
+    ""
+  );
+}
+
+function getCampaignCategoryIds(c: any) {
+  const ids = [
+    c?.categoryId,
+    c?.category?._id,
+    c?.category?.id,
+    c?.category?.categoryId,
+    c?.details?.categoryId,
+    c?.details?.category?._id,
+    c?.details?.category?.id,
+  ];
+
+  if (Array.isArray(c?.categoryIds)) ids.push(...c.categoryIds);
+  if (Array.isArray(c?.details?.categoryIds)) ids.push(...c.details.categoryIds);
+
+  return ids.map(normalizeMongoId).filter(Boolean);
+}
+
+function getCampaignSearchText(c: any) {
+  return [
+    c?.campaignTitle,
+    c?.productOrServiceName,
+    c?.brandName,
+    c?.category?.name,
+    c?.details?.category?.name,
+    c?.status,
+    c?.campaignType,
+    c?.type,
+    ...(Array.isArray(c?.platformSelection) ? c.platformSelection : []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function getDateByField(c: any, field: DateField) {
+  const raw =
+    field === "createdAt"
+      ? c?.createdAt
+      : field === "updatedAt"
+        ? c?.updatedAt
+        : field === "startAt"
+          ? c?.startAt
+          : field === "endAt"
+            ? c?.endAt
+            : c?.publishedAt;
+
+  const date = raw ? new Date(raw) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function startOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfDay(date: Date) {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function subDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - days);
+  return d;
+}
+
+function getDateFilterRange(df: DateFilterValue): {
+  field: DateField;
+  from?: Date;
+  to?: Date;
+} | null {
+  const now = new Date();
+
+  if (df.quickFilter === "today") {
+    return {
+      field: "createdAt",
+      from: startOfDay(now),
+      to: endOfDay(now),
+    };
+  }
+
+  if (df.quickFilter === "this_week") {
+    const start = startOfDay(now);
+    const day = start.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - diff);
+
+    return {
+      field: "createdAt",
+      from: start,
+      to: endOfDay(now),
+    };
+  }
+
+  if (df.quickFilter === "this_month") {
+    return {
+      field: "createdAt",
+      from: new Date(now.getFullYear(), now.getMonth(), 1),
+      to: endOfDay(now),
+    };
+  }
+
+  if (df.quickFilter === "recently_edited") {
+    return {
+      field: "updatedAt",
+      from: startOfDay(subDays(now, 7)),
+      to: endOfDay(now),
+    };
+  }
+
+  if (df.quickFilter === "launching_soon") {
+    return {
+      field: "startAt",
+      from: startOfDay(now),
+      to: endOfDay(subDays(now, -30)),
+    };
+  }
+
+  const allDatesOption = String(df.allDatesOption || "all");
+
+  if (allDatesOption !== "all") {
+    const map: Record<string, number> = {
+      last_7: 7,
+      last_15: 15,
+      last_30: 30,
+      last_90: 90,
+      last_365: 365,
+    };
+
+    if (map[allDatesOption]) {
+      return {
+        field: "updatedAt",
+        from: startOfDay(subDays(now, map[allDatesOption])),
+        to: endOfDay(now),
+      };
+    }
+
+    if (allDatesOption === "last_month") {
+      return {
+        field: "updatedAt",
+        from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
+        to: endOfDay(new Date(now.getFullYear(), now.getMonth(), 0)),
+      };
+    }
+
+    if (allDatesOption === "last_quarter") {
+      return {
+        field: "updatedAt",
+        from: startOfDay(subDays(now, 90)),
+        to: endOfDay(now),
+      };
+    }
+  }
+
+  if (df.startDate || df.endDate) {
+    const from = df.startDate ? parseLooseDate(df.startDate) : undefined;
+    const to = df.endDate ? parseLooseDate(df.endDate) : undefined;
+
+    return {
+      field: "createdAt",
+      from: from ? startOfDay(from) : undefined,
+      to: to ? endOfDay(to) : undefined,
+    };
+  }
+
+  return null;
+}
+
+function matchesDateFilter(c: any, df: DateFilterValue) {
+  const range = getDateFilterRange(df);
+  if (!range) return true;
+
+  const date = getDateByField(c, range.field);
+  if (!date) return false;
+
+  if (range.from && date < range.from) return false;
+  if (range.to && date > range.to) return false;
+
+  return true;
+}
 
 
 const GRID_WRAP = "mx-auto w-full max-w-[100vw]";
@@ -485,12 +684,64 @@ export default function CampaignListPage({
       const applicantCount = Number(c.applicantCount ?? 0);
       const acceptedCount = Number(c.acceptedContracts ?? 0);
 
-      if (creatorStatus === "applied") return applicantCount > 0;
-      if (creatorStatus === "approved") return acceptedCount > 0;
+      if (aiCreated && Number(c?.byAi ?? 0) !== 1) {
+        return false;
+      }
+
+      if (campaignType && campaignType !== "all") {
+        const selectedType = normalizeFilterKey(campaignType);
+        const itemType = getCampaignTypeValue(c);
+
+        if (itemType !== selectedType) {
+          return false;
+        }
+      }
+
+      if (creatorStatus === "applied" && applicantCount <= 0) {
+        return false;
+      }
+
+      if (creatorStatus === "approved" && acceptedCount <= 0) {
+        return false;
+      }
+
+      if (categoryIds.length > 0) {
+        const campaignCategoryIds = getCampaignCategoryIds(c);
+        const selectedCategoryIds = categoryIds.map(normalizeMongoId).filter(Boolean);
+
+        const hasMatchingCategory = selectedCategoryIds.some((id) =>
+          campaignCategoryIds.includes(id)
+        );
+
+        if (!hasMatchingCategory) {
+          return false;
+        }
+      }
+
+      if (!matchesDateFilter(c, dateFilter)) {
+        return false;
+      }
+
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const text = getCampaignSearchText(c);
+
+        if (!text.includes(q)) {
+          return false;
+        }
+      }
 
       return true;
     });
-  }, [items, creatorStatus]);
+  }, [
+    items,
+    aiCreated,
+    campaignType,
+    creatorStatus,
+    categoryIds,
+    dateFilter,
+    searchQuery,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -799,6 +1050,7 @@ export default function CampaignListPage({
                 inviteHref={inviteHref}
                 campaignStatus={c.status}
                 isDraft={c.isDraft}
+                isFullyManaged={fullyManaged}
               />
             )
           }
@@ -849,7 +1101,7 @@ export default function CampaignListPage({
                   View Campaign
                 </Button>
 
-                {showEditButton ? (
+                {showEditButton && !fullyManaged ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -879,6 +1131,7 @@ export default function CampaignListPage({
       const platforms = (c.platformSelection ?? []) as string[];
       const campaignId = normalizeMongoId(c.campaignId ?? c._id ?? c.id);
       const campaignTitle = c.campaignTitle ?? "Untitled Campaign";
+      const fullyManaged = isFullyManagedCampaign(c);
 
       const viewHref = `/brand/campaign/${encodeURIComponent(
         campaignId
@@ -959,7 +1212,7 @@ min-[981px]:w-auto"
         ),
         menuSlot: locked ? null : (
           <div className="flex items-center gap-2">
-            {showEditButton ? (
+            {showEditButton && !fullyManaged ? (
               <Button
                 type="button"
                 variant="outline"
@@ -976,6 +1229,7 @@ min-[981px]:w-auto"
               inviteHref={inviteHref}
               campaignStatus={c.status}
               isDraft={c.isDraft}
+              isFullyManaged={fullyManaged}
             />
           </div>
         ),
@@ -988,7 +1242,7 @@ min-[981px]:w-auto"
         overlayLabel: locked ? "Locked" : undefined,
       } as ListCardViewItem;
     });
-  }, [filteredItems, isCampaignLocked]);
+  }, [filteredItems, brandPlanId]);
 
   const showInitialSkeleton = !hasLoadedOnce;
   const showEmptyState =

@@ -16,6 +16,7 @@ type Props = {
   inviteHref: string;
   campaignStatus?: string;
   isDraft?: boolean | number;
+  isFullyManaged?: boolean;
 };
 
 const itemCls =
@@ -86,6 +87,7 @@ export default function CampaignCardMenu({
   inviteHref,
   campaignStatus,
   isDraft,
+  isFullyManaged = false,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -189,27 +191,27 @@ export default function CampaignCardMenu({
             <span>View</span>
           </button>
 
-{!isDraftCampaign ? (
-  <>
-    <button
-      type="button"
-      onClick={copyLink}
-      className={itemCls}
-    >
-      <LinkSimple size={18} weight="regular" />
-      <span>Copy Link</span>
-    </button>
+          {!isDraftCampaign && !isFullyManaged ? (
+            <>
+              <button
+                type="button"
+                onClick={copyLink}
+                className={itemCls}
+              >
+                <LinkSimple size={18} weight="regular" />
+                <span>Copy Link</span>
+              </button>
 
-    <button
-      type="button"
-      onClick={() => goTo(inviteHref)}
-      className={itemCls}
-    >
-      <PaperPlaneTilt size={18} weight="regular" />
-      <span>Invite Influencers</span>
-    </button>
-  </>
-) : null}
+              <button
+                type="button"
+                onClick={() => goTo(inviteHref)}
+                className={itemCls}
+              >
+                <PaperPlaneTilt size={18} weight="regular" />
+                <span>Invite Influencers</span>
+              </button>
+            </>
+          ) : null}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

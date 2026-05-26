@@ -92,6 +92,7 @@ interface InfluencerContextMenuProps {
   onNotRelevant?: () => void;
   onDelete?: () => void;
   onClose?: () => void;
+  hideCopyLink?: boolean;
   hideInviteInfluencer?: boolean;
   hideDelete?: boolean;
   disableDelete?: boolean;
@@ -517,6 +518,7 @@ export function InfluencerContextMenu({
   onRaiseDispute,
   onMoveToWorkspace,
   onDelete,
+  hideCopyLink = false,
   hideInviteInfluencer = false,
   hideDelete = false,
   disableDelete = false,
@@ -546,9 +548,11 @@ export function InfluencerContextMenu({
     raisedispute: onRaiseDispute,
   };
 
-  const visibleMenuItems = menuItems.filter(
-    (item) => !(hideInviteInfluencer && item.key === "inviteinfluencer")
-  );
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (hideCopyLink && item.key === "copylink") return false;
+    if (hideInviteInfluencer && item.key === "inviteinfluencer") return false;
+    return true;
+  });
 
   const workspaces = [
     { id: "nike", name: "Nike Workspace", logo: <EnvelopeIcon /> },
@@ -564,13 +568,15 @@ export function InfluencerContextMenu({
         aria-label="More actions"
         className="
           my-0
-          h-[2rem] w-[2.4rem]
-          px-[0.5rem]
-          rounded-[0.55rem]
-          border border-[#1A1A1A]
+          flex
+          h-[2rem] w-[2rem]
+          items-center justify-center
+          gap-1
+          rounded-[0.5rem]
+          border border-[#E6E6E6]
           bg-white
+          p-0
           shadow-none
-          inline-flex items-center justify-center
         "
       >
         <DotsThreeIcon size={20} weight="bold" />
@@ -1487,7 +1493,6 @@ export default function ViewCampaignPage() {
 
       const res: any = await apiBrandWalletTopup({
         brandId,
-        campaignId,
         amount,
         currency: "usd",
         successUrl,
@@ -2037,18 +2042,38 @@ export default function ViewCampaignPage() {
                 </>
               ) : (
                 <Button
-                  variant="raised"
-                  size="sm"
-                  rightIcon={<FolderSimpleStarIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />} className="my-0  rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2" onClick={() => router.push(
-                    `/brand/campaign/${encodeURIComponent(campaignId)}/pitch-folder?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`
-                  )}>
-                  <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
-                    Pitch folder
-                  </span>
-                </Button>
+  variant="raised"
+  size="sm"
+  rightIcon={
+    <FolderSimpleStarIcon
+      weight="bold"
+      style={{ width: "0.875rem", height: "0.875rem" }}
+    />
+  }
+  className="
+    my-0
+    flex h-[2rem]
+    items-center justify-center
+    gap-1
+    rounded-[0.5rem]
+    border border-[#E6E6E6]
+    bg-white
+    px-2
+    shadow-none
+    hover:bg-[#F7F7F7]
+  "
+  onClick={() =>
+    router.push(`/brand/campaign/${encodeURIComponent(campaignId)}/pitch-folder?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`)
+  }
+>
+  <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
+    Pitch folder
+  </span>
+</Button>
               )}
 
               <InfluencerContextMenu
+                hideCopyLink={isAdminCreatedCampaign}
                 hideInviteInfluencer={isAdminCreatedCampaign}
                 hideDelete={isAdminCreatedCampaign}
                 disableDelete={hasProtectedInfluencers}
