@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
     apiBrandWalletTopup,
+    apiConfirmBrandWalletTopup,
     apiGetBrandWallet,
 } from "../../services/brandApi";
-import { toast, ToastStyles } from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 
 type SummaryTab = "balance" | "freeze" | "transaction";
 type FundTab = "add" | "withdraw";
@@ -15,47 +16,70 @@ type InfluencerAllocation = {
     influencerId: string;
     amount: number;
     releasedAmount: number;
+    pendingAmount?: number;
+    status?: string;
 };
 
 type WalletFreeze = {
-    totalFrozenAmount?: number;
     brandId: string;
     campaignId: string;
-    influencerId?: string;
-    freezeAmount?: number;
-    availableToAllocate?: number;
+
+    totalFrozenAmount?: number;
     currentFrozenAmount?: number;
-    influencerAllocations?: InfluencerAllocation[];
     totalAllocatedAmount?: number;
     totalReleasedAmount?: number;
+    availableToAllocate?: number;
+
+    status?: string;
+
+    influencerId?: string;
+    freezeAmount?: number;
+    influencerAllocations?: InfluencerAllocation[];
 };
 
 type BrandWallet = {
     brandId: string;
     walletBalance: number;
     frozenBalance: number;
-    usableBalance: number;
     freezes: WalletFreeze[];
 };
 
 type BrandWalletResponse = {
-    success: boolean;
-    data: BrandWallet;
-    requestId: string;
+    success?: boolean;
+    data?: BrandWallet;
+    result?: BrandWallet;
+    requestId?: string;
 };
 
-type BrandWalletTopupResponse = {
-    success?: boolean;
-    data?: {
-        url?: string;
-        checkoutUrl?: string;
-        sessionUrl?: string;
-        paymentUrl?: string;
-    };
+type BrandWalletTopupData = {
+    message?: string;
+    brandId?: string;
+    amount?: number;
+    currency?: string;
+    sessionId?: string;
     url?: string;
     checkoutUrl?: string;
     sessionUrl?: string;
     paymentUrl?: string;
+};
+
+type BrandWalletTopupResponse = BrandWalletTopupData & {
+    success?: boolean;
+    data?: BrandWalletTopupData;
+    message?: string;
+};
+
+type ConfirmBrandWalletTopupData = {
+    message?: string;
+    brandId?: string;
+    addedAmount?: number;
+    walletBalance?: number;
+    frozenBalance?: number;
+};
+
+type ConfirmBrandWalletTopupResponse = ConfirmBrandWalletTopupData & {
+    success?: boolean;
+    data?: ConfirmBrandWalletTopupData;
     message?: string;
 };
 
@@ -67,29 +91,26 @@ const summaryTabs: { key: SummaryTab; label: string }[] = [
 
 const amountOptions = [200, 500, 1000];
 
-const savedBankAccounts = [
-    {
-        bank: "Bank of America",
-        logo: "BANK OF AMERICA",
-        ifsc: "BOA5498461",
-        accountNumber: "24555464641",
-        isDefault: true,
+const TOAST_STYLES = {
+    success: {
+        bg: "#F0FDF4",
+        color: "#166534",
+        border: "#BBF7D0",
+        bar: "#22C55E",
     },
-    {
-        bank: "Citi Bank",
-        logo: "citi bank",
-        ifsc: "CIT476141631",
-        accountNumber: "124242782785278",
-        isDefault: false,
+    error: {
+        bg: "#FEF2F2",
+        color: "#991B1B",
+        border: "#FECACA",
+        bar: "#EF4444",
     },
-    {
-        bank: "HSBC",
-        logo: "HSBC",
-        ifsc: "HSBC766474",
-        accountNumber: "4844997454246",
-        isDefault: false,
+    info: {
+        bg: "#EFF6FF",
+        color: "#1D4ED8",
+        border: "#BFDBFE",
+        bar: "#3B82F6",
     },
-];
+};
 
 function cn(...classes: Array<string | false | null | undefined>) {
     return classes.filter(Boolean).join(" ");
@@ -99,23 +120,19 @@ function showToast(
     message: string,
     status: "success" | "error" | "info" = "info"
 ) {
-    const styles = ToastStyles as unknown as Record<string, unknown>;
-
-    const style =
-        styles[status] ||
-        styles[status.toUpperCase()] ||
-        styles[status.charAt(0).toUpperCase() + status.slice(1)] ||
-        styles.default ||
-        styles.DEFAULT;
-
     const title =
         status === "success" ? "Success" : status === "error" ? "Error" : "Info";
 
-    (toast as unknown as (payload: unknown) => void)({
-        title,
-        description: message,
-        style,
-    });
+    try {
+        (toast as unknown as (payload: unknown) => void)({
+            title,
+            description: message,
+            style: TOAST_STYLES[status],
+        });
+    } catch (err) {
+        console.error("Toast error:", err);
+        console.log(`${title}: ${message}`);
+    }
 }
 
 function getValueFromLocalStorage(keys: string[]) {
@@ -178,18 +195,6 @@ function getBrandIdFromLocalStorage() {
     return "";
 }
 
-function getCampaignIdFromLocalStorage(wallet?: BrandWallet | null) {
-    if (typeof window === "undefined") return "";
-
-    const directCampaignId = getValueFromLocalStorage([
-        "campaignId",
-        "campaign_id",
-        "selectedCampaignId",
-    ]);
-
-    return directCampaignId || wallet?.freezes?.[0]?.campaignId || "";
-}
-
 function isBrandWallet(value: unknown): value is BrandWallet {
     if (!value || typeof value !== "object") return false;
 
@@ -199,7 +204,6 @@ function isBrandWallet(value: unknown): value is BrandWallet {
         typeof wallet.brandId === "string" &&
         typeof wallet.walletBalance === "number" &&
         typeof wallet.frozenBalance === "number" &&
-        typeof wallet.usableBalance === "number" &&
         Array.isArray(wallet.freezes)
     );
 }
@@ -209,12 +213,11 @@ function normalizeWalletResponse(response: unknown): BrandWallet | null {
         return response;
     }
 
-    if (response && typeof response === "object" && "data" in response) {
-        const walletData = (response as BrandWalletResponse).data;
+    if (response && typeof response === "object") {
+        const obj = response as BrandWalletResponse;
 
-        if (isBrandWallet(walletData)) {
-            return walletData;
-        }
+        if (isBrandWallet(obj.data)) return obj.data;
+        if (isBrandWallet(obj.result)) return obj.result;
     }
 
     return null;
@@ -225,7 +228,7 @@ function formatMoney(amount = 0) {
         style: "currency",
         currency: "USD",
         maximumFractionDigits: 0,
-    }).format(amount);
+    }).format(Number(amount) || 0);
 }
 
 function shortId(value?: string) {
@@ -247,19 +250,6 @@ function MoneyWavyIcon() {
                 d="M12 15.25C13.38 15.25 14.5 14.13 14.5 12.75C14.5 11.37 13.38 10.25 12 10.25C10.62 10.25 9.5 11.37 9.5 12.75C9.5 14.13 10.62 15.25 12 15.25Z"
                 stroke="#1A1A1A"
                 strokeWidth="1.5"
-            />
-        </svg>
-    );
-}
-
-function PlusIcon() {
-    return (
-        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden>
-            <path
-                d="M5.5 1.2V9.8M1.2 5.5H9.8"
-                stroke="#1A1A1A"
-                strokeWidth="1.4"
-                strokeLinecap="round"
             />
         </svg>
     );
@@ -289,6 +279,8 @@ export default function WalletPaymentPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isTopupLoading, setIsTopupLoading] = useState(false);
 
+    const didHandlePaymentReturn = useRef(false);
+
     async function loadWallet() {
         try {
             setIsLoading(true);
@@ -308,6 +300,7 @@ export default function WalletPaymentPage() {
             const walletData = normalizeWalletResponse(response);
 
             if (!walletData) {
+                console.error("Invalid wallet response:", response);
                 setWallet(null);
                 showToast("Invalid wallet response received from API.", "error");
                 return;
@@ -325,9 +318,71 @@ export default function WalletPaymentPage() {
         }
     }
 
+    async function confirmStripeTopup(sessionId: string) {
+        try {
+            const brandId = getBrandIdFromLocalStorage();
+
+            if (!brandId) {
+                showToast("Brand ID not found in localStorage.", "error");
+                return;
+            }
+
+            setIsTopupLoading(true);
+
+            const response = (await apiConfirmBrandWalletTopup({
+                brandId,
+                sessionId,
+            })) as unknown as ConfirmBrandWalletTopupResponse;
+
+            const message =
+                response?.data?.message ||
+                response?.message ||
+                "Wallet topup confirmed successfully.";
+
+            showToast(message, "success");
+
+            await loadWallet();
+
+            router.replace("/brand/wallet");
+        } catch (err) {
+            showToast(
+                err instanceof Error ? err.message : "Unable to confirm wallet topup.",
+                "error"
+            );
+        } finally {
+            setIsTopupLoading(false);
+        }
+    }
+
     useEffect(() => {
         loadWallet();
     }, []);
+
+    useEffect(() => {
+        if (didHandlePaymentReturn.current) return;
+
+        didHandlePaymentReturn.current = true;
+
+        const params = new URLSearchParams(window.location.search);
+        const payment = params.get("payment");
+        const sessionId = params.get("session_id");
+
+        if (payment === "cancelled") {
+            showToast("Payment cancelled.", "info");
+            router.replace("/brand/wallet");
+            return;
+        }
+
+        if (payment === "success") {
+            if (!sessionId) {
+                showToast("Stripe session id missing after payment.", "error");
+                router.replace("/brand/wallet");
+                return;
+            }
+
+            confirmStripeTopup(sessionId);
+        }
+    }, [router]);
 
     const summaryData = useMemo(() => {
         if (summaryTab === "freeze") {
@@ -363,15 +418,9 @@ export default function WalletPaymentPage() {
             }
 
             const brandId = getBrandIdFromLocalStorage();
-            const campaignId = getCampaignIdFromLocalStorage(wallet);
 
             if (!brandId) {
                 showToast("Brand ID not found in localStorage.", "error");
-                return;
-            }
-
-            if (!campaignId) {
-                showToast("Campaign ID is missing.", "error");
                 return;
             }
 
@@ -381,10 +430,9 @@ export default function WalletPaymentPage() {
 
             const response = (await apiBrandWalletTopup({
                 brandId,
-                campaignId,
                 amount: payableAmount,
                 currency: "usd",
-                successUrl: `${origin}/brand/wallet?payment=success`,
+                successUrl: `${origin}/brand/wallet?payment=success&session_id={CHECKOUT_SESSION_ID}`,
                 cancelUrl: `${origin}/brand/wallet?payment=cancelled`,
             })) as unknown as BrandWalletTopupResponse;
 
@@ -403,7 +451,6 @@ export default function WalletPaymentPage() {
                 return;
             }
 
-            showToast("Redirecting to Stripe payment.", "success");
             window.location.href = stripeUrl;
         } catch (err) {
             showToast(
@@ -579,84 +626,6 @@ export default function WalletPaymentPage() {
                     </button>
                 </aside>
             </section>
-
-            {/* <section className="mt-[1.75rem]">
-                <div className="mb-[1.75rem] flex items-center justify-between gap-[1rem]">
-                    <h2 className="text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0] text-[#1A1A1A]">
-                        Saved Bank Account
-                    </h2>
-
-                    <button
-                        type="button"
-                        className="flex items-center justify-center gap-[0.25rem] self-stretch px-[0.5rem] text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]"
-                    >
-                        <PlusIcon />
-                        Add new bank account
-                    </button>
-                </div>
-
-                <div className="grid grid-cols-3 gap-[1rem] max-lg:grid-cols-1">
-                    {savedBankAccounts.map((account) => (
-                        <article
-                            key={account.accountNumber}
-                            className="flex flex-1 flex-col items-start gap-[2.75rem] rounded-[0.75rem] border border-[#E6E6E6] bg-white p-[1rem]"
-                        >
-                            <div className="flex w-full items-center justify-between gap-[1rem]">
-                                <p
-                                    className={cn(
-                                        "text-[0.875rem] font-bold leading-[1.25rem]",
-                                        account.logo === "HSBC" ? "text-[#D71920]" : "text-[#064C9B]"
-                                    )}
-                                >
-                                    {account.logo}
-                                </p>
-
-                                {account.isDefault ? (
-                                    <span className="rounded-full bg-[#1A1A1A] px-[0.875rem] py-[0.375rem] text-[0.875rem] font-medium leading-[1.25rem] text-white">
-                                        Default
-                                    </span>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        className="text-[0.75rem] font-semibold leading-[1rem] text-[#1A1A1A] underline"
-                                    >
-                                        Set as Default
-                                    </button>
-                                )}
-                            </div>
-
-                            <div className="flex w-full flex-col gap-[0.75rem]">
-                                <div>
-                                    <p className="text-[0.875rem] font-medium leading-[1.25rem] text-[#B8B8B8]">
-                                        Bank Name
-                                    </p>
-                                    <p className="text-[1.25rem] font-medium leading-[1.75rem] text-[#1A1A1A]">
-                                        {account.bank}
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <p className="text-[0.875rem] font-medium leading-[1.25rem] text-[#B8B8B8]">
-                                        IFSC Code
-                                    </p>
-                                    <p className="text-[1.25rem] font-medium leading-[1.75rem] text-[#1A1A1A]">
-                                        {account.ifsc}
-                                    </p>
-                                </div>
-
-                                <div>
-                                    <p className="text-[0.875rem] font-medium leading-[1.25rem] text-[#B8B8B8]">
-                                        Account Number
-                                    </p>
-                                    <p className="text-[1.25rem] font-medium leading-[1.75rem] text-[#1A1A1A]">
-                                        {account.accountNumber}
-                                    </p>
-                                </div>
-                            </div>
-                        </article>
-                    ))}
-                </div>
-            </section> */}
 
             <section className="mt-[1.75rem]">
                 <div className="mb-[1rem] flex items-center justify-between">

@@ -1063,7 +1063,6 @@ export type CreateMilestoneResponse = {
   wallet: {
     walletBalance: number;
     frozenBalance: number;
-    usableBalance: number;
   };
 
   campaignWallet?: {
@@ -1145,7 +1144,6 @@ export type MilestoneRow = {
 export type BrandWalletSnapshot = {
   walletBalance: number;
   frozenBalance: number;
-  usableBalance: number;
 };
 
 export type GetMilestonesByBrandPayload = {
@@ -1174,7 +1172,6 @@ export type GetMilestoneWalletBalanceResponse = {
   brandId: string;
   walletBalance: number;
   frozenBalance: number;
-  usableBalance: number;
 };
 
 export async function apiGetMilestoneWalletBalance(
@@ -2149,13 +2146,14 @@ export async function apiGetPublicCampaign(token: string) {
   );
 }
 
-/** -------------------------
- *  WALLET APIs
- *  ------------------------*/
 export type CampaignInfluencerAllocationRow = {
   influencerId: string;
   amount: number;
   releasedAmount: number;
+  pendingAmount: number;
+  status?: "allocated" | "partially_released" | "released" | string;
+  allocatedAt?: string;
+  lastAllocatedAt?: string;
 };
 
 export type CampaignFreezeRow = {
@@ -2168,26 +2166,35 @@ export type CampaignFreezeRow = {
   totalReleasedAmount: number;
   availableToAllocate: number;
 
+  status?: "active" | "fully_allocated" | "released" | string;
+
   influencerAllocations: CampaignInfluencerAllocationRow[];
+
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type BrandWalletResponse = {
   brandId: string;
   walletBalance: number;
   frozenBalance: number;
-  usableBalance: number;
   freezes: CampaignFreezeRow[];
 };
 
 export async function apiGetBrandWallet(params: { brandId: string }) {
+  const brandId = String(params.brandId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
   return apiGet<BrandWalletResponse>(`${WALLET_BASE}`, {
-    brandId: params.brandId,
+    brandId,
   });
 }
 
 export type BrandWalletTopupPayload = {
   brandId: string;
-  campaignId: string; // required now
   amount: number;
   currency?: string;
   successUrl: string;
@@ -2197,7 +2204,6 @@ export type BrandWalletTopupPayload = {
 export type BrandWalletTopupResponse = {
   message: string;
   brandId: string;
-  campaignId: string;
   amount: number;
   currency: string;
   sessionId: string;
@@ -2205,17 +2211,24 @@ export type BrandWalletTopupResponse = {
 };
 
 export async function apiBrandWalletTopup(payload: BrandWalletTopupPayload) {
+  const brandId = String(payload.brandId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!payload.amount || payload.amount <= 0) {
+    throw new Error("amount must be greater than 0");
+  }
+
   return apiPost<BrandWalletTopupResponse>(`${WALLET_BASE}/topup`, {
-    brandId: payload.brandId,
-    campaignId: payload.campaignId,
+    brandId,
     amount: payload.amount,
     currency: payload.currency ?? "usd",
     successUrl: payload.successUrl,
     cancelUrl: payload.cancelUrl,
   });
 }
-
-
 
 export type ConfirmBrandWalletTopupPayload = {
   brandId: string;
@@ -2225,20 +2238,173 @@ export type ConfirmBrandWalletTopupPayload = {
 export type ConfirmBrandWalletTopupResponse = {
   message: string;
   brandId: string;
-  campaignId: string;
   addedAmount: number;
   walletBalance: number;
   frozenBalance: number;
-  usableBalance: number;
-  campaignFreeze: CampaignFreezeRow | null;
 };
 
 export async function apiConfirmBrandWalletTopup(
   payload: ConfirmBrandWalletTopupPayload
 ) {
-  return apiPost<ConfirmBrandWalletTopupResponse>(`${WALLET_BASE}/topup/confirm`, {
-    brandId: payload.brandId,
-    sessionId: payload.sessionId,
+  const brandId = String(payload.brandId || "").trim();
+  const sessionId = String(payload.sessionId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!sessionId) {
+    throw new Error("sessionId is required");
+  }
+
+  return apiPost<ConfirmBrandWalletTopupResponse>(
+    `${WALLET_BASE}/topup/confirm`,
+    {
+      brandId,
+      sessionId,
+    }
+  );
+}
+
+export type FreezeAmountForCampaignPayload = {
+  brandId: string;
+  campaignId: string;
+  amount: number;
+  note?: string;
+};
+
+export type FreezeAmountForCampaignResponse = {
+  message: string;
+  brandId: string;
+  campaignId: string;
+  frozenAmount: number;
+  walletBalance: number;
+  frozenBalance: number;
+  campaignFreeze: CampaignFreezeRow;
+};
+
+export async function apiFreezeAmountForCampaign(
+  payload: FreezeAmountForCampaignPayload
+) {
+  const brandId = String(payload.brandId || "").trim();
+  const campaignId = String(payload.campaignId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!campaignId) {
+    throw new Error("campaignId is required");
+  }
+
+  if (!payload.amount || payload.amount <= 0) {
+    throw new Error("amount must be greater than 0");
+  }
+
+  return apiPost<FreezeAmountForCampaignResponse>(
+    `${WALLET_BASE}/freeze-campaign`,
+    {
+      brandId,
+      campaignId,
+      amount: payload.amount,
+      note: payload.note ?? "",
+    }
+  );
+}
+
+export type AllocateToInfluencerPayload = {
+  brandId: string;
+  campaignId: string;
+  influencerId: string;
+  amount?: number;
+  note?: string;
+};
+
+export type AllocateToInfluencerResponse = {
+  message: string;
+  brandId: string;
+  campaignId: string;
+  influencerId: string;
+  allocatedAmount: number;
+  walletBalance: number;
+  frozenBalance: number;
+  campaignFreeze: CampaignFreezeRow;
+  influencerAllocation: CampaignInfluencerAllocationRow;
+};
+
+export async function apiAllocateToInfluencer(
+  payload: AllocateToInfluencerPayload
+) {
+  const brandId = String(payload.brandId || "").trim();
+  const campaignId = String(payload.campaignId || "").trim();
+  const influencerId = String(payload.influencerId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!campaignId) {
+    throw new Error("campaignId is required");
+  }
+
+  if (!influencerId) {
+    throw new Error("influencerId is required");
+  }
+
+  const body: Record<string, any> = {
+    brandId,
+    campaignId,
+    influencerId,
+    note: payload.note ?? "",
+  };
+
+  if (payload.amount !== undefined) {
+    body.amount = payload.amount;
+  }
+
+  return apiPost<AllocateToInfluencerResponse>(
+    `${WALLET_BASE}/allocate-to-influencer`,
+    body
+  );
+}
+
+export type WithdrawBrandWalletPayload = {
+  brandId: string;
+  amount: number;
+  currency?: string;
+  method?: "manual" | "bank" | "upi" | "stripe" | "razorpayx" | string;
+  transactionId?: string;
+  note?: string;
+};
+
+export type WithdrawBrandWalletResponse = {
+  message: string;
+  brandId: string;
+  withdrawnAmount: number;
+  walletBalance: number;
+  frozenBalance: number;
+};
+
+export async function apiWithdrawBrandWalletAmount(
+  payload: WithdrawBrandWalletPayload
+) {
+  const brandId = String(payload.brandId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!payload.amount || payload.amount <= 0) {
+    throw new Error("amount must be greater than 0");
+  }
+
+  return apiPost<WithdrawBrandWalletResponse>(`${WALLET_BASE}/withdraw`, {
+    brandId,
+    amount: payload.amount,
+    currency: payload.currency ?? "usd",
+    method: payload.method ?? "manual",
+    transactionId: payload.transactionId ?? "",
+    note: payload.note ?? "",
   });
 }
 
@@ -2247,11 +2413,15 @@ export type FrozenInfluencerSummary = {
   amount: number;
   releasedAmount: number;
   pendingAmount: number;
+  status?: "allocated" | "partially_released" | "released" | string;
 };
 
 export type FrozenAmountResponse = {
   brandId: string;
   campaignId: string;
+
+  walletBalance: number;
+  frozenBalance: number;
 
   totalFrozenAmount: number;
   currentFrozenAmount: number;
@@ -2267,27 +2437,47 @@ export async function apiGetFrozenAmountForCampaign(params: {
   campaignId: string;
   influencerId?: string;
 }) {
-  return apiGet<FrozenAmountResponse>(`${WALLET_BASE}/freeze-amount`, params);
+  const brandId = String(params.brandId || "").trim();
+  const campaignId = String(params.campaignId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  if (!campaignId) {
+    throw new Error("campaignId is required");
+  }
+
+  return apiGet<FrozenAmountResponse>(`${WALLET_BASE}/freeze-amount`, {
+    brandId,
+    campaignId,
+    influencerId: params.influencerId,
+  });
 }
-
-
 
 export type WalletTopupHistoryPayload = {
   brandId: string;
 };
 
 export type WalletTopupItem = {
-  _id?: string;
-  amount?: number;
+  amount: number;
   currency?: string;
-  status?: string;
-  paymentId?: string;
-  orderId?: string;
-  transactionId?: string;
-  method?: string;
+  status?: "success" | "pending" | "failed" | string;
+  source?: "stripe" | "admin_manual" | string;
+
+  stripeSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
+  paymentIntentId?: string | null;
+
+  walletBalanceBefore?: number;
+  walletBalanceAfter?: number;
+
   note?: string;
+  addedByAdminId?: string | null;
+  addedByAdminEmail?: string | null;
+
   createdAt?: string;
-  updatedAt?: string;
+
   [key: string]: any;
 };
 
@@ -2305,10 +2495,96 @@ export async function apiGetWalletTopupHistory(
     throw new Error("brandId is required");
   }
 
-  return apiGet<WalletTopupHistoryResponse>(
-    `${WALLET_BASE}/topupHistory`,
-    { brandId }
-  );
+  return apiGet<WalletTopupHistoryResponse>(`${WALLET_BASE}/topupHistory`, {
+    brandId,
+  });
+}
+
+export type FreezeHistoryItem = {
+  brandId: string;
+  campaignId: string;
+  amount: number;
+
+  walletBalanceBefore: number;
+  walletBalanceAfter: number;
+
+  frozenBalanceBefore: number;
+  frozenBalanceAfter: number;
+
+  campaignFrozenBefore: number;
+  campaignFrozenAfter: number;
+
+  note?: string;
+  createdAt?: string;
+
+  [key: string]: any;
+};
+
+export type AllocationHistoryItem = {
+  brandId: string;
+  campaignId: string;
+  influencerId: string;
+  amount: number;
+
+  availableToAllocateBefore: number;
+  availableToAllocateAfter: number;
+
+  influencerAllocatedBefore: number;
+  influencerAllocatedAfter: number;
+
+  note?: string;
+  createdAt?: string;
+
+  [key: string]: any;
+};
+
+export type WithdrawHistoryItem = {
+  brandId: string;
+  amount: number;
+  currency?: string;
+  status?: "success" | "pending" | "failed" | string;
+  method?: "manual" | "bank" | "upi" | "stripe" | "razorpayx" | string;
+  transactionId?: string | null;
+
+  walletBalanceBefore?: number;
+  walletBalanceAfter?: number;
+
+  note?: string;
+  createdAt?: string;
+
+  [key: string]: any;
+};
+
+export type WalletTransactionItem = {
+  type: "topup" | "campaign_freeze" | "influencer_allocation" | "withdraw";
+  amount: number;
+  currency?: string;
+  status?: string;
+  campaignId?: string;
+  influencerId?: string;
+  createdAt?: string;
+  raw: any;
+};
+
+export type BrandWalletHistoryResponse = {
+  brandId: string;
+  topups: WalletTopupItem[];
+  freezeHistories: FreezeHistoryItem[];
+  allocationHistories: AllocationHistoryItem[];
+  withdrawHistories: WithdrawHistoryItem[];
+  transactions: WalletTransactionItem[];
+};
+
+export async function apiGetBrandWalletHistory(payload: { brandId: string }) {
+  const brandId = String(payload.brandId || "").trim();
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  return apiGet<BrandWalletHistoryResponse>(`${WALLET_BASE}/history`, {
+    brandId,
+  });
 }
 
 
