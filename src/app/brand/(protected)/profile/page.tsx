@@ -215,6 +215,24 @@ function featureValueLabel(feature: BrandFeature) {
   return "Included";
 }
 
+type WalletApiPayload = Partial<WalletData> & {
+  walletBalance?: number | null;
+  frozenBalance?: number | null;
+  usableBalance?: number | null;
+};
+
+function normalizeWalletData(data: WalletApiPayload): WalletData {
+  const walletBalance = Number(data?.walletBalance ?? 0);
+  const frozenBalance = Number(data?.frozenBalance ?? 0);
+
+  return {
+    walletBalance,
+    frozenBalance,
+    usableBalance: Number(data?.usableBalance ?? walletBalance - frozenBalance),
+    freezes: Array.isArray(data?.freezes) ? data.freezes : [],
+  };
+}
+
 function featureProgress(feature: BrandFeature) {
   const used = Number(feature?.used ?? 0);
   const limit = Number(feature?.limit ?? 0);
@@ -327,7 +345,7 @@ export default function BrandProfilePage() {
         ]);
 
         const profile = profileRes as BrandProfile;
-        const walletData: WalletData = walletRes;
+        const walletData = normalizeWalletData(walletRes as WalletApiPayload);
 
         setBrand(profile);
         setWallet(walletData);
