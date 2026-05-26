@@ -16,6 +16,7 @@ import {
   Telescope,
   UserCog,
   UsersRound,
+  Bug,
 } from "lucide-react";
 
 export type IconType = React.ElementType;
@@ -201,6 +202,12 @@ export const ADMIN_MODULES: AdminModule[] = [
     label: "Brand Intelligence Tool",
     href: "/admin/brand-details",
     icon: UserCog,
+  },
+    {
+   key: "error-logs",
+label: "Error Logs",
+    href: "/admin/error-log",
+    icon: Bug,
   },
   // {
   //   key: "settings",
