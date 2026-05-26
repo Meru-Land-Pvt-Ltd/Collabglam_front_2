@@ -636,7 +636,7 @@ export function ManualPreviewCard({
           ) : contract ? (
             <ContractActions contract={contract} />
           ) : (
-            <div className="flex items-center gap-3 shrink-0 cursor-pointer">
+            <div className="flex items-center gap-3 shrink-0">
               <Button variant="ghost" className="shadow-none hover:bg-white">
                 <BookmarkSimpleIcon />
                 <span>Save</span>

@@ -2455,14 +2455,30 @@ function CreateManualScreen({
 
           {previewOpen ? (
             <aside className="hidden lg:flex min-h-0 flex-col border border-neutral-200 bg-brand-50" style={{ width: effectivePreviewWidth }}>
-              <div className="shrink-0 flex items-center px-6 xl:px-10 pt-10 pb-4 gap-2">
+              <div className="shrink-0 flex items-center px-6 xl:px-10 pt-10 gap-2">
                 <div className="text-[20px] leading-[28px] font-semibold tracking-[0]" style={{ color: "var(--Text-Primary, #1A1A1A)" }}>
                   Card Preview
                 </div>
-                <Info size={20} className="text-black" />
+                <div className="relative group inline-flex cursor-pointer">
+                  <Info size={20} className="text-black" />
+
+                  <span
+                    className="absolute left-1/2 top-full mt-4 -translate-x-1/2
+    w-[280px] whitespace-normal break-words rounded-[14px] bg-[#171717]
+    px-8 py-7 text-center text-sm leading-snug text-white shadow-lg
+    opacity-0 invisible transition-all duration-200
+    group-hover:opacity-100 group-hover:visible z-50
+
+    after:content-[''] after:absolute after:left-1/2 after:bottom-full
+    after:-translate-x-1/2 after:border-[12px]
+    after:border-x-transparent after:border-t-transparent after:border-b-[#171717]"
+                  >
+                    Take a look at how your campaign card will appear to influencers
+                  </span>
+                </div>
               </div>
 
-              <div className="flex-1 min-h-0 pb-10 px-6 xl:px-10">
+              <div className="flex-1 pb-60 px-6 xl:px-10">
                 <ManualPreviewCardStack
                   form={previewForm as any}
                   meta={previewMeta}
@@ -2586,7 +2602,7 @@ export default function CreateCampaignPage() {
 
     (async () => {
       try {
-const res: any = await apiCampaignGetById2(editCampaignId);
+        const res: any = await apiCampaignGetById2(editCampaignId);
         if (cancelled) return;
 
         const doc = res?.data ?? res;

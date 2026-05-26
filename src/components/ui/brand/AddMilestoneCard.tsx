@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PencilSimpleLine } from "@phosphor-icons/react";
 import {
   AlertCircle,
   ChevronDown,
@@ -10,7 +9,6 @@ import {
   Paperclip,
   Plus,
   Trash2,
-  Wallet,
   X,
 } from "lucide-react";
 
@@ -25,7 +23,6 @@ import { toast, ToastStyles } from "@/components/ui/toast";
 import {
   apiCreateMilestone,
   apiEditMilestone,
-  apiBrandWalletTopup,
   getApiErrorMessage,
 } from "@/app/brand/services/brandApi";
 
@@ -50,13 +47,6 @@ type AddMilestoneCardProps = {
 
   source?: "brand" | "admin";
   adminId?: string;
-};
-
-type WalletShortfallState = {
-  needToAdd: number;
-  walletBalance?: number;
-  frozenBalance?: number;
-  usableBalance?: number;
 };
 
 type Option = {
@@ -135,11 +125,6 @@ const getPlatformIcon = (platform: string) => {
 
 const getOptionLabel = (options: Option[], value: string) => {
   return options.find((item) => item.value === value)?.label || value;
-};
-
-const safeMoney = (value: number) => {
-  if (!Number.isFinite(value)) return "0.00";
-  return value.toFixed(2);
 };
 
 const normalizeAttachmentForPayload = (item: any) => {
@@ -386,16 +371,16 @@ function DropdownShell({
 
       {open && typeof document !== "undefined"
         ? createPortal(
-          <div
-            ref={dropdownRef}
-            style={dropdownStyle}
-            className="overflow-hidden rounded-[0.75rem] border border-[#E6E6E6] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {children}
-          </div>,
-          document.body
-        )
+            <div
+              ref={dropdownRef}
+              style={dropdownStyle}
+              className="overflow-hidden rounded-[0.75rem] border border-[#E6E6E6] bg-white shadow-[0_16px_48px_rgba(0,0,0,0.14)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {children}
+            </div>,
+            document.body
+          )
         : null}
     </div>
   );
@@ -587,217 +572,6 @@ function QuantityStepper({
   );
 }
 
-function WalletTopupModal({
-  open,
-  onClose,
-  brandId,
-  campaignId,
-  defaultAmount,
-  walletInfo,
-  onSuccess,
-}: {
-  open: boolean;
-  onClose: () => void;
-  brandId: string;
-  campaignId: string;
-  defaultAmount: number;
-  walletInfo?: WalletShortfallState | null;
-  onSuccess?: (payload: {
-    brandId: string;
-    campaignId: string;
-    amount: number;
-    walletBalance?: number;
-    frozenBalance?: number;
-    usableBalance?: number;
-  }) => void;
-}) {
-  const [amount, setAmount] = useState(String(defaultAmount || ""));
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setAmount(String(defaultAmount || ""));
-      setSubmitting(false);
-    }
-  }, [open, defaultAmount]);
-
-  if (!open) return null;
-
-  const handleTopup = async () => {
-    try {
-      const amountNum = Number(amount);
-
-      if (!brandId) {
-        toast({
-          icon: "warning",
-          title: "Brand ID missing",
-          text: "Brand ID is required to add wallet balance.",
-        });
-        return;
-      }
-
-      if (!amount || Number.isNaN(amountNum) || amountNum <= 0) {
-        toast({
-          icon: "warning",
-          title: "Invalid amount",
-          text: "Please enter a valid top-up amount greater than 0.",
-        });
-        return;
-      }
-
-      setSubmitting(true);
-
-      const origin =
-        typeof window !== "undefined" ? window.location.origin : "";
-
-      const res = await apiBrandWalletTopup({
-        brandId,
-        campaignId,
-        amount: amountNum,
-        successUrl: `${origin}/brand/wallet/topup/success`,
-        cancelUrl: `${origin}/brand/wallet/topup/cancel`,
-      });
-
-      if (res.checkoutUrl) {
-        window.location.href = res.checkoutUrl;
-        return;
-      }
-
-      onSuccess?.({
-        brandId,
-        campaignId,
-        amount: amountNum,
-      });
-    } catch (err) {
-      toast({
-        icon: "error",
-        title: "Wallet top-up failed",
-        text: getApiErrorMessage(err, "Failed to top up wallet"),
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex h-screen items-center justify-end overflow-hidden bg-[rgba(1,1,1,0.30)] px-3 py-3"
-      onClick={() => {
-        if (!submitting) onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-[28rem] overflow-hidden rounded-2xl bg-white shadow-[0_24px_48px_rgba(0,0,0,0.18)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-[#EFEFEF] bg-[#FAFAFA] px-5 py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#111111] text-white">
-                <Wallet className="h-5 w-5" />
-              </div>
-
-              <div>
-                <h3 className="text-base font-semibold text-[#1A1A1A]">
-                  Add Wallet Balance
-                </h3>
-                <p className="mt-1 text-xs text-[#6F6F6F]">
-                  Add funds to continue milestone creation
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="rounded-md p-1 text-[#777777] transition hover:bg-[#F2F2F2] disabled:opacity-50"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-4 px-5 py-5">
-          <div className="rounded-xl border border-[#F1D7A8] bg-[#FFF8EB] px-4 py-3">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 h-4 w-4 text-[#B7791F]" />
-              <div className="text-sm text-[#7A5718]">
-                <div className="font-medium">
-                  Insufficient usable balance for milestone creation
-                </div>
-                <div className="mt-1">
-                  Minimum suggested top-up:{" "}
-                  <span className="font-semibold">
-                    ₹{safeMoney(Number(defaultAmount || 0))}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {walletInfo ? (
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
-                <div className="text-[11px] text-[#777777]">Wallet</div>
-                <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${safeMoney(Number(walletInfo.walletBalance || 0))}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
-                <div className="text-[11px] text-[#777777]">Frozen</div>
-                <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${safeMoney(Number(walletInfo.frozenBalance || 0))}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-[#ECECEC] bg-[#FAFAFA] px-3 py-3">
-                <div className="text-[11px] text-[#777777]">Usable</div>
-                <div className="mt-1 text-sm font-semibold text-[#1A1A1A]">
-                  ${safeMoney(Number(walletInfo.usableBalance || 0))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <FloatingInput
-            label="Top-up Amount *"
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setAmount(e.target.value)
-            }
-          />
-        </div>
-
-        <div className="flex flex-col-reverse gap-3 border-t border-[#EFEFEF] px-5 py-4 sm:flex-row sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={submitting}
-            className="h-10 rounded-lg px-4"
-          >
-            Cancel
-          </Button>
-
-          <Button
-            type="button"
-            onClick={handleTopup}
-            disabled={submitting}
-            className="h-10 rounded-lg bg-[#111111] px-5 text-white hover:bg-black disabled:opacity-60"
-          >
-            {submitting ? "Processing..." : "Add Wallet Balance"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function AddMilestoneCard({
   open,
   onClose,
@@ -840,17 +614,12 @@ export default function AddMilestoneCard({
   const [draftDate, setDraftDate] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
-  const [walletShortfall, setWalletShortfall] =
-    useState<WalletShortfallState | null>(null);
-
 
   const isEditMode = mode === "edit";
 
   const rawMilestoneData = milestoneData?.raw || milestoneData || {};
 
-  const isAccepted =
-    Number(rawMilestoneData?.isAccepted ?? 0) === 1;
+  const isAccepted = Number(rawMilestoneData?.isAccepted ?? 0) === 1;
 
   const payoutStatus = String(rawMilestoneData?.payoutStatus || "")
     .trim()
@@ -877,7 +646,7 @@ export default function AddMilestoneCard({
     if (!open) return;
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !submitting && !walletModalOpen) {
+      if (event.key === "Escape" && !submitting) {
         onClose();
       }
     };
@@ -889,7 +658,7 @@ export default function AddMilestoneCard({
       document.body.style.overflow = "";
       window.removeEventListener("keydown", handleEscape);
     };
-  }, [open, onClose, submitting, walletModalOpen]);
+  }, [open, onClose, submitting]);
 
   useEffect(() => {
     if (!open) {
@@ -912,8 +681,6 @@ export default function AddMilestoneCard({
       setNeedDraftFirst(false);
       setDraftDate("");
       setSubmitting(false);
-      setWalletModalOpen(false);
-      setWalletShortfall(null);
     }
   }, [open]);
 
@@ -936,13 +703,13 @@ export default function AddMilestoneCard({
 
     const mappedDeliverables = Array.isArray(raw?.deliverables)
       ? raw.deliverables.map((item: any) => ({
-        id: String(item?._id || item?.deliverableId || Date.now()),
-        name: item?.deliverableName || item?.name || "",
-        deliveries: Array.isArray(item?.deliveries) ? item.deliveries : [],
-        aspectRatio: item?.aspectRatio || "",
-        platforms: Array.isArray(item?.platforms) ? item.platforms : [],
-        quantity: Number(item?.quantity || 1),
-      }))
+          id: String(item?._id || item?.deliverableId || Date.now()),
+          name: item?.deliverableName || item?.name || "",
+          deliveries: Array.isArray(item?.deliveries) ? item.deliveries : [],
+          aspectRatio: item?.aspectRatio || "",
+          platforms: Array.isArray(item?.platforms) ? item.platforms : [],
+          quantity: Number(item?.quantity || 1),
+        }))
       : [];
 
     setDeliverables(mappedDeliverables);
@@ -1105,7 +872,6 @@ export default function AddMilestoneCard({
   };
 
   const validateForm = () => {
-
     if (isFormLocked) {
       toast({
         icon: "warning",
@@ -1114,6 +880,7 @@ export default function AddMilestoneCard({
       });
       return false;
     }
+
     if (!brandId) {
       toast({
         icon: "warning",
@@ -1266,11 +1033,6 @@ export default function AddMilestoneCard({
 
   const handleCreateMilestone = async () => {
     try {
-      if (walletShortfall) {
-        setWalletModalOpen(true);
-        return;
-      }
-
       if (!validateForm()) return;
 
       const milestoneBudgetNum = Number(milestoneBudget);
@@ -1300,7 +1062,6 @@ export default function AddMilestoneCard({
 
         deliverables: payloadDeliverables,
 
-        // Submission link is separate and optional.
         submissionLink: submissionLink.trim(),
 
         startDate,
@@ -1343,7 +1104,6 @@ export default function AddMilestoneCard({
         });
       }
 
-      setWalletShortfall(null);
       onSubmit?.();
       onClose();
     } catch (err: any) {
@@ -1351,21 +1111,6 @@ export default function AddMilestoneCard({
         err,
         isEditMode ? "Failed to update milestone" : "Failed to create milestone"
       );
-
-      const apiData = err?.response?.data || {};
-      const needToAdd = Number(apiData?.needToAdd || 0);
-
-      if (
-        typeof message === "string" &&
-        message.toLowerCase().includes("insufficient")
-      ) {
-        setWalletShortfall({
-          needToAdd,
-          walletBalance: Number(apiData?.walletBalance || 0),
-          frozenBalance: Number(apiData?.frozenBalance || 0),
-          usableBalance: Number(apiData?.usableBalance || 0),
-        });
-      }
 
       toast({
         icon: "error",
@@ -1375,23 +1120,6 @@ export default function AddMilestoneCard({
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleWalletTopupSuccess = (payload: {
-    brandId: string;
-    amount: number;
-    walletBalance?: number;
-    frozenBalance?: number;
-    usableBalance?: number;
-  }) => {
-    setWalletModalOpen(false);
-    setWalletShortfall(null);
-
-    toast({
-      icon: "success",
-      title: "Wallet balance added",
-      text: `₹${safeMoney(Number(payload.amount || 0))} was added. You can now create the milestone.`,
-    });
   };
 
   if (!open) return null;
@@ -1437,14 +1165,6 @@ export default function AddMilestoneCard({
             </div>
 
             <div className="flex h-8 shrink-0 items-center gap-2">
-              <button
-                type="button"
-                className="flex h-full items-center justify-center gap-2 rounded-xl px-2 font-['Inter'] text-xs font-medium leading-4 text-[#1A1A1A] transition hover:bg-[#F5F5F5]"
-              >
-                Edit
-                <PencilSimpleLine size={14} weight="regular" />
-              </button>
-
               <button
                 type="button"
                 aria-label="Close"
@@ -1763,16 +1483,6 @@ export default function AddMilestoneCard({
           </div>
         </div>
       </div>
-
-      <WalletTopupModal
-        open={walletModalOpen}
-        onClose={() => setWalletModalOpen(false)}
-        brandId={brandId}
-        campaignId={campaignId || ""}
-        defaultAmount={Number(walletShortfall?.needToAdd || 0)}
-        walletInfo={walletShortfall}
-        onSuccess={handleWalletTopupSuccess}
-      />
     </>
   );
 }

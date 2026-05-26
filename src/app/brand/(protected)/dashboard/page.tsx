@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { addDays, format } from "date-fns";
 import {
   ArrowLeft,
@@ -22,11 +23,18 @@ import {
   ArrowDownLeft,
 } from "@phosphor-icons/react";
 import { post, get } from "@/lib/api";
-import { apiGetMilestonesByBrand } from "../../services/brandApi";
-import PlatformReviewPrompt from "@/components/common/PlatformReviewPrompt";
+import {
+  apiGetMilestonesByBrand,
+  apiSetApplicantDecisionStatus,
+} from "../../services/brandApi";
 
-const FULLY_MANAGED_PLAN_ID = "1f46c6f6-63ae-4c4f-943d-798d644257f9";
-const FULLY_MANAGED_PLAN_NAME = "fully_managed";
+import SkeletonLoader, {
+  SkeletonProvider,
+  SkeletonCard,
+  SkeletonInboxList,
+} from "@/components/common/SkeletonLoader";
+
+import PlatformReviewPrompt from "@/components/common/PlatformReviewPrompt";
 
 /* ---------------- types ---------------- */
 
@@ -129,6 +137,8 @@ type WalletApiResponse = {
 
 type WalletTab = "used" | "available";
 
+type ApplicantDecisionField = "isShortlisted" | "isUndicided" | "isRejected";
+
 type InboxRow = {
   threadId: string;
   influencer: { influencerId: string | null; name: string };
@@ -172,6 +182,7 @@ type BrandCampaignsAppliedResponse = {
 
 type AppliedInfluencerRow = {
   id: string;
+  campaignId: string;
   influencerId: string;
   name: string;
   handle: string;
@@ -446,6 +457,79 @@ const isCampaignActive = (campaign: CampaignRow) => {
 
 /* ---------------- page ---------------- */
 
+const DashboardPageSkeleton = () => {
+  return (
+    <SkeletonProvider>
+      <div className="min-h-full w-full overflow-x-hidden bg-white">
+        <main className="flex w-full flex-col items-start gap-8 p-4 sm:p-6 lg:p-8">
+          <header className="flex w-full flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div className="flex w-full flex-col items-start gap-2 lg:w-[29rem] lg:shrink-0">
+              <SkeletonLoader className="h-7 w-64 rounded-md" />
+              <SkeletonLoader className="h-4 w-36 rounded-md" />
+            </div>
+
+            <div className="flex items-stretch gap-4 lg:ml-auto">
+              <SkeletonLoader className="h-10 w-32 rounded-xl" />
+              <SkeletonLoader className="h-10 w-40 rounded-xl" />
+            </div>
+          </header>
+
+          <section className="flex w-full flex-col gap-[1.19rem]">
+            <div className="flex w-full flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
+              <SkeletonLoader className="h-10 w-40 rounded-md" />
+
+              <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                <SkeletonLoader className="h-10 w-10 rounded-lg" />
+                <SkeletonLoader className="h-10 w-10 rounded-lg" />
+                <SkeletonLoader className="h-10 w-[11.5625rem] rounded-lg" />
+              </div>
+            </div>
+
+            <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="flex min-h-[10.625rem] w-full flex-col justify-between rounded-lg border border-[#E6E6E6] bg-white px-5 py-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <SkeletonLoader className="h-5 w-28 rounded-md" />
+                    <SkeletonLoader className="h-7 w-7 rounded-md" />
+                  </div>
+
+                  <div>
+                    <SkeletonLoader className="h-8 w-24 rounded-md" />
+                    <SkeletonLoader className="mt-2 h-4 w-32 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <SkeletonLoader key={index} className="h-[3.75rem] rounded-lg" />
+              ))}
+            </div>
+          </section>
+
+          <div className="grid w-full items-stretch gap-6 xl:grid-cols-12">
+            <div className="flex w-full min-w-0 flex-col gap-6 xl:col-span-8">
+              <SkeletonCard rows={4} />
+              <SkeletonCard rows={5} />
+            </div>
+
+            <div className="flex h-full w-full min-w-0 flex-col gap-6 xl:col-span-4">
+              <SkeletonCard rows={2} />
+              <SkeletonCard rows={5} tall />
+            </div>
+          </div>
+
+          <SkeletonCard rows={4} />
+        </main>
+      </div>
+    </SkeletonProvider>
+  );
+};
+
 export default function BrandDashboardHome() {
   const router = useRouter();
 
@@ -457,11 +541,11 @@ export default function BrandDashboardHome() {
   const [walletView, setWalletView] = useState<WalletTab>("used");
 
   const [fatalError, setFatalError] = useState<string | null>(null);
-  const [isFullyManaged, setIsFullyManaged] = useState(false);
 
   const [inbox, setInbox] = useState<InboxRow[]>([]);
   const [inboxLoading, setInboxLoading] = useState(false);
   const [inboxError, setInboxError] = useState<string | null>(null);
+  const [applicantDecisionLoading, setApplicantDecisionLoading] = useState<Record<string, boolean>>({});
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
@@ -513,15 +597,6 @@ export default function BrandDashboardHome() {
 
   useEffect(() => {
     const brandId = typeof window !== "undefined" ? localStorage.getItem("brandId") : null;
-
-    const storedPlanId = typeof window !== "undefined" ? localStorage.getItem("brandPlanId") : null;
-    const storedPlanName = typeof window !== "undefined" ? localStorage.getItem("brandPlanName") : null;
-
-    const fullyManaged =
-      (storedPlanId || "").trim() === FULLY_MANAGED_PLAN_ID ||
-      (storedPlanName || "").trim().toLowerCase() === FULLY_MANAGED_PLAN_NAME;
-
-    setIsFullyManaged(fullyManaged);
 
     const fetchWallet = async () => {
       if (!brandId) return;
@@ -594,7 +669,7 @@ export default function BrandDashboardHome() {
 
     (async () => {
       setInboxError(null);
-      setInboxLoading(!fullyManaged);
+      setInboxLoading(true);
 
       try {
         const dashRes = await post<BrandDashboardHomePayload>("/dash/brand", { brandId });
@@ -616,11 +691,6 @@ export default function BrandDashboardHome() {
         fetchBrandMilestones(),
         fetchPaymentHistory(),
       ]);
-      if (fullyManaged) {
-        setInbox([]);
-        setInboxLoading(false);
-        return;
-      }
 
       try {
         const inboxRes = await post<any>("/emails/brand/inbox", { brandId, limit: 25 });
@@ -651,13 +721,16 @@ export default function BrandDashboardHome() {
     const campaigns = brandAppliedData?.campaigns || [];
 
     return campaigns.flatMap((campaign) => {
+      const campaignId = campaign.campaignId || campaign.campaignsId || "";
+
       const campaignName =
         campaign.campaignTitle ||
         campaign.productOrServiceName ||
         "Campaign";
 
       return (campaign.appliedInfluencers || []).map((inf, index) => ({
-        id: `${campaign.campaignId}-${inf.influencerId}-${index}`,
+        id: `${campaignId}-${inf.influencerId}-${index}`,
+        campaignId,
         influencerId: inf.influencerId,
         name: inf.name || "Influencer",
         handle: inf.handle || "",
@@ -670,6 +743,58 @@ export default function BrandDashboardHome() {
       }));
     });
   }, [brandAppliedData?.campaigns]);
+
+  const handleApplicantDecision = async (
+    row: AppliedInfluencerRow,
+    field: ApplicantDecisionField
+  ) => {
+    const campaignId = row.campaignId?.trim();
+    const influencerId = row.influencerId?.trim();
+
+    if (!campaignId || !influencerId) return;
+
+    const loadingKey = `${campaignId}-${influencerId}`;
+
+    setApplicantDecisionLoading((prev) => ({
+      ...prev,
+      [loadingKey]: true,
+    }));
+
+    try {
+      const response = await apiSetApplicantDecisionStatus({
+        campaignId,
+        influencerId,
+        field,
+      });
+
+      const payload = unwrap<{ message?: string }>(response);
+
+      const successMessage =
+        payload?.message ||
+        (field === "isShortlisted"
+          ? "Influencer shortlisted successfully"
+          : field === "isUndicided"
+            ? "Influencer marked as undecided"
+            : "Influencer rejected successfully");
+
+      toast.success(successMessage);
+    } catch (err: any) {
+      console.error("Could not update applicant decision", err);
+
+      toast.error(
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        "Could not update applicant decision"
+      );
+    } finally {
+      setApplicantDecisionLoading((prev) => {
+        const next = { ...prev };
+        delete next[loadingKey];
+        return next;
+      });
+    }
+  };
 
   const campaignListRows = useMemo<CampaignListRow[]>(() => {
     return (data?.campaigns || []).map((campaign, index) => {
@@ -734,11 +859,7 @@ export default function BrandDashboardHome() {
   }
 
   if (!data) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p>Loading dashboard…</p>
-      </div>
-    );
+    return <DashboardPageSkeleton />;
   }
 
   const {
@@ -813,118 +934,121 @@ export default function BrandDashboardHome() {
   ];
 
   return (
-    <div className="min-h-full w-full overflow-x-hidden bg-white">
+    <SkeletonProvider>
+      <div className="min-h-full w-full overflow-x-hidden bg-white">
 
-      <main className="flex w-full flex-col items-start gap-8 p-4 sm:p-6 lg:p-8">
-        <PlatformReviewPrompt
-          role="brand"
-          brandId={data?.brandId}
-        />
-        <header className="flex w-full flex-col gap-4 lg:flex-row lg:items-stretch">
-          <div className="flex w-full flex-col items-start gap-1 lg:w-[29rem] lg:shrink-0">
-            <h1 className="font-inter text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0] text-[#1A1A1A]">
-              Hi {brandName || "Brand"}, welcome back
-            </h1>
+        <main className="flex w-full flex-col items-start gap-8 p-4 sm:p-6 lg:p-8">
+          <PlatformReviewPrompt
+            role="brand"
+            brandId={data?.brandId}
+          />
+          <header className="flex w-full flex-col gap-4 lg:flex-row lg:items-stretch">
+            <div className="flex w-full flex-col items-start gap-1 lg:w-[29rem] lg:shrink-0">
+              <h1 className="font-inter text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0] text-[#1A1A1A]">
+                Hi {brandName || "Brand"}, welcome back
+              </h1>
 
-            <p className="font-inter text-[0.75rem] font-medium leading-4 text-[#969696]">
-              {todayLabel}
-            </p>
-          </div>
+              <p className="font-inter text-[0.75rem] font-medium leading-4 text-[#969696]">
+                {todayLabel}
+              </p>
+            </div>
 
-          <div className="flex items-stretch gap-4 lg:ml-auto">
-            <button
-              type="button"
-              className="flex items-center justify-center gap-1 rounded-[0.75rem] px-2 text-center font-inter text-[0.75rem] font-medium leading-4 text-[#3A3A3A] transition hover:bg-[#F7F7F7]"
-            >
-              <Gift size={14} weight="bold" />
-              <span>New Updates</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => router.push("/brand/create-campaign")}
-              className="flex items-center justify-center gap-1 rounded-[0.75rem] bg-[#1A1A1A] px-3 text-center font-inter text-[0.75rem] font-medium leading-4 text-white transition hover:bg-black"
-            >
-              <Plus size={14} weight="bold" />
-              <span>Create Campaign</span>
-            </button>
-          </div>
-        </header>
-
-        <section className="flex w-full flex-col gap-[1.19rem]">
-          <div className="flex w-full flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
-            <h2 className="font-inter text-[2rem] font-semibold leading-[2.5rem] tracking-[-0.0625rem] text-[#1A1A1A]">
-              Overview
-            </h2>
-
-            <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
-              <button
+            <div className="flex items-stretch gap-4 lg:ml-auto">
+              {/* <button
                 type="button"
-                onClick={() => setSelectedDate((prev) => addDays(prev, -1))}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white transition hover:bg-[#F7F7F7]"
-                aria-label="Previous date"
+                className="flex items-center justify-center gap-1 rounded-[0.75rem] px-2 text-center font-inter text-[0.75rem] font-medium leading-4 text-[#3A3A3A] transition hover:bg-[#F7F7F7]"
               >
-                <ArrowLeft size={16} weight="bold" />
-              </button>
+                <Gift size={14} weight="bold" />
+                <span>New Updates</span>
+              </button> */}
 
               <button
                 type="button"
-                onClick={() => setSelectedDate((prev) => addDays(prev, 1))}
-                className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white transition hover:bg-[#F7F7F7]"
-                aria-label="Next date"
+                onClick={() => router.push("/brand/create-campaign")}
+                className="flex items-center justify-center gap-1 rounded-[0.75rem] bg-[#1A1A1A] px-3 text-center font-inter text-[0.75rem] font-medium leading-4 text-white transition hover:bg-black"
               >
-                <ArrowRight size={16} weight="bold" />
-              </button>
-
-              <button
-                type="button"
-                className="flex h-10 w-[11.5625rem] shrink-0 items-center justify-between rounded-lg border border-[#E6E6E6] bg-white px-3 font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] lg:ml-2"
-              >
-                <span>{selectedDateLabel}</span>
-                <CalendarDots size={16} weight="bold" />
+                <Plus size={14} weight="bold" />
+                <span>Create Campaign</span>
               </button>
             </div>
-          </div>
+          </header>
 
-          <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {dashboardCards.map((card) => (
-              <DashboardMetricCard key={card.title} {...card} />
-            ))}
-          </div>
+          <section className="flex w-full flex-col gap-[1.19rem]">
+            <div className="flex w-full flex-col gap-4 py-2 lg:flex-row lg:items-center lg:justify-between">
+              <h2 className="font-inter text-[2rem] font-semibold leading-[2.5rem] tracking-[-0.0625rem] text-[#1A1A1A]">
+                Overview
+              </h2>
 
-          <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {quickActions.map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                onClick={action.onClick}
-                className="flex h-[3.75rem] items-center justify-between rounded-lg border border-[#E6E6E6] bg-white px-5 transition hover:bg-[#F7F7F7]"
-              >
-                <span className="flex items-center gap-2 font-inter text-[1rem] font-medium leading-6 text-[#1A1A1A]">
-                  {action.icon}
-                  {action.label}
-                </span>
+              {/* <div className="flex flex-wrap items-center gap-2 lg:ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate((prev) => addDays(prev, -1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white transition hover:bg-[#F7F7F7]"
+                  aria-label="Previous date"
+                >
+                  <ArrowLeft size={16} weight="bold" />
+                </button>
 
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E6E6E6]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate((prev) => addDays(prev, 1))}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white transition hover:bg-[#F7F7F7]"
+                  aria-label="Next date"
+                >
                   <ArrowRight size={16} weight="bold" />
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
+                </button>
 
-        <div className="grid w-full items-stretch gap-6 xl:grid-cols-12">
-          <div className="flex w-full min-w-0 flex-col gap-6 xl:col-span-8">
-            <AppliedInfluencerSection rows={appliedInfluencers} />
+                <button
+                  type="button"
+                  className="flex h-10 w-[11.5625rem] shrink-0 items-center justify-between rounded-lg border border-[#E6E6E6] bg-white px-3 font-inter text-[0.75rem] font-medium leading-4 text-[#1A1A1A] lg:ml-2"
+                >
+                  <span>{selectedDateLabel}</span>
+                  <CalendarDots size={16} weight="bold" />
+                </button>
+              </div> */}
+            </div>
 
-            <CampaignListSection
-              campaigns={campaignListRows}
-              onViewAll={() => router.push("/brand/campaign/all")}
-              onOpenCampaign={(id) => router.push(`/brand/campaign/view-campaign?id=${id}`)}
-            />
-          </div>
+            <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              {dashboardCards.map((card) => (
+                <DashboardMetricCard key={card.title} {...card} />
+              ))}
+            </div>
 
-          {!isFullyManaged && (
+            <div className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              {quickActions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={action.onClick}
+                  className="flex h-[3.75rem] items-center justify-between rounded-lg border border-[#E6E6E6] bg-white px-5 transition hover:bg-[#F7F7F7]"
+                >
+                  <span className="flex items-center gap-2 font-inter text-[1rem] font-medium leading-6 text-[#1A1A1A]">
+                    {action.icon}
+                    {action.label}
+                  </span>
+
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#E6E6E6]">
+                    <ArrowRight size={16} weight="bold" />
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <div className="grid w-full items-stretch gap-6 xl:grid-cols-12">
+            <div className="flex w-full min-w-0 flex-col gap-6 xl:col-span-8">
+              <AppliedInfluencerSection
+                rows={appliedInfluencers}
+                onDecision={handleApplicantDecision}
+                decisionLoadingMap={applicantDecisionLoading}
+              />
+
+              <CampaignListSection
+                campaigns={campaignListRows}
+                onViewAll={() => router.push("/brand/campaign/all")}
+                onOpenCampaign={(id) => router.push(`/brand/campaign/view-campaign?id=${id}`)}
+              />
+            </div>
             <div className="flex h-full w-full min-w-0 flex-col gap-6 xl:col-span-4">
               <ReleaseMilestoneSection rows={releaseMilestones} />
 
@@ -936,12 +1060,12 @@ export default function BrandDashboardHome() {
                 onOpenThread={(threadId) => router.push(`/brand/inbox/${threadId}`)}
               />
             </div>
-          )}
-        </div>
+          </div>
 
-        <PaymentHistorySection rows={paymentHistoryRows} />
-      </main>
-    </div>
+          <PaymentHistorySection rows={paymentHistoryRows} />
+        </main>
+      </div>
+    </SkeletonProvider>
   );
 }
 
@@ -1067,7 +1191,15 @@ const DashboardMetricCard = ({
   );
 };
 
-const AppliedInfluencerSection = ({ rows }: { rows: AppliedInfluencerRow[] }) => {
+const AppliedInfluencerSection = ({
+  rows,
+  onDecision,
+  decisionLoadingMap,
+}: {
+  rows: AppliedInfluencerRow[];
+  onDecision: (row: AppliedInfluencerRow, field: ApplicantDecisionField) => void;
+  decisionLoadingMap: Record<string, boolean>;
+}) => {
   return (
     <section className="flex w-full min-w-0 rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3 pr-1">
       <div className="flex w-full min-w-0 flex-col gap-6">
@@ -1092,7 +1224,14 @@ const AppliedInfluencerSection = ({ rows }: { rows: AppliedInfluencerRow[] }) =>
           ) : (
             <div className="flex w-full flex-col">
               {rows.map((row) => (
-                <AppliedInfluencerItem key={row.id} row={row} />
+                <AppliedInfluencerItem
+                  key={row.id}
+                  row={row}
+                  onDecision={onDecision}
+                  isDecisionLoading={Boolean(
+                    decisionLoadingMap[`${row.campaignId}-${row.influencerId}`]
+                  )}
+                />
               ))}
             </div>
           )}
@@ -1102,7 +1241,15 @@ const AppliedInfluencerSection = ({ rows }: { rows: AppliedInfluencerRow[] }) =>
   );
 };
 
-const AppliedInfluencerItem = ({ row }: { row: AppliedInfluencerRow }) => {
+const AppliedInfluencerItem = ({
+  row,
+  onDecision,
+  isDecisionLoading,
+}: {
+  row: AppliedInfluencerRow;
+  onDecision: (row: AppliedInfluencerRow, field: ApplicantDecisionField) => void;
+  isDecisionLoading: boolean;
+}) => {
   const platformIcon = getPlatformIconSrc(row.primaryPlatform);
 
   return (
@@ -1163,7 +1310,9 @@ const AppliedInfluencerItem = ({ row }: { row: AppliedInfluencerRow }) => {
         <div className="ml-auto flex h-10 shrink-0 items-stretch lg:ml-20">
           <button
             type="button"
-            className="flex w-10 items-center justify-center rounded-l-lg border-y border-l border-[#D6D6D6] text-[#1A1A1A]"
+            onClick={() => onDecision(row, "isRejected")}
+            disabled={isDecisionLoading}
+            className="flex w-10 items-center justify-center rounded-l-lg border-y border-l border-[#D6D6D6] text-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             aria-label="Reject"
           >
             <X size={24} weight="regular" />
@@ -1171,16 +1320,20 @@ const AppliedInfluencerItem = ({ row }: { row: AppliedInfluencerRow }) => {
 
           <button
             type="button"
-            className="flex w-10 items-center justify-center border border-[#D6D6D6] text-[#1A1A1A]"
-            aria-label="Question"
+            onClick={() => onDecision(row, "isUndicided")}
+            disabled={isDecisionLoading}
+            className="flex w-10 items-center justify-center border border-[#D6D6D6] text-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Mark undecided"
           >
-            <span className="font-inter text-[1.5rem] font-normal leading-none">?</span>
+            <span className="font-inter text-[1.5rem] font-normal leading-none cursor-pointer">?</span>
           </button>
 
           <button
             type="button"
-            className="flex w-10 items-center justify-center rounded-r-lg border-y border-r border-[#D6D6D6] text-[#1A1A1A]"
-            aria-label="Approve"
+            onClick={() => onDecision(row, "isShortlisted")}
+            disabled={isDecisionLoading}
+            className="flex w-10 items-center justify-center rounded-r-lg border-y border-r border-[#D6D6D6] text-[#1A1A1A] disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            aria-label="Shortlist"
           >
             <Check size={24} weight="regular" />
           </button>
@@ -1292,9 +1445,7 @@ const DashboardInboxSection = ({
 
         <div className={`${dashboardScrollbarClass} min-h-0 w-full flex-1`}>
           {loading ? (
-            <div className="py-4 font-inter text-[0.75rem] text-[#969696]">
-              Loading inbox…
-            </div>
+            <SkeletonInboxList rows={5} />
           ) : error ? (
             <div className="py-4 font-inter text-[0.75rem] text-[#969696]">
               {error}
@@ -1390,11 +1541,18 @@ const CampaignListSection = ({
           ) : (
             <div className="flex w-full flex-col">
               {campaigns.map((campaign) => (
-                <button
+                <div
                   key={campaign.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onOpenCampaign(campaign.id)}
-                  className="flex w-full min-w-0 flex-col gap-3 border-b border-[#E6E6E6] py-3 text-left last:border-b-0 xl:flex-row xl:items-center xl:justify-between"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onOpenCampaign(campaign.id);
+                    }
+                  }}
+                  className="flex w-full min-w-0 cursor-pointer flex-col gap-3 border-b border-[#E6E6E6] py-3 text-left last:border-b-0 xl:flex-row xl:items-center xl:justify-between"
                 >
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <AvatarBox name={campaign.title} sizeClass="h-10 w-10" darkFallback />
@@ -1438,7 +1596,7 @@ const CampaignListSection = ({
                       <ActiveInfluencerAvatarStack influencers={campaign.activeInfluencers} />
                     </div>
 
-                    <button
+                    {/* <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1447,9 +1605,9 @@ const CampaignListSection = ({
                       aria-label="More options"
                     >
                       <DotsThree size={22} weight="bold" />
-                    </button>
+                    </button> */}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -1490,7 +1648,7 @@ const ActiveInfluencerAvatarStack = ({
   if (!influencers.length) {
     return (
       <span className="flex h-7 min-w-7 items-center justify-center rounded-full border-2 border-white bg-[#F9F9F9] px-2 font-inter text-[0.625rem] font-semibold text-[#969696] ring-1 ring-[#E6E6E6]">
-        N/A
+        -
       </span>
     );
   }

@@ -340,18 +340,58 @@ export default function BrandCampaignCard({
   return (
     <div
       data-emc-brand-card
-      className={cx("relative w-full max-w-[513px] min-w-0", className)}
+      className={cx("relative w-full max-w-[713px] min-w-0", className)}
     >
       {fullyManagedBadge ? (
-        <div className="pointer-events-none absolute right-[10px] top-[-12px] z-30">
-          <span
-            title={fullyManagedBadge.label}
-            className={cx(
-              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.73rem] font-medium leading-none",
-              "border-[#8F6B00] bg-[#B8860B] text-white"
-            )}
+        <div
+          className="pointer-events-none absolute right-0 top-0 z-30"
+          style={{
+            width: "8.0625rem",
+            height: "1.75rem",
+            borderTopRightRadius: "1rem", // matches card border-radius
+            overflow: "hidden",           // clips SVG to the rounded corner
+          }}
+          title={fullyManagedBadge.label}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="100%"
+            height="100%"
+            viewBox="0 0 129 28"
+            fill="none"
+            preserveAspectRatio="none"
+            className="absolute inset-0"
           >
-            <span className="h-2 w-2 rounded-full bg-[#F7B500]" />
+            <path
+              d="M0 0H129V28H30.2208C25.3805 28 20.8004 25.8089 17.763 22.0402L0 0Z"
+              fill="url(#fullyManagedGradient)"
+            />
+            <defs>
+              <linearGradient
+                id="fullyManagedGradient"
+                x1="9.7806e-08"
+                y1="2.09762"
+                x2="132.587"
+                y2="44.4907"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop stopColor="#F4D373" stopOpacity="0" />
+                <stop offset="0.112416" stopColor="#F4D373" />
+                <stop offset="0.822908" stopColor="#7A501A" />
+              </linearGradient>
+            </defs>
+          </svg>
+
+          <span
+            className="absolute inset-0 flex items-center justify-center text-white"
+            style={{
+              fontFamily: "Inter, sans-serif",
+              fontSize: "0.75rem",
+              fontWeight: 500,
+              lineHeight: "1rem",
+              paddingLeft: "1.5rem",
+            }}
+          >
             {fullyManagedBadge.label}
           </span>
         </div>
@@ -376,7 +416,8 @@ export default function BrandCampaignCard({
 
       <div
         className={cx(
-          "relative flex w-full min-w-0 flex-col overflow-hidden rounded-[1rem] border border-bd-primary bg-card text-card-foreground",
+          "relative flex w-full min-w-0 flex-col overflow-hidden rounded-[1rem] border bg-card text-card-foreground",
+          fullyManagedBadge ? "border-[#B8860B]" : "border-bd-primary",
           "min-h-[19.375rem]"
         )}
       >
