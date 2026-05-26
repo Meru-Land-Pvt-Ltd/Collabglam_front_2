@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CaretDown, CaretUp, CopySimple, Check } from "@phosphor-icons/react";
 import { toast, ToastStyles } from "@/components/ui/toast";
@@ -1732,7 +1732,9 @@ export default function MilestoneAndDeliverablesTab({
     const [releasingMilestoneIds, setReleasingMilestoneIds] = useState<
         Record<string, boolean>
     >({});
+
     const [campaignFeedbackOpen, setCampaignFeedbackOpen] = useState(false);
+    const campaignFeedbackSubmittedRef = useRef(false);
 
     const resolvedCampaignId =
         searchParams.get("campaignId") ||
@@ -1764,6 +1766,18 @@ export default function MilestoneAndDeliverablesTab({
         (view as any)?.raw?.contractId ||
         (view as any)?.contractId ||
         "";
+
+    const getCampaignFeedbackPayload = () => {
+        if (!resolvedCampaignId || !resolvedBrandId || !resolvedInfluencerId) {
+            return null;
+        }
+
+        return {
+            campaignId: resolvedCampaignId,
+            brandId: resolvedBrandId,
+            influencerId: resolvedInfluencerId,
+        };
+    };
 
     useEffect(() => {
         if (!resolvedContractId) {
@@ -2279,22 +2293,43 @@ export default function MilestoneAndDeliverablesTab({
     };
 
     const shouldOpenCampaignFeedbackAfterRelease = async () => {
-        if (!resolvedCampaignId || !resolvedBrandId || !resolvedInfluencerId) {
+        const payload = getCampaignFeedbackPayload();
+
+        if (!payload) {
             return false;
         }
 
         try {
-            const res = await post<any>("/campaign-reviews/brand/prompt-state", {
-                campaignId: resolvedCampaignId,
-                brandId: resolvedBrandId,
-                influencerId: resolvedInfluencerId,
-            });
-
+            const res = await post<any>("/campaign-reviews/brand/prompt-state", payload);
             const result = res?.data ?? res;
 
             return Boolean(result?.data?.shouldPrompt ?? result?.shouldPrompt);
         } catch {
             return false;
+        }
+    };
+
+    const handleCloseCampaignFeedback = async () => {
+        setCampaignFeedbackOpen(false);
+
+        if (campaignFeedbackSubmittedRef.current) {
+            campaignFeedbackSubmittedRef.current = false;
+            return;
+        }
+
+        const payload = getCampaignFeedbackPayload();
+
+        if (!payload) {
+            return;
+        }
+
+        try {
+            await post<any>("/campaign-reviews/brand/skip", {
+                ...payload,
+                skipReason: "closed_without_submit",
+            });
+        } catch (err) {
+            console.error("Failed to mark campaign feedback skipped", err);
         }
     };
 
@@ -2383,6 +2418,7 @@ export default function MilestoneAndDeliverablesTab({
                 const shouldOpenFeedback = await shouldOpenCampaignFeedbackAfterRelease();
 
                 if (shouldOpenFeedback) {
+                    campaignFeedbackSubmittedRef.current = false;
                     setCampaignFeedbackOpen(true);
                 }
             }
@@ -2678,13 +2714,14 @@ export default function MilestoneAndDeliverablesTab({
 
             <CampaignFeedbackModal
                 open={campaignFeedbackOpen}
-                onClose={() => setCampaignFeedbackOpen(false)}
+                onClose={handleCloseCampaignFeedback}
                 campaignId={resolvedCampaignId || ""}
                 brandId={resolvedBrandId || ""}
                 influencerId={resolvedInfluencerId || ""}
                 influencerName={resolvedInfluencerName || "the creator"}
                 campaignName={resolvedCampaignName || "the campaign"}
                 onSubmitted={() => {
+                    campaignFeedbackSubmittedRef.current = true;
                     setCampaignFeedbackOpen(false);
 
                     toast({

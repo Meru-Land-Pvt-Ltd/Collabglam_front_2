@@ -95,13 +95,22 @@ function getCrumbs(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
 
   let href = "";
-  return segments.map((seg) => {
+  const crumbs: { href: string; label: string }[] = [];
+
+  segments.forEach((seg) => {
     href += `/${seg}`;
+
+    if (seg === "brand") return;
 
     const decoded = safeDecodeURIComponent(seg);
 
-    return { href, label: LABELS[seg] ?? LABELS[decoded] ?? titleize(decoded) };
+    crumbs.push({
+      href,
+      label: LABELS[seg] ?? LABELS[decoded] ?? titleize(decoded),
+    });
   });
+
+  return crumbs;
 }
 
 function safeDecodeURIComponent(v: string) {

@@ -106,6 +106,7 @@ type Props = {
   reportId?: string;
   shareToken?: string;
   isShareableView?: boolean;
+  isBrandMode?: boolean;
 };
 
 const FALLBACK_REPORT_NAME = "youtube-insight";
@@ -705,11 +706,13 @@ function HeaderProfile({
   reportId,
   shareToken,
   isShareableView = false,
+  isBrandMode = false,
 }: {
   report: ReportData;
   reportId?: string;
   shareToken?: string;
   isShareableView?: boolean;
+  isBrandMode?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -806,9 +809,18 @@ function HeaderProfile({
           <StatusPill label={String(report.reportStatus || "Published")} tone="success" />
 
           <div data-pdf-exclude="true" className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={handleDownload} disabled={downloading} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-              <Download className="h-4 w-4" /> {downloading ? "Preparing PDF..." : "Download PDF"}
-            </button>
+
+            {!isBrandMode ? (
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={downloading}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" /> {downloading ? "Preparing PDF..." : "Download PDF"}
+              </button>
+            ) : null}
+
             {!isShareableView ? (
               <button
                 type="button"
@@ -1684,6 +1696,7 @@ export default function YoutubeInsightReport({
   reportId,
   shareToken,
   isShareableView = false,
+  isBrandMode = false,
 }: Props): React.ReactElement {
   const report = useMemo(() => normalizeReport({ apiResponse, report: reportProp }), [apiResponse, reportProp]);
   if (isLoading) return <FullPageSkeleton />;
@@ -1695,6 +1708,7 @@ export default function YoutubeInsightReport({
         reportId={reportId || report.reportId}
         shareToken={shareToken}
         isShareableView={isShareableView}
+        isBrandMode={isBrandMode}
       />
 
       <div className="mx-auto max-w-7xl px-6 py-8">

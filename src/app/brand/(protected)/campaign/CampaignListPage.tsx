@@ -361,31 +361,29 @@ function getCampaignEditHref(c: any, campaignId: string, campaignTitle?: string)
 
 function campaignFooterText(c: any) {
   const status = String(c?.status ?? "").trim().toLowerCase();
-  const scheduleIn = c?.scheduleIn;
 
   if (status === "completed" || status === "complete") {
     return "Campaign Completed";
   }
 
-  if (status === "scheduled" && scheduleIn) {
-    const unit = String(scheduleIn?.unit ?? "").toLowerCase();
-    const value = Number(scheduleIn?.value ?? 0);
-    const text = String(scheduleIn?.text ?? "").trim();
+  if (status === "scheduled") {
+    const scheduledAtRaw = c?.scheduledAt;
+    const scheduledAt = scheduledAtRaw ? new Date(scheduledAtRaw) : null;
 
-    if (text) {
-      if (unit === "seconds") return text;
-      if (unit === "minutes") return text;
-      if (unit === "hours" && value < 24) return text;
-      if (unit === "days") return text;
-    }
+    if (scheduledAt && !Number.isNaN(scheduledAt.getTime())) {
+      const diffMs = scheduledAt.getTime() - Date.now();
 
-    if (Number.isFinite(value)) {
-      if (unit === "seconds") return `${value}s left`;
-      if (unit === "minutes") return `${value}m left`;
-      if (unit === "hours") {
-        return value < 24 ? `${value}h left` : `${Math.ceil(value / 24)}d left`;
+      if (diffMs <= 0) {
+        return "Publishing soon";
       }
-      if (unit === "days") return `${value}d left`;
+
+      const minutes = Math.ceil(diffMs / 60000);
+      const hours = Math.ceil(diffMs / 3600000);
+      const days = Math.ceil(diffMs / 86400000);
+
+      if (minutes < 60) return `${minutes}m left`;
+      if (hours < 24) return `${hours}h left`;
+      return `${days}d left`;
     }
   }
 
