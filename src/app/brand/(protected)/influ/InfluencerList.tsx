@@ -91,6 +91,52 @@ export type PaymentType = (typeof PAYMENT_TYPE)[keyof typeof PAYMENT_TYPE];
 
 type PanelMode = "send" | "edit" | "bulk-send";
 
+type CampaignFeedbackPayload = {
+  campaignId: string;
+  brandId: string;
+  influencerId: string;
+};
+
+type CampaignFeedbackPromptState = {
+  shouldPrompt?: boolean;
+  showSendFeedbackButton?: boolean;
+  canManualSubmit?: boolean;
+  reason?: string;
+  nextPromptAt?: string | null;
+  status?: string;
+  review?: {
+    status?: string;
+    skippedAt?: string | null;
+    submittedAt?: string | null;
+  } | null;
+};
+
+function shouldShowCampaignFeedbackButton(state: CampaignFeedbackPromptState) {
+  const reason = String(state?.reason || "").trim().toLowerCase();
+  const status = String(state?.review?.status || state?.status || "")
+    .trim()
+    .toLowerCase();
+
+  if (reason === "review_already_submitted" || status === "submitted") {
+    return false;
+  }
+
+  if (
+    reason === "review_already_skipped" ||
+    reason === "review_skipped_until" ||
+    reason === "review_skip_window_expired" ||
+    status === "skipped"
+  ) {
+    return true;
+  }
+
+  if (state?.showSendFeedbackButton === true) {
+    return true;
+  }
+
+  return false;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CONTRACT_STATUS = {
@@ -1757,7 +1803,7 @@ export default function InfluencerList() {
   }, []);
 
   const buildCampaignFeedbackPayload = useCallback(
-    (row: InfluencerRow) => {
+    (row: InfluencerRow): CampaignFeedbackPayload | null => {
       const influencerId = getRowInfluencerId(row);
 
       if (!campaignId || !brandId || !influencerId) return null;
@@ -1785,8 +1831,9 @@ export default function InfluencerList() {
       try {
         const res = await post<any>("/campaign-reviews/brand/prompt-state", payload);
         const result = res?.data ?? res;
+        const state = (result?.data ?? result ?? {}) as CampaignFeedbackPromptState;
 
-        return Boolean(result?.data?.shouldPrompt ?? result?.shouldPrompt);
+        return shouldShowCampaignFeedbackButton(state);
       } catch {
         return false;
       }
@@ -1803,8 +1850,8 @@ export default function InfluencerList() {
       if (!shouldPrompt) {
         toast({
           icon: "info",
-          title: "Feedback already submitted",
-          text: "Campaign feedback has already been submitted for this influencer.",
+          title: "Feedback not available yet",
+          text: "Send Feedback will appear after the first feedback prompt is closed or skipped.",
         });
         setCampaignFeedbackPromptMap((prev) => ({ ...prev, [row.id]: false }));
         return;
@@ -2013,7 +2060,7 @@ export default function InfluencerList() {
         setSortValue={setSortValue}
       />
 
-<div className="mt-[3.5rem] px-3 pb-[2.5rem] md:px-[2rem]">
+      <div className="mt-[3.5rem] px-3 pb-[2.5rem] md:px-[2rem]">
         <div className="overflow-visible rounded-[0.75rem] bg-white">
           {loading ? (
             <div className="p-6 text-sm text-gray-600">Loading influencers...</div>

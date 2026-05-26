@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, RefreshCw, Youtube } from "lucide-react";
 import YoutubeInsightReport from "@/components/common/YoutubeInsightReport";
 
@@ -62,6 +62,7 @@ function getErrorMessage(value: unknown, fallback: string): string {
 
 export default function YoutubeInsightReportPage(): React.ReactElement {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const reportIdFromUrl = useMemo(
@@ -74,6 +75,21 @@ export default function YoutubeInsightReportPage(): React.ReactElement {
   );
 
   const isShareableView = Boolean(shareTokenFromUrl);
+
+  const brandModeFromUrl = useMemo(() => {
+    const mode = String(
+      searchParams.get("brandMode") ||
+      searchParams.get("mode") ||
+      ""
+    )
+      .trim()
+      .toLowerCase();
+
+    return mode === "brand" || mode === "true" || mode === "1";
+  }, [searchParams]);
+
+  const isBrandMode =
+    Boolean(pathname?.startsWith("/brand/")) || brandModeFromUrl;
 
   const [report, setReport] = useState<ReportObject | null>(null);
   const [reportId, setReportId] = useState<string>(reportIdFromUrl);
@@ -129,6 +145,46 @@ export default function YoutubeInsightReportPage(): React.ReactElement {
         if (!extractedReport) throw new Error("Report data is missing from backend response.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong while loading the report.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [saveReport]
+  );
+
+  const refreshReportById = useCallback(
+    async (id: string): Promise<void> => {
+      if (!id) return;
+
+      try {
+        setRefreshing(true);
+        setError("");
+
+        const token = getStoredToken();
+
+        const response = await fetch(apiPath(`/youtube-insights/${id}/refresh`), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+
+        const result = (await response.json()) as ApiEnvelope;
+
+        if (!response.ok || result.success === false) {
+          throw new Error(result.message || "Failed to refresh YouTube insight report.");
+        }
+
+        sessionStorage.removeItem(REPORT_STORAGE_KEY);
+
+        const extractedReport = saveReport(result.data);
+        if (!extractedReport) {
+          throw new Error("Refreshed report data is missing from backend response.");
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Something went wrong while refreshing the report.");
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -233,8 +289,7 @@ export default function YoutubeInsightReportPage(): React.ReactElement {
       setError("Report ID is not available. Please analyze the video again.");
       return;
     }
-
-    void fetchReportById(reportId, { silent: true });
+    void refreshReportById(reportId);
   };
 
   if (loading) {
@@ -301,6 +356,7 @@ export default function YoutubeInsightReportPage(): React.ReactElement {
         reportId={reportId}
         shareToken={shareTokenFromUrl}
         isShareableView={isShareableView}
+        isBrandMode={isBrandMode}
       />
     </main>
   );
