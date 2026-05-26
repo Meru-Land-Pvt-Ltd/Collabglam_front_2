@@ -983,20 +983,24 @@ export default function CampaignListPage({
 
     const goToInfluencers = () => {
       if (locked) return;
-      if (typeof window !== "undefined") {
-        window.location.href = `/brand/influ/active?campaignId=${encodeURIComponent(
-          campaignId
-        )}`;
-      }
+      if (typeof window === "undefined") return;
+
+      const href = fullyManaged
+        ? `/brand/influ/active?campaignId=${encodeURIComponent(campaignId)}&fm=1`
+        : `/brand/influ/active?campaignId=${encodeURIComponent(campaignId)}`;
+
+      window.location.href = href;
     };
 
     const goToApplied = () => {
       if (locked) return;
-      if (typeof window !== "undefined") {
-        window.location.href = `/brand/influ/applied?campaignId=${encodeURIComponent(
-          campaignId
-        )}`;
-      }
+      if (typeof window === "undefined") return;
+
+      const href = fullyManaged
+        ? `/brand/influ/active?campaignId=${encodeURIComponent(campaignId)}&fm=1`
+        : `/brand/influ/applied?campaignId=${encodeURIComponent(campaignId)}`;
+
+      window.location.href = href;
     };
 
     const handleView = () => {

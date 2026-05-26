@@ -1042,6 +1042,24 @@ export default function InfluencerList() {
     return String(q1 ?? q2 ?? "").trim();
   }, [searchParams]);
 
+  const isFullyManagedMode = useMemo(() => {
+  return searchParams.get("fm") === "1";
+}, [searchParams]);
+
+useEffect(() => {
+  if (!isFullyManagedMode) return;
+
+  setFilters((prev) => ({
+    ...prev,
+    "Influencer Type": "",
+    "Engagement Rate": "",
+    Follower: "",
+    Category: [],
+    Platform: [],
+    Date: "",
+  }));
+}, [isFullyManagedMode]);
+
   const tableVariant = useMemo(() => {
     if (tab === "shortlisted") return "shortlisted";
     if (tab === "active") return "active";
@@ -2191,14 +2209,15 @@ export default function InfluencerList() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      <InfluencerFilter
-        filters={filters}
-        setFilters={setFilters}
-        search={search}
-        setSearch={setSearch}
-        sortValue={sortValue}
-        setSortValue={setSortValue}
-      />
+<InfluencerFilter
+  filters={filters}
+  setFilters={setFilters}
+  search={search}
+  setSearch={setSearch}
+  sortValue={sortValue}
+  setSortValue={setSortValue}
+  hideAdvancedFilters={isFullyManagedMode}
+/>
 
       <div className="mt-[3.5rem] px-3 pb-[2.5rem] md:px-[2rem]">
         <div className="overflow-visible rounded-[0.75rem] bg-white">
