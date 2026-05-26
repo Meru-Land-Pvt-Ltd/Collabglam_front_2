@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { ExternalLink, Heart, Loader2, Search, X } from "lucide-react";
 import {
   InfluencerTable,
@@ -310,20 +310,20 @@ function getPitchFolderItems(response: any): PitchFolderPayload {
     payload?.data?.items || payload?.data?._id
       ? payload.data
       : payload?.items || payload?._id
-      ? payload
-      : payload?.pitchFolder || payload?.data?.pitchFolder || payload?.result || {};
+        ? payload
+        : payload?.pitchFolder || payload?.data?.pitchFolder || payload?.result || {};
 
   const rawItems = Array.isArray(payload)
     ? payload
     : Array.isArray(payload?.items)
-    ? payload.items
-    : Array.isArray(payload?.data?.items)
-    ? payload.data.items
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.pitchFolder?.items)
-    ? payload.pitchFolder.items
-    : [];
+      ? payload.items
+      : Array.isArray(payload?.data?.items)
+        ? payload.data.items
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.pitchFolder?.items)
+            ? payload.pitchFolder.items
+            : [];
 
   return {
     items: rawItems,
@@ -361,11 +361,11 @@ function mapPitchFolderItemToRow(
     category: niche || "—",
     platforms: platform
       ? [
-          {
-            platform,
-            followers,
-          },
-        ]
+        {
+          platform,
+          followers,
+        },
+      ]
       : [],
     followers,
     appliedDate: item.createdAt || item.updatedAt || "—",
@@ -978,10 +978,22 @@ function PitchInfluencerDrawer({
 }
 
 export default function PitchSheetPage() {
+  const params = useParams();
   const searchParams = useSearchParams();
 
-  const campaignId =
-    searchParams.get("campaignId") || searchParams.get("id") || "";
+  const campaignId = useMemo(() => {
+    const fromQuery =
+      searchParams.get("campaignId") ||
+      searchParams.get("id") ||
+      "";
+
+    const fromParams =
+      (params as any)?.campaignId ||
+      (params as any)?.id ||
+      "";
+
+    return String(fromQuery || fromParams || "").trim();
+  }, [params, searchParams]);
 
   const [rows, setRows] = useState<PitchSheetRow[]>([]);
   const [meta, setMeta] = useState<PitchFolderMeta>({});
@@ -1174,12 +1186,8 @@ export default function PitchSheetPage() {
         ) : error ? (
           <div className="flex h-64 items-center justify-center p-6">
             <div className="max-w-[360px] text-center">
-              <div className="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-base text-red-500">
-                ×
-              </div>
-              <p className="mb-1 text-sm font-semibold text-red-600">{error}</p>
-              <p className="text-xs text-gray-500">
-                Check whether a pitch folder is assigned to this campaign.
+              <p className="text-l text-gray-500">
+                No pitch folder found for this campaign .
               </p>
             </div>
           </div>

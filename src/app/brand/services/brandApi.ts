@@ -1764,6 +1764,102 @@ export async function apiSetApplicantDecisionStatus(
 }
 
 /** -------- Campaign Invitations By Brand + Campaign (NEW) -------- */
+
+export type CampaignInvitationIncludeFlag = 0 | 1 | boolean | "0" | "1";
+
+export type CampaignInvitationByCampaignRow = {
+  invitationId: string;
+  brandId: string | null;
+  brandName?: string | null;
+
+  influencerId: string | null;
+  influencerName?: string | null;
+  influencerEmail?: string | null;
+
+  campaignId: string | null;
+  campaignTitle?: string | null;
+
+  platform: string | null;
+  handle: string | null;
+  status: string | null;
+
+  modashUserId: string | null;
+  createdByAdminId: string | null;
+
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GetCampaignInvitationsByCampaignPayload = {
+  campaignId?: string;
+
+  brandId: string;
+  platform?: "youtube" | "instagram" | "tiktok" | string;
+  status?: string;
+  handle?: string;
+
+  page?: number;
+  limit?: number;
+
+  includeCampaign?: CampaignInvitationIncludeFlag;
+  includeNames?: CampaignInvitationIncludeFlag;
+};
+
+export type GetCampaignInvitationsByCampaignResponse = {
+  status: "success" | "error";
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+
+  requested: number;
+  returned: number;
+  missingCampaignIds: string[];
+
+  invitations: CampaignInvitationByCampaignRow[];
+};
+
+function toIncludeFlag(value: CampaignInvitationIncludeFlag | undefined, fallback: 0 | 1 = 1) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  return value;
+}
+
+export async function apiGetCampaignInvitationsByCampaign(
+  payload: GetCampaignInvitationsByCampaignPayload
+) {
+  const campaignId = String(payload.campaignId || "").trim();
+  const brandId = String(payload.brandId || "").trim();
+
+  if (!campaignId) {
+    throw new Error("campaignId is required");
+  }
+
+  if (!brandId) {
+    throw new Error("brandId is required");
+  }
+
+  return apiPost<GetCampaignInvitationsByCampaignResponse>(
+    `${CAMPAIGN_INVITATION_BASE}/get-invitations`,
+    {
+      campaignId,
+      brandId,
+
+      platform: payload.platform,
+      status: payload.status,
+      handle: payload.handle,
+
+      page: payload.page ?? 1,
+      limit: payload.limit ?? 25,
+
+      includeCampaign: toIncludeFlag(payload.includeCampaign, 1),
+      includeNames: toIncludeFlag(payload.includeNames, 1),
+    }
+  );
+}
+
+
+
 export type GetCampaignInvitationsByBrandAndCampaignPayload = {
   brandId: string;
   campaignId: string;
@@ -2026,6 +2122,8 @@ export async function apiGetAcceptedAdminCreatedInfluencersByCampaign(
     }
   );
 }
+
+
 
 export type GetMilestonesByInfluencerAndCampaignPayload = {
   influencerId: string;
