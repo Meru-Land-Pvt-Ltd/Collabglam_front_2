@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { addDays, format } from "date-fns";
 import {
   ArrowLeft,
+  Graph,
   ArrowRight,
   CalendarDots,
   Gift,
@@ -961,6 +962,14 @@ export default function BrandDashboardHome() {
                 <Gift size={14} weight="bold" />
                 <span>New Updates</span>
               </button> */}
+              <button
+                type="button"
+                onClick={() => router.push("/brand/insight-os")}
+                className="flex items-center justify-center gap-1 rounded-[0.75rem] px-2 text-center font-inter text-[0.75rem] font-medium leading-4 text-[#3A3A3A] transition hover:bg-[#F7F7F7] cursor-pointer"
+              >
+                <Graph size={14} weight="bold" />
+                <span>Insight OS</span>
+              </button>
 
               <button
                 type="button"

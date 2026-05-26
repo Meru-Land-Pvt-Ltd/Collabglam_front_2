@@ -64,7 +64,7 @@ const ROUTES: Record<string, string> = {
   hub: "/brand/creator-hub",
   browse: "/brand/browse-influencer",
   inbox: "/brand/inbox",
-  insight_os: "/brand/insight-os",
+  // insight_os: "/brand/insight-os",
   wallet: "/brand/wallet",
   invite_user: "",
   notification: "/brand/notifications",
@@ -578,12 +578,12 @@ export default function BrandSidebar({
         icon: PaperPlaneTilt,
         section: "overview",
       },
-      {
-        key: "insight_os",
-        label: "Insight OS",
-        icon: ChartLineUp,
-        section: "overview",
-      },
+      // {
+      //   key: "insight_os",
+      //   label: "Insight OS",
+      //   icon: ChartLineUp,
+      //   section: "overview",
+      // },
       {
         key: "wallet",
         label: "Wallet",
