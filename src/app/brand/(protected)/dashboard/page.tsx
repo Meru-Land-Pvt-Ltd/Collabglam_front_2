@@ -568,7 +568,7 @@ export default function BrandDashboardHome() {
       );
     }
 
-    router.push("/brand/campaign/all?status=byAI&byAi=1");
+    router.push("/brand/create-campaign?byAi=1");
   };
 
   useEffect(() => {

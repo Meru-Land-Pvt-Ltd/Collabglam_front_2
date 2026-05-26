@@ -2571,7 +2571,7 @@ export default function CreateCampaignPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editCampaignId = searchParams.get("campaignId");
-
+  const byAi = searchParams.get("byAi") === "1";
   const [view, setView] = useState<"loading" | "intro" | "manual" | "ai">("loading");
   const sidebarOffsetPx = useSidebarOffsetPx();
   const [showSparkle, setShowSparkle] = useState(false);
@@ -2587,13 +2587,22 @@ export default function CreateCampaignPage() {
       return;
     }
 
+    if (byAi) {
+      try {
+        localStorage.setItem(SEEN_KEY, "1");
+      } catch { }
+
+      setView("ai");
+      return;
+    }
+
     try {
       const seen = localStorage.getItem(SEEN_KEY) === "1";
       setView(seen ? "manual" : "intro");
     } catch {
       setView("intro");
     }
-  }, [editCampaignId]);
+  }, [editCampaignId, byAi]);
 
   useEffect(() => {
     if (!editCampaignId) return;
