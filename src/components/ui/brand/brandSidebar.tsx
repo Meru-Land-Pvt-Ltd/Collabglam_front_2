@@ -1704,17 +1704,6 @@ export default function BrandSidebar({
                           <span>Profile</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleProfileMenuAction("/brand/invite-user")
-                          }
-                          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[14px] font-medium text-[#1a1a1a] transition hover:bg-[#F5F5F5]"
-                        >
-                          <UserPlus size={20} />
-                          <span>Invite Members</span>
-                        </button>
-
                         <div className="h-px w-full bg-neutral-200" />
 
                         <button
