@@ -2140,7 +2140,7 @@ export default function ViewCampaignPage() {
               Overview
             </div>
 
-            {showEditButton ? (
+            {showEditButton && !isAdminCreatedCampaign ? (
               <Button
                 variant="raised"
                 size="sm"

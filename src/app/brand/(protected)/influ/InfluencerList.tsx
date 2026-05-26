@@ -33,6 +33,7 @@ import {
 
 import {
   apiGetListByCampaign,
+  apiGetCampaignInvitationsByCampaign,
   apiSetApplicantDecisionStatus,
   apiCampaignViewByBrand,
   type ApplicantDecisionField,
@@ -296,6 +297,62 @@ function mapAcceptedAdminCreatedInfluencerToRow(a: any): InfluencerRow {
         : "—",
     __source: "adminAccepted",
     __raw: a,
+  } as InfluencerRow;
+}
+
+function mapCampaignInvitationToActiveRow(inv: any): InfluencerRow {
+  const influencerId = String(
+    inv?.influencerId ||
+    inv?.influencer?._id ||
+    inv?.influencer?.id ||
+    ""
+  ).trim();
+
+  const name = String(
+    inv?.influencerName ||
+    inv?.influencer?.name ||
+    "Influencer"
+  ).trim();
+
+  const createdAtRaw = inv?.createdAt ? String(inv.createdAt) : "";
+  const appliedDate = createdAtRaw ? createdAtRaw.slice(0, 10) : "—";
+
+  const platform = normalizePlatformType(inv?.platform);
+  const platforms = platform
+    ? [
+      {
+        platform,
+        followers: Number(inv?.followers ?? inv?.audienceSize ?? 0) || 0,
+        engagement: 0,
+      },
+    ]
+    : [];
+
+  return {
+    id: influencerId,
+    profile: {
+      name,
+      handle: inv?.handle ? toHandle(inv.handle) : "—",
+      avatarUrl: inv?.profilePic || inv?.avatarUrl || undefined,
+    },
+    category: "—",
+    platforms,
+    followers: Number(inv?.followers ?? inv?.audienceSize ?? 0) || 0,
+    engagement: 0,
+    appliedDate,
+    status: "Active",
+    budget:
+      Number(inv?.influencerBudget ?? inv?.campaignBudget ?? inv?.budget ?? 0) > 0
+        ? String(inv?.influencerBudget ?? inv?.campaignBudget ?? inv?.budget)
+        : "—",
+    __source: "campaignInvitation",
+    __raw: {
+      ...inv,
+      influencerId,
+      name,
+      isAccepted: 1,
+      lifecycleStatusRaw: "INFLUENCER_ACCEPTED",
+    },
   } as InfluencerRow;
 }
 
@@ -1147,25 +1204,38 @@ export default function InfluencerList() {
       return;
     }
 
+    if (tab === "active" && !brandId) {
+      setApplicantRows([]);
+      setErrApplicants("");
+      return;
+    }
+
     setLoadingApplicants(true);
     setErrApplicants("");
 
     try {
       const trimmedSearch = search.trim();
-
-      // Fully managed campaign + Active tab -> use /apply/list API
-      if (tab === "active" && isAdminCreatedCampaign) {
+      if (tab === "active") {
         const selectedCategoryIds = (filters.Category || []).filter(
           (v) => v && v !== "All"
         );
 
-        const payload: any = {
+        const selectedInvitationPlatforms = (filters.Platform || [])
+          .filter((v) => v && v !== "All")
+          .map((v) => normalizePlatformType(v))
+          .filter(Boolean) as PlatformType[];
+
+        const singleInvitationPlatform =
+          selectedInvitationPlatforms.length === 1
+            ? selectedInvitationPlatforms[0]
+            : undefined;
+
+        const applyPayload: any = {
           campaignId,
           page: 1,
           limit: 100,
           search: trimmedSearch || undefined,
           filterStatus: "active",
-          createdPage: "fullyManaged",
           engagementRate: getApiEngagementRate(filters["Engagement Rate"]),
           influencerTier: getApiInfluencerTier(filters.Follower),
           platform: getApiPlatform(filters.Platform),
@@ -1175,55 +1245,125 @@ export default function InfluencerList() {
           sortOrder: getApiSortOrder(sortValue),
         };
 
-        if (selectedCategoryIds.length === 1) {
-          payload.categoryId = selectedCategoryIds[0];
-        } else if (selectedCategoryIds.length > 1) {
-          payload.categoryIds = selectedCategoryIds;
+        if (isAdminCreatedCampaign) {
+          applyPayload.createdPage = "fullyManaged";
         }
 
-        const res: any = await apiGetListByCampaign(payload);
+        if (selectedCategoryIds.length === 1) {
+          applyPayload.categoryId = selectedCategoryIds[0];
+        } else if (selectedCategoryIds.length > 1) {
+          applyPayload.categoryIds = selectedCategoryIds;
+        }
 
-        const influencers = Array.isArray(res?.influencers)
-          ? res.influencers
-          : Array.isArray(res?.data?.influencers)
-            ? res.data.influencers
+        const invitationPayload: any = {
+          brandId,
+          campaignId,
+          page: 1,
+          limit: 100,
+          status: "accepted",
+          includeCampaign: 1,
+          includeNames: 1,
+          platform: singleInvitationPlatform,
+        };
+
+        const [applyRes, invitationRes]: any[] = await Promise.all([
+          apiGetListByCampaign(applyPayload),
+          apiGetCampaignInvitationsByCampaign(invitationPayload),
+        ]);
+
+        const influencers = Array.isArray(applyRes?.influencers)
+          ? applyRes.influencers
+          : Array.isArray(applyRes?.data?.influencers)
+            ? applyRes.data.influencers
             : [];
 
-        const mapped = influencers
+        const applyMapped = influencers
           .map((inf: any) => {
-            // If backend returns normal applicant shape
             if (inf?.name || inf?.modashProfile || inf?.modashProfiles) {
               return mapApplicantToRow({
                 ...inf,
                 isAccepted: 1,
-                lifecycleStatusRaw: inf?.lifecycleStatusRaw || "INFLUENCER_ACCEPTED",
+                lifecycleStatusRaw:
+                  inf?.lifecycleStatusRaw || "INFLUENCER_ACCEPTED",
               });
             }
 
-            // Fallback for old admin-created influencer shape
             return mapAcceptedAdminCreatedInfluencerToRow(inf);
           })
           .filter((r: InfluencerRow) => String((r as any)?.id ?? "").trim());
 
-        const total =
-          res?.applicantCount ??
-          res?.total ??
-          res?.data?.applicantCount ??
-          res?.data?.total ??
-          mapped.length;
+        const invitations = Array.isArray(invitationRes?.invitations)
+          ? invitationRes.invitations
+          : Array.isArray(invitationRes?.data?.invitations)
+            ? invitationRes.data.invitations
+            : [];
 
-        const statusCounts = res?.statusCounts ?? res?.data?.statusCounts ?? {};
+        const invitationMapped = invitations
+          .map(mapCampaignInvitationToActiveRow)
+          .filter((r: InfluencerRow) => String((r as any)?.id ?? "").trim())
+          .filter((row: InfluencerRow) => {
+            const raw = (row as any)?.__raw ?? {};
+            const name = String(row?.profile?.name || "").toLowerCase();
+            const handle = String(row?.profile?.handle || "").toLowerCase();
+            const email = String(raw?.influencerEmail || "").toLowerCase();
+            const q = trimmedSearch.toLowerCase();
+
+            if (q && !name.includes(q) && !handle.includes(q) && !email.includes(q)) {
+              return false;
+            }
+
+            if (selectedInvitationPlatforms.length > 0) {
+              const rowPlatforms = (row.platforms || [])
+                .map((p: any) => normalizePlatformType(p?.platform))
+                .filter(Boolean);
+
+              return rowPlatforms.some((p) =>
+                selectedInvitationPlatforms.includes(p as PlatformType)
+              );
+            }
+
+            return true;
+          });
+
+        const mergedMap = new Map<string, InfluencerRow>();
+
+        applyMapped.forEach((row: InfluencerRow) => {
+          mergedMap.set(String(row.id), row);
+        });
+
+        invitationMapped.forEach((row: InfluencerRow) => {
+          const id = String(row.id);
+
+          // Avoid duplicate influencer rows when the same influencer exists in both APIs.
+          if (!mergedMap.has(id)) {
+            mergedMap.set(id, row);
+          }
+        });
+
+        const merged = Array.from(mergedMap.values());
+
+        const statusCounts = applyRes?.statusCounts ?? applyRes?.data?.statusCounts ?? {};
+        const applyTotal =
+          applyRes?.applicantCount ??
+          applyRes?.total ??
+          applyRes?.data?.applicantCount ??
+          applyRes?.data?.total ??
+          applyMapped.length;
+
+        const invitationOnlyCount = invitationMapped.filter(
+          (row: InfluencerRow) => !applyMapped.some((a: InfluencerRow) => a.id === row.id)
+        ).length;
 
         setCounts({
-          all: total,
+          all: Number(applyTotal || 0) + invitationOnlyCount,
           applied: statusCounts?.applied ?? 0,
-          active: statusCounts?.active ?? total,
+          active: merged.length,
           shortlisted: statusCounts?.shortlisted ?? 0,
           undecided: statusCounts?.undecided ?? 0,
           rejected: statusCounts?.rejected ?? 0,
         });
 
-        setApplicantRows(mapped);
+        setApplicantRows(merged);
         return;
       }
 
