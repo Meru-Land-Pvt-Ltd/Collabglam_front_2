@@ -20,7 +20,11 @@ type Creator = {
   ids?: {
     modashId?: string;
     userId?: string | null;
+    youtubeChannelId?: string | null;
   };
+  channelId?: string | null;
+  source?: string;
+  profileSource?: string;
   name?: string;
   fullname?: string;
   username?: string;
@@ -64,6 +68,15 @@ type Invitation = {
   status?: string | null;
 };
 
+type CampaignRecommendationSourceResponse = {
+  status?: string;
+  campaignId?: string;
+  requestedPlatforms?: string[];
+  effectivePlatforms?: string[];
+  source?: "youtube_api" | "modash_ai";
+  rule?: string;
+};
+
 type RecommendedCreatorsResponse =
   | Creator[]
   | {
@@ -103,6 +116,38 @@ type ModashReportResponse = {
   [key: string]: any;
 };
 
+type YouTubeProfileData = {
+  platform?: "youtube";
+  handle?: string | null;
+  channelId?: string | null;
+  title?: string;
+  description?: string;
+  country?: string | null;
+  defaultLanguage?: string | null;
+  thumbnails?: any;
+  topicLabels?: string[];
+  subscriberCount?: number | null;
+  totalViewCount?: number | null;
+  totalVideoCount?: number | null;
+  avgViewsLast15?: number | null;
+  engagementRateLast15?: number | null;
+  uploadFrequencyPerWeek?: number | null;
+  avgDaysBetweenUploads?: number | null;
+  lastUploadAt?: string | null;
+  lastVideoId?: string | null;
+  lastVideoTitle?: string | null;
+  lastVideos?: any[];
+  syncedAt?: string;
+  updatedAt?: string;
+};
+
+type YouTubePreviewResponse = {
+  status?: string;
+  mode?: string;
+  stored?: boolean;
+  data?: YouTubeProfileData;
+};
+
 type ReportCalculationMethod = "median" | "average";
 
 type ReportDrawerState = {
@@ -138,6 +183,38 @@ function normalizeHandle(h?: string | null) {
     : `@${trimmed.toLowerCase()}`;
 }
 
+function normalizePlatformArray(input?: string[] | null) {
+  const raw = Array.isArray(input) ? input : [];
+
+  return Array.from(
+    new Set(
+      raw
+        .map((platform) => normalizePlatform(platform))
+        .filter((platform) =>
+          ["youtube", "instagram", "tiktok"].includes(platform)
+        )
+    )
+  );
+}
+
+function getRecommendationSourceFromPlatforms(platforms?: string[] | null) {
+  const normalized = normalizePlatformArray(platforms);
+
+  if (normalized.includes("youtube")) {
+    return {
+      source: "youtube_api" as const,
+      effectivePlatforms: ["youtube"],
+      rule: "youtube_selected_use_youtube_api_only",
+    };
+  }
+
+  return {
+    source: "modash_ai" as const,
+    effectivePlatforms: normalized.filter((p) => p !== "youtube"),
+    rule: "no_youtube_use_modash_ai_only",
+  };
+}
+
 function normalizePlatform(platform?: string | null) {
   const p = String(platform || "").trim().toLowerCase();
 
@@ -162,6 +239,235 @@ function getCreatorPlatform(c: Creator) {
 
 function getCreatorModashId(c: Creator) {
   return c.ids?.modashId || c.ids?.userId || c._id || "";
+}
+
+function getCreatorChannelId(c: Creator) {
+  return (
+    c.channelId ||
+    c.ids?.youtubeChannelId ||
+    (getCreatorPlatform(c) === "youtube" ? getCreatorModashId(c) : "") ||
+    ""
+  );
+}
+
+function isYouTubeCreator(c?: Creator | null) {
+  if (!c) return false;
+
+  return (
+    getCreatorPlatform(c) === "youtube" ||
+    c.source === "youtube_api" ||
+    c.profileSource === "youtube_api"
+  );
+}
+
+function pickYouTubeThumb(thumbnails?: any) {
+  return (
+    thumbnails?.high?.url ||
+    thumbnails?.medium?.url ||
+    thumbnails?.default?.url ||
+    null
+  );
+}
+
+function numOrUndefined(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function pickVideoThumb(video: any) {
+  return (
+    video?.thumbnails?.maxres?.url ||
+    video?.thumbnails?.standard?.url ||
+    video?.thumbnails?.high?.url ||
+    video?.thumbnails?.medium?.url ||
+    video?.thumbnails?.default?.url ||
+    null
+  );
+}
+
+function sumNumbers(items: any[], key: string) {
+  return items.reduce((sum, item) => {
+    const value = Number(item?.[key] || 0);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+}
+
+function avgNumber(items: any[], key: string) {
+  if (!items.length) return undefined;
+
+  const total = sumNumbers(items, key);
+  return Math.round(total / items.length);
+}
+
+function mapYouTubePreviewToReport(data: YouTubeProfileData): ModashReportResponse {
+  const handle = data.handle || null;
+  const username = handle
+    ? handle.replace(/^@/, "")
+    : data.channelId || null;
+
+  const url = handle
+    ? `https://www.youtube.com/${handle}`
+    : data.channelId
+      ? `https://www.youtube.com/channel/${data.channelId}`
+      : null;
+
+  const videos = Array.isArray(data.lastVideos) ? data.lastVideos : [];
+
+  const recentPosts = videos.map((video) => {
+    const image = pickVideoThumb(video);
+
+    return {
+      id: video.videoId,
+      videoId: video.videoId,
+      title: video.title,
+      text: video.title,
+      caption: video.description || video.title,
+      description: video.description || "",
+      created: video.publishedAt,
+      createdAt: video.publishedAt,
+      publishedAt: video.publishedAt,
+      postedAt: video.publishedAt,
+      date: video.publishedAt,
+      views: numOrUndefined(video.viewCount),
+      plays: numOrUndefined(video.viewCount),
+      likes: numOrUndefined(video.likeCount),
+      comments: numOrUndefined(video.commentCount),
+      duration: video.duration,
+      image,
+      thumbnail: image,
+      url:
+        video.videoUrl ||
+        (video.videoId
+          ? `https://www.youtube.com/watch?v=${video.videoId}`
+          : null),
+      type: "YouTube video",
+    };
+  });
+
+  const popularPosts = [...recentPosts].sort(
+    (a, b) => Number(b.views || 0) - Number(a.views || 0)
+  );
+
+  const avgLikes = avgNumber(videos, "likeCount");
+  const avgComments = avgNumber(videos, "commentCount");
+
+  const followers = numOrUndefined(data.subscriberCount);
+  const avgViews = numOrUndefined(data.avgViewsLast15);
+  const engagementRate = numOrUndefined(data.engagementRateLast15);
+  const totalViews = numOrUndefined(data.totalViewCount);
+  const totalVideos = numOrUndefined(data.totalVideoCount);
+  const uploadFrequencyPerWeek = numOrUndefined(data.uploadFrequencyPerWeek);
+
+  const categoryObjects = Array.isArray(data.topicLabels)
+    ? data.topicLabels.map((label) => ({
+        categoryName: label,
+        name: label,
+      }))
+    : [];
+
+  const profile = {
+    userId: data.channelId || null,
+    username,
+    handle,
+    fullname: data.title || username || "YouTube Creator",
+    name: data.title || username || "YouTube Creator",
+    url,
+    picture: pickYouTubeThumb(data.thumbnails),
+    followers,
+    engagements: undefined,
+    engagementRate,
+    averageViews: avgViews,
+    avgViews,
+    bio: data.description || "",
+    description: data.description || "",
+    country: data.country || null,
+    defaultLanguage: data.defaultLanguage || null,
+    language: data.defaultLanguage
+      ? { name: data.defaultLanguage }
+      : undefined,
+    recentPosts,
+    popularPosts,
+    postsCount: totalVideos,
+    postsCounts: totalVideos,
+    categories: categoryObjects,
+  };
+
+  return {
+    _source: "youtube_api",
+    _cacheOnly: true,
+    _lastFetchedAt: data.syncedAt || data.updatedAt || new Date().toISOString(),
+    provider: "youtube",
+
+    profile,
+
+    userId: data.channelId || null,
+    username,
+    handle,
+    fullname: profile.fullname,
+    name: profile.name,
+    url,
+    picture: profile.picture,
+
+    bio: data.description || "",
+    description: data.description || "",
+    country: data.country || null,
+    language: profile.language,
+
+    followers,
+    engagementRate,
+    avgLikes,
+    avgComments,
+    avgViews,
+    averageViews: avgViews,
+    totalViews,
+    postsCount: totalVideos,
+    postsCounts: totalVideos,
+
+    recentPosts,
+    popularPosts,
+    sponsoredPosts: [],
+
+    stats: {
+      followers: {
+        value: followers,
+      },
+      avgLikes: {
+        value: avgLikes,
+      },
+      avgComments: {
+        value: avgComments,
+      },
+      avgViews: {
+        value: avgViews,
+      },
+      averageViews: avgViews,
+      engagementRate,
+      uploadFrequencyPerWeek,
+      totalViews,
+      totalVideos,
+    },
+
+    audience: {
+      geoCountries: data.country
+        ? [{ name: data.country, weight: 1 }]
+        : [],
+      ages: [],
+      genders: [],
+      languages: data.defaultLanguage
+        ? [{ code: data.defaultLanguage, name: data.defaultLanguage, weight: 1 }]
+        : [],
+      interests: Array.isArray(data.topicLabels)
+        ? data.topicLabels.map((name) => ({ name, weight: 1 }))
+        : [],
+      credibility: null,
+    },
+
+    categories: categoryObjects,
+    hashtags: [],
+    lookalikes: [],
+    statHistory: [],
+  };
 }
 
 function getCreatorAiScore(c: Creator) {
@@ -486,57 +792,87 @@ export default function InfluencerInvitationPage() {
     []
   );
 
-  const fetchCreators = React.useCallback(async () => {
-    setLoading(true);
-    setError(null);
+const fetchCreators = React.useCallback(async () => {
+  setLoading(true);
+  setError(null);
 
-    try {
-      const brandId = getStoredBrandMongoId();
+  try {
+    const brandId = getStoredBrandMongoId();
 
-      if (!brandId || !campaignId) {
-        throw new Error("Missing brand _id or campaign _id");
-      }
-
-      const [recommendedData, existingKeys] = await Promise.all([
-        post<RecommendedCreatorsResponse>("/modash/recommended-by-campaign", {
-          brandId,
-          campaignId,
-          limit: 15,
-        }),
-        fetchExistingInvitations(brandId, campaignId),
-      ]);
-
-      const list = getRecommendedCreators(recommendedData);
-      const defaultSelected = new Set<string>();
-
-      list.forEach((creator, index) => {
-        creatorKeysForMatching(creator, index).forEach((key) => {
-          defaultSelected.add(key);
-        });
-      });
-
-      setCreators(list);
-      setAlreadyInvited(existingKeys);
-      setSelected(defaultSelected);
-      setSending(new Set());
-    } catch (e: any) {
-      const message = await getApiErrorMessage(e, "Failed to load creators");
-
-      setError(message);
-      setCreators([]);
-      setAlreadyInvited(new Set());
-      setSelected(new Set());
-      setSending(new Set());
-
-      toast({
-        icon: "error",
-        title: "Unable to load creators",
-        text: message,
-      });
-    } finally {
-      setLoading(false);
+    if (!brandId || !campaignId) {
+      throw new Error("Missing brand _id or campaign _id");
     }
-  }, [campaignId, fetchExistingInvitations]);
+
+    // ✅ Step 1: first check campaign platform by campaignId
+    const sourceData = await post<CampaignRecommendationSourceResponse>(
+      "/modash/campaign-recommendation-source",
+      {
+        brandId,
+        campaignId,
+      }
+    );
+
+    const sourceInfo = getRecommendationSourceFromPlatforms(
+      sourceData.requestedPlatforms
+    );
+
+    // ✅ Step 2: then fetch suggestions according to final rule
+    const [recommendedData, existingKeys] = await Promise.all([
+      post<RecommendedCreatorsResponse>("/modash/recommended-by-campaign", {
+        brandId,
+        campaignId,
+        limit: 15,
+
+        // Optional, useful for backend logs/debugging
+        source: sourceInfo.source,
+        platforms: sourceInfo.effectivePlatforms,
+        rule: sourceInfo.rule,
+      }),
+      fetchExistingInvitations(brandId, campaignId),
+    ]);
+
+    const rawList = getRecommendedCreators(recommendedData);
+
+    // ✅ Frontend safety filter:
+    // If YouTube exists in campaign platformSelection,
+    // show only YouTube profiles even if backend accidentally returns mixed results.
+    const list =
+      sourceInfo.source === "youtube_api"
+        ? rawList.filter((creator) => getCreatorPlatform(creator) === "youtube")
+        : rawList.filter((creator) =>
+            sourceInfo.effectivePlatforms.includes(getCreatorPlatform(creator))
+          );
+
+    const defaultSelected = new Set<string>();
+
+    list.forEach((creator, index) => {
+      creatorKeysForMatching(creator, index).forEach((key) => {
+        defaultSelected.add(key);
+      });
+    });
+
+    setCreators(list);
+    setAlreadyInvited(existingKeys);
+    setSelected(defaultSelected);
+    setSending(new Set());
+  } catch (e: any) {
+    const message = await getApiErrorMessage(e, "Failed to load creators");
+
+    setError(message);
+    setCreators([]);
+    setAlreadyInvited(new Set());
+    setSelected(new Set());
+    setSending(new Set());
+
+    toast({
+      icon: "error",
+      title: "Unable to load creators",
+      text: message,
+    });
+  } finally {
+    setLoading(false);
+  }
+}, [campaignId, fetchExistingInvitations]);
 
   React.useEffect(() => {
     fetchCreators();
@@ -580,6 +916,29 @@ export default function InfluencerInvitationPage() {
     },
     []
   );
+
+  const fetchYouTubePreview = React.useCallback(async (creator: Creator) => {
+    const channelId = getCreatorChannelId(creator);
+    const handle = getCreatorHandle(creator);
+
+    if (!channelId && !handle) {
+      throw new Error("YouTube channelId or handle is missing");
+    }
+
+    const response = await post<YouTubePreviewResponse>(
+      "/youtube/profile/preview",
+      {
+        ...(channelId ? { channelId } : { handle }),
+        videosLimit: 15,
+      }
+    );
+
+    if (!response?.data) {
+      throw new Error("YouTube profile data is missing");
+    }
+
+    return mapYouTubePreviewToReport(response.data);
+  }, []);
 
   const fetchModashReport = React.useCallback(
     async (
@@ -637,6 +996,21 @@ export default function InfluencerInvitationPage() {
     []
   );
 
+  const fetchCreatorReport = React.useCallback(
+    async (
+      creator: Creator,
+      calculationMethod: ReportCalculationMethod,
+      forceRefresh = false
+    ) => {
+      if (isYouTubeCreator(creator)) {
+        return fetchYouTubePreview(creator);
+      }
+
+      return fetchModashReport(creator, calculationMethod, forceRefresh);
+    },
+    [fetchModashReport, fetchYouTubePreview]
+  );
+
   const openReportForCreator = React.useCallback(
     async (
       creator: Creator,
@@ -655,7 +1029,7 @@ export default function InfluencerInvitationPage() {
       });
 
       try {
-        const data = await fetchModashReport(
+        const data = await fetchCreatorReport(
           creator,
           calculationMethod,
           forceRefresh
@@ -674,7 +1048,7 @@ export default function InfluencerInvitationPage() {
       } catch (err: any) {
         const message = await getApiErrorMessage(
           err,
-          "Failed to load full Modash report"
+          "Failed to load full Creator profile"
         );
 
         setReportDrawer({
@@ -695,7 +1069,7 @@ export default function InfluencerInvitationPage() {
         });
       }
     },
-    [fetchModashReport, reportCalculationMethod]
+    [fetchCreatorReport, reportCalculationMethod]
   );
 
   const closeReportDrawer = React.useCallback(() => {
