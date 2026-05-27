@@ -2,9 +2,7 @@
 
 import * as React from "react";
 import {
-  BriefcaseIcon,
   CaretDownIcon,
-  CaretRightIcon,
   CopyIcon,
   DotsThreeIcon,
   EyeIcon,
@@ -360,7 +358,6 @@ type InfluencerRow = {
   category: string;
   folder: string;
   campaignName: string;
-  workspace: string;
   country: string;
   language: string;
   invitationDate: string;
@@ -1249,13 +1246,6 @@ function mergeGoodFitItems(items: GoodFitInfluencer[]) {
   return Array.from(map.values());
 }
 
-function getWorkspace(item: GoodFitInfluencer, campaigns: RelatedCampaign[]) {
-  return (
-    campaigns.find((campaign) => campaign.brandName)?.brandName ||
-    item.folder?.assignedCampaign?.brandName ||
-    "B Creators"
-  );
-}
 
 function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
   const relatedCampaigns = normalizeRelatedCampaigns(item);
@@ -1285,7 +1275,6 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
     category,
     folder: getFoldersText(relatedFolders, firstFolder?.title),
     campaignName: getCampaignName(firstCampaign || item.folder?.assignedCampaign),
-    workspace: getWorkspace(item, relatedCampaigns),
     country: displayText(getModashCountryText(item)),
     language: getDisplayLanguage(getModashLanguageText(item)),
     invitationDate: formatDate(
@@ -1315,7 +1304,6 @@ function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRo
     category: "—",
     folder: campaignName,
     campaignName,
-    workspace: "—",
     country: displayText(
       (invitation as any).country ||
         (invitation as any).location ||
@@ -1529,7 +1517,6 @@ function rowMatchesSearch(row: InfluencerRow, query: string) {
     row.category,
     row.folder,
     row.campaignName,
-    row.workspace,
     row.country,
     row.language,
   ]
@@ -1694,7 +1681,6 @@ function findCampaignTitleDeep(value: any, depth = 0): string {
     "brief",
     "product",
     "productOrService",
-    "workspaceCampaign",
     "category",
   ];
 
@@ -2804,7 +2790,7 @@ export default function CreatorHubPage() {
 
         <div className="overflow-hidden rounded-lg border border-[#DCDCDC] bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[1120px] w-full border-collapse text-left text-[12px]">
+            <table className="min-w-[990px] w-full border-collapse text-left text-[12px]">
               <thead>
                 <tr className="h-10 border-b border-[#DCDCDC] bg-white text-xs font-semibold text-[#171717]">
                   <th className="w-12 border-r border-[#E5E5E5] px-4">
@@ -2837,10 +2823,6 @@ export default function CreatorHubPage() {
                     Campaign
                   </th>
 
-                  <th className="w-[130px] border-r border-[#E5E5E5] px-4">
-                    Workspace
-                  </th>
-
                   <th className="w-[145px] border-r border-[#E5E5E5] px-4">
                     Country
                   </th>
@@ -2862,19 +2844,19 @@ export default function CreatorHubPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-[#666666]">
+                    <td colSpan={10} className="h-40 text-center text-sm text-[#666666]">
                       {activeTab === "invited" ? "Loading invited influencers..." : "Loading influencers..."}
                     </td>
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-red-600">
+                    <td colSpan={10} className="h-40 text-center text-sm text-red-600">
                       {error}
                     </td>
                   </tr>
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="h-40 text-center text-sm text-[#666666]">
+                    <td colSpan={10} className="h-40 text-center text-sm text-[#666666]">
                       {activeTab === "invited" ? "No invited influencers found." : "No influencers found."}
                     </td>
                   </tr>
@@ -2947,12 +2929,6 @@ export default function CreatorHubPage() {
                             title={getRowCampaignName(row)}
                           >
                             {getRowCampaignName(row)}
-                          </span>
-                        </td>
-
-                        <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          <span className="block max-w-[115px] truncate" title={row.workspace}>
-                            {row.workspace}
                           </span>
                         </td>
 
@@ -3096,14 +3072,6 @@ export default function CreatorHubPage() {
                                     Copy profile link
                                   </ComboboxItem>
 
-                                  <ComboboxItem value="move-workspace" showIndicator={false}>
-                                    <span className="flex flex-1 items-center gap-2">
-                                      <BriefcaseIcon size={14} />
-                                      Move to workspace
-                                    </span>
-                                    <CaretRightIcon size={12} />
-                                  </ComboboxItem>
-
                                   <ComboboxItem
                                     value="delete"
                                     showIndicator={false}
@@ -3153,8 +3121,7 @@ export default function CreatorHubPage() {
               Create New folder
             </DialogTitle>
             <DialogDescription className="max-w-[360px] text-[11px] leading-5 text-[#A1A1A1]">
-              Provide your basic business information so we can set up your workspace
-              and tailor recommendations accordingly.
+              Provide folder details so we can organize creators and tailor recommendations accordingly.
             </DialogDescription>
           </DialogHeader>
 

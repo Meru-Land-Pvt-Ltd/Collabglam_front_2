@@ -159,6 +159,42 @@ async function apiPatch<T>(path: string, body?: any, config?: RequestConfig) {
 /** -------------------------
  *  ✅ AUTH + SIGNUP
  *  ------------------------*/
+export type BrandOnboardingRoute =
+  | "brandAlias"
+  | "page1"
+  | "page2"
+  | "page3"
+  | "campaign"
+  | "homepage";
+
+export type BrandAuthResponse = {
+  message: string;
+  brandId: string;
+  token: string;
+
+  email?: string;
+  brandName?: string;
+  name?: string;
+
+  isNewBrand?: boolean;
+  route?: BrandOnboardingRoute;
+
+  onboarding?: {
+    page1Done?: boolean;
+    page2Done?: boolean;
+    page3Done?: boolean;
+  };
+
+  page1?: any[];
+  page2?: any[];
+  page3?: any[];
+
+  ispage1Skip?: boolean;
+  ispage2Skip?: boolean;
+  ispage3Skip?: boolean;
+  isProfilePicSkip?: boolean;
+};
+
 export async function apiSendSignupOtp(input: {
   brandName: string;
   name: string;
@@ -167,22 +203,38 @@ export async function apiSendSignupOtp(input: {
   industry: string;
   password: string;
 }) {
-  return apiPost<{ message: string; email: string }>(`${BRAND_BASE}/send-otp-signup`, input);
+  return apiPost<{ message: string; email: string }>(
+    `${BRAND_BASE}/send-otp-signup`,
+    input
+  );
 }
 
 export async function apiVerifyOtpSignup(input: { email: string; otp: string }) {
-  return apiPost<{ message: string; brandId: string; token: string }>(
+  return apiPost<BrandAuthResponse>(
     `${BRAND_BASE}/verify-otp-signup`,
     input
   );
 }
 
 export async function apiSignInBrand(email: string, password: string) {
-  return apiPost<{ message: string; brandId: string; token: string }>(`${BRAND_BASE}/signin`, {
+  return apiPost<BrandAuthResponse>(`${BRAND_BASE}/signin`, {
     email,
     password,
   });
 }
+
+export async function apiGoogleSignInBrand(idToken: string) {
+  const cleanedToken = String(idToken || "").trim();
+
+  if (!cleanedToken) {
+    throw new Error("Firebase idToken is required.");
+  }
+
+  return apiPost<BrandAuthResponse>(`${BRAND_BASE}/google-auth`, {
+    idToken: cleanedToken,
+  });
+}
+
 
 /** -------------------------
  *  ✅ ONBOARDING
