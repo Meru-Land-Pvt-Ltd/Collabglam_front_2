@@ -120,6 +120,7 @@ type ContractFormState = {
     preShootScriptReviewBusinessDays: string;
     mandatoryTagsMentionsLinksCodes: string;
     review: {
+      needRevisionRounds: "" | "yes" | "no";
       includedRevisionRounds: string;
       additionalRevisionFee: string;
       reshootObligation: string;
@@ -573,6 +574,18 @@ function normalizePreShootScriptRequired(raw: any): "" | "yes" | "no" {
   return "";
 }
 
+function normalizeNeedRevisionRounds(raw: any): "" | "yes" | "no" {
+  if (raw === true) return "yes";
+  if (raw === false) return "no";
+
+  const value = String(raw ?? "").trim().toLowerCase();
+
+  if (["yes", "true", "1", "required", "needed"].includes(value)) return "yes";
+  if (["no", "false", "0", "not required", "not needed"].includes(value)) return "no";
+
+  return "";
+}
+
 function resolveInfluencerFeeValue(commercial: ContractFormState["scheduleA"]["commercial"]) {
   return String(
     commercial.influencerBudget ||
@@ -743,10 +756,10 @@ function createDefaultContractForm(): ContractFormState {
       preShootScriptReviewBusinessDays: "",
       mandatoryTagsMentionsLinksCodes: "",
       review: {
+        needRevisionRounds: "no",
         includedRevisionRounds: "",
         additionalRevisionFee: "",
-        reshootObligation:
-          "",
+        reshootObligation: "",
         reshootFee: "",
         minimumLivePeriod: "",
       },
@@ -1291,6 +1304,29 @@ export default function ContractSidebarExtracted({
       );
       merged.scheduleA.commercial.currency = "USD";
 
+      const revisionFromMeta = meta?.content?.scheduleA?.review || {};
+      const normalizedNeedRevisionRounds = normalizeNeedRevisionRounds(
+        revisionFromMeta.needRevisionRounds
+      );
+
+      const derivedNeedRevisionRounds =
+        Number(revisionFromMeta.includedRevisionRounds || 0) > 0 ||
+        Boolean(String(revisionFromMeta.additionalRevisionFee || "").trim());
+
+      merged.scheduleA.review.needRevisionRounds =
+        normalizedNeedRevisionRounds ||
+        (derivedNeedRevisionRounds ? "yes" : "no");
+
+      if (merged.scheduleA.review.needRevisionRounds === "yes") {
+        merged.scheduleA.review.includedRevisionRounds =
+          String(merged.scheduleA.review.includedRevisionRounds || "1");
+        merged.scheduleA.review.additionalRevisionFee =
+          String(merged.scheduleA.review.additionalRevisionFee || "0");
+      } else {
+        merged.scheduleA.review.includedRevisionRounds = "";
+        merged.scheduleA.review.additionalRevisionFee = "";
+      }
+
       const rawMilestones =
         meta?.content?.scheduleA?.commercial?.milestones ||
         merged?.scheduleA?.commercial?.milestones ||
@@ -1564,8 +1600,15 @@ export default function ContractSidebarExtracted({
         deliverables: deliverablePayload,
         review: {
           ...content.scheduleA.review,
+          needRevisionRounds: content.scheduleA.review.needRevisionRounds || "no",
           includedRevisionRounds:
-            Number(content.scheduleA.review.includedRevisionRounds || "1") || 1,
+            content.scheduleA.review.needRevisionRounds === "yes"
+              ? Number(content.scheduleA.review.includedRevisionRounds || "1") || 1
+              : 0,
+          additionalRevisionFee:
+            content.scheduleA.review.needRevisionRounds === "yes"
+              ? String(content.scheduleA.review.additionalRevisionFee || "0")
+              : "",
         },
         commercial: {
           ...content.scheduleA.commercial,
@@ -1639,6 +1682,12 @@ export default function ContractSidebarExtracted({
       contractForm.scheduleA.review.includedRevisionRounds ?? ""
     );
     const revisionValue = Number(revisionRaw);
+    const needRevisionRounds =
+      contractForm.scheduleA.review.needRevisionRounds === "yes";
+    const revisionFeeRaw = String(
+      contractForm.scheduleA.review.additionalRevisionFee ?? ""
+    );
+    const revisionFeeValue = Number(revisionFeeRaw);
     const reviewDaysRaw = String(
       contractForm.scheduleA.preShootScriptReviewBusinessDays ?? "2"
     );
@@ -1705,11 +1754,28 @@ export default function ContractSidebarExtracted({
       }
     }
 
-    if (Number.isNaN(revisionValue) || revisionValue < 0) {
-      add(
-        "scheduleA.review.includedRevisionRounds",
-        "Revision rounds must be zero or more."
-      );
+    if (needRevisionRounds) {
+      if (
+        !String(contractForm.scheduleA.review.includedRevisionRounds ?? "").trim() ||
+        Number.isNaN(revisionValue) ||
+        revisionValue < 1
+      ) {
+        add(
+          "scheduleA.review.includedRevisionRounds",
+          "Revision count must be at least 1."
+        );
+      }
+
+      if (
+        !revisionFeeRaw.trim() ||
+        Number.isNaN(revisionFeeValue) ||
+        revisionFeeValue < 0
+      ) {
+        add(
+          "scheduleA.review.additionalRevisionFee",
+          "Revision fees must be 0 or greater."
+        );
+      }
     }
 
     if (Number.isNaN(reviewDays) || reviewDays < 0) {
@@ -2755,21 +2821,85 @@ export default function ContractSidebarExtracted({
 
                 <FloatingSelect
                   label="Need Revision Rounds"
-                  value={Number(contractForm.scheduleA.review.includedRevisionRounds || "0") > 0 ? "Yes" : "No"}
-                  onValueChange={(value) =>
-                    setContractField(
-                      "scheduleA.review.includedRevisionRounds",
-                      value === "Yes" ? "1" : "0"
-                    )
-                  }
+                  value={contractForm.scheduleA.review.needRevisionRounds || "no"}
+                  onValueChange={(value) => {
+                    const nextValue = value as "yes" | "no";
+
+                    setContractForm((prev) =>
+                      setAtPath(
+                        setAtPath(
+                          setAtPath(
+                            prev,
+                            "scheduleA.review.needRevisionRounds",
+                            nextValue
+                          ),
+                          "scheduleA.review.includedRevisionRounds",
+                          nextValue === "yes"
+                            ? prev.scheduleA.review.includedRevisionRounds || "1"
+                            : ""
+                        ),
+                        "scheduleA.review.additionalRevisionFee",
+                        nextValue === "yes"
+                          ? prev.scheduleA.review.additionalRevisionFee || "0"
+                          : ""
+                      )
+                    );
+
+                    setFormErrors((prev) => {
+                      const next = { ...prev };
+                      delete next["scheduleA.review.includedRevisionRounds"];
+                      delete next["scheduleA.review.additionalRevisionFee"];
+                      return next;
+                    });
+                  }}
                   searchable={false}
                 >
-                  {YES_NO_OPTIONS.map((option) => (
+                  {YES_NO_BOOL_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
                     </SelectItem>
                   ))}
                 </FloatingSelect>
+
+                {contractForm.scheduleA.review.needRevisionRounds === "yes" ? (
+                  <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                    <FloatingInput
+                      id="revision-count"
+                      label="Revision Count"
+                      info={SIDEBAR_TOOLTIPS.includedRevisionRounds}
+                      type="number"
+                      value={getAtPath(contractForm, "scheduleA.review.includedRevisionRounds")}
+                      onValueChange={(value: string) =>
+                        setContractField("scheduleA.review.includedRevisionRounds", value)
+                      }
+                      state={
+                        formErrors["scheduleA.review.includedRevisionRounds"]
+                          ? "error"
+                          : undefined
+                      }
+                      errorText={formErrors["scheduleA.review.includedRevisionRounds"] || ""}
+                      required
+                    />
+
+                    <FloatingInput
+                      id="revision-fees"
+                      label="Revision Fees"
+                      info={SIDEBAR_TOOLTIPS.additionalRevisionFee}
+                      type="number"
+                      value={getAtPath(contractForm, "scheduleA.review.additionalRevisionFee")}
+                      onValueChange={(value: string) =>
+                        setContractField("scheduleA.review.additionalRevisionFee", value)
+                      }
+                      state={
+                        formErrors["scheduleA.review.additionalRevisionFee"]
+                          ? "error"
+                          : undefined
+                      }
+                      errorText={formErrors["scheduleA.review.additionalRevisionFee"] || ""}
+                      required
+                    />
+                  </div>
+                ) : null}
 
                 <div className="flex items-center gap-3">
                   <ContractCheckbox

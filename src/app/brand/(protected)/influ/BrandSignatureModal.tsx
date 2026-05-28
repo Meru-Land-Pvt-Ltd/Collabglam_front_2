@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import { Info, Trash, UploadSimple, X } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/buttonComp";
 import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
@@ -20,7 +26,10 @@ type BrandSignatureModalProps = {
     initialTab?: "upload" | "manage";
     isLoading?: boolean;
     onClose: () => void;
-    onConfirm: (signatureData: string, signatureId: string) => Promise<void> | void;
+    onConfirm: (
+        signatureData: string,
+        signatureId: string
+    ) => Promise<void> | void;
     onSignatureUploaded?: () => Promise<any> | void;
 };
 
@@ -80,41 +89,59 @@ export default function BrandSignatureModal({
 
     const isMaxReached = signatures.length >= maxSignatures;
 
+    const resetUploadForm = useCallback(() => {
+        setName("");
+        setRemarks("");
+        setFile(null);
+        setPreviewSrc("");
+        setSelectAsPrimary(true);
+
+        if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+        }
+    }, []);
+
     const loadSignatures = useCallback(async () => {
         if (!brandId) return;
 
         const result = await apiListBrandSignatures(brandId);
         const rows = Array.isArray(result.signatures) ? result.signatures : [];
+        const primary = rows.find((item) => item.isPrimary);
 
         setMaxSignatures(Number(result.max || 3));
         setSignatures(rows);
-
-        const primary = rows.find((item) => item.isPrimary);
         setSelectedPrimaryId(primary?._id || rows[0]?._id || "");
+
+        if (!rows.length) {
+            setTab("upload");
+        }
     }, [brandId]);
 
     useEffect(() => {
         if (!open) return;
 
         setTab(initialTab);
-        setName("");
-        setRemarks("");
-        setFile(null);
-        setPreviewSrc("");
-        setSelectAsPrimary(true);
+        resetUploadForm();
         setAgreed(false);
         setShowAgreeError(false);
         setErrorText("");
 
         loadSignatures().catch(() => {
             setErrorText("Could not load brand signatures.");
+            setTab("upload");
         });
-    }, [open, initialTab, loadSignatures]);
+    }, [open, initialTab, loadSignatures, resetUploadForm]);
 
     const handleFileSelect = async (nextFile?: File | null) => {
         if (!nextFile) return;
 
-        const allowedTypes = ["image/svg+xml", "image/png", "image/jpeg", "image/jpg", "image/webp"];
+        const allowedTypes = [
+            "image/svg+xml",
+            "image/png",
+            "image/jpeg",
+            "image/jpg",
+            "image/webp",
+        ];
 
         if (!allowedTypes.includes(nextFile.type)) {
             setErrorText("Only SVG, PNG, JPG, JPEG, or WEBP signatures are allowed.");
@@ -178,12 +205,13 @@ export default function BrandSignatureModal({
             if (!saved) return;
 
             setTab("manage");
-            setFile(null);
-            setPreviewSrc("");
-            setName("");
-            setRemarks("");
+            resetUploadForm();
         } catch (error: any) {
-            setErrorText(error?.response?.data?.message || error?.message || "Could not save signature.");
+            setErrorText(
+                error?.response?.data?.message ||
+                error?.message ||
+                "Could not save signature."
+            );
         }
     };
 
@@ -208,6 +236,7 @@ export default function BrandSignatureModal({
 
             if (!signatureToUse?.signature) {
                 setErrorText("Please upload or select a brand signature.");
+                setTab("upload");
                 return;
             }
 
@@ -235,7 +264,11 @@ export default function BrandSignatureModal({
             await onSignatureUploaded?.();
             onClose();
         } catch (error: any) {
-            setErrorText(error?.response?.data?.message || error?.message || "Could not save changes.");
+            setErrorText(
+                error?.response?.data?.message ||
+                error?.message ||
+                "Could not save changes."
+            );
         } finally {
             setSaving(false);
         }
@@ -249,7 +282,11 @@ export default function BrandSignatureModal({
             await loadSignatures();
             await onSignatureUploaded?.();
         } catch (error: any) {
-            setErrorText(error?.response?.data?.message || error?.message || "Could not delete signature.");
+            setErrorText(
+                error?.response?.data?.message ||
+                error?.message ||
+                "Could not delete signature."
+            );
         } finally {
             setSaving(false);
         }
@@ -262,7 +299,7 @@ export default function BrandSignatureModal({
             <div className="w-full max-w-[700px] rounded-[20px] bg-white p-5 shadow-2xl">
                 <div className="mb-7 flex items-center justify-between">
                     <h2 className="text-[24px] font-semibold text-[#1A1A1A]">
-                        Upload your contract
+                        Brand Signature
                     </h2>
 
                     <button
@@ -358,14 +395,14 @@ export default function BrandSignatureModal({
 
                                         <div className="text-center">
                                             <div className="text-base font-semibold text-[#1A1A1A] underline">
-                                                Upload an signature{" "}
+                                                Upload signature{" "}
                                                 <span className="font-normal text-[#9C9C9C] no-underline">
                                                     or drag and drop
                                                 </span>
                                             </div>
 
                                             <div className="mt-1 text-sm text-[#B8B8B8]">
-                                                SVG, PNG, JPG under max 5mb
+                                                SVG, PNG, JPG under max 5 MB
                                             </div>
                                         </div>
                                     </>
@@ -383,13 +420,15 @@ export default function BrandSignatureModal({
                         </div>
 
                         <p className="text-base text-[#9C9C9C]">
-                            This contract will be signed by and sent to the subsequent signee
+                            This contract will be signed by and sent to the subsequent signee.
                         </p>
 
                         <div
                             className={cn(
                                 "overflow-hidden rounded-[14px] border bg-white",
-                                showAgreeError && !agreed ? "border-[#FFE1DF]" : "border-[#E6E6E6]"
+                                showAgreeError && !agreed
+                                    ? "border-[#FFE1DF]"
+                                    : "border-[#E6E6E6]"
                             )}
                         >
                             <div className="flex items-center gap-4 px-5 py-6">
@@ -403,8 +442,8 @@ export default function BrandSignatureModal({
                                 />
 
                                 <p className="m-0 flex-1 text-sm font-medium leading-6 text-[#1A1A1A]">
-                                    By signing, I confirm that I have read and therefore agree to all
-                                    contractual terms, which become legally binding.
+                                    By signing, I confirm that I have read and therefore agree to
+                                    all contractual terms, which become legally binding.
                                 </p>
                             </div>
 
@@ -415,7 +454,7 @@ export default function BrandSignatureModal({
                                     </span>
 
                                     <p className="text-sm font-medium leading-5 text-[#E53935]">
-                                        Please confirm that you agree to all terms before signing
+                                        Please confirm that you agree to all terms before signing.
                                     </p>
                                 </div>
                             ) : null}
@@ -443,17 +482,17 @@ export default function BrandSignatureModal({
 
                             <Button
                                 variant="outline"
-                                disabled={saving || isLoading || isMaxReached}
+                                disabled={saving || isMaxReached}
                                 onClick={handleSaveSignatureOnly}
                             >
-                                Save signature
+                                {saving ? "Saving..." : "Save signature"}
                             </Button>
 
                             <Button
                                 disabled={saving || isLoading}
                                 onClick={handleSignContract}
                             >
-                                Sign this contract
+                                {saving || isLoading ? "Signing..." : "Sign this contract"}
                             </Button>
                         </div>
                     </div>
@@ -485,7 +524,8 @@ export default function BrandSignatureModal({
                                             </div>
 
                                             <div className="mt-2 text-sm text-[#9C9C9C]">
-                                                {item.remarks || "Brand"} <span className="mx-2">|</span>{" "}
+                                                {item.remarks || "Brand"}{" "}
+                                                <span className="mx-2">|</span>{" "}
                                                 {formatDate(item.createdAt)}
                                             </div>
 
@@ -523,8 +563,23 @@ export default function BrandSignatureModal({
                             })}
 
                             {!signatures.length ? (
-                                <div className="rounded-[12px] border border-[#E6E6E6] p-6 text-center text-sm text-[#9C9C9C]">
-                                    No brand signatures added yet.
+                                <div className="rounded-[12px] border border-[#E6E6E6] p-6 text-center">
+                                    <div className="text-sm font-medium text-[#1A1A1A]">
+                                        No brand signatures added yet.
+                                    </div>
+
+                                    <p className="mt-1 text-sm text-[#9C9C9C]">
+                                        Upload a signature to continue sending this contract.
+                                    </p>
+
+                                    <Button
+                                        type="button"
+                                        className="mt-4"
+                                        onClick={() => setTab("upload")}
+                                        disabled={saving}
+                                    >
+                                        Upload Signature
+                                    </Button>
                                 </div>
                             ) : null}
                         </div>
@@ -548,10 +603,10 @@ export default function BrandSignatureModal({
                             </Button>
 
                             <Button
-                                disabled={saving || isLoading || !signatures.length}
+                                disabled={saving || !signatures.length}
                                 onClick={handleSaveManageChanges}
                             >
-                                Save Changes
+                                {saving ? "Saving..." : "Save Changes"}
                             </Button>
                         </div>
                     </div>
