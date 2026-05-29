@@ -748,8 +748,10 @@ export default function InfluencerInvitationPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const campaignId = searchParams.get("campaignId");
-  const q = searchParams.get("q");
+  // Campaign id is taken only from the URL query/header:
+  // /brand/influencer-invitation?q=active&campaignId=<campaignid>
+  const campaignId = String(searchParams.get("campaignId") || "").trim();
+  const q = String(searchParams.get("q") || "").trim();
 
   React.useEffect(() => {
     setMounted(true);
@@ -1148,16 +1150,14 @@ const fetchCreators = React.useCallback(async () => {
   const handleCreateSelectedAndNavigate = async (target: NavigateTarget) => {
     if (loading || bulkCreating) return;
 
-    const href = getNavigateHref(target);
-
     if (target === "dashboard") {
-      router.replace(href);
+      router.replace(getNavigateHref("dashboard"));
       return;
     }
 
     try {
       const brandId = getStoredBrandMongoId();
-      const currentCampaignId = searchParams.get("campaignId");
+      const currentCampaignId = campaignId;
 
       if (!brandId || !currentCampaignId) {
         throw new Error("Missing brand _id or campaign _id");
@@ -1188,7 +1188,12 @@ const fetchCreators = React.useCallback(async () => {
       });
 
       if (!pendingCreators.length) {
-        router.replace(href);
+        toast({
+          icon: "success",
+          title: "Already invited",
+          text: "Selected creators are already invited for this campaign.",
+        });
+
         return;
       }
 
@@ -1288,7 +1293,7 @@ const fetchCreators = React.useCallback(async () => {
           } been invited.`,
       });
 
-      router.replace(href);
+      // Stay on this invite page. Do not redirect to the full campaign list.
     } catch (err: any) {
       const message = await getApiErrorMessage(
         err,
