@@ -136,6 +136,19 @@ function makeAliasFromBrandName(name: string) {
     .replace(/^\.+|\.+$/g, "")
     .slice(0, 40);
 }
+function makeAliasFromEmail(email: string) {
+  const localPart = String(email || "")
+    .trim()
+    .toLowerCase()
+    .split("@")[0];
+
+  return localPart
+    .replace(/\+.*/, "")
+    .replace(/[^a-z0-9._-]+/g, ".")
+    .replace(/[._-]{2,}/g, ".")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 40);
+}
 
 type BrandOnboardingData = {
   brandType: string;
@@ -143,6 +156,7 @@ type BrandOnboardingData = {
   platforms: string[];
   brandImageFile: File | null;
   brandImagePreview: string;
+  googleProfilePicUrl: string;
 };
 
 const BRAND_TYPES = [
@@ -176,6 +190,7 @@ export default function BrandOnboardingPage() {
 
   const [brandName, setBrandName] = React.useState("");
   const [pocName, setPocName] = React.useState("");
+  const [brandEmail, setBrandEmail] = React.useState("");
 
   const [brandEmailAlias, setBrandEmailAlias] = React.useState("");
   const [aliasTouched, setAliasTouched] = React.useState(false);
@@ -187,6 +202,7 @@ export default function BrandOnboardingPage() {
     platforms: [],
     brandImageFile: null,
     brandImagePreview: "",
+    googleProfilePicUrl: "",
   });
 
   const [isLoading, setIsLoading] = React.useState(false);
@@ -227,8 +243,23 @@ export default function BrandOnboardingPage() {
     if (draftRaw) {
       try {
         const draft = JSON.parse(draftRaw);
+
+        const googleProfilePic = draft.googleProfilePic || draft.profilePic || "";
+
         setBrandName(draft.brandName || "");
         setPocName(draft.pocName || "");
+
+        if (draft.aliasSource) {
+          setBrandEmailAlias(draft.aliasSource);
+        }
+
+        if (googleProfilePic) {
+          setOnboardData((prev) => ({
+            ...prev,
+            brandImagePreview: googleProfilePic,
+            googleProfilePicUrl: googleProfilePic,
+          }));
+        }
       } catch {
         // ignore
       }
@@ -288,7 +319,9 @@ export default function BrandOnboardingPage() {
   const svgIndex = useRandomSvgSwap(8000, SVG_LIBRARY.length);
   const CardSvg = SVG_LIBRARY[svgIndex];
 
-  const defaultAlias = React.useMemo(() => makeAliasFromBrandName(brandName), [brandName]);
+  const defaultAlias = React.useMemo(() => {
+    return makeAliasFromEmail(brandEmail) || makeAliasFromBrandName(brandName);
+  }, [brandEmail, brandName]);
 
   React.useEffect(() => {
     if (step !== "brandAlias") return;
@@ -543,7 +576,10 @@ export default function BrandOnboardingPage() {
             </button>
           </div>
         ),
-        isValid: !!onboardData.brandImageFile,
+        isValid:
+          !!onboardData.brandImageFile ||
+          !!onboardData.googleProfilePicUrl ||
+          !!onboardData.brandImagePreview,
       },
       {
         title: "What are your preferred platforms?",
@@ -592,13 +628,21 @@ export default function BrandOnboardingPage() {
     }
 
     if (stepIndex === 2) {
-      if (!onboardData.brandImageFile) {
-        await apiSaveBrandOnboarding({ isProfilePicSkip: true });
+      if (onboardData.brandImageFile) {
+        const profilePic = await fileToDataUrl(onboardData.brandImageFile);
+        await apiSaveBrandOnboarding({ profilePic, isProfilePicSkip: false });
         return;
       }
 
-      const profilePic = await fileToDataUrl(onboardData.brandImageFile);
-      await apiSaveBrandOnboarding({ profilePic, isProfilePicSkip: false });
+      if (onboardData.googleProfilePicUrl) {
+        await apiSaveBrandOnboarding({
+          profilePic: onboardData.googleProfilePicUrl,
+          isProfilePicSkip: false,
+        });
+        return;
+      }
+
+      await apiSaveBrandOnboarding({ isProfilePicSkip: true });
       return;
     }
 
@@ -719,7 +763,7 @@ export default function BrandOnboardingPage() {
                   <div className="absolute inset-0 flex items-center justify-center p-[18px] sm:p-[28px] lg:p-[50px]">
                     <div className="relative w-full overflow-hidden h-[420px] sm:h-[520px] md:h-[640px] lg:h-[calc(100svh-114px)]">
                       <div className="absolute inset-0 flex items-center justify-center p-[18px] sm:p-[28px] lg:p-[50px]">
-                        <VggCardStack/>
+                        <VggCardStack />
                       </div>
                     </div>
                   </div>
