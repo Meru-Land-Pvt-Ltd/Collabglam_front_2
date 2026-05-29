@@ -684,11 +684,13 @@ function ModashReportSideModal({
   onClose,
   onRefresh,
   onChangeCalc,
+  campaignId,
 }: {
   drawer: ReportDrawerState;
   onClose: () => void;
   onRefresh: () => void;
   onChangeCalc: (calc: ReportCalculationMethod) => void;
+  campaignId?: string | null;
 }) {
   const creator = drawer.creator;
   const platform = normalizeReportPlatform(
@@ -708,6 +710,7 @@ function ModashReportSideModal({
       emailExists={null}
       onChangeCalc={onChangeCalc}
       brandId={getStoredBrandMongoId()}
+      campaignId={campaignId}
       handle={handle}
       lastFetchedAt={drawer.lastFetchedAt}
       onRefreshReport={onRefresh}
@@ -1612,6 +1615,7 @@ const fetchCreators = React.useCallback(async () => {
         onClose={closeReportDrawer}
         onRefresh={refreshCurrentReport}
         onChangeCalc={handleReportCalcChange}
+        campaignId={campaignId}
       />
     </div>
   );

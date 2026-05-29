@@ -669,7 +669,7 @@ function BrandLoginContentInner() {
 
               <form
                 onSubmit={onSubmit}
-                className="mt-2xl flex flex-col items-center gap-[1rem] self-stretch"
+                className="mt-[2rem] flex flex-col items-center gap-[0.5rem] self-stretch"
               >
                 <button
                   type="button"
@@ -687,11 +687,12 @@ function BrandLoginContentInner() {
                   {googleLoading ? "Connecting..." : "Continue With Google"}
                 </button>
 
-                <div className="flex w-full items-center gap-3 mt-[1rem] mb-[0.5rem]">
+                <div className="flex w-full items-center gap-3 mt-[0.5rem]">
                   <div className="h-px flex-1 bg-[#E6E6E6]" />
                   <span className="text-xs text-[#969696]">or</span>
                   <div className="h-px flex-1 bg-[#E6E6E6]" />
                 </div>
+                
                 <FloatingInput
                   label="Email"
                   value={email}
@@ -737,7 +738,7 @@ function BrandLoginContentInner() {
                   type="submit"
                   variant="solid"
                   size="lg"
-                  className="w-full rounded-m mt-[2rem]"
+                  className="w-full rounded-m mt-[0.5rem]"
                   disabled={loading}
                 >
                   {loading ? "Signing in..." : "Continue"}

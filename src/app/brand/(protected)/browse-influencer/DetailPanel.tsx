@@ -65,6 +65,7 @@ interface DetailPanelProps {
   emailExists?: boolean | null;
   onChangeCalc: (calc: 'median' | 'average') => void;
   brandId: string;
+  campaignId?: string | null;
   handle: string | null;
   lastFetchedAt?: string | null;
   onRefreshReport?: () => Promise<void> | void;
@@ -1844,6 +1845,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     emailExists,
     onChangeCalc: _onChangeCalc,
     brandId,
+    campaignId: campaignIdProp,
     handle,
     lastFetchedAt,
     onRefreshReport,
@@ -1852,7 +1854,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
   }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const campaignId = searchParams?.get('campaignId') || '';
+    const queryCampaignId = searchParams?.get('campaignId') || '';
+    const campaignId = String(campaignIdProp || queryCampaignId || '').trim();
+    const hasLockedCampaign = Boolean(campaignId);
     const [hasAnyEmail, setHasAnyEmail] = useState<boolean | null>(null);
     const [checkingEmail, setCheckingEmail] = useState(false);
     const [sendingInvite, setSendingInvite] = useState(false);
@@ -1943,7 +1947,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     }, [lastFetchedAt]);
 
     useEffect(() => {
-      setSelectedCampaignIds(campaignId ? [campaignId] : []);
+      if (campaignId) {
+        setSelectedCampaignIds([campaignId]);
+        setCampaignPickerOpen(false);
+        return;
+      }
+
+      setSelectedCampaignIds([]);
     }, [campaignId]);
 
     useEffect(() => {
@@ -2506,6 +2516,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       (handle && (handle.startsWith('@') ? handle : `@${handle}`)) ??
       '';
 
+    const activeInviteCampaignIds = campaignId ? [campaignId] : selectedCampaignIds;
+
     const handleRefreshData = async (e: React.MouseEvent) => {
       e.preventDefault();
       if (!onRefreshReport || refreshing) return;
@@ -2870,6 +2882,12 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const handleCampaignPickerToggle = async (e: React.MouseEvent) => {
       e.preventDefault();
+
+      if (hasLockedCampaign) {
+        setSelectedCampaignIds([campaignId]);
+        setCampaignPickerOpen(false);
+        return;
+      }
 
       if (loading || campaignsLoading) return;
 
@@ -3384,9 +3402,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                         onClick={(e) => {
                           e.preventDefault();
 
-                          if (selectedCampaignIds.length) {
+                          if (activeInviteCampaignIds.length) {
                             const selectedCampaign = brandCampaigns.find(
-                              (item) => item.campaignId === selectedCampaignIds[0]
+                              (item) => item.campaignId === activeInviteCampaignIds[0]
                             );
 
                             const proxyEmail =
@@ -3454,7 +3472,7 @@ Team CollabGlam`;
   `;
 
                             setEmailDraft({
-                              campaignIds: selectedCampaignIds,
+                              campaignIds: activeInviteCampaignIds,
                               fromEmail: proxyEmail,
                               fromName: brandName,
                               toLabel: displayHandle || handle || '',
@@ -3495,23 +3513,25 @@ Team CollabGlam`;
                         )}
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={handleCampaignPickerToggle}
-                        disabled={campaignsLoading || loading}
-                        className="inline-flex w-10 items-center justify-center border-l border-white/20 hover:bg-white/10"
-                      >
-                        {campaignsLoading ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
-                        ) : campaignPickerOpen ? (
-                          <CaretUpIcon className="h-4 w-4" />
-                        ) : (
-                          <CaretDownIcon className="h-4 w-4" />
-                        )}
-                      </button>
+                      {!hasLockedCampaign ? (
+                        <button
+                          type="button"
+                          onClick={handleCampaignPickerToggle}
+                          disabled={campaignsLoading || loading}
+                          className="inline-flex w-10 items-center justify-center border-l border-white/20 hover:bg-white/10"
+                        >
+                          {campaignsLoading ? (
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                          ) : campaignPickerOpen ? (
+                            <CaretUpIcon className="h-4 w-4" />
+                          ) : (
+                            <CaretDownIcon className="h-4 w-4" />
+                          )}
+                        </button>
+                      ) : null}
                     </div>
 
-                    {campaignPickerOpen ? (
+                    {!hasLockedCampaign && campaignPickerOpen ? (
                       <CampaignInvitePicker
                         open={campaignPickerOpen}
                         onClose={() => setCampaignPickerOpen(false)}
