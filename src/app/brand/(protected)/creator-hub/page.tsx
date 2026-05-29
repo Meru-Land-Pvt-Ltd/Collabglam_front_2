@@ -18,6 +18,10 @@ import {
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 import {
+  apiGetCategories,
+  getApiErrorMessage,
+} from "@/app/brand/services/brandApi";
+import {
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
@@ -68,6 +72,11 @@ type CampaignOption = {
   type?: string;
   isFullyManaged?: boolean;
   goodFitCount?: number;
+};
+
+type CategoryOption = {
+  id: string;
+  label: string;
 };
 
 type ModashProfileData = {
@@ -347,13 +356,14 @@ const NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT = "/campaign/getNonFullManagedCampaign
 const SHAREMITRA_API_BASE =
   process.env.NEXT_PUBLIC_SHAREMITRA_API_BASE_URL || "https://api.sharemitra.com";
 
-type InfluencerStatus = "Sent" | "Pending" | "Rejected" | "Good Fit" | "Media Kit";
+type InfluencerStatus = "Sent" | "Pending" | "Rejected" | "Good Fit" | "Media Kit" | "Bookmarked";
 
 type InfluencerRow = {
   id: string;
   profile: string;
   username: string;
   handle: string;
+  avatarUrl: string;
   status: InfluencerStatus;
   category: string;
   folder: string;
@@ -373,6 +383,7 @@ const statusStyles: Record<InfluencerStatus, string> = {
   Rejected: "bg-[#F7F7F7] text-[#777777] before:bg-[#EF4C3C]",
   "Good Fit": "bg-[#F7F7F7] text-[#777777] before:bg-[#21B15A]",
   "Media Kit": "bg-[#F7F7F7] text-[#777777] before:bg-[#3D7CFF]",
+  Bookmarked: "bg-[#F7F7F7] text-[#777777] before:bg-[#8C4B30]",
 };
 
 const CREATOR_TIER_OPTIONS = ["Nano", "Micro", "Macro", "Mega"];
@@ -425,6 +436,87 @@ function getItemModash(item?: GoodFitInfluencer | null): ModashProfileData | nul
     source.creator ||
     null
   );
+}
+
+function extractCategoryList(payload: any): CategoryOption[] {
+  const rows =
+    Array.isArray(payload)
+      ? payload
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.data?.data)
+          ? payload.data.data
+          : Array.isArray(payload?.categories)
+            ? payload.categories
+            : Array.isArray(payload?.data?.categories)
+              ? payload.data.categories
+              : [];
+
+  const map = new Map<string, CategoryOption>();
+
+  rows.forEach((category: any) => {
+    const id = String(
+      category?._id ||
+      category?.id ||
+      category?.categoryId ||
+      category?.value ||
+      ""
+    ).trim();
+
+    const label = String(
+      category?.name ||
+      category?.categoryName ||
+      category?.label ||
+      category?.title ||
+      ""
+    ).trim();
+
+    if (!id || !label) return;
+
+    if (!map.has(id)) {
+      map.set(id, {
+        id,
+        label,
+      });
+    }
+  });
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.label.localeCompare(b.label)
+  );
+}
+
+function normalizeCategoryFilterText(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function rowMatchesCategoryFilter(
+  row: InfluencerRow,
+  selectedCategoryLabel: string
+) {
+  const selected = normalizeCategoryFilterText(selectedCategoryLabel);
+
+  if (!selected) return true;
+
+  const rowCategory = normalizeCategoryFilterText(row.category);
+  const rawCategories = normalizeCategoryFilterText(
+    getCategoryListFromValues(
+      row.raw?.niche,
+      (row.raw as any)?.categories,
+      row.raw?.filterData?.categories,
+      getModashCategories(row.raw)
+    ).join(" ")
+  );
+
+  const combined = `${rowCategory} ${rawCategories}`.trim();
+
+  return combined.includes(selected);
 }
 
 function numberFromUnknown(value: unknown) {
@@ -483,6 +575,36 @@ function parseAgeRange(value: unknown) {
   return null;
 }
 
+function hasActiveMoreFilters(filters: MoreFiltersState) {
+  const searchMode = String(filters.search?.mode || "").trim();
+
+  if (searchMode && searchMode !== "combined") return true;
+
+  const influencer = filters.influencer || {};
+
+  if (
+    influencer.tier ||
+    typeof influencer.isVerified === "boolean" ||
+    typeof influencer.ageMin === "number" ||
+    typeof influencer.ageMax === "number" ||
+    influencer.gender
+  ) {
+    return true;
+  }
+
+  const audience = filters.audience || {};
+
+  if (audience.country) return true;
+
+  const platform = filters.platform || {};
+
+  return Object.values(platform).some(
+    (item) =>
+      typeof item?.followersMin === "number" ||
+      typeof item?.followersMax === "number"
+  );
+}
+
 function rangesOverlap(
   left: { min?: number; max?: number } | null,
   right: { min?: number; max?: number } | null
@@ -512,7 +634,7 @@ function rowMatchesMoreFilters(row: InfluencerRow, filters: MoreFiltersState) {
   if (
     typeof influencerFilters.isVerified === "boolean" &&
     Boolean(filterData.isVerified ?? modash?.isVerified) !==
-      influencerFilters.isVerified
+    influencerFilters.isVerified
   ) {
     return false;
   }
@@ -769,10 +891,9 @@ function displayText(value?: string | number | null) {
 }
 
 function getDisplayLanguage(value?: string | number | null) {
-  const text = String(value ?? "").trim();
+  const text = normalizeLanguageText(value);
   return text || "—";
 }
-
 
 const LANGUAGE_CODE_LABELS: Record<string, string> = {
   en: "English",
@@ -799,16 +920,208 @@ const LANGUAGE_CODE_LABELS: Record<string, string> = {
   kor: "Korean",
   zh: "Chinese",
   zho: "Chinese",
+  bn: "Bengali",
+  ur: "Urdu",
+  tr: "Turkish",
+  nl: "Dutch",
+  pl: "Polish",
+  sv: "Swedish",
+  no: "Norwegian",
+  da: "Danish",
+  fi: "Finnish",
+  id: "Indonesian",
+  ms: "Malay",
+  th: "Thai",
+  vi: "Vietnamese",
 };
+
+const ISO3_TO_ISO2: Record<string, string> = {
+  AFG: "AF",
+  ALB: "AL",
+  DZA: "DZ",
+  ARG: "AR",
+  AUS: "AU",
+  AUT: "AT",
+  BGD: "BD",
+  BEL: "BE",
+  BRA: "BR",
+  CAN: "CA",
+  CHL: "CL",
+  CHN: "CN",
+  COL: "CO",
+  DNK: "DK",
+  EGY: "EG",
+  FRA: "FR",
+  DEU: "DE",
+  GBR: "GB",
+  IND: "IN",
+  IDN: "ID",
+  IRL: "IE",
+  ITA: "IT",
+  JPN: "JP",
+  KOR: "KR",
+  KWT: "KW",
+  MEX: "MX",
+  NLD: "NL",
+  NZL: "NZ",
+  PAK: "PK",
+  PHL: "PH",
+  POL: "PL",
+  PRT: "PT",
+  RUS: "RU",
+  SAU: "SA",
+  SGP: "SG",
+  ZAF: "ZA",
+  ESP: "ES",
+  SWE: "SE",
+  CHE: "CH",
+  THA: "TH",
+  TUR: "TR",
+  ARE: "AE",
+  USA: "US",
+  VNM: "VN",
+};
+
+const COUNTRY_NAME_TO_ISO2: Record<string, string> = {
+  america: "US",
+  usa: "US",
+  us: "US",
+  "u.s.": "US",
+  "u.s.a.": "US",
+  "united states": "US",
+  "united states of america": "US",
+  uk: "GB",
+  "u.k.": "GB",
+  britain: "GB",
+  "great britain": "GB",
+  "united kingdom": "GB",
+  england: "GB",
+  russia: "RU",
+  "russian federation": "RU",
+  kuwait: "KW",
+  ireland: "IE",
+  india: "IN",
+  france: "FR",
+  germany: "DE",
+  italy: "IT",
+  spain: "ES",
+  portugal: "PT",
+  brazil: "BR",
+  canada: "CA",
+  australia: "AU",
+  "new zealand": "NZ",
+  pakistan: "PK",
+  bangladesh: "BD",
+  "united arab emirates": "AE",
+  uae: "AE",
+  singapore: "SG",
+  indonesia: "ID",
+  malaysia: "MY",
+  philippines: "PH",
+  thailand: "TH",
+  vietnam: "VN",
+  japan: "JP",
+  "south korea": "KR",
+  korea: "KR",
+  china: "CN",
+  mexico: "MX",
+  argentina: "AR",
+  colombia: "CO",
+  chile: "CL",
+  egypt: "EG",
+  "saudi arabia": "SA",
+  "south africa": "ZA",
+};
+
+function uniqueNonEmpty(values: string[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 function normalizeLanguageText(value?: string | number | null) {
   const text = String(value ?? "").trim();
 
   if (!text) return "";
 
-  const clean = text.toLowerCase();
+  const clean = text.replace(/_/g, "-").toLowerCase();
+  const baseCode = clean.split("-")[0];
 
-  return LANGUAGE_CODE_LABELS[clean] || text;
+  return LANGUAGE_CODE_LABELS[clean] || LANGUAGE_CODE_LABELS[baseCode] || text;
+}
+
+function normalizeCountryCode(value?: string | number | null) {
+  const text = String(value ?? "").trim();
+
+  if (!text) return "";
+
+  const clean = text.toUpperCase();
+
+  if (/^[A-Z]{2}$/.test(clean)) return clean;
+  if (ISO3_TO_ISO2[clean]) return ISO3_TO_ISO2[clean];
+
+  const lower = text.toLowerCase();
+  if (COUNTRY_NAME_TO_ISO2[lower]) return COUNTRY_NAME_TO_ISO2[lower];
+
+  const lastCommaPart = text.split(",").pop()?.trim().toLowerCase() || "";
+  if (COUNTRY_NAME_TO_ISO2[lastCommaPart]) return COUNTRY_NAME_TO_ISO2[lastCommaPart];
+
+  return "";
+}
+
+function countryCodeToFlag(countryCode?: string) {
+  const code = String(countryCode || "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+
+  return code
+    .split("")
+    .map((char) => String.fromCodePoint(127397 + char.charCodeAt(0)))
+    .join("");
+}
+
+function countryCodeToName(countryCode?: string) {
+  const code = String(countryCode || "").trim().toUpperCase();
+  if (!code) return "";
+
+  try {
+    const displayNames = new Intl.DisplayNames(["en"], { type: "region" });
+    return displayNames.of(code) || code;
+  } catch {
+    return code;
+  }
+}
+
+function normalizeCountryText(value?: string | number | null) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+
+  const code = normalizeCountryCode(text);
+  if (code) return countryCodeToName(code);
+
+  const lastCommaPart = text.split(",").pop()?.trim() || "";
+  const lastCommaCode = normalizeCountryCode(lastCommaPart);
+  if (lastCommaCode) return countryCodeToName(lastCommaCode);
+
+  return text;
+}
+
+function getDisplayCountry(value?: string | number | null) {
+  const text = normalizeCountryText(value);
+  return text || "—";
+}
+
+function getCountryDisplay(value?: string | number | null) {
+  const name = normalizeCountryText(value);
+  const code = normalizeCountryCode(value) || normalizeCountryCode(name);
+
+  return {
+    name: name || "—",
+    flag: countryCodeToFlag(code),
+  };
 }
 
 function readableTextFromUnknown(value: unknown): string {
@@ -834,6 +1147,9 @@ function readableTextFromUnknown(value: unknown): string {
       "name",
       "title",
       "label",
+      "category",
+      "categoryName",
+      "niche",
       "language",
       "languageName",
       "country",
@@ -852,6 +1168,46 @@ function readableTextFromUnknown(value: unknown): string {
   return "";
 }
 
+function readableListFromUnknown(value: unknown): string[] {
+  if (value === null || value === undefined) return [];
+
+  if (typeof value === "string" || typeof value === "number") {
+    const text = String(value).trim();
+    return text ? [text] : [];
+  }
+
+  if (Array.isArray(value)) {
+    return uniqueNonEmpty(value.flatMap((item) => readableListFromUnknown(item)));
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    for (const key of [
+      "name",
+      "title",
+      "label",
+      "category",
+      "categoryName",
+      "niche",
+      "language",
+      "languageName",
+      "country",
+      "countryName",
+      "value",
+      "code",
+      "languageCode",
+      "countryCode",
+      "id",
+    ]) {
+      const values = readableListFromUnknown(record[key]);
+      if (values.length) return values;
+    }
+  }
+
+  return [];
+}
+
 function readPathValue(source: any, path: string) {
   return path.split(".").reduce((cursor, key) => {
     if (cursor === null || cursor === undefined) return undefined;
@@ -866,6 +1222,15 @@ function readFirstTextFromPaths(source: any, paths: string[]) {
   }
 
   return "";
+}
+
+function readFirstListFromPaths(source: any, paths: string[]) {
+  for (const path of paths) {
+    const values = readableListFromUnknown(readPathValue(source, path));
+    if (values.length) return values;
+  }
+
+  return [];
 }
 
 function findTextByKey(source: unknown, matcher: (key: string) => boolean, depth = 0): string {
@@ -909,121 +1274,116 @@ function getModashLanguageText(item?: GoodFitInfluencer | BrandFolderItem | null
   const source: any = item || {};
   const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
   const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+  const languagePaths = [
+    "language",
+    "languages",
+    "languageName",
+    "languageCode",
+    "filterData.language",
+    "filterData.languages",
+    "modash.language",
+    "modash.languages",
+    "modashProfile.language",
+    "modashProfile.languages",
+    "profile.language",
+    "profile.languages",
+    "creator.language",
+    "creator.languages",
+    "audience.language",
+    "audience.languages",
+    "audience.topLanguages",
+    "audienceExtra.language",
+    "audienceExtra.languages",
+    "audienceCommenters.language",
+    "audienceCommenters.languages",
+  ];
 
-  const text =
-    readFirstTextFromPaths(source, [
-      "language",
-      "languages",
-      "languageName",
-      "languageCode",
-      "filterData.language",
-      "filterData.languages",
-      "modash.language",
-      "modash.languages",
-      "modashProfile.language",
-      "modashProfile.languages",
-      "audience.language",
-      "audience.languages",
-      "audience.topLanguages",
-      "audienceExtra.language",
-      "audienceExtra.languages",
-    ]) ||
-    readFirstTextFromPaths(raw, [
-      "language",
-      "languages",
-      "languageName",
-      "languageCode",
-      "filterData.language",
-      "filterData.languages",
-      "modash.language",
-      "modash.languages",
-      "modashProfile.language",
-      "modashProfile.languages",
-      "profile.language",
-      "profile.languages",
-      "creator.language",
-      "creator.languages",
-      "audience.language",
-      "audience.languages",
-      "audience.topLanguages",
-      "audienceExtra.language",
-      "audienceExtra.languages",
-    ]) ||
-    readFirstTextFromPaths(modash, [
-      "language",
-      "languages",
-      "languageName",
-      "languageCode",
-      "audience.language",
-      "audience.languages",
-      "audience.topLanguages",
-      "audienceExtra.language",
-      "audienceExtra.languages",
-      "audienceCommenters.language",
-      "audienceCommenters.languages",
-    ]) ||
-    findTextByKey(modash, (key) => key.toLowerCase().includes("language"));
+  const sourceLanguages = readFirstListFromPaths(source, languagePaths);
+  const rawLanguages = sourceLanguages.length
+    ? sourceLanguages
+    : readFirstListFromPaths(raw, languagePaths);
+  const modashLanguages = rawLanguages.length
+    ? rawLanguages
+    : readFirstListFromPaths(modash, languagePaths);
+  const fallback = modashLanguages.length
+    ? modashLanguages
+    : [findTextByKey(modash, (key) => key.toLowerCase().includes("language"))];
 
-  return normalizeLanguageText(text);
+  return uniqueNonEmpty(fallback.map((value) => normalizeLanguageText(value))).join(", ");
 }
 
 function getModashCountryText(item?: GoodFitInfluencer | BrandFolderItem | null) {
   const source: any = item || {};
   const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
   const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+  const countryPaths = [
+    "country",
+    "countryName",
+    "countryCode",
+    "location",
+    "filterData.country",
+    "filterData.countryName",
+    "filterData.countryCode",
+    "filterData.location",
+    "modash.country",
+    "modash.countryName",
+    "modash.countryCode",
+    "modash.location",
+    "modashProfile.country",
+    "modashProfile.countryName",
+    "modashProfile.countryCode",
+    "modashProfile.location",
+    "profile.country",
+    "profile.countryName",
+    "profile.countryCode",
+    "profile.location",
+    "creator.country",
+    "creator.countryName",
+    "creator.countryCode",
+    "creator.location",
+    "audience.country",
+    "audience.countries",
+    "audience.topCountries",
+    "audienceExtra.country",
+    "audienceExtra.countries",
+  ];
 
-  return (
-    readFirstTextFromPaths(source, [
-      "country",
-      "location",
-      "countryName",
-      "countryCode",
-      "filterData.country",
-      "filterData.location",
-      "modash.country",
-      "modash.location",
-      "modashProfile.country",
-      "modashProfile.location",
-      "audience.country",
-      "audience.countries",
-      "audience.topCountries",
-    ]) ||
-    readFirstTextFromPaths(raw, [
-      "country",
-      "location",
-      "countryName",
-      "countryCode",
-      "filterData.country",
-      "filterData.location",
-      "modash.country",
-      "modash.location",
-      "modashProfile.country",
-      "modashProfile.location",
-      "profile.country",
-      "profile.location",
-      "creator.country",
-      "creator.location",
-      "audience.country",
-      "audience.countries",
-      "audience.topCountries",
-    ]) ||
-    readFirstTextFromPaths(modash, [
-      "country",
-      "location",
-      "city",
-      "countryName",
-      "countryCode",
-      "audience.country",
-      "audience.countries",
-      "audience.topCountries",
-      "audienceExtra.country",
-      "audienceExtra.countries",
-    ]) ||
+  const text =
+    readFirstTextFromPaths(source, countryPaths) ||
+    readFirstTextFromPaths(raw, countryPaths) ||
+    readFirstTextFromPaths(modash, countryPaths) ||
     findTextByKey(modash, (key) => {
       const lowerKey = key.toLowerCase();
       return lowerKey.includes("country") || lowerKey === "location";
-    })
-  );
+    });
+
+  return normalizeCountryText(text);
+}
+
+function getProfileImageUrl(item?: GoodFitInfluencer | BrandFolderItem | null) {
+  const source: any = item || {};
+  const raw = source.raw && typeof source.raw === "object" ? source.raw : {};
+  const modash: any = getItemModash(source as GoodFitInfluencer) || {};
+  const url = String(
+    source.picture ||
+    source.avatarUrl ||
+    source.profileImage ||
+    raw.picture ||
+    raw.avatarUrl ||
+    raw.profileImage ||
+    raw.profile?.picture ||
+    raw.profile?.avatarUrl ||
+    raw.creator?.picture ||
+    raw.creator?.avatarUrl ||
+    modash.picture ||
+    modash.avatarUrl ||
+    modash.profileImage ||
+    modash.profile?.picture ||
+    modash.creator?.picture ||
+    ""
+  ).trim();
+
+  return /^https?:\/\//i.test(url) ? url : "";
 }
 
 
@@ -1074,9 +1434,13 @@ function getIdString(value: RelatedCampaign["campaignId"] | string | number | nu
   return String(value._id || value.id || value.campaignsId || "").trim();
 }
 
-function displayCategory(value?: string[] | string) {
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
-  return displayText(value);
+function displayCategory(value?: unknown) {
+  const values = uniqueNonEmpty(readableListFromUnknown(value));
+  return values.length ? values.join(", ") : "—";
+}
+
+function getCategoryListFromValues(...values: unknown[]) {
+  return uniqueNonEmpty(values.flatMap((value) => readableListFromUnknown(value)));
 }
 
 function normalizeHandle(value?: string) {
@@ -1098,11 +1462,22 @@ function formatDate(value?: string) {
 }
 
 function getStatus(item: GoodFitInfluencer): InfluencerStatus {
+  const normalizedStatus = String((item as any).status || (item as any).raw?.status || "")
+    .trim()
+    .toLowerCase();
+
   if (item.mediaKitAccess?.hasAdded || item.mediaKitAccess?.allowed) {
     return "Sent";
   }
 
-  if (item.goodFit) return "Sent";
+  if (normalizedStatus.includes("bookmark")) return "Bookmarked";
+  if (normalizedStatus.includes("good_fit") || normalizedStatus.includes("good fit")) {
+    return "Good Fit";
+  }
+  if (normalizedStatus === "sent" || normalizedStatus === "available") return "Sent";
+  if (normalizedStatus === "rejected" || normalizedStatus === "blocked") return "Rejected";
+
+  if (item.goodFit) return "Good Fit";
 
   return "Pending";
 }
@@ -1189,13 +1564,17 @@ function getFoldersText(folders: RelatedFolder[], fallbackFolder?: string) {
 function getCampaignName(campaign?: RelatedCampaign | null) {
   if (!campaign) return "—";
 
-  return (
-    displayText(campaign.campaignTitle) ||
-    displayText(campaign.productOrServiceName) ||
-    displayText(campaign.campaignsId) ||
-    displayText(getIdString(campaign.campaignId)) ||
-    "—"
-  );
+  for (const value of [
+    campaign.campaignTitle,
+    campaign.productOrServiceName,
+    campaign.campaignsId,
+    getIdString(campaign.campaignId),
+  ]) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+
+  return "—";
 }
 
 function getInfluencerMergeKey(item: GoodFitInfluencer) {
@@ -1258,30 +1637,28 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
   const name = displayText(item.name || modash?.fullname || modash?.username);
   const handle = normalizeHandle(item.handle || modash?.handle || modash?.username);
   const cleanUsername = handle !== "—" ? handle.replace("@", "") : "username";
-  const categoryFromPitch = displayCategory(item.niche);
-  const category =
-    categoryFromPitch !== "—"
-      ? categoryFromPitch
-      : modashCategories.length
-        ? modashCategories.join(", ")
-        : "—";
+  const category = displayCategory(
+    getCategoryListFromValues(item.niche, (item as any).categories, modashCategories)
+  );
+  const avatarUrl = getProfileImageUrl(item);
 
   return {
     id: String(item._id || `${item.handle || item.name || "good-fit"}-${index}`),
     profile: name === "—" ? "Label" : name,
     username: cleanUsername,
     handle,
+    avatarUrl,
     status: getStatus(item),
     category,
     folder: getFoldersText(relatedFolders, firstFolder?.title),
     campaignName: getCampaignName(firstCampaign || item.folder?.assignedCampaign),
-    country: displayText(getModashCountryText(item)),
+    country: getDisplayCountry(getModashCountryText(item)),
     language: getDisplayLanguage(getModashLanguageText(item)),
     invitationDate: formatDate(
       (item as any).invitedAt ||
-        (item as any).invitationDate ||
-        (item as any).invitationCreatedAt ||
-        (item as any).invitation?.createdAt
+      (item as any).invitationDate ||
+      (item as any).invitationCreatedAt ||
+      (item as any).invitation?.createdAt
     ),
     profileUrl: String(item.primaryLink || item.links?.[0] || modash?.url || "").trim(),
     relatedCampaigns,
@@ -1300,26 +1677,29 @@ function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRo
     profile: cleanUsername === "username" ? "Label" : cleanUsername,
     username: cleanUsername,
     handle,
+    avatarUrl: getProfileImageUrl(invitation as any),
     status: getInvitationStatus(invitation.status),
     category: "—",
     folder: campaignName,
     campaignName,
-    country: displayText(
+    country: getDisplayCountry(
       (invitation as any).country ||
-        (invitation as any).location ||
-        (invitation as any).modash?.country
+      (invitation as any).countryName ||
+      (invitation as any).countryCode ||
+      (invitation as any).location ||
+      (invitation as any).modash?.country
     ),
     language: getDisplayLanguage(getModashLanguageText(invitation as any)),
     invitationDate: formatDate(invitation.createdAt),
     profileUrl: getInvitationProfileUrl(invitation),
     relatedCampaigns: invitation.campaignId
       ? [
-          {
-            campaignId: invitation.campaignId,
-            campaignTitle: invitation.campaignName || undefined,
-            assignedAt: invitation.createdAt,
-          },
-        ]
+        {
+          campaignId: invitation.campaignId,
+          campaignTitle: invitation.campaignName || undefined,
+          assignedAt: invitation.createdAt,
+        },
+      ]
       : [],
     relatedFolders: [],
     raw: {
@@ -1399,39 +1779,39 @@ function mapBrandFolderItemToGoodFit(
     modash,
     modashProfile: raw?.modashProfile
   } as any);
-  const categories = Array.isArray(item.categories) && item.categories.length
-    ? item.categories
-    : Array.isArray(item.niche)
-      ? item.niche
-      : Array.isArray(raw?.categories)
-        ? raw.categories
-        : Array.isArray(raw?.niche)
-          ? raw.niche
-          : [];
+  const categories = getCategoryListFromValues(
+    item.categories,
+    item.niche,
+    raw?.categories,
+    raw?.niche,
+    raw?.categoryObjects,
+    modash?.categories,
+    modash?.categoryObjects
+  );
 
   const handle = String(item.handle || item.username || raw?.handle || raw?.username || "").trim();
   const name = String(
     item.name ||
-      item.fullname ||
-      item.username ||
-      raw?.name ||
-      raw?.fullname ||
-      raw?.username ||
-      handle ||
-      "Label"
+    item.fullname ||
+    item.username ||
+    raw?.name ||
+    raw?.fullname ||
+    raw?.username ||
+    handle ||
+    "Label"
   ).trim();
 
   const primaryLink = String(
     item.primaryLink ||
-      item.profileUrl ||
-      item.url ||
-      item.links?.[0] ||
-      raw?.primaryLink ||
-      raw?.profileUrl ||
-      raw?.url ||
-      raw?.links?.[0] ||
-      modash?.url ||
-      ""
+    item.profileUrl ||
+    item.url ||
+    item.links?.[0] ||
+    raw?.primaryLink ||
+    raw?.profileUrl ||
+    raw?.url ||
+    raw?.links?.[0] ||
+    modash?.url ||
+    ""
   ).trim();
 
   const folderPayload: RelatedFolder = {
@@ -1543,15 +1923,15 @@ function getFolderAssignedCampaign(folder: any): RelatedCampaign | null {
 
   const campaignId = String(
     getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    campaign?.campaignsId ||
+    ""
   ).trim();
 
   const hasLabel = Boolean(
     campaign?.campaignTitle ||
-      campaign?.productOrServiceName ||
-      campaign?.campaignsId ||
-      campaignId
+    campaign?.productOrServiceName ||
+    campaign?.campaignsId ||
+    campaignId
   );
 
   if (!campaignId && !hasLabel) return null;
@@ -1566,8 +1946,8 @@ function mapFolderToCampaignOption(folder: any): CampaignOption | null {
   const campaign = getFolderAssignedCampaign(folder);
   const queryCampaignId = String(
     getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    campaign?.campaignsId ||
+    ""
   ).trim();
 
   const fallbackFolderLabel = getShortIdLabel("Folder", folderId);
@@ -1718,25 +2098,36 @@ function findCampaignTitleDeep(value: any, depth = 0): string {
 }
 
 function getCampaignOptionDisplayName(campaign: any, id: string) {
-  return String(
+  const label = String(
+    campaign?.label ||
     campaign?.campaignTitle ||
-      campaign?.campaign_title ||
-      campaign?.campaign?.campaignTitle ||
-      campaign?.campaignData?.campaignTitle ||
-      campaign?.campaignDetails?.campaignTitle ||
-      campaign?.details?.campaignTitle ||
-      ""
+    campaign?.campaign_title ||
+    campaign?.campaignName ||
+    campaign?.campaign_name ||
+    campaign?.productOrServiceName ||
+    campaign?.product_or_service_name ||
+    campaign?.campaign?.campaignTitle ||
+    campaign?.campaignData?.campaignTitle ||
+    campaign?.campaignDetails?.campaignTitle ||
+    campaign?.details?.campaignTitle ||
+    ""
   ).trim();
+
+  if (!label || isBadCampaignLabel(label)) {
+    return getShortIdLabel("Campaign", id);
+  }
+
+  return label;
 }
 
 
 function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
   const id = String(
     getIdString(campaign?.campaignId) ||
-      getIdString(campaign?._id) ||
-      campaign?.campaignsId ||
-      campaign?.id ||
-      ""
+    getIdString(campaign?._id) ||
+    campaign?.campaignsId ||
+    campaign?.id ||
+    ""
   ).trim();
 
   if (!id) return null;
@@ -1771,7 +2162,9 @@ function buildCreateCampaignOptions(campaigns: any[]): CampaignOption[] {
 
   campaigns.forEach((campaign) => {
     const option = mapRawCampaignToCampaignOption(campaign);
-    if (!option || option.isFullyManaged || map.has(option.id)) return;
+
+    if (!option || map.has(option.id)) return;
+
     map.set(option.id, option);
   });
 
@@ -1789,8 +2182,8 @@ function getRowCampaignId(row: InfluencerRow) {
 
   return String(
     getIdString(campaign?.campaignId) ||
-      campaign?.campaignsId ||
-      ""
+    campaign?.campaignsId ||
+    ""
   ).trim();
 }
 
@@ -1799,17 +2192,18 @@ function getRowCampaignName(row: InfluencerRow) {
 
   return String(
     campaign?.campaignTitle ||
-      row.raw?.relatedCampaigns?.[0]?.campaignTitle ||
-      ""
+    row.raw?.relatedCampaigns?.[0]?.campaignTitle ||
+    row.campaignName ||
+    "—"
   ).trim();
 }
 
 function getRowPlatform(row: InfluencerRow) {
   return String(
     row.raw?.provider ||
-      row.raw?.filterData?.provider ||
-      getItemModash(row.raw)?.provider ||
-      "youtube"
+    row.raw?.filterData?.provider ||
+    getItemModash(row.raw)?.provider ||
+    "youtube"
   )
     .trim()
     .toLowerCase();
@@ -1828,20 +2222,20 @@ function getInvitationHandle(row: InfluencerRow) {
 function getInvitationCreatedAtFromResponse(payload: any) {
   return String(
     payload?.data?.createdAt ||
-      payload?.data?.invitation?.createdAt ||
-      payload?.data?.data?.createdAt ||
-      payload?.data?.data?.invitation?.createdAt ||
-      payload?.createdAt ||
-      ""
+    payload?.data?.invitation?.createdAt ||
+    payload?.data?.data?.createdAt ||
+    payload?.data?.data?.invitation?.createdAt ||
+    payload?.createdAt ||
+    ""
   ).trim();
 }
 
 function getInvitationCreateStatus(payload: any): "saved" | "exists" | "error" {
   const status = String(
     payload?.status ||
-      payload?.data?.status ||
-      payload?.data?.data?.status ||
-      ""
+    payload?.data?.status ||
+    payload?.data?.data?.status ||
+    ""
   )
     .trim()
     .toLowerCase();
@@ -1858,9 +2252,9 @@ function getInvitationCreateStatus(payload: any): "saved" | "exists" | "error" {
 function isDuplicateInvitationError(error: any) {
   const message = String(
     error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
-      ""
+    error?.response?.data?.error ||
+    error?.message ||
+    ""
   ).toLowerCase();
 
   return (
@@ -1899,7 +2293,9 @@ function getCampaignLabelById(
 }
 
 
-function Avatar({ index, name }: { index: number; name: string }) {
+function Avatar({ index, name, src }: { index: number; name: string; src?: string }) {
+  const [imageFailed, setImageFailed] = React.useState(false);
+  const safeSrc = String(src || "").trim();
   const colors = [
     "bg-[#E7C0B1] text-[#9B634F]",
     "bg-[#8C4B30] text-white",
@@ -1915,21 +2311,29 @@ function Avatar({ index, name }: { index: number; name: string }) {
   const initials =
     name && name !== "—"
       ? name
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 2)
-          .map((part) => part[0])
-          .join("")
-          .toUpperCase()
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase()
       : "";
 
   return (
     <div
-      className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md ${
-        colors[index % colors.length]
-      }`}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ${colors[index % colors.length]
+        }`}
     >
-      {initials ? (
+      {safeSrc && !imageFailed ? (
+        <img
+          src={safeSrc}
+          alt={name && name !== "—" ? `${name} profile picture` : "Profile picture"}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setImageFailed(true)}
+        />
+      ) : initials ? (
         <span className="text-xs font-semibold">{initials}</span>
       ) : (
         <UserIcon size={15} weight="fill" />
@@ -1938,10 +2342,11 @@ function Avatar({ index, name }: { index: number; name: string }) {
   );
 }
 
+
 function StatusBadge({ status }: { status: InfluencerStatus }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium before:h-1.5 before:w-1.5 before:rounded-full ${statusStyles[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium before:h-1.5 before:w-1.5 before:rounded-full ${statusStyles[status] || statusStyles.Pending}`}
     >
       {status}
     </span>
@@ -1983,22 +2388,20 @@ function FilterSelect({
 }
 
 function CountryCell({ country }: { country: string }) {
-  const flagMap: Record<string, string> = {
-    Kuwait: "🇰🇼",
-    "Russian Federation": "🇷🇺",
-    Russia: "🇷🇺",
-    "United Kingdom": "🇬🇧",
-    "United States": "🇺🇸",
-    Ireland: "🇮🇪",
-  };
+  const { name, flag } = getCountryDisplay(country);
+
+  if (!name || name === "—") {
+    return <span className="text-[#777777]">—</span>;
+  }
 
   return (
-    <div className="flex max-w-[170px] items-center gap-2 truncate">
-      <span className="text-base">{flagMap[country] || "🌐"}</span>
-      <span className="truncate">{country}</span>
+    <div className="flex max-w-[190px] items-center gap-2 truncate" title={name}>
+      <span className="text-base leading-none">{flag || "🌐"}</span>
+      <span className="truncate">{name}</span>
     </div>
   );
 }
+
 
 export default function CreatorHubPage() {
   const [activeTab, setActiveTab] = React.useState<CreatorHubTab>("hub");
@@ -2012,6 +2415,9 @@ export default function CreatorHubPage() {
   const [campaignOptions, setCampaignOptions] = React.useState<CampaignOption[]>([]);
   const [createCampaignOptions, setCreateCampaignOptions] = React.useState<CampaignOption[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = React.useState("all");
+  const [selectedCategoryId, setSelectedCategoryId] = React.useState("all");
+  const [categoryOptions, setCategoryOptions] = React.useState<CategoryOption[]>([]);
+  const [categoryLoading, setCategoryLoading] = React.useState(false);
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [moreFilters, setMoreFilters] = React.useState<MoreFiltersState>({
     search: { mode: "combined" },
@@ -2174,8 +2580,8 @@ export default function CreatorHubPage() {
 
       const createdFolderId = String(
         response?.data?.data?._id ||
-          response?.data?.data?.id ||
-          ""
+        response?.data?.data?.id ||
+        ""
       );
 
       resetCreateFolderForm();
@@ -2188,9 +2594,9 @@ export default function CreatorHubPage() {
     } catch (err: any) {
       setCreateFolderError(
         err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to create folder."
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to create folder."
       );
     } finally {
       setCreateFolderSubmitting(false);
@@ -2344,20 +2750,20 @@ export default function CreatorHubPage() {
               invitationDate: formatDate(sentAt),
               relatedCampaigns: alreadyHasCampaign
                 ? item.relatedCampaigns.map((campaign) => {
-                    const existingId =
-                      getIdString(campaign.campaignId) || campaign.campaignsId;
+                  const existingId =
+                    getIdString(campaign.campaignId) || campaign.campaignsId;
 
-                    return existingId === campaignId
-                      ? {
-                          ...campaign,
-                          campaignTitle:
-                            campaign.campaignTitle ||
-                            selectedCampaignTitle ||
-                            undefined,
-                          assignedAt: campaign.assignedAt || sentAt,
-                        }
-                      : campaign;
-                  })
+                  return existingId === campaignId
+                    ? {
+                      ...campaign,
+                      campaignTitle:
+                        campaign.campaignTitle ||
+                        selectedCampaignTitle ||
+                        undefined,
+                      assignedAt: campaign.assignedAt || sentAt,
+                    }
+                    : campaign;
+                })
                 : [...item.relatedCampaigns, campaignPayload],
             };
           })
@@ -2367,9 +2773,9 @@ export default function CreatorHubPage() {
       } catch (err: any) {
         setError(
           err?.response?.data?.error ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Failed to send invitation."
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to send invitation."
         );
       } finally {
         setSendingInvitationId(null);
@@ -2418,6 +2824,59 @@ export default function CreatorHubPage() {
     [createCampaignOptions]
   );
 
+  const selectedCategoryLabel = React.useMemo(() => {
+    if (selectedCategoryId === "all") return "";
+
+    return (
+      categoryOptions.find((category) => category.id === selectedCategoryId)
+        ?.label || ""
+    );
+  }, [categoryOptions, selectedCategoryId]);
+
+  const hasAnyFilterSelected = React.useMemo(() => {
+    return (
+      selectedCampaignId !== "all" ||
+      selectedCategoryId !== "all" ||
+      Boolean(search.trim()) ||
+      hasActiveMoreFilters(moreFilters)
+    );
+  }, [selectedCampaignId, selectedCategoryId, search, moreFilters]);
+
+  React.useEffect(() => {
+    let mounted = true;
+
+    async function loadCategories() {
+      try {
+        setCategoryLoading(true);
+
+        const response = await apiGetCategories();
+
+        if (!mounted) return;
+
+        setCategoryOptions(extractCategoryList(response));
+      } catch (err: any) {
+        if (!mounted) return;
+
+        setCategoryOptions([]);
+
+        setError(
+          getApiErrorMessage(err) ||
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load categories."
+        );
+      } finally {
+        if (mounted) setCategoryLoading(false);
+      }
+    }
+
+    loadCategories();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   React.useEffect(() => {
     let mounted = true;
 
@@ -2426,9 +2885,22 @@ export default function CreatorHubPage() {
         setLoading(true);
         setError("");
 
+        const brandId = getStoredBrandId();
+
+        if (!brandId) {
+          setBrandFolders([]);
+          setHubRows([]);
+          setCampaignOptions([]);
+          setCreateCampaignOptions([]);
+          setSelectedCampaignId("all");
+          setSelectedIds([]);
+          setError("Missing brandId in localStorage.");
+          return;
+        }
+
         const cacheBust = `${Date.now()}-${refreshFolderListKey}`;
 
-        const [folderResponse, nonFullManagedCampaignResponse] = await Promise.all([
+        const [folderResponse, brandCreatedCampaignResponse] = await Promise.all([
           api.get<BrandFolderListResponse>(BRAND_FOLDER_LIST_ENDPOINT, {
             params: {
               type: "all",
@@ -2436,11 +2908,13 @@ export default function CreatorHubPage() {
               _t: cacheBust,
             },
           }),
+
           api
             .get<NonFullManagedCampaignListResponse>(
               NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT,
               {
                 params: {
+                  brandId,
                   page: 1,
                   limit: 500,
                   _t: cacheBust,
@@ -2451,9 +2925,11 @@ export default function CreatorHubPage() {
         ]);
 
         const folders = extractBrandFolderList(folderResponse.data);
+
         const options = buildCampaignOptionsFromGoodFitFolders(folders);
+
         const createOptions = buildCreateCampaignOptions(
-          extractNonFullManagedCampaignList(nonFullManagedCampaignResponse?.data)
+          extractNonFullManagedCampaignList(brandCreatedCampaignResponse?.data)
         );
 
         if (!mounted) return;
@@ -2461,19 +2937,24 @@ export default function CreatorHubPage() {
         setBrandFolders(folders);
         setCampaignOptions(options);
         setCreateCampaignOptions(createOptions);
+
         setSelectedCampaignId((current) => {
           if (current === "all") return "all";
-          return options.some((option) => option.id === current) ? current : "all";
+
+          return options.some((option) => option.id === current)
+            ? current
+            : "all";
         });
+
         setSelectedIds([]);
       } catch (err: any) {
         if (!mounted) return;
 
         setError(
           err?.response?.data?.error ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Failed to load brand folders."
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load brand folders."
         );
 
         setBrandFolders([]);
@@ -2505,11 +2986,18 @@ export default function CreatorHubPage() {
     const rows = items
       .map(mapGoodFitItem)
       .filter((row) => rowMatchesSearch(row, debouncedSearch))
+      .filter((row) => rowMatchesCategoryFilter(row, selectedCategoryLabel))
       .filter((row) => rowMatchesMoreFilters(row, moreFilters));
 
     setHubRows(rows);
     setSelectedIds([]);
-  }, [selectedCampaignId, brandFolders, debouncedSearch, moreFilters]);
+  }, [
+    selectedCampaignId,
+    brandFolders,
+    debouncedSearch,
+    moreFilters,
+    selectedCategoryLabel,
+  ]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -2552,9 +3040,9 @@ export default function CreatorHubPage() {
 
         setError(
           err?.response?.data?.error ||
-            err?.response?.data?.message ||
-            err?.message ||
-            "Failed to load invited influencers."
+          err?.response?.data?.message ||
+          err?.message ||
+          "Failed to load invited influencers."
         );
 
         setInvitedRows([]);
@@ -2614,9 +3102,8 @@ export default function CreatorHubPage() {
           <button
             type="button"
             onClick={() => handleTabChange("hub")}
-            className={`relative h-full pt-5 text-[12px] font-medium ${
-              activeTab === "hub" ? "text-black" : "text-[#A0A0A0]"
-            }`}
+            className={`relative h-full pt-5 text-[12px] font-medium ${activeTab === "hub" ? "text-black" : "text-[#A0A0A0]"
+              }`}
           >
             Influencer Hub
             {activeTab === "hub" ? (
@@ -2627,9 +3114,8 @@ export default function CreatorHubPage() {
           <button
             type="button"
             onClick={() => handleTabChange("invited")}
-            className={`relative h-full pt-5 text-[12px] font-medium ${
-              activeTab === "invited" ? "text-black" : "text-[#A0A0A0]"
-            }`}
+            className={`relative h-full pt-5 text-[12px] font-medium ${activeTab === "invited" ? "text-black" : "text-[#A0A0A0]"
+              }`}
           >
             Invited Influencers
             {activeTab === "invited" ? (
@@ -2709,28 +3195,43 @@ export default function CreatorHubPage() {
               </Combobox>
             </label>
 
-            <FilterSelect label="Category" value="all">
-              <option value="all">All</option>
+            <FilterSelect
+              label="Category"
+              value={selectedCategoryId}
+              onChange={(value) => setSelectedCategoryId(value)}
+            >
+              <option value="all">
+                {categoryLoading ? "Loading..." : "All"}
+              </option>
+
+              {categoryOptions.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.label}
+                </option>
+              ))}
             </FilterSelect>
 
             <FilterSelect label="Date" value="all">
               <option value="all">All</option>
             </FilterSelect>
 
-            <button
-              type="button"
-              onClick={() => {
-                setSearch("");
-                setDebouncedSearch("");
-                setSelectedCampaignId("all");
-                setFolderMenuSearch("");
-                resetMoreFilters();
-              }}
-              className="inline-flex h-8 items-center gap-1 rounded-md bg-[#EDEDED] px-3 text-xs font-medium text-[#333333] hover:bg-[#E3E3E3]"
-            >
-              Clear
-              <XIcon size={12} weight="bold" />
-            </button>
+            {hasAnyFilterSelected ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setDebouncedSearch("");
+                  setSelectedCampaignId("all");
+                  setSelectedCategoryId("all");
+                  setFolderMenuSearch("");
+                  resetMoreFilters();
+                }}
+                className="inline-flex h-8 items-center gap-1 rounded-md bg-[#EDEDED] px-3 text-xs font-medium text-[#333333] hover:bg-[#E3E3E3]"
+              >
+                Clear
+                <XIcon size={12} weight="bold" />
+              </button>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -2790,7 +3291,7 @@ export default function CreatorHubPage() {
 
         <div className="overflow-hidden rounded-lg border border-[#DCDCDC] bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[990px] w-full border-collapse text-left text-[12px]">
+            <table className="min-w-[1120px] w-full border-collapse text-left text-[12px]">
               <thead>
                 <tr className="h-10 border-b border-[#DCDCDC] bg-white text-xs font-semibold text-[#171717]">
                   <th className="w-12 border-r border-[#E5E5E5] px-4">
@@ -2823,7 +3324,7 @@ export default function CreatorHubPage() {
                     Campaign
                   </th>
 
-                  <th className="w-[145px] border-r border-[#E5E5E5] px-4">
+                  <th className="w-[190px] border-r border-[#E5E5E5] px-4">
                     Country
                   </th>
 
@@ -2880,7 +3381,7 @@ export default function CreatorHubPage() {
 
                         <td className="border-r border-[#E5E5E5] px-4">
                           <div className="flex min-w-0 items-center gap-3">
-                            <Avatar index={index} name={row.profile} />
+                            <Avatar index={index} name={row.profile} src={row.avatarUrl} />
 
                             <button
                               type="button"
@@ -2991,7 +3492,7 @@ export default function CreatorHubPage() {
                                   showSearch
                                   searchPlaceholder="Search campaign..."
                                 >
-                                  <ComboboxEmpty>No non fully managed campaigns found.</ComboboxEmpty>
+                                  <ComboboxEmpty>No campaigns found.</ComboboxEmpty>
                                   <ComboboxList className="max-h-[220px] px-0">
                                     {(campaignId) => (
                                       <ComboboxItem
@@ -3064,7 +3565,7 @@ export default function CreatorHubPage() {
                                         if (row.profileUrl && navigator.clipboard) {
                                           await navigator.clipboard.writeText(row.profileUrl);
                                         }
-                                      } catch (_error) {}
+                                      } catch (_error) { }
                                       setActiveActionComboboxId(null);
                                     }}
                                   >
