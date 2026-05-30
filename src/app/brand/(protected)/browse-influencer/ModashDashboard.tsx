@@ -10,10 +10,12 @@ import { useInfluencerReport } from "./useInfluencerReport";
 import type { Platform as ReportPlatform } from "./types";
 import { useEmailStatus } from "./useEmailStatus";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ModashReportLimitModal } from "./ModashReportLimitModal";
 
 const DETAIL_PANEL_STORAGE_KEY = "brand_modash_detail_panel_state";
 const SEARCH_UI_STORAGE_KEY = "brand_modash_search_ui_state";
 const SEARCH_UI_RESTORE_KEY = "brand_modash_restore_search_after_reload";
+const UPGRADE_PLAN_URL = "/brand/subscription";
 
 type SavedDetailPanelState = {
   open: boolean;
@@ -247,6 +249,8 @@ function countMoreFilters(filters: FilterState): number {
 }
 
 export default function ModashDashboard() {
+
+  const router = useRouter();
   const [platforms, setPlatforms] = useState<Platform[]>([DEFAULT_PLATFORM]);
   const [queryText, setQueryText] = useState("");
   const [brandId, setBrandId] = useState<string>("");
@@ -265,6 +269,7 @@ export default function ModashDashboard() {
     "median" | "average"
   >("average");
   const [selectedInfluencer, setSelectedInfluencer] = useState<any>(null);
+  const [reportLimitModalOpen, setReportLimitModalOpen] = useState(false);
 
   const [restoredSearch, setRestoredSearch] =
     useState<SavedSearchUiState | null>(null);
@@ -303,11 +308,33 @@ export default function ModashDashboard() {
     rawReport,
     loading: loadingReport,
     error: reportError,
+    limitExceeded,
     lastFetchedAt,
+    clearLimitExceeded,
     fetchReport,
   } = useInfluencerReport();
 
   const { exists: emailExists, checkStatus } = useEmailStatus();
+
+
+  useEffect(() => {
+    if (limitExceeded) {
+      setReportLimitModalOpen(true);
+    }
+  }, [limitExceeded]);
+
+  const closeReportLimitModal = useCallback(() => {
+    setReportLimitModalOpen(false);
+    clearLimitExceeded();
+  }, [clearLimitExceeded]);
+
+  const handleUpgradePlan = useCallback(() => {
+    closeReportLimitModal();
+
+    if (typeof window !== "undefined") {
+      window.location.href = UPGRADE_PLAN_URL;
+    }
+  }, [closeReportLimitModal]);
 
   const {
     searchState,
@@ -679,6 +706,16 @@ export default function ModashDashboard() {
           []
         }
         onPlatformChange={handlePanelPlatformChange}
+        onReportLimitExceeded={() => setReportLimitModalOpen(true)}
+      />
+
+      <ModashReportLimitModal
+        open={reportLimitModalOpen}
+        onClose={() => setReportLimitModalOpen(false)}
+        onUpgrade={() => {
+          setReportLimitModalOpen(false);
+          router.push('/brand/subscriptions');
+        }}
       />
     </div>
   );

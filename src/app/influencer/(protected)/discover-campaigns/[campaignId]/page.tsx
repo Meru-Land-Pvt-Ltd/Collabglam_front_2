@@ -1259,14 +1259,14 @@ export default function ViewCampaignPage() {
         <div className="flex h-20 w-full items-center justify-end pr-4 sm:pr-6 lg:pr-8">
           <div className="flex w-auto items-center gap-2">
             <Button
-              type="button"
-              className="my-0 bg-white text-sm font-medium !text-gray-900 shadow-none hover:underline"
+              variant="outline"
+              onClick={() => router.push("/influencer/dashboards")}
             >
               Go to Dashboard
             </Button>
 
             <Button
-              type="button"
+              variant="solid"
               onClick={handleApply}
               disabled={isApplying || hasApplied}
               className={

@@ -13,6 +13,12 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import type { ReportResponse, Platform } from './types';
+import { normalizeReport } from './utils';
+import {
+  createReportApiError,
+  isReportLimitExceededError,
+  isReportLimitExceededPayload,
+} from './reportLimit';
 import { post, post2 } from '@/lib/api';
 
 import EmailEditor, { type EmailEditorPayload } from '@/components/ui/EmailEditor';
@@ -21,7 +27,10 @@ import { CampaignHighlightsCard } from '@/components/common/CampaignHighlightsCa
 import { ContactManagementCard } from '@/components/common/ContactManagementCard';
 import { CreatorHeader } from '@/components/common/CreatorHeader';
 import { FeatureLockedCard } from '@/components/common/FeatureLockedCard';
-import { LookalikeCreatorsPanel } from '@/components/common/LookalikeCreatorsPanel';
+import {
+  LookalikeCreatorsPanel,
+  type LookalikePanelItem,
+} from '@/components/common/LookalikeCreatorsPanel';
 import { MetricsGrid } from '@/components/common/MetricsGrid';
 import { PastCollaborationsTable } from '@/components/common/PastCollaborations';
 import { PerformanceTrendCard } from '@/components/common/PerformanceTrendCard';
@@ -33,7 +42,6 @@ import {
   type CampaignHighlight,
   type DashboardMetric,
   type InfluencerReport,
-  type LookalikeCreator,
   type MediaKit,
   type ModashLookalike,
   SectionKey,
@@ -72,6 +80,7 @@ interface DetailPanelProps {
   onRefreshReport?: () => Promise<void> | void;
   connectedProfiles?: InfluencerReport[];
   onPlatformChange?: (profile: InfluencerReport) => void;
+  onReportLimitExceeded?: () => void;
 }
 
 
@@ -277,6 +286,8 @@ type ResolvedTemplateDraft = {
 };
 
 const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_REPORT_ENDPOINT = `${BACKEND_BASE_URL}/modash/report`;
 
 function normalizePlatform(platform: Platform | null): 'instagram' | 'tiktok' | 'youtube' {
   const value = String(platform ?? '').toLowerCase();
@@ -293,31 +304,47 @@ function getInfluencerUserIdForInvitation(params: {
   selectedReport?: any;
   raw?: any;
   data?: any;
-}) {
+}): string {
   const { selectedReport, raw, data } = params;
 
-  const profileRoot =
-    data?.profile ??
-    raw?.profile ??
-    raw ??
-    {};
+  const profileRoot = data?.profile ?? raw?.profile ?? raw ?? {};
 
   return String(
     selectedReport?.modashId ||
-    selectedReport?._id ||
-    selectedReport?.userId ||
-    profileRoot?.userId ||
-    profileRoot?.modashId ||
-    profileRoot?.channelId ||
-    profileRoot?.id ||
-    raw?._modashProfileId ||
-    data?._modashProfileId ||
-    raw?._id ||
-    data?._id ||
-    ''
+      selectedReport?._id ||
+      selectedReport?.userId ||
+      profileRoot?.userId ||
+      profileRoot?.modashId ||
+      profileRoot?.channelId ||
+      profileRoot?.id ||
+      raw?._modashProfileId ||
+      data?._modashProfileId ||
+      raw?._id ||
+      data?._id ||
+      ''
   ).trim();
 }
 
+function getLookalikeReportUserId(item: LookalikePanelItem): string {
+  return String(
+    (item.raw as any)?.userId ??
+      (item.raw as any)?.modashId ??
+      item.userId ??
+      item.modashId ??
+      item.id ??
+      ''
+  ).trim();
+}
+
+function getLocalStorageValue(key: string): string {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return String(window.localStorage.getItem(key) || '').trim();
+  } catch {
+    return '';
+  }
+}
 function mapReportPost(post: Record<string, any>): SocialPost {
   const resolvedImage = pickPostImage(post);
 
@@ -566,19 +593,150 @@ function pickBestTrendHistory(...candidates: any[]) {
 function transformPanelLookalikes(
   lookalikes: ModashLookalike[] = [],
   engagementRate: number
-): LookalikeCreator[] {
-  return lookalikes.slice(0, 4).map((item) => ({
-    id: item.userId,
-    name: item.fullname ?? item.username,
-    handle: `@${item.username}`,
-    followers: formatCompactNumber(item.followers),
-    engagement:
-      item.followers > 0
-        ? formatPercent((item.engagements / item.followers) * 100)
-        : formatPercent(engagementRate, true),
-    avatar: item.picture,
-    url: item.url,
-  }));
+): LookalikePanelItem[] {
+  return lookalikes.slice(0, 4).map((item: any) => {
+    const computedEngagementRate =
+      item.followers > 0 && item.engagements > 0
+        ? item.engagements / item.followers
+        : engagementRate;
+
+    return {
+      id: item.userId,
+      userId: item.userId,
+      modashId: item.userId,
+      username: item.username,
+      fullname: item.fullname,
+      name: item.fullname ?? item.username,
+      handle: item.username ? `@${item.username}` : '',
+      followers: formatCompactNumber(item.followers),
+      followersRaw: item.followers,
+      engagementsRaw: item.engagements,
+      engagementRateRaw: computedEngagementRate,
+      engagement:
+        item.followers > 0
+          ? formatPercent((item.engagements / item.followers) * 100)
+          : formatPercent(engagementRate, true),
+      avatar: item.picture,
+      picture: item.picture,
+      url: item.url,
+      platform: item.platform,
+      provider: item.provider,
+      raw: item,
+    };
+  });
+}
+
+function buildLookalikeReportFromPanelItem(
+  item: LookalikePanelItem,
+  fallbackPlatform: Platform | string | null,
+  parentReport?: InfluencerReport | null
+): InfluencerReport & { _id?: string } {
+  const rawItem = item.raw ?? {};
+
+  const username = String(
+    rawItem?.username ?? item.username ?? item.handle ?? ''
+  )
+    .replace(/^@/, '')
+    .trim();
+
+  const followers = toNumber(rawItem?.followers ?? item.followersRaw);
+  const engagements = toNumber(rawItem?.engagements ?? item.engagementsRaw);
+
+  const engagementRate =
+    toNumber(rawItem?.engagementRate ?? item.engagementRateRaw) ||
+    (followers > 0 && engagements > 0 ? engagements / followers : 0) ||
+    toNumber(parentReport?.engagementRate);
+
+  const avgLikes = toNumber(rawItem?.avgLikes ?? rawItem?.averageLikes);
+  const avgViews = toNumber(
+    rawItem?.avgViews ?? rawItem?.averageViews ?? rawItem?.avgReelsPlays
+  );
+  const avgComments = toNumber(
+    rawItem?.avgComments ?? rawItem?.averageComments
+  );
+
+  const resolvedPlatform = normalizePlatform(
+    ((rawItem?.platform ??
+      item.platform ??
+      item.provider ??
+      fallbackPlatform) ||
+      null) as Platform | null
+  );
+
+  const rawAudience = rawItem?.audience ?? {};
+
+  return {
+    _id:
+      rawItem?._id ??
+      rawItem?.userId ??
+      item.userId ??
+      item.modashId ??
+      item.id,
+    modashId: rawItem?.userId ?? item.userId ?? item.modashId ?? item.id,
+    provider: resolvedPlatform,
+    url: rawItem?.url ?? item.url,
+    name: rawItem?.fullname ?? item.fullname ?? item.name ?? username,
+    fullname: rawItem?.fullname ?? item.fullname,
+    picture: rawItem?.picture ?? item.picture ?? item.avatar,
+    bio: rawItem?.bio ?? rawItem?.description,
+    username,
+    handle: username ? `@${username}` : item.handle,
+    followers,
+    engagementRate,
+    country: rawItem?.country,
+    language:
+      typeof rawItem?.language === 'string'
+        ? { name: rawItem.language }
+        : rawItem?.language?.name
+          ? { name: rawItem.language.name }
+          : undefined,
+    hashtags: Array.isArray(rawItem?.hashtags)
+      ? rawItem.hashtags.map((tagItem: any) => ({
+        tag: tagItem?.tag ?? tagItem?.name ?? tagItem,
+      }))
+      : [],
+    popularPosts: [],
+    recentPosts: [],
+    sponsoredPosts: [],
+    stats: {
+      avgLikes: {
+        value: avgLikes,
+      },
+      avgViews: {
+        value: avgViews,
+      },
+      avgComments: {
+        value: avgComments,
+      },
+      followers: {
+        value: followers,
+      },
+    },
+    avgLikes,
+    avgComments,
+    avgViews,
+    avgReelsPlays: avgViews,
+    audience: {
+      geoCountries: Array.isArray(rawAudience?.geoCountries)
+        ? rawAudience.geoCountries
+        : [],
+      ages: Array.isArray(rawAudience?.ages) ? rawAudience.ages : [],
+      genders: Array.isArray(rawAudience?.genders) ? rawAudience.genders : [],
+      languages: Array.isArray(rawAudience?.languages)
+        ? rawAudience.languages
+        : [],
+      interests: Array.isArray(rawAudience?.interests)
+        ? rawAudience.interests
+        : [],
+      credibility: rawAudience?.credibility,
+    },
+    isPrivate: rawItem?.isPrivate,
+    isVerified: rawItem?.isVerified,
+    accountType: rawItem?.accountType,
+    postsCount: rawItem?.postsCount ?? rawItem?.postsCounts,
+    statHistory: Array.isArray(rawItem?.statHistory) ? rawItem.statHistory : [],
+    lookalikes: Array.isArray(rawItem?.lookalikes) ? rawItem.lookalikes : [],
+  } as InfluencerReport & { _id?: string };
 }
 
 function pickFirstArray(...candidates: any[]): any[] {
@@ -1933,6 +2091,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     onRefreshReport,
     connectedProfiles = [],
     onPlatformChange,
+    onReportLimitExceeded,
   }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -1979,6 +2138,12 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const [emailEditorOpen, setEmailEditorOpen] = useState(false);
     const [emailDraft, setEmailDraft] = useState<EmailDraftState | null>(null);
 
+    const [selectedLookalikeReport, setSelectedLookalikeReport] =
+      useState<(InfluencerReport & { _id?: string }) | null>(null);
+    const [lookalikeReportLoading, setLookalikeReportLoading] = useState(false);
+    const [lookalikeReportError, setLookalikeReportError] = useState<string | null>(null);
+    const lookalikeReportRequestRef = useRef(0);
+
     const shouldLockFields = false;
 
     const hasSectionAccess = (_section: SectionKey) => {
@@ -1990,6 +2155,22 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       setPlan(getSubscriptionPlan());
       setRole(getUserRole());
     }, []);
+
+    useEffect(() => {
+      if (!open) {
+        setSelectedLookalikeReport(null);
+        setLookalikeReportError(null);
+        setLookalikeReportLoading(false);
+        lookalikeReportRequestRef.current += 1;
+      }
+    }, [open]);
+
+    useEffect(() => {
+      setSelectedLookalikeReport(null);
+      setLookalikeReportError(null);
+      setLookalikeReportLoading(false);
+      lookalikeReportRequestRef.current += 1;
+    }, [handle, platform]);
 
     useEffect(() => {
       if (!open || !brandId || brandCampaigns.length) return;
@@ -2211,11 +2392,194 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       );
     }, [availableProfiles, platform, primaryReport]);
 
-    const selectedReport = currentPlatformProfile ?? primaryReport ?? null;
+    const selectedReport =
+      selectedLookalikeReport ?? currentPlatformProfile ?? primaryReport ?? null;
 
     const activePlatformKey = normalizePlatform(
       ((selectedReport?.provider as Platform | null) ?? platform) as Platform | null
     );
+
+    const getActiveSafeHandle = () => {
+      const rawHandle = String(
+        selectedReport?.handle ?? selectedReport?.username ?? handle ?? ''
+      ).trim();
+
+      return rawHandle
+        ? `@${rawHandle.replace(/^@/, '').trim().toLowerCase()}`
+        : '';
+    };
+
+    const getActivePlatform = () => activePlatformKey as Platform;
+
+    const activeAvailableProfiles = useMemo<InfluencerReport[]>(() => {
+      if (selectedLookalikeReport) return [selectedLookalikeReport];
+      return availableProfiles;
+    }, [selectedLookalikeReport, availableProfiles]);
+
+    const handleLookalikeSelect = async (item: LookalikePanelItem) => {
+      const userId = getLookalikeReportUserId(item);
+      const resolvedPlatform = normalizePlatform(
+        ((item.raw as any)?.platform ??
+          item.platform ??
+          item.provider ??
+          activePlatformKey) as Platform | null
+      );
+
+      if (!userId) {
+        await Swal.fire(
+          'Missing creator ID',
+          'Could not generate a full report because this lookalike does not include a userId.',
+          'warning'
+        );
+        return;
+      }
+
+      const requestId = lookalikeReportRequestRef.current + 1;
+      lookalikeReportRequestRef.current = requestId;
+
+      setCampaignPickerOpen(false);
+      setEmailEditorOpen(false);
+      setEmailDraft(null);
+      setHasAnyEmail(null);
+      setCheckingEmail(false);
+      setRateCardData(null);
+      setRateCardError(null);
+      setSelectedLookalikeReport(null);
+      setLookalikeReportError(null);
+      setLookalikeReportLoading(true);
+
+      try {
+        const params: Record<string, string> = {
+          platform: resolvedPlatform,
+          userId,
+          calculationMethod: 'median',
+          force: '1',
+        };
+
+        const safeBrandId = String(brandId || '').trim();
+        const safeAdminId = getLocalStorageValue('adminId');
+
+        if (safeBrandId) {
+          params.brandId = safeBrandId;
+        } else if (safeAdminId) {
+          params.adminId = safeAdminId;
+        }
+
+        const query = new URLSearchParams(params);
+        const response = await fetch(`${API_REPORT_ENDPOINT}?${query.toString()}`);
+        const apiRaw = await response.json();
+
+        if (isReportLimitExceededPayload(apiRaw, response.status)) {
+          throw createReportApiError(
+            apiRaw,
+            response.status,
+            'Report limit exceeded'
+          );
+        }
+
+        if (!response.ok || apiRaw?.error) {
+          const message =
+            apiRaw?.message ||
+            apiRaw?.msg ||
+            (typeof apiRaw?.error === 'string'
+              ? apiRaw.error
+              : `Failed to generate report (${response.status})`);
+          throw createReportApiError(apiRaw, response.status, message);
+        }
+
+        const normalized = normalizeReport(apiRaw, resolvedPlatform);
+        const fallbackHandle =
+          (apiRaw as any)?.profile?.username ??
+          (apiRaw as any)?.profile?.handle ??
+          (item.raw as any)?.username ??
+          item.username ??
+          item.handle ??
+          null;
+
+        const nextReport = buildPrimaryReport(
+          normalized,
+          apiRaw,
+          resolvedPlatform,
+          fallbackHandle
+        );
+
+        if (!nextReport) {
+          throw new Error('Report generated, but profile data could not be read.');
+        }
+
+        if (lookalikeReportRequestRef.current !== requestId) return;
+
+        setSelectedLookalikeReport(nextReport);
+        setLastUpdatedAt(
+          typeof (apiRaw as any)?._lastFetchedAt === 'string'
+            ? (apiRaw as any)._lastFetchedAt
+            : new Date().toISOString()
+        );
+
+        const nextHandle = String(
+          nextReport.handle ?? nextReport.username ?? fallbackHandle ?? ''
+        )
+          .replace(/^@/, '')
+          .trim()
+          .toLowerCase();
+
+        if (nextHandle) {
+          setCheckingEmail(true);
+          try {
+            const { email } = await resolveCreatorEmail(`@${nextHandle}`, resolvedPlatform);
+            if (lookalikeReportRequestRef.current === requestId) {
+              setHasAnyEmail(Boolean(email));
+            }
+          } catch (emailError) {
+            console.error('Failed to check lookalike email status', emailError);
+            if (lookalikeReportRequestRef.current === requestId) {
+              setHasAnyEmail(null);
+            }
+          } finally {
+            if (lookalikeReportRequestRef.current === requestId) {
+              setCheckingEmail(false);
+            }
+          }
+        }
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.message ||
+          err?.response?.data?.msg ||
+          err?.response?.data?.error ||
+          err?.message ||
+          'Failed to generate the full lookalike report.';
+
+        const isLimitError =
+          isReportLimitExceededError(err) ||
+          isReportLimitExceededPayload(
+            {
+              message,
+              response: err?.response?.data,
+              payload: err?.payload,
+            },
+            err?.status || err?.response?.status
+          );
+
+        if (isLimitError) {
+          if (lookalikeReportRequestRef.current === requestId) {
+            setLookalikeReportError(null);
+          }
+
+          onReportLimitExceeded?.();
+          return;
+        }
+
+        if (lookalikeReportRequestRef.current === requestId) {
+          setLookalikeReportError(message);
+        }
+
+        await Swal.fire('Report unavailable', message, 'error');
+      } finally {
+        if (lookalikeReportRequestRef.current === requestId) {
+          setLookalikeReportLoading(false);
+        }
+      }
+    };
 
     const activeCampaignIdForPanel = selectedCampaignIds[0] || campaignId || '';
 
@@ -2292,8 +2656,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       return {
         name: selectedReport.name,
         country: selectedReport.country,
-        influencerReports: availableProfiles,
-        socialProfiles: availableProfiles,
+        influencerReports: activeAvailableProfiles,
+        socialProfiles: activeAvailableProfiles,
         primaryInfluencerReport: selectedReport,
 
         // Admin-only fields consumed by ContactManagementCard
@@ -2315,13 +2679,17 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         email?: string;
         phone?: string;
       };
-    }, [availableProfiles, selectedReport, raw, data]);
+    }, [activeAvailableProfiles, selectedReport, raw, data]);
 
     const handlePlatformSelect = (profile: InfluencerReport) => {
       onPlatformChange?.(profile);
     };
 
     const popularPosts = useMemo(() => {
+      if (selectedLookalikeReport) {
+        return selectedLookalikeReport.popularPosts ?? [];
+      }
+
       const base =
         Array.isArray(raw?.profile?.popularPosts) && raw.profile.popularPosts.length
           ? raw.profile.popularPosts.map(mapReportPost)
@@ -2331,9 +2699,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         ...(primaryReport?.recentPosts ?? []),
         ...(primaryReport?.sponsoredPosts ?? []),
       ]);
-    }, [raw, primaryReport]);
+    }, [raw, primaryReport, selectedLookalikeReport]);
 
     const sponsoredPosts = useMemo(() => {
+      if (selectedLookalikeReport) {
+        return selectedLookalikeReport.sponsoredPosts ?? [];
+      }
+
       const base =
         Array.isArray(raw?.profile?.sponsoredPosts) && raw.profile.sponsoredPosts.length
           ? raw.profile.sponsoredPosts.map(mapReportPost)
@@ -2343,9 +2715,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         ...(primaryReport?.recentPosts ?? []),
         ...(primaryReport?.popularPosts ?? []),
       ]);
-    }, [raw, primaryReport]);
+    }, [raw, primaryReport, selectedLookalikeReport]);
 
     const recentPosts = useMemo(() => {
+      if (selectedLookalikeReport) {
+        return selectedLookalikeReport.recentPosts ?? [];
+      }
+
       const base =
         Array.isArray(raw?.profile?.recentPosts) && raw.profile.recentPosts.length
           ? raw.profile.recentPosts.map(mapReportPost)
@@ -2363,9 +2739,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         ...(primaryReport?.popularPosts ?? []),
         ...(primaryReport?.sponsoredPosts ?? []),
       ]);
-    }, [raw, primaryReport]);
+    }, [raw, primaryReport, selectedLookalikeReport]);
 
     const statHistorySource = useMemo(() => {
+      if (selectedLookalikeReport) {
+        return selectedLookalikeReport.statHistory ?? [];
+      }
+
       const dataProfile = data?.profile as any;
       const rawAny = raw as any;
 
@@ -2386,7 +2766,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         rawAny?.statsByContentType?.reels?.statHistory,
         dataProfile?.statsByContentType?.reels?.statHistory
       );
-    }, [data, raw, primaryReport]);
+    }, [data, raw, primaryReport, selectedLookalikeReport]);
 
     const {
       organicTrend,
@@ -2561,7 +2941,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         value: Number((item.weight || 0) * 100),
       }));
 
-    const lookalikeCreators = useMemo<LookalikeCreator[]>(() => {
+    const lookalikeCreators = useMemo<LookalikePanelItem[]>(() => {
       if (selectedReport?.lookalikes?.length) {
         return transformPanelLookalikes(selectedReport.lookalikes, engagementRate);
       }
@@ -2655,6 +3035,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
     if (!open) return null;
 
+    const panelLoading = loading || lookalikeReportLoading;
+    const panelError = lookalikeReportError || error;
+
     const influencerUserId = getInfluencerUserIdForInvitation({
       selectedReport,
       raw,
@@ -2741,20 +3124,45 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
-      const normalizedPlatform = normalizePlatform(platform);
+      const normalizedPlatform = activePlatformKey;
 
-      const influencerId =
+      const rawInfluencerId = String(
         (selectedReport as any)?._id ||
         (raw as any)?._modashProfileId ||
         (data as any)?._modashProfileId ||
         (raw as any)?._id ||
         (data as any)?._id ||
-        "";
+        ""
+      ).trim();
 
-      if (!influencerId) {
+      // Modash/Instagram/TikTok reports have a local Mongo _id.
+      // YouTube preview reports usually only have a YouTube channel id, so do not
+      // block rate-card generation just because a Mongo profile id is missing.
+      const influencerId = /^[a-f\d]{24}$/i.test(rawInfluencerId)
+        ? rawInfluencerId
+        : "";
+
+      const rateCardReport = selectedLookalikeReport || raw || data || null;
+
+      const youtubeChannelId = String(
+        (selectedReport as any)?.youtubeChannelId ||
+        (selectedReport as any)?.channelId ||
+        selectedReport?.modashId ||
+        (data?.profile as any)?.userId ||
+        (raw as any)?.userId ||
+        (raw as any)?.channelId ||
+        (raw as any)?.profile?.userId ||
+        (raw as any)?.profile?.channelId ||
+        ""
+      ).trim();
+
+      const canUseYouTubeReportOnly =
+        normalizedPlatform === "youtube" && !!rateCardReport && !!youtubeChannelId;
+
+      if (!influencerId && !canUseYouTubeReportOnly) {
         await Swal.fire(
-          "Missing influencer _id",
-          "Please open or refresh the full Modash report once, so the local influencer _id is available.",
+          "Missing influencer data",
+          "Please open or refresh the full creator report once, so the local influencer _id or YouTube channel data is available.",
           "warning"
         );
         return;
@@ -2772,12 +3180,19 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           {
             brandId,
             campaignId: activeCampaignId,
-            influencerId,
+            ...(influencerId ? { influencerId } : {}),
+            ...(youtubeChannelId
+              ? {
+                youtubeChannelId,
+                modashUserId: youtubeChannelId,
+              }
+              : {}),
+            handle: getActiveSafeHandle() || displayHandle,
             platform: normalizedPlatform,
             currency: "USD",
 
             // This avoids another Modash credit call.
-            report: raw || data,
+            report: rateCardReport,
           }
         );
 
@@ -2809,12 +3224,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       chosenCampaignIds?: string[],
       editorPayload?: EmailEditorPayload
     ) => {
-      const rawHandle = handle ? String(handle).trim() : '';
-      const safeHandle = rawHandle
-        ? rawHandle.startsWith('@')
-          ? rawHandle
-          : `@${rawHandle}`
-        : '';
+      const safeHandle = getActiveSafeHandle();
+      const normalizedPlatform = getActivePlatform();
 
       if (!brandId) {
         await Swal.fire(
@@ -2986,12 +3397,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
 
     const handleTemplatePreview = async (chosenCampaignIds?: string[]) => {
-      const rawHandle = handle ? String(handle).trim() : '';
-      const safeHandle = rawHandle
-        ? rawHandle.startsWith('@')
-          ? rawHandle
-          : `@${rawHandle}`
-        : '';
+      const safeHandle = getActiveSafeHandle();
+      const normalizedPlatform = getActivePlatform();
 
       if (!brandId) {
         await Swal.fire(
@@ -3002,7 +3409,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
-      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
       if (!normalizedPlatform || !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)) {
         await Swal.fire('Unsupported platform', 'Unsupported or missing platform.', 'warning');
         return;
@@ -3091,12 +3497,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const handleCampaignPickerToggle = async (e: React.MouseEvent) => {
       e.preventDefault();
 
-      if (hasLockedCampaign) {
-        setSelectedCampaignIds([campaignId]);
-        setCampaignPickerOpen(false);
-        return;
-      }
-
       if (loading || campaignsLoading) return;
 
       if (campaignPickerOpen) {
@@ -3163,7 +3563,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
-      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
+      const safeHandle = getActiveSafeHandle();
+      const normalizedPlatform = getActivePlatform();
+
       if (
         !normalizedPlatform ||
         !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)
@@ -3175,11 +3577,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         );
         return;
       }
-
-      const rawHandle = handle ? String(handle).trim() : '';
-      const safeHandle = rawHandle
-        ? '@' + rawHandle.replace(/^@/, '').trim().toLowerCase()
-        : '';
 
       if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ''))) {
         await Swal.fire(
@@ -3257,12 +3654,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
       if (!canAct || sendingInvite) return;
 
-      const rawHandle = handle ? String(handle).trim() : '';
-      const safeHandle = rawHandle
-        ? rawHandle.startsWith('@')
-          ? rawHandle
-          : `@${rawHandle}`
-        : '';
+      const safeHandle = getActiveSafeHandle();
+      const normalizedPlatform = getActivePlatform();
 
       if (!brandId) {
         await Swal.fire(
@@ -3404,9 +3797,10 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
     const handleCopy = async () => {
       try {
-        const selectedReport = currentPlatformProfile ?? primaryReport ?? null;
         const reportAny = (selectedReport as any) ?? {};
-        const profileRoot = (data?.profile as any) ?? raw?.profile ?? raw ?? {};
+        const profileRoot = selectedLookalikeReport
+          ? selectedLookalikeReport
+          : (data?.profile as any) ?? raw?.profile ?? raw ?? {};
 
         const userId = String(
           reportAny?.modashId ||
@@ -3416,9 +3810,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           ''
         ).trim();
 
-        const selectedPlatform = normalizePlatform(
-          (platform ?? (reportAny?.provider as Platform | null)) as Platform | null
-        );
+        const selectedPlatform = activePlatformKey;
 
         const rawHandle = String(
           reportAny?.handle ||
@@ -3618,7 +4010,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                       <button
                         type="button"
                         onClick={handleRefreshData}
-                        disabled={refreshing || loading}
+                        disabled={refreshing || panelLoading}
                         className="inline-flex h-10 items-center justify-center gap-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
                       >
                         <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
@@ -3807,16 +4199,16 @@ Team CollabGlam`;
 
 
             <div className="p-5">
-              {loading ? <LoadingState /> : null}
-              {error ? <ErrorState error={error} /> : null}
+              {panelLoading ? <LoadingState /> : null}
+              {panelError ? <ErrorState error={panelError} /> : null}
 
-              {!loading && !error && !selectedReport ? (
+              {!panelLoading && !panelError && !selectedReport ? (
                 <div className="mb-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-600">
                   No report data yet. Try refreshing data or selecting another creator.
                 </div>
               ) : null}
 
-              {!loading && !error && selectedReport ? (
+              {!panelLoading && !panelError && selectedReport ? (
                 <div className="space-y-6">
                   <CreatorHeader
                     primaryReport={selectedReport}
@@ -3834,7 +4226,7 @@ Team CollabGlam`;
                           primaryReport={selectedReport}
                           mediaKit={panelMediaKit}
                           onCopy={handleCopy}
-                          connectedProfiles={availableProfiles}
+                          connectedProfiles={activeAvailableProfiles}
                           activePlatform={activePlatformKey}
                           onPlatformSelect={handlePlatformSelect}
                         />
@@ -3890,7 +4282,7 @@ Team CollabGlam`;
                     )}
 
                     <SelectionReasonCard
-                      loading={loading && !selectedReport}
+                      loading={panelLoading && !selectedReport}
                       reasons={selectionReasonItems}
                       campaignTitle={activeCampaignForPanel?.campaignTitle}
                     />
@@ -3927,6 +4319,7 @@ Team CollabGlam`;
                       <LookalikeCreatorsPanel
                         items={lookalikeCreators}
                         platform={activePlatformKey}
+                        onSelectLookalike={handleLookalikeSelect}
                       />
                     ) : (
                       <FeatureLockedCard title="Lookalike Creators" plan="pro" />

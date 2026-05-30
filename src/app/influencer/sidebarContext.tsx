@@ -6,6 +6,12 @@ type SidebarContextValue = {
   open: () => void;
   close: () => void;
   toggle: () => void;
+
+  drawerOpen: boolean;
+  setDrawerOpen: React.Dispatch<React.SetStateAction<boolean>>;
+
+  sidebarOffset: number;
+  setSidebarOffset: React.Dispatch<React.SetStateAction<number>>;
 };
 
 const SidebarCtx = React.createContext<SidebarContextValue | null>(null);
@@ -24,4 +30,8 @@ export function useSidebar() {
   const ctx = React.useContext(SidebarCtx);
   if (!ctx) throw new Error("useSidebar must be used within SidebarProvider");
   return ctx;
+}
+
+export function useSidebarOffset() {
+  return React.useContext(SidebarCtx)?.sidebarOffset ?? 0;
 }

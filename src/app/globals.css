@@ -1909,13 +1909,28 @@
   }
 
   .cg-accordion-title {
-    @apply text-neutral-900 font-bold text-[1.5rem] leading-[2rem] tracking-[0];
-    /* 24px / 32px */
+    color: var(--Text-Primary, #1a1a1a);
+
+    /* Desktop/Label/S/Semi Bold */
+    font-family: var(--Font-Family-Inter, Inter);
+    font-size: var(--Font-Size-20, 1.25rem);
+    font-style: normal;
+    font-weight: var(--Font-Weight-Semi-Bold, 600);
+    line-height: var(--Line-Height-28, 1.75rem);
+    letter-spacing: var(--Letter-Spacing-0, 0);
   }
 
   .cg-accordion-subtitle {
-    @apply mt-1 text-neutral-450 font-medium text-[1rem] leading-[1.5rem] tracking-[0];
-    /* 16px / 24px */
+    color: var(--Light-Text-Tertiary, #b8b8b8);
+    align-self: stretch;
+
+    /* Desktop/2XS/Regular */
+    font-family: var(--Font-Family-Inter, Inter);
+    font-size: var(--Font-Size-14, 0.875rem);
+    font-style: normal;
+    font-weight: var(--Font-Weight-regular, 400);
+    line-height: var(--Line-Height-20, 1.25rem);
+    letter-spacing: var(--Letter-Spacing-0, 0);
   }
 
   /* --- Create With AI card background --- */

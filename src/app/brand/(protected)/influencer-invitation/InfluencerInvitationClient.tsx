@@ -36,6 +36,28 @@ type Creator = {
   tier?: Tier;
   categories?: string[];
   picture?: string;
+  profilePicture?: string;
+  avatar?: string;
+  thumbnail?: string;
+  image?: string;
+  thumbnails?: any;
+  profile?: {
+    picture?: string;
+    profilePicture?: string;
+    avatar?: string;
+    thumbnail?: string;
+    image?: string;
+    thumbnails?: any;
+  };
+  channel?: {
+    thumbnails?: any;
+    snippet?: {
+      thumbnails?: any;
+    };
+  };
+  snippet?: {
+    thumbnails?: any;
+  };
   url?: string;
   urls?: {
     url?: string;
@@ -215,6 +237,37 @@ function getRecommendationSourceFromPlatforms(platforms?: string[] | null) {
   };
 }
 
+function getResolvedRecommendationSource(
+  data?: CampaignRecommendationSourceResponse | null
+) {
+  const requestedPlatforms = normalizePlatformArray(data?.requestedPlatforms);
+  const fallback = getRecommendationSourceFromPlatforms(requestedPlatforms);
+
+  const source = data?.source || fallback.source;
+  let effectivePlatforms = normalizePlatformArray(data?.effectivePlatforms);
+
+  if (!effectivePlatforms.length) {
+    effectivePlatforms = fallback.effectivePlatforms;
+  }
+
+  if (source === "youtube_api") {
+    effectivePlatforms = ["youtube"];
+  } else {
+    effectivePlatforms = effectivePlatforms.filter((p) => p !== "youtube");
+  }
+
+  return {
+    source,
+    requestedPlatforms,
+    effectivePlatforms,
+    rule:
+      data?.rule ||
+      (source === "youtube_api"
+        ? "youtube_selected_use_youtube_api_only"
+        : "no_youtube_use_modash_ai_only"),
+  };
+}
+
 function normalizePlatform(platform?: string | null) {
   const p = String(platform || "").trim().toLowerCase();
 
@@ -234,7 +287,90 @@ function getCreatorHandle(c: Creator) {
 }
 
 function getCreatorPlatform(c: Creator) {
-  return normalizePlatform(c.platform || c.provider);
+  const platform = normalizePlatform(c.platform || c.provider);
+  if (platform) return platform;
+
+  if (
+    c.source === "youtube_api" ||
+    c.profileSource === "youtube_api" ||
+    c.channelId ||
+    c.ids?.youtubeChannelId
+  ) {
+    return "youtube";
+  }
+
+  return "";
+}
+
+function getCreatorIdentityKey(c: Creator) {
+  const platform = getCreatorPlatform(c);
+  const modashId = getCreatorModashId(c);
+  const channelId = getCreatorChannelId(c);
+  const handle = getCreatorHandle(c);
+  const url = String(c.url || c.urls?.url || "").trim().toLowerCase();
+
+  if (channelId && platform) return `channel:${platform}:${channelId}`;
+  if (modashId && platform) return `modash:${platform}:${modashId}`;
+  if (handle && platform) return `handle:${platform}:${handle}`;
+  if (url && platform) return `url:${platform}:${url}`;
+
+  return `${platform}:${getCreatorName(c).toLowerCase()}`;
+}
+
+type ResolvedRecommendationSource = ReturnType<
+  typeof getResolvedRecommendationSource
+>;
+
+function normalizeCreatorForRecommendationSource(
+  creator: Creator,
+  sourceInfo: ResolvedRecommendationSource
+): Creator {
+  if (sourceInfo.source === "youtube_api") {
+    return {
+      ...creator,
+      picture: getCreatorPicture(creator) || creator.picture,
+      platform: "youtube",
+      source: creator.source || "youtube_api",
+      profileSource: creator.profileSource || "youtube_api",
+    };
+  }
+
+  const platform = getCreatorPlatform(creator);
+  const fallbackPlatform = sourceInfo.effectivePlatforms[0] || platform;
+
+  return {
+    ...creator,
+    picture: getCreatorPicture(creator) || creator.picture,
+    platform: platform || fallbackPlatform,
+  };
+}
+
+function filterCreatorsForRecommendationSource(
+  creators: Creator[],
+  sourceInfo: ResolvedRecommendationSource
+) {
+  const allowedPlatforms = new Set(sourceInfo.effectivePlatforms);
+  const deduped = new Map<string, Creator>();
+
+  creators
+    .map((creator) =>
+      normalizeCreatorForRecommendationSource(creator, sourceInfo)
+    )
+    .forEach((creator) => {
+      const platform = getCreatorPlatform(creator);
+
+      if (!platform || !allowedPlatforms.has(platform)) return;
+      if (sourceInfo.source === "youtube_api" && !isYouTubeCreator(creator)) {
+        return;
+      }
+
+      const key = getCreatorIdentityKey(creator);
+      if (!deduped.has(key)) {
+        deduped.set(key, creator);
+      }
+    });
+
+  return Array.from(deduped.values());
 }
 
 function getCreatorModashId(c: Creator) {
@@ -361,9 +497,9 @@ function mapYouTubePreviewToReport(data: YouTubeProfileData): ModashReportRespon
 
   const categoryObjects = Array.isArray(data.topicLabels)
     ? data.topicLabels.map((label) => ({
-        categoryName: label,
-        name: label,
-      }))
+      categoryName: label,
+      name: label,
+    }))
     : [];
 
   const profile = {
@@ -492,6 +628,116 @@ function getCreatorBio(c: Creator) {
   return String(c.bio || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function cleanImageUrl(value?: string | null) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  if (raw.startsWith("//")) return `https:${raw}`;
+  if (raw.startsWith("http://")) return raw.replace(/^http:\/\//i, "https://");
+  if (raw.startsWith("https://")) return raw;
+
+  return "";
+}
+
+function pickThumbnailUrl(thumbnails?: any) {
+  if (!thumbnails) return "";
+  if (typeof thumbnails === "string") return cleanImageUrl(thumbnails);
+
+  return cleanImageUrl(
+    thumbnails?.maxres?.url ||
+    thumbnails?.standard?.url ||
+    thumbnails?.high?.url ||
+    thumbnails?.medium?.url ||
+    thumbnails?.default?.url ||
+    thumbnails?.url ||
+    ""
+  );
+}
+
+function getCreatorPictureUrls(c: Creator) {
+  const candidates = [
+    c.picture,
+    c.profilePicture,
+    c.avatar,
+    c.thumbnail,
+    c.image,
+    c.profile?.picture,
+    c.profile?.profilePicture,
+    c.profile?.avatar,
+    c.profile?.thumbnail,
+    c.profile?.image,
+    pickThumbnailUrl(c.thumbnails),
+    pickThumbnailUrl(c.profile?.thumbnails),
+    pickThumbnailUrl(c.channel?.thumbnails),
+    pickThumbnailUrl(c.channel?.snippet?.thumbnails),
+    pickThumbnailUrl(c.snippet?.thumbnails),
+  ];
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  candidates.forEach((candidate) => {
+    const url = cleanImageUrl(candidate);
+    if (!url) return;
+
+    const alternates = [url];
+
+    if (url.includes("yt3.ggpht.com")) {
+      alternates.push(url.replace("yt3.ggpht.com", "yt3.googleusercontent.com"));
+    }
+
+    if (url.includes("yt3.googleusercontent.com")) {
+      alternates.push(url.replace("yt3.googleusercontent.com", "yt3.ggpht.com"));
+    }
+
+    alternates.forEach((alternate) => {
+      const key = alternate.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(alternate);
+    });
+  });
+
+  return out;
+}
+
+function getCreatorPicture(c: Creator) {
+  return getCreatorPictureUrls(c)[0] || "";
+}
+
+function CreatorAvatar({ creator, name }: { creator: Creator; name: string }) {
+  const imageUrls = React.useMemo(() => getCreatorPictureUrls(creator), [creator]);
+  const [imageIndex, setImageIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    setImageIndex(0);
+  }, [imageUrls.join("|")]);
+
+  const currentImage = imageUrls[imageIndex] || "";
+
+  return (
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full bg-gray-200">
+      {currentImage ? (
+        <img
+          src={currentImage}
+          alt={name}
+          className="h-full w-full object-cover"
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => {
+            setImageIndex((prev) => prev + 1);
+          }}
+        />
+      ) : (
+        <div className="grid h-full w-full place-items-center text-lg font-semibold text-gray-700">
+          {name.slice(0, 1).toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function rowId(c: Creator, index: number) {
@@ -797,87 +1043,74 @@ export default function InfluencerInvitationPage() {
     []
   );
 
-const fetchCreators = React.useCallback(async () => {
-  setLoading(true);
-  setError(null);
+  const fetchCreators = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-  try {
-    const brandId = getStoredBrandMongoId();
+    try {
+      const brandId = getStoredBrandMongoId();
 
-    if (!brandId || !campaignId) {
-      throw new Error("Missing brand _id or campaign _id");
-    }
-
-    // ✅ Step 1: first check campaign platform by campaignId
-    const sourceData = await post<CampaignRecommendationSourceResponse>(
-      "/modash/campaign-recommendation-source",
-      {
-        brandId,
-        campaignId,
+      if (!brandId || !campaignId) {
+        throw new Error("Missing brand _id or campaign _id");
       }
-    );
 
-    const sourceInfo = getRecommendationSourceFromPlatforms(
-      sourceData.requestedPlatforms
-    );
+      // ✅ Step 1: first check campaign platform by campaignId
+      const sourceData = await post<CampaignRecommendationSourceResponse>(
+        "/modash/campaign-recommendation-source",
+        {
+          brandId,
+          campaignId,
+        }
+      );
 
-    // ✅ Step 2: then fetch suggestions according to final rule
-    const [recommendedData, existingKeys] = await Promise.all([
-      post<RecommendedCreatorsResponse>("/modash/recommended-by-campaign", {
-        brandId,
-        campaignId,
-        limit: 15,
+      const sourceInfo = getResolvedRecommendationSource(sourceData);
 
-        // Optional, useful for backend logs/debugging
-        source: sourceInfo.source,
-        platforms: sourceInfo.effectivePlatforms,
-        rule: sourceInfo.rule,
-      }),
-      fetchExistingInvitations(brandId, campaignId),
-    ]);
+      // ✅ Step 2: then fetch suggestions according to the exact source selected by backend.
+      const [recommendedData, existingKeys] = await Promise.all([
+        post<RecommendedCreatorsResponse>("/modash/recommended-by-campaign", {
+          brandId,
+          campaignId,
+          limit: 15,
+          source: sourceInfo.source,
+          platforms: sourceInfo.effectivePlatforms,
+          rule: sourceInfo.rule,
+        }),
+        fetchExistingInvitations(brandId, campaignId),
+      ]);
 
-    const rawList = getRecommendedCreators(recommendedData);
+      const rawList = getRecommendedCreators(recommendedData);
+      const list = filterCreatorsForRecommendationSource(rawList, sourceInfo);
 
-    // ✅ Frontend safety filter:
-    // If YouTube exists in campaign platformSelection,
-    // show only YouTube profiles even if backend accidentally returns mixed results.
-    const list =
-      sourceInfo.source === "youtube_api"
-        ? rawList.filter((creator) => getCreatorPlatform(creator) === "youtube")
-        : rawList.filter((creator) =>
-            sourceInfo.effectivePlatforms.includes(getCreatorPlatform(creator))
-          );
+      const defaultSelected = new Set<string>();
 
-    const defaultSelected = new Set<string>();
-
-    list.forEach((creator, index) => {
-      creatorKeysForMatching(creator, index).forEach((key) => {
-        defaultSelected.add(key);
+      list.forEach((creator, index) => {
+        creatorKeysForMatching(creator, index).forEach((key) => {
+          defaultSelected.add(key);
+        });
       });
-    });
 
-    setCreators(list);
-    setAlreadyInvited(existingKeys);
-    setSelected(defaultSelected);
-    setSending(new Set());
-  } catch (e: any) {
-    const message = await getApiErrorMessage(e, "Failed to load creators");
+      setCreators(list);
+      setAlreadyInvited(existingKeys);
+      setSelected(defaultSelected);
+      setSending(new Set());
+    } catch (e: any) {
+      const message = await getApiErrorMessage(e, "Failed to load creators");
 
-    setError(message);
-    setCreators([]);
-    setAlreadyInvited(new Set());
-    setSelected(new Set());
-    setSending(new Set());
+      setError(message);
+      setCreators([]);
+      setAlreadyInvited(new Set());
+      setSelected(new Set());
+      setSending(new Set());
 
-    toast({
-      icon: "error",
-      title: "Unable to load creators",
-      text: message,
-    });
-  } finally {
-    setLoading(false);
-  }
-}, [campaignId, fetchExistingInvitations]);
+      toast({
+        icon: "error",
+        title: "Unable to load creators",
+        text: message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [campaignId, fetchExistingInvitations]);
 
   React.useEffect(() => {
     fetchCreators();
@@ -1460,19 +1693,7 @@ const fetchCreators = React.useCallback(async () => {
                     >
                       <div className="flex min-h-[104px] flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-5 sm:px-6">
                         <div className="flex min-w-0 items-start gap-4">
-                          <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full bg-gray-200">
-                            {c.picture ? (
-                              <img
-                                src={c.picture}
-                                alt={name}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="grid h-full w-full place-items-center text-lg font-semibold text-gray-700">
-                                {name.slice(0, 1).toUpperCase()}
-                              </div>
-                            )}
-                          </div>
+                          <CreatorAvatar creator={c} name={name} />
 
                           <div className="min-w-0 pt-0.5">
                             <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -1516,7 +1737,7 @@ const fetchCreators = React.useCallback(async () => {
                                 </span>
 
                                 <span className="font-normal text-[#8E8E8E]">
-                                  /100 AI SCORE
+                                  /100 SCORE
                                 </span>
                               </span>
                             </div>

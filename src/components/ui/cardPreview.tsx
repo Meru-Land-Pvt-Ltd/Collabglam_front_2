@@ -387,24 +387,56 @@ function InviteActions({ invite }: { invite: InviteCardProps }) {
 /* ─────────────────────── Contract actions (inline, replaces Save/View) ─────────────────────── */
 
 function ContractActions({ contract }: { contract: ContractCardProps }) {
-  const contractStatus = String(contract?.meta?.status || "").trim().toUpperCase();
+  const meta = contract.meta;
+  const contractStatus = String(meta?.status || "").trim().toUpperCase();
+  const awaitingRole = String(meta?.awaitingRole || "").trim().toLowerCase();
 
-  if (contractStatus === "INFLUENCER_ACCEPTED") {
-    return (
-      <div className="flex items-center gap-1.5 shrink-0">
-        <Button
-          variant="ghost"
-          onClick={contract.onView}
-          className="flex items-center gap-1 rounded-lg border hover:bg-gray-100 border-neutral-200 bg-white text-black px-3 py-2 text-[12px] font-medium"
-        >
-          <Eye className="h-3 w-3" />
-          View Contract
-        </Button>
-      </div>
+  const version = Number(meta?.version || 0);
+
+  const influencerAccepted =
+    !!meta?.acceptances?.influencer?.accepted &&
+    Number(meta?.acceptances?.influencer?.acceptedVersion || 0) === version;
+
+  const brandAccepted =
+    !!meta?.acceptances?.brand?.accepted &&
+    Number(meta?.acceptances?.brand?.acceptedVersion || 0) === version;
+
+  const influencerSigned = !!meta?.signatures?.influencer?.signed;
+
+  const isLocked =
+    !!meta?.lockedAt ||
+    contractStatus === "CONTRACT_SIGNED" ||
+    contractStatus === "MILESTONES_CREATED";
+
+  const isRejected = contractStatus === "REJECTED";
+  const isSuperseded = contractStatus === "SUPERSEDED";
+
+  const isReadyToSign =
+    contractStatus === "READY_TO_SIGN" || !!meta?.editsLockedAt;
+
+  const canReject = !isLocked && !isRejected && !isSuperseded;
+
+  const needsInfluencerReview =
+    !isLocked &&
+    !isRejected &&
+    !isSuperseded &&
+    !influencerAccepted &&
+    (
+      contractStatus === "BRAND_SENT_DRAFT" ||
+      contractStatus === "BRAND_EDITED" ||
+      awaitingRole === "influencer"
     );
-  }
 
-  if (contractStatus === "BRAND_SENT_DRAFT") {
+  const canSign =
+    !isLocked &&
+    !isRejected &&
+    !isSuperseded &&
+    isReadyToSign &&
+    influencerAccepted &&
+    brandAccepted &&
+    !influencerSigned;
+
+  if (needsInfluencerReview) {
     return (
       <div className="flex items-center gap-1.5 shrink-0">
         <Button
@@ -414,17 +446,53 @@ function ContractActions({ contract }: { contract: ContractCardProps }) {
           Review & Accept
         </Button>
 
+        {canReject && (
+          <Button
+            onClick={contract.onReject}
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-600 transition hover:bg-red-100 active:scale-[0.98]"
+          >
+            Reject
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  if (canSign) {
+    return (
+      <div className="flex items-center gap-1.5 shrink-0">
         <Button
-          onClick={contract.onReject}
-          className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-600 transition hover:bg-red-100 active:scale-[0.98]"
+          onClick={contract.onSign}
+          className="rounded-lg bg-black px-3 py-2 text-[12px] font-semibold text-white shadow-sm transition hover:brightness-95 active:scale-[0.98] whitespace-nowrap"
         >
-          Reject
+          <PenLine className="h-3 w-3" />
+          Sign
+        </Button>
+
+        <Button
+          variant="ghost"
+          onClick={contract.onView}
+          className="flex items-center gap-1 rounded-lg border hover:bg-gray-100 border-neutral-200 bg-white text-black px-3 py-2 text-[12px] font-medium"
+        >
+          <Eye className="h-3 w-3" />
+          View
         </Button>
       </div>
     );
   }
 
-  return null;
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <Button
+        variant="ghost"
+        onClick={contract.onView}
+        className="flex items-center gap-1 rounded-lg border hover:bg-gray-100 border-neutral-200 bg-white text-black px-3 py-2 text-[12px] font-medium"
+      >
+        <Eye className="h-3 w-3" />
+        View Contract
+      </Button>
+    </div>
+  );
 }
 /* ─────────────────────── ManualPreviewCard ─────────────────────── */
 

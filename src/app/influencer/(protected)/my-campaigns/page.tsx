@@ -7,12 +7,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { AlertCircle, ChevronDown, Eye, FileText, PenLine } from "lucide-react";
-import { HiDocumentText, HiOutlineEye, HiX } from "react-icons/hi";
+import { ChevronDown, Eye } from "lucide-react";
+import { HiX } from "react-icons/hi";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Switch } from "@/components/ui/switch";
 import { ManualPreviewCard } from "@/components/ui/cardPreview";
 import Swal from "sweetalert2";
 import api, { post } from "@/lib/api";
@@ -21,30 +22,36 @@ import CampaignFilter, {
   DEFAULT_DATE_FILTER,
   type DateFilterValue,
 } from "@/components/ui/brand/CampaignFilter";
-
+import { Checkbox } from "@/components/animate-ui/components/radix/checkbox";
 import {
   apiGetAllCampaigns,
   apiGetAppliedCampaigns,
   apiGetContractedCampaigns,
-  apiGetInfluencerSignature,
   apiGetMyCampaigns,
-  apiUploadInfluencerSignature,
 } from "../../services/influencerApi";
-import { ArrowSquareInIcon, DownloadSimpleIcon, InfoIcon, Signature } from "@phosphor-icons/react";
-import dynamic from "next/dynamic";
-
-const MinimalPdfPreview = dynamic(
-  () => import("@/components/ui/MinimalPdfPreview"),
-  { ssr: false }
-);
-
-const InfluencerSidebarShell = dynamic(
-  () => import("./InfluencerSidebarShell"),
-  { ssr: false }
-);
-
-import { Dialog, DialogContent, DialogOverlay } from "@/components/ui/dialog";
-import { FloatingSelect, SelectItem } from "@/components/ui/selectComp";
+import {
+  CaretDown,
+  CaretUp,
+  DownloadSimpleIcon,
+  InfoIcon,
+  Signature,
+  UploadSimple,
+} from "@phosphor-icons/react";
+import InfluencerSidebarShell from "./InfluencerSidebarShell";
+import InfluencerSignatureModal from "./InfluencerSignatureModal";
+import {
+  apiGetPrimaryInfluencerSignature,
+  apiListInfluencerSignatures,
+  apiSetPrimaryInfluencerSignature,
+  type InfluencerSignatureAsset,
+} from "../../services/influencerSignatureApi";
+import { FloatingInput } from "@/components/ui/floatingInput";
+import {
+  FloatingSelect,
+  SelectItem,
+} from "@/components/ui/selectComp";
+import { LabeledTextarea } from "@/components/ui/textAreaComp";
+import useInfluencerSidebarWidth from "./useSidebarWidth";
 
 /* ─────────────────────────── Toast / Confirm ─────────────────────────── */
 
@@ -62,19 +69,6 @@ const toast = (opts: {
     customClass: { popup: "rounded-lg border border-gray-200" },
   });
 
-const askConfirm = async (title: string, text?: string) => {
-  const res = await Swal.fire({
-    title,
-    text,
-    icon: "question",
-    showCancelButton: true,
-    confirmButtonText: "Yes, continue",
-    cancelButtonText: "Cancel",
-    reverseButtons: true,
-    background: "white",
-  });
-  return res.isConfirmed;
-};
 
 function apiMessage(e: any, fallback = "Something went wrong") {
   const status = e?.response?.status;
@@ -88,7 +82,7 @@ function apiMessage(e: any, fallback = "Something went wrong") {
     "Both parties must accept the current version before signing",
     "Contract is not ready to sign yet",
     "Contract not found",
-    "Signature image must be ≤ 50 KB.",
+    "Signature file must be 5 MB or less.",
     "Cannot resend a signed/locked contract",
   ];
 
@@ -136,10 +130,22 @@ interface CampaignData {
   isApproved: number;
   isContracted: number;
   contractId: string;
+  contractMongoId?: string;
   isAccepted: number;
   hasApplied: number;
   hasMilestone: number;
   productImages: CampaignImage[];
+  campaignType?: string;
+  paymentType?: string;
+  laneType?: string;
+  targetCountry?: string;
+  targetCountryValues?: string[];
+  targetCountries?: any[];
+  campaignGoalValues?: string[];
+  targetAgeGroupValues?: string[];
+  applicationStatus?: string;
+  feeAmount?: number;
+  contractStatus?: string | null;
 }
 
 const CONTRACT_STATUS = {
@@ -282,6 +288,80 @@ const emptyLocal: LocalInfluencer = {
   notes: "",
 };
 
+type CreatorContractTerms = {
+  effectiveDate: string;
+  targetCountry: string;
+  timezone: string;
+  includedRevisionRounds: string;
+  additionalRevisionFee: string;
+  reshootNoBriefFailure: boolean;
+  reshootOneIncluded: boolean;
+  paidReshoot: boolean;
+  draftDate: string;
+  reshootFee: string;
+  reshootObligationRequired: "" | "yes" | "no";
+  preShootScriptRequired: "" | "yes" | "no";
+  preShootScriptDue: string;
+  preShootScriptReviewBusinessDays: string;
+  influencerFee: string;
+  currency: string;
+  wantAdvancePayment: boolean;
+  advancePaymentAmount: string;
+  advancePaymentType: string;
+  laneAMarketplaceFeeNote: string;
+  shipToName: string;
+  shipToAddress: string;
+  productReceiptConfirmationDeadline: string;
+  sameAsAbove: boolean;
+  productReturnable: string;
+};
+
+const emptyCreatorTerms: CreatorContractTerms = {
+  effectiveDate: "",
+  targetCountry: "USA",
+  timezone: "UTC+05:30 India",
+  includedRevisionRounds: "0",
+  additionalRevisionFee: "",
+  reshootNoBriefFailure: true,
+  reshootOneIncluded: false,
+  paidReshoot: false,
+  draftDate: "",
+  reshootFee: "",
+  reshootObligationRequired: "yes",
+  preShootScriptRequired: "yes",
+  preShootScriptDue: "",
+  preShootScriptReviewBusinessDays: "0",
+  influencerFee: "",
+  currency: "USD",
+  wantAdvancePayment: false,
+  advancePaymentAmount: "",
+  advancePaymentType: "",
+  laneAMarketplaceFeeNote:
+    "Unless expressly stated otherwise, 10% of the applicable Influencer compensation funded through the Platform is deducted from the Influencer payout and retained by CollabGlam; the Brand-funded campaign amount remains fixed.",
+  shipToName: "",
+  shipToAddress: "",
+  productReceiptConfirmationDeadline: "",
+  sameAsAbove: false,
+  productReturnable: "",
+};
+
+const YES_NO_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+];
+
+const ADVANCE_PAYMENT_TYPE_OPTIONS = [
+  { value: "Upfront before content creation", label: "Upfront before content creation" },
+  { value: "After draft approval", label: "After draft approval" },
+  { value: "After content goes live", label: "After content goes live" },
+  { value: "Custom", label: "Custom" },
+];
+
+const PRODUCT_RETURNABLE_OPTIONS = [
+  { value: "Gift / keep product", label: "Gift / keep product" },
+  { value: "Returnable loaner", label: "Returnable loaner" },
+];
+
 /* ───────────────────────────── Helpers ───────────────────────────── */
 
 const tabs = [
@@ -414,82 +494,268 @@ function computeDaysLeft(endAt?: string) {
   );
 }
 
+function getFirstString(...values: any[]) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function getCountryNameFromObject(item: any) {
+  if (!item) return "";
+
+  if (typeof item === "string") {
+    return item.trim();
+  }
+
+  return getFirstString(
+    item.countryNameEn,
+    item.countryName,
+    item.name,
+    item.countryNameLocal,
+    item.countryCode,
+    item.label,
+    item.value
+  );
+}
+
+function joinCountryNames(value: any) {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (!Array.isArray(value)) return "";
+
+  return value
+    .map((item) => getCountryNameFromObject(item))
+    .filter(Boolean)
+    .join(", ");
+}
+
 function mapApiCampaign(c: any): CampaignData {
-  const resolvedContractId = c.contract?._id || "";
-  const platforms: string[] = Array.isArray(c.platformSelection)
-    ? c.platformSelection
-    : [];
+  const campaignDoc = c?.campaign || c?.campaignData || c || {};
+  const isDirectContractDoc = Boolean(
+    c?.influencerId &&
+    c?.campaignId &&
+    (c?.contractId || c?._id) &&
+    !c?.campaignTitle &&
+    !c?.campaignName
+  );
 
-  const normPlatform = (p: string) =>
-    p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  const contractMongoId = getFirstString(
+    c?.contractMongoId,
+    c?.contract?._id,
+    c?.contracts?._id,
+    isDirectContractDoc ? c?._id : ""
+  );
 
-  const title =
-    c.campaignTitle || c.campaignName || c.name || c.productOrServiceName || "";
+  const resolvedContractId = getFirstString(
+    contractMongoId,
+    c?.contractId,
+    c?.contract?.contractId,
+    c?.contracts?.contractId
+  );
 
-  const category =
-    c.campaignCategory ||
-    (Array.isArray(c.categories) && c.categories.length > 0
-      ? c.categories[0].subcategoryName || c.categories[0].categoryName
-      : "");
-
-  const startDate = c.startAt || c.timeline?.startDate || "";
-  const endDate = c.endAt || c.timeline?.endDate || "";
-
-  const images: CampaignImage[] = Array.isArray(c.productImages)
-    ? c.productImages
-    : Array.isArray(c.images)
-      ? c.images
+  const platforms: string[] = Array.isArray(campaignDoc.platformSelection)
+    ? campaignDoc.platformSelection
+    : Array.isArray(c.platformSelection)
+      ? c.platformSelection
       : [];
 
-  const id = c._id || c.id || c.campaignId || "";
+  const normPlatform = (p: string) =>
+    p ? p.charAt(0).toUpperCase() + p.slice(1).toLowerCase() : "";
+
+  const title = getFirstString(
+    campaignDoc.campaignTitle,
+    campaignDoc.campaignName,
+    campaignDoc.name,
+    campaignDoc.productOrServiceName,
+    c?.content?.campaign?.campaignTitleOrId
+  );
+
+  const category = getFirstString(
+    campaignDoc.campaignCategory,
+    campaignDoc.categoryName,
+    campaignDoc.details?.category?.name,
+    Array.isArray(campaignDoc.categories) && campaignDoc.categories.length > 0
+      ? campaignDoc.categories[0]?.subcategoryName ||
+      campaignDoc.categories[0]?.categoryName
+      : ""
+  );
+
+  const startDate = getFirstString(
+    campaignDoc.startAt,
+    campaignDoc.timeline?.startDate
+  );
+
+  const endDate = getFirstString(
+    campaignDoc.endAt,
+    campaignDoc.timeline?.endDate
+  );
+
+  const images: CampaignImage[] = Array.isArray(campaignDoc.productImages)
+    ? campaignDoc.productImages
+    : Array.isArray(campaignDoc.images)
+      ? campaignDoc.images
+      : [];
+
+  const countryFromValues = joinCountryNames(campaignDoc.targetCountryValues);
+  const countryFromTopObjects = joinCountryNames(campaignDoc.targetCountries);
+  const countryFromDetails = joinCountryNames(
+    campaignDoc.details?.targetCountries
+  );
+
+  const location =
+    getFirstString(
+      campaignDoc.targetCountry,
+      countryFromValues,
+      countryFromTopObjects,
+      countryFromDetails
+    ) || "Remote";
+
+  const id = isDirectContractDoc
+    ? getFirstString(c?.campaignId)
+    : getFirstString(
+      campaignDoc._id,
+      campaignDoc.id,
+      campaignDoc.campaignId,
+      c?.campaignId
+    );
+
+  const campaignType = getFirstString(
+    campaignDoc.campaignType,
+    c?.content?.campaign?.paymentType
+  );
+
+  const paymentType = getFirstString(
+    campaignDoc.paymentType,
+    c?.content?.campaign?.paymentType
+  );
+
+  const status = getFirstString(campaignDoc.status, c?.status);
+  const campaignStatus = getFirstString(
+    campaignDoc.campaignStatus,
+    campaignDoc.status,
+    c?.status
+  );
 
   return {
     id,
-    brandId: c.brandId || "",
-    brandName: c.brandName || "",
+    brandId: getFirstString(campaignDoc.brandId, c?.brandId),
+    brandName: getFirstString(campaignDoc.brandName, c?.brandName),
     title,
     productOrServiceName: title,
-    description: c.description || "",
-    budgetMin: c.influencerBudget || 0,
-    budgetMax: c.campaignBudget || c.budget || 0,
-    budget: c.budget || c.campaignBudget || 0,
-    influencerBudget: c.influencerBudget ?? 0,
+    description: campaignDoc.description || "",
+    budgetMin: Number(campaignDoc.influencerBudget || 0),
+    budgetMax: Number(campaignDoc.campaignBudget || campaignDoc.budget || 0),
+    budget: Number(campaignDoc.budget || campaignDoc.campaignBudget || 0),
+    influencerBudget: Number(campaignDoc.influencerBudget ?? 0),
     daysLeft: computeDaysLeft(endDate),
-    match: c.match ?? 0,
+    match: Number(campaignDoc.match ?? 0),
     category,
-    platform:
-      platforms.length > 0 ? normPlatform(platforms[0]) : c.campaignType || "",
-    location: c.targetCountry || "Remote",
-    status: c.status || "",
-    campaignStatus: c.campaignStatus || c.status || "",
+    platform: platforms.length > 0 ? normPlatform(platforms[0]) : campaignType,
+    location,
+    status,
+    campaignStatus,
     contractId: resolvedContractId,
-    isContracted: c.isContracted ?? (resolvedContractId ? 1 : 0),
-    isAccepted: c.isAccepted ?? 0,
-    hasApplied: c.hasApplied ?? 1,
-    hasMilestone: c.hasMilestone ?? 0,
+    contractMongoId,
+    isContracted: Number(
+      campaignDoc.isContracted ?? (resolvedContractId ? 1 : 0)
+    ),
+    campaignGoalValues: Array.isArray(campaignDoc.campaignGoalValues)
+      ? campaignDoc.campaignGoalValues.filter(Boolean)
+      : Array.isArray(campaignDoc.details?.campaignGoals)
+        ? campaignDoc.details.campaignGoals
+          .map((x: any) => x?.goal || x?.name || x?.label || "")
+          .filter(Boolean)
+        : [],
+
+    targetAgeGroupValues: Array.isArray(campaignDoc.targetAgeGroupValues)
+      ? campaignDoc.targetAgeGroupValues.filter(Boolean)
+      : Array.isArray(campaignDoc.details?.targetAgeRanges)
+        ? campaignDoc.details.targetAgeRanges
+          .map((x: any) => x?.range || x?.name || x?.label || "")
+          .filter(Boolean)
+        : [],
+
+    isAccepted: Number(campaignDoc.isAccepted ?? c?.isAccepted ?? 0),
+    hasApplied: Number(campaignDoc.hasApplied ?? c?.hasApplied ?? 1),
+    hasMilestone: Number(campaignDoc.hasMilestone ?? c?.hasMilestone ?? 0),
     productImages: images,
     timeline: { startDate, endDate },
-    isActive: c.isActive ?? 1,
-    isApproved: c.isApproved ?? 1,
+    isActive: Number(campaignDoc.isActive ?? 1),
+    isApproved: Number(
+      campaignDoc.isApproved ?? campaignDoc.hasApproved ?? c?.hasApproved ?? 1
+    ),
+    campaignType,
+    paymentType,
+    laneType: campaignDoc.laneType,
+    targetCountry: location,
+    targetCountryValues: Array.isArray(campaignDoc.targetCountryValues)
+      ? campaignDoc.targetCountryValues
+      : location !== "Remote"
+        ? [location]
+        : [],
+    targetCountries: Array.isArray(campaignDoc.targetCountries)
+      ? campaignDoc.targetCountries
+      : Array.isArray(campaignDoc.details?.targetCountries)
+        ? campaignDoc.details.targetCountries
+        : [],
+    applicationStatus: campaignDoc.applicationStatus,
+    feeAmount: Number(campaignDoc.feeAmount ?? c?.feeAmount ?? 0),
+    contractStatus: campaignDoc.contractStatus ?? c?.contractStatus ?? null,
   };
 }
 
 function campaignToPreview(campaign: CampaignData) {
+  const targetCountries =
+    Array.isArray(campaign.targetCountryValues) &&
+      campaign.targetCountryValues.length > 0
+      ? campaign.targetCountryValues
+      : campaign.location && campaign.location !== "Remote"
+        ? [campaign.location]
+        : [];
+
+  const targetAgeGroups =
+    Array.isArray(campaign.targetAgeGroupValues) &&
+      campaign.targetAgeGroupValues.length > 0
+      ? campaign.targetAgeGroupValues
+      : [];
+
+  const goals =
+    Array.isArray(campaign.campaignGoalValues) &&
+      campaign.campaignGoalValues.length > 0
+      ? campaign.campaignGoalValues
+      : [];
+
   return {
     form: {
       title: campaign.title,
       description: campaign.description,
       categoryName: campaign.category,
-      targetCountry: [campaign.location],
-      targetAgeGroups: ["18-24"],
-      goals: ["Brand Awareness"],
+      targetCountry: targetCountries,
+      targetAgeGroups,
+      goals,
       campaignBudget: campaign.budgetMax,
       productImages: campaign.productImages,
     },
     meta: {
-      countryMap: { [campaign.location]: campaign.location },
-      ageMap: { "18-24": "18–24" },
-      goalsMap: { "Brand Awareness": "Brand Awareness" },
+      countryMap: targetCountries.reduce<Record<string, string>>((acc, item) => {
+        acc[item] = item;
+        return acc;
+      }, {}),
+      ageMap: targetAgeGroups.reduce<Record<string, string>>((acc, item) => {
+        acc[item] = item;
+        return acc;
+      }, {}),
+      goalsMap: goals.reduce<Record<string, string>>((acc, item) => {
+        acc[item] = item;
+        return acc;
+      }, {}),
       campaignBudget: campaign.budgetMax,
     },
   };
@@ -549,393 +815,230 @@ function pickActiveContract(arr: any[], preferredContractId?: string) {
   return chosen;
 }
 
-/* ───────────────────────── Floating Fields ───────────────────────── */
-
-function FloatingInput({
-  id,
-  label,
-  value,
-  onChange,
-  type = "text",
-  disabled = false,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="relative">
-      <input
-        id={id}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={`w-full px-4 pt-6 pb-2 border-2 rounded-lg text-sm transition-all duration-200 focus:outline-none ${disabled
-          ? "border-gray-200 opacity-60 cursor-not-allowed"
-          : "border-gray-200 focus:border-[#FFBF00]"
-          }`}
-        placeholder=" "
-      />
-      <label
-        htmlFor={id}
-        className="absolute left-4 top-2 text-xs text-[#1A1A1A] font-medium pointer-events-none"
-      >
-        {label}
-      </label>
-    </div>
-  );
-}
-
-export function FloatingTextarea({
-  id,
-  label,
-  value,
-  onChange,
-  rows = 3,
-  disabled = false,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  rows?: number;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="relative">
-      <textarea
-        id={id}
-        rows={rows}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        className={`w-full px-4 pt-6 pb-2 border-2 rounded-lg text-sm transition-all duration-200 focus:outline-none ${disabled
-          ? "border-gray-200 opacity-60 cursor-not-allowed"
-          : "border-gray-200 focus:border-[#FFBF00]"
-          }`}
-        placeholder=" "
-      />
-      <label
-        htmlFor={id}
-        className="absolute left-4 top-2 text-xs text-[#1A1A1A] font-medium pointer-events-none"
-      >
-        {label}
-      </label>
-    </div>
-  );
-}
-
 /* ───────────────────────── Signature Modal ───────────────────────── */
 
 function SignatureModal({
   open,
   onClose,
   onSubmit,
-  title = "Add Signature",
+  title = "Sign Contract",
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (signatureDataUrl: string) => Promise<void> | void;
   title?: string;
 }) {
-  const [sig, setSig] = useState("");
-  const [err, setErr] = useState("");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [fileName, setFileName] = useState("");
-  const [fileSize, setFileSize] = useState<number | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [showAgreeError, setShowAgreeError] = useState(false);
+  const [errorText, setErrorText] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const dropRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) {
-      setSig("");
-      setErr("");
+      setSignatureDataUrl("");
       setFileName("");
-      setFileSize(null);
-      setIsDragging(false);
+      setAgreed(false);
+      setShowAgreeError(false);
+      setErrorText("");
       setIsSubmitting(false);
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting) onClose();
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose, isSubmitting]);
+  const handleFile = async (file?: File | null) => {
+    if (!file) return;
 
-  const formatSize = (size: number | null) => {
-    if (!size) return "";
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    return `${(size / (1024 * 1024)).toFixed(2)} MB`;
-  };
+    const allowedTypes = [
+      "image/svg+xml",
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/webp",
+    ];
 
-  const onFile = (f?: File) => {
-    if (isSubmitting) return;
-    setErr("");
-    setIsDragging(false);
-    if (!f) return;
-
-    setFileName(f.name);
-    setFileSize(f.size);
-
-    if (!/image\/(png|jpeg)/i.test(f.type)) {
-      setSig("");
-      return setErr("Please upload a PNG or JPG image.");
-    }
-
-    if (f.size > 50 * 1024) {
-      setSig("");
-      return setErr("Signature must be ≤ 50 KB.");
-    }
-
-    const r = new FileReader();
-    r.onload = () => setSig(String(r.result || ""));
-    r.readAsDataURL(f);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const el = dropRef.current;
-    if (!el) return;
-
-    const onDragOver = (e: DragEvent) => {
-      if (isSubmitting) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(true);
-    };
-    const onDragEnter = (e: DragEvent) => {
-      if (isSubmitting) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(true);
-    };
-    const onDragLeave = (e: DragEvent) => {
-      if (isSubmitting) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.target === el) setIsDragging(false);
-    };
-    const onDrop = (e: DragEvent) => {
-      if (isSubmitting) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      onFile(e.dataTransfer?.files?.[0] as any);
-    };
-
-    el.addEventListener("dragover", onDragOver);
-    el.addEventListener("dragenter", onDragEnter);
-    el.addEventListener("dragleave", onDragLeave);
-    el.addEventListener("drop", onDrop);
-
-    return () => {
-      el.removeEventListener("dragover", onDragOver);
-      el.removeEventListener("dragenter", onDragEnter);
-      el.removeEventListener("dragleave", onDragLeave);
-      el.removeEventListener("drop", onDrop);
-    };
-  }, [open, isSubmitting]);
-
-  if (!open) return null;
-
-  const handleSign = async () => {
-    if (isSubmitting) return;
-    if (!sig) {
-      setErr("Please select a signature image first.");
+    if (!allowedTypes.includes(file.type)) {
+      setErrorText("Only SVG, PNG, JPG, JPEG, or WEBP signatures are allowed.");
+      setSignatureDataUrl("");
+      setFileName("");
       return;
     }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setErrorText("Signature must be under 5 MB.");
+      setSignatureDataUrl("");
+      setFileName("");
+      return;
+    }
+
+    const dataUrl = await fileToDataUrl(file);
+    setSignatureDataUrl(dataUrl);
+    setFileName(file.name);
+    setErrorText("");
+  };
+
+  const handleSubmit = async () => {
+    if (!signatureDataUrl) {
+      setErrorText("Please upload a signature before continuing.");
+      return;
+    }
+
+    if (!agreed) {
+      setShowAgreeError(true);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      await onSubmit(sig);
+      await onSubmit(signatureDataUrl);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (!open) return null;
+
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center">
-      <div
-        className={`absolute inset-0 bg-black/50 backdrop-blur-[2px] ${isSubmitting ? "pointer-events-none" : ""
-          }`}
-        onClick={() => !isSubmitting && onClose()}
-      />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-[560px] rounded-[24px] bg-white p-5 shadow-2xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h2 className="text-[24px] font-semibold text-[#1A1A1A]">
+            {title}
+          </h2>
 
-      <div className="relative z-[71] w-[96%] max-w-xl bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden">
-        <div className="relative h-24">
-          <div
-            className="absolute inset-0"
-            style={{
-              background: "linear-gradient(135deg, #FFBF00 0%, #FFDB58 100%)",
-            }}
-          />
-          <div className="relative z-10 h-full px-5 flex items-center justify-between text-gray-900">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/50 flex items-center justify-center text-lg">
-                ✍️
-              </div>
-              <div className="flex flex-col">
-                <div className="font-semibold tracking-wide text-sm sm:text-base">
-                  {title}
-                </div>
-                <div className="text-xs text-gray-800/80">
-                  Upload your official signature (PNG/JPG, ≤ 50 KB)
-                </div>
-              </div>
-            </div>
-            <button
-              className={`w-9 h-9 rounded-full bg-white/40 hover:bg-white flex items-center justify-center text-gray-800 transition ${isSubmitting ? "opacity-50 cursor-not-allowed" : ""
-                }`}
-              onClick={() => !isSubmitting && onClose()}
-              disabled={isSubmitting}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-gray-700">
-              This signature will be embedded into your agreement as your
-              authorized sign-off.
-            </p>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
-              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Best with transparent PNG
-              </span>
-            </div>
-          </div>
-
-          <div
-            ref={dropRef}
-            className={`rounded-xl border-2 border-dashed p-5 text-center text-sm transition-all select-none ${isSubmitting
-              ? "opacity-60 cursor-not-allowed border-gray-300 bg-gray-50"
-              : isDragging
-                ? "cursor-pointer border-amber-400 bg-amber-50 shadow-sm"
-                : "cursor-pointer border-gray-300 bg-gray-50 hover:bg-gray-100/80"
-              }`}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-neutral-100 disabled:opacity-60"
+            aria-label="Close"
           >
-            <div className="flex flex-col items-center gap-2">
-              <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center shadow-sm">
-                <span className="text-lg">📁</span>
-              </div>
-              <div className="font-medium text-gray-800">
-                {isSubmitting
-                  ? "Submitting..."
-                  : isDragging
-                    ? "Drop your signature image here"
-                    : "Drag & drop signature image here"}
-              </div>
-              <div className="text-xs text-gray-500">
-                or use the file picker below
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-gray-600">
-              Signature file
-            </label>
-            <input
-              type="file"
-              accept="image/png,image/jpeg"
-              disabled={isSubmitting}
-              onChange={(e) => onFile(e.target.files?.[0] as any)}
-              className="block w-full text-xs sm:text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-black disabled:opacity-60 disabled:cursor-not-allowed"
-            />
-            <div className="flex justify-between items-center text-[11px] text-gray-500">
-              <span>Allowed: PNG, JPG · Max size: 50 KB</span>
-              {fileSize !== null && (
-                <span>
-                  Selected:{" "}
-                  <span
-                    className={
-                      fileSize > 50 * 1024 ? "text-red-600 font-medium" : ""
-                    }
-                  >
-                    {formatSize(fileSize)}
-                  </span>
-                </span>
-              )}
-            </div>
-            {fileName && (
-              <div className="text-[11px] text-gray-600 truncate">
-                File: <span className="font-medium">{fileName}</span>
-              </div>
-            )}
-            {err && (
-              <div className="text-xs text-red-600 flex items-center gap-1 mt-1">
-                <span>⚠️</span>
-                <span>{err}</span>
-              </div>
-            )}
-          </div>
-
-          {sig && (
-            <div className="border rounded-xl p-3 bg-gray-50 flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs font-semibold text-gray-700">
-                    Signature preview
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isSubmitting}
-                    onClick={() => {
-                      if (isSubmitting) return;
-                      setSig("");
-                      setFileName("");
-                      setFileSize(null);
-                      setErr("");
-                    }}
-                    className="text-[11px] text-gray-500 hover:text-gray-700 underline disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div className="flex items-center justify-center rounded-lg border bg-white px-3 py-2">
-                  <img
-                    src={sig}
-                    alt="Signature preview"
-                    className="max-h-14 object-contain"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+            ✕
+          </button>
         </div>
 
-        <div className="px-5 pb-5 pt-1 flex justify-end gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".svg,.png,.jpg,.jpeg,.webp"
+          className="hidden"
+          onChange={(e) => handleFile(e.target.files?.[0])}
+        />
+
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            handleFile(e.dataTransfer.files?.[0]);
+          }}
+          className="rounded-[16px] bg-[#F8F8F8] px-4 py-6"
+        >
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isSubmitting}
+            className="flex min-h-[220px] w-full flex-col items-center justify-center gap-3 disabled:opacity-60"
+          >
+            {signatureDataUrl ? (
+              <img
+                src={signatureDataUrl}
+                alt="Influencer signature"
+                className="max-h-[140px] max-w-full object-contain"
+              />
+            ) : (
+              <>
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#EDEDED]">
+                  <UploadSimple size={22} />
+                </span>
+
+                <div className="text-center">
+                  <div className="text-base font-semibold text-[#1A1A1A] underline">
+                    Upload signature{" "}
+                    <span className="font-normal text-[#9C9C9C] no-underline">
+                      or drag and drop
+                    </span>
+                  </div>
+
+                  <div className="mt-1 text-sm text-[#B8B8B8]">
+                    SVG, PNG, JPG under max 5 MB
+                  </div>
+                </div>
+              </>
+            )}
+          </button>
+
+          {fileName ? (
+            <div className="mt-3 truncate text-center text-xs text-[#9C9C9C]">
+              {fileName}
+            </div>
+          ) : null}
+        </div>
+
+        <p className="mt-5 text-base text-[#9C9C9C]">
+          This contract will be signed using your influencer signature.
+        </p>
+
+        <div
+          className={`mt-5 overflow-hidden rounded-[14px] border bg-white ${showAgreeError && !agreed ? "border-[#FFE1DF]" : "border-[#E6E6E6]"
+            }`}
+        >
+          <div className="flex items-center gap-4 px-5 py-6">
+            <Switch
+              checked={agreed}
+              onCheckedChange={(checked) => {
+                setAgreed(checked === true);
+                if (checked) setShowAgreeError(false);
+              }}
+              className="shrink-0"
+            />
+
+            <p className="m-0 flex-1 text-sm font-medium leading-6 text-[#1A1A1A]">
+              By signing, I confirm that I have read and therefore agree to all
+              contractual terms, which become legally binding.
+            </p>
+          </div>
+
+          {showAgreeError && !agreed ? (
+            <div className="flex items-start gap-3 bg-[#FFF0EF] px-5 py-4">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F04D3F] text-sm font-bold text-white">
+                !
+              </span>
+
+              <p className="text-sm font-medium leading-5 text-[#E53935]">
+                Please confirm that you agree to all terms before signing.
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        {errorText ? (
+          <div className="mt-5 rounded-[12px] bg-[#FFF0EF] px-4 py-3 text-sm font-medium text-[#E53935]">
+            {errorText}
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex justify-end gap-4">
           <Button
             variant="outline"
-            className="text-gray-900 border-gray-300 hover:bg-gray-100 disabled:opacity-60"
-            onClick={() => !isSubmitting && onClose()}
+            onClick={onClose}
             disabled={isSubmitting}
           >
             Cancel
           </Button>
+
           <Button
-            className="bg-gradient-to-r from-[#FFBF00] to-[#FFDB58] text-gray-900 hover:from-[#FFDB58] hover:to-[#FFBF00] disabled:opacity-60"
-            onClick={handleSign}
-            disabled={!sig || isSubmitting}
+            onClick={handleSubmit}
+            disabled={isSubmitting || !signatureDataUrl}
           >
-            {isSubmitting ? "Signing..." : "Sign"}
+            {isSubmitting ? "Signing..." : "Sign Contract"}
           </Button>
         </div>
       </div>
     </div>
   );
 }
+
 
 /* ───────────────────────── Reject Modal/Button ───────────────────────── */
 
@@ -1097,202 +1200,169 @@ function RejectButton({
   );
 }
 
-/* ───────────────────────── Contract Action Bar ───────────────────────── */
 
-function ContractActionBar({
-  campaign,
-  meta,
-  onOpenEditor,
-  onSignDirect,
-  onRefresh,
+
+function cn(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function AccordionCard({
+  title,
+  subtitle,
+  children,
+  defaultOpen = false,
 }: {
-  campaign: CampaignData;
-  meta: ContractMeta | null;
-  onOpenEditor: (
-    c: CampaignData,
-    readOnly: boolean,
-    mode?: "view" | "edit"
-  ) => void;
-  onSignDirect: (opts: {
-    contractId: string;
-    influencerConfirmed: boolean;
-    brandConfirmed: boolean;
-    isLocked: boolean;
-    isReadyToSign: boolean;
-  }) => void;
-  onRefresh: () => void;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
 }) {
-  const effectiveContractId = meta?.contractId || campaign.contractId;
-  if (!effectiveContractId) return null;
-
-  const st = normStatus(meta?.status);
-  const influencerConfirmed = hasAcceptedCurrent(meta, "influencer");
-  const brandConfirmed = hasAcceptedCurrent(meta, "brand");
-  const influencerSigned = !!meta?.signatures?.influencer?.signed;
-  const locked = isLockedMeta(meta);
-  const readyToSign = isReadyToSignMeta(meta);
-  const rejected = isRejectedMeta(meta);
-  const superseded = isSupersededMeta(meta);
-
-  const canEditRow = !locked && !readyToSign && !rejected && !superseded;
-  const needsAccept = !influencerConfirmed && canEditRow;
-  const canSign =
-    !locked &&
-    readyToSign &&
-    influencerConfirmed &&
-    brandConfirmed &&
-    !influencerSigned;
-  const canReject = !locked && !rejected && !superseded;
-
-  const signLabel = signingStatusLabel(meta);
-  const statusText =
-    signLabel ??
-    (st === CONTRACT_STATUS.BRAND_SENT_DRAFT
-      ? "Awaiting Your Acceptance"
-      : st === CONTRACT_STATUS.BRAND_EDITED
-        ? "Updated by Brand"
-        : st === CONTRACT_STATUS.INFLUENCER_EDITED
-          ? "Sent to Brand"
-          : st === CONTRACT_STATUS.INFLUENCER_ACCEPTED
-            ? "Awaiting Brand Acceptance"
-            : st === CONTRACT_STATUS.BRAND_ACCEPTED
-              ? "Accepted by Brand"
-              : st === CONTRACT_STATUS.READY_TO_SIGN
-                ? "Ready to Sign"
-                : st === CONTRACT_STATUS.CONTRACT_SIGNED
-                  ? "Awaiting Milestones"
-                  : st === CONTRACT_STATUS.MILESTONES_CREATED
-                    ? "Milestone Added"
-                    : st === CONTRACT_STATUS.REJECTED
-                      ? "Rejected"
-                      : st === CONTRACT_STATUS.SUPERSEDED
-                        ? "Superseded"
-                        : meta?.status
-                          ? String(meta.status)
-                          : "Contract");
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="mt-3 pt-3 border-t border-gray-100">
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="text-[11px] text-gray-500 font-medium uppercase tracking-wide flex items-center gap-1">
-          <FileText className="h-3 w-3" />
-          Contract
+    <div
+      className={cn(
+        "cg-accordion rounded-[20px] border border-[#E6E6E6] bg-white",
+        open ? "cg-accordion--open" : "cg-accordion--closed"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="cg-accordion-btn flex w-full items-start gap-4 px-5 py-5 text-left"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="cg-accordion-title text-xl font-semibold text-[#1A1A1A]">
+            {title}
+          </div>
+
+          {subtitle ? (
+            <div className="cg-accordion-subtitle mt-1 text-sm leading-5 text-[#8A8A8A]">
+              {subtitle}
+            </div>
+          ) : null}
+        </div>
+
+        <span className="mt-[6px] shrink-0 text-neutral-900">
+          {open ? <CaretUp size={20} /> : <CaretDown size={20} />}
         </span>
-        <span
-          className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${locked
-            ? "bg-emerald-100 text-emerald-700"
-            : rejected
-              ? "bg-red-100 text-red-700"
-              : "bg-yellow-100 text-yellow-700"
-            }`}
-        >
-          {statusText}
-        </span>
-      </div>
+      </button>
 
-      <div className="flex gap-1.5 flex-wrap">
-        {needsAccept && (
-          <button
-            onClick={() =>
-              onOpenEditor(
-                { ...campaign, contractId: effectiveContractId },
-                false,
-                "edit"
-              )
-            }
-            className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-[#FFBF00] to-[#FFDB58] text-gray-900 text-xs font-semibold shadow-sm hover:brightness-95 transition-all"
-          >
-            Review & Accept
-          </button>
-        )}
+      {open ? <div className="px-5 pb-5 pt-0">{children}</div> : null}
+    </div>
+  );
+}
 
-        {!needsAccept && canEditRow && (
-          <button
-            onClick={() =>
-              onOpenEditor(
-                { ...campaign, contractId: effectiveContractId },
-                false,
-                "edit"
-              )
-            }
-            className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-[#FFBF00] to-[#FFDB58] text-gray-900 text-xs font-semibold shadow-sm hover:brightness-95 transition-all"
-          >
-            Edit Details
-          </button>
-        )}
 
-        {canSign && (
-          <button
-            onClick={() =>
-              onSignDirect({
-                contractId: effectiveContractId,
-                influencerConfirmed,
-                brandConfirmed,
-                isLocked: locked,
-                isReadyToSign: readyToSign,
-              })
-            }
-            className="flex-1 py-2 px-3 rounded-lg bg-gradient-to-r from-[#FFBF00] to-[#FFDB58] text-gray-900 text-xs font-semibold shadow-sm hover:brightness-95 transition-all flex items-center justify-center gap-1"
-          >
-            <PenLine className="h-3 w-3" />
-            Sign
-          </button>
-        )}
+function InfluencerSignatureSection({
+  signatureSrc,
+  hasSignature,
+  agreed,
+  onAgreeChange,
+  showError,
+  onManageSignatures,
+}: {
+  signatureSrc?: string;
+  hasSignature: boolean;
+  agreed: boolean;
+  onAgreeChange: (checked: boolean) => void;
+  showError: boolean;
+  onManageSignatures: () => void;
+}) {
+  const shouldShowError = showError && !agreed;
 
+  return (
+    <div id="influencer-signature-section" className="space-y-5">
+      <div className="rounded-[24px] bg-[#F8F8F8] px-4 pb-5 pt-6">
         <button
-          onClick={() =>
-            onOpenEditor(
-              { ...campaign, contractId: effectiveContractId },
-              true,
-              "view"
-            )
-          }
-          className="flex-1 py-2 px-3 rounded-lg bg-gray-50 text-gray-700 text-xs font-medium border border-gray-200 transition-colors flex items-center justify-center gap-1"
+          type="button"
+          onClick={onManageSignatures}
+          className="flex min-h-[130px] w-full items-center justify-center rounded-[20px]"
         >
-          <Eye className="h-3 w-3" />
-          View
+          {hasSignature ? (
+            signatureSrc ? (
+              <img
+                src={signatureSrc}
+                alt="Influencer signature"
+                className="max-h-[105px] max-w-full object-contain"
+              />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-neutral-400">
+                <Signature className="h-16 w-16 text-black" />
+                <span className="text-sm text-[#9C9C9C]">
+                  Signature on file
+                </span>
+              </div>
+            )
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-neutral-400">
+              <UploadSimple size={32} />
+              <span className="text-sm">
+                Click to upload influencer signature
+              </span>
+            </div>
+          )}
         </button>
 
-        {canReject && (
-          <RejectButton contractId={effectiveContractId} onDone={onRefresh} />
+        <div className="mt-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm text-[#9C9C9C]">
+            <InfoIcon size={16} />
+            <span>
+              {hasSignature
+                ? "Signature is selected as primary"
+                : "No influencer signature selected"}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={onManageSignatures}
+            className="inline-flex items-center gap-2 text-sm font-medium text-[#1F1F1F]"
+          >
+            {hasSignature ? "Change signature" : "Add signature"}
+            <CaretDown size={16} weight="bold" />
+          </button>
+        </div>
+      </div>
+
+      <div
+        className={cn(
+          "overflow-hidden rounded-[14px] border bg-white",
+          shouldShowError ? "border-[#FFE1DF]" : "border-[#E6E6E6]"
         )}
+      >
+        <div className="flex items-center gap-4 px-5 py-6">
+          <Switch
+            checked={agreed}
+            onCheckedChange={(checked) => onAgreeChange(checked === true)}
+            aria-invalid={shouldShowError}
+            className="shrink-0"
+          />
+
+          <p className="m-0 flex-1 text-sm font-medium leading-6 text-[#1A1A1A]">
+            By signing, I confirm that I have read and therefore agree to all
+            contractual terms, which become legally binding.
+          </p>
+        </div>
+
+        {shouldShowError ? (
+          <div className="flex items-start gap-3 bg-[#FFF0EF] px-5 py-4">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#F04D3F] text-sm font-bold text-white">
+              !
+            </span>
+
+            <p className="text-sm font-medium leading-5 text-[#E53935]">
+              Please confirm that you agree to all terms before signing.
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
 }
 
 /* ───────────────────────── Contract Modal ───────────────────────── */
-
-function useInfluencerSidebarWidth() {
-  const [width, setWidth] = useState(0);
-
-  useEffect(() => {
-    const selectors = [
-      "[data-sidebar]",
-      ".sidebar",
-      "aside",
-      'nav[class*="sidebar"]',
-      'div[class*="sidebar"]',
-      '[class*="sidebar"]',
-    ];
-
-    const sidebar = selectors.reduce<Element | null>(
-      (found, sel) => found ?? document.querySelector(sel),
-      null
-    );
-
-    if (!sidebar) return;
-
-    const update = () => setWidth(sidebar.getBoundingClientRect().width);
-    update();
-
-    const ro = new ResizeObserver(update);
-    ro.observe(sidebar);
-    return () => ro.disconnect();
-  }, []);
-
-  return width;
-}
 
 const getInfluencerId = () => {
   if (typeof window === "undefined") return "";
@@ -1307,25 +1377,200 @@ const fileToDataUrl = (file: Blob) =>
     reader.readAsDataURL(file);
   });
 
-const urlToDataUrl = async (url: string) => {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return fileToDataUrl(blob);
-};
-
-const extractSignatureUrl = (res: any) => {
+const getSignaturePreviewFromPayload = (res: any) => {
   return (
-    res?.data?.signatureUrl ||
-    res?.data?.url ||
-    res?.data?.signature?.url ||
-    res?.data?.signature?.signatureUrl ||
+    res?.signature ||
+    res?.signatureData ||
+    res?.signatureDataUrl ||
+    res?.signatureUrl ||
+    res?.url ||
+    res?.signature?.signature ||
+    res?.signature?.signatureData ||
+    res?.signature?.signatureDataUrl ||
+    res?.signature?.signatureUrl ||
+    res?.signature?.url ||
     ""
   );
 };
 
-const extractSignatureId = (res: any): string => {
-  return res?.data?._id || "";
+
+function toInputDate(value?: string | Date | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const toYesNoValue = (value: any): "" | "yes" | "no" => {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  const text = String(value ?? "").trim().toLowerCase();
+  if (["yes", "true", "1", "required", "needed"].includes(text)) return "yes";
+  if (["no", "false", "0", "not required", "not needed"].includes(text)) return "no";
+  return "";
 };
+
+const buildAddressText = (data: LocalInfluencer) =>
+  [data.addressLine1, data.addressLine2, data.city, data.state, data.zip, data.country]
+    .filter(Boolean)
+    .join(", ");
+
+function getContractInfluencerFeeValue(commercial: any) {
+  const influencerFee = commercial?.influencerFee;
+  if (
+    influencerFee !== undefined &&
+    influencerFee !== null &&
+    String(influencerFee).trim() !== ""
+  ) {
+    return String(influencerFee);
+  }
+
+  const influencerBudget = commercial?.influencerBudget;
+  if (
+    influencerBudget !== undefined &&
+    influencerBudget !== null &&
+    String(influencerBudget).trim() !== ""
+  ) {
+    return String(influencerBudget);
+  }
+
+  return "";
+}
+
+function createCreatorTermsFromContract(contract: any, fallback: LocalInfluencer): CreatorContractTerms {
+  const content = contract?.content || {};
+  const campaignContent = content?.campaign || {};
+  const scheduleA = content?.scheduleA || {};
+  const review = scheduleA?.review || {};
+  const commercial = scheduleA?.commercial || {};
+  const shipping = scheduleA?.shipping || {};
+  const reshootText = String(review?.reshootObligation || "");
+
+  return {
+    ...emptyCreatorTerms,
+    effectiveDate: toInputDate(campaignContent?.effectiveDate || contract?.requestedEffectiveDate || ""),
+    targetCountry: String(campaignContent?.territoryTargetCountry || fallback.country || emptyCreatorTerms.targetCountry),
+    timezone: String(campaignContent?.timezone || contract?.requestedEffectiveDateTimezone || emptyCreatorTerms.timezone),
+    includedRevisionRounds: String(review?.includedRevisionRounds ?? emptyCreatorTerms.includedRevisionRounds),
+    additionalRevisionFee: String(review?.additionalRevisionFee || ""),
+    reshootNoBriefFailure:
+      !reshootText || /material failure|brief/i.test(reshootText),
+    reshootOneIncluded: /one reshoot included/i.test(reshootText),
+    paidReshoot: /paid/i.test(reshootText),
+    draftDate: String(review?.draftDate || ""),
+    reshootFee: String(review?.reshootFee || ""),
+    reshootObligationRequired: toYesNoValue(review?.reshootObligationRequired ?? true) || "yes",
+    preShootScriptRequired: toYesNoValue(scheduleA?.preShootScriptRequired) || "yes",
+    preShootScriptDue: String(scheduleA?.preShootScriptDue || ""),
+    preShootScriptReviewBusinessDays: String(scheduleA?.preShootScriptReviewBusinessDays ?? "0"),
+    influencerFee: getContractInfluencerFeeValue(commercial),
+    currency: "USD",
+    wantAdvancePayment: Boolean(commercial?.wantAdvancePayment),
+    advancePaymentAmount: String(commercial?.advancePaymentAmount || ""),
+    advancePaymentType: String(commercial?.advancePaymentType || ""),
+    laneAMarketplaceFeeNote:
+      String(commercial?.laneAMarketplaceFeeNote || emptyCreatorTerms.laneAMarketplaceFeeNote),
+    shipToName: String(shipping?.shipToName || fallback.legalName || fallback.contactName || ""),
+    shipToAddress: String(
+      shipping?.shipToAddress || buildAddressText(fallback) || fallback.shipToAddress || ""
+    ),
+    productReceiptConfirmationDeadline: String(
+      shipping?.productReceiptConfirmationDeadline || ""
+    ),
+    sameAsAbove: false,
+    productReturnable: String(shipping?.productReturnable || ""),
+  };
+}
+
+function buildReshootObligationText(terms: CreatorContractTerms) {
+  const items: string[] = [];
+  if (terms.reshootNoBriefFailure) {
+    items.push("No reshoot required except for material failure to follow approved brief.");
+  }
+  if (terms.reshootOneIncluded) items.push("One reshoot included");
+  if (terms.paidReshoot) items.push("Paid reshoot");
+  return items.join("\n");
+}
+
+function buildCreatorContractUpdatePayload(
+  local: LocalInfluencer,
+  terms: CreatorContractTerms
+) {
+  const reshootObligation = buildReshootObligationText(terms);
+  const influencerFeeRaw = String(terms.influencerFee ?? "").trim();
+  const influencerFee = influencerFeeRaw ? Number(influencerFeeRaw) || 0 : "";
+
+  return {
+    content: {
+      campaign: {
+        effectiveDate: terms.effectiveDate || null,
+        territoryTargetCountry: terms.targetCountry || "USA",
+        timezone: terms.timezone || "UTC+05:30 India",
+      },
+      scheduleA: {
+        preShootScriptRequired: terms.preShootScriptRequired === "yes",
+        preShootScriptDue: terms.preShootScriptDue || "",
+        preShootScriptReviewBusinessDays:
+          Number(terms.preShootScriptReviewBusinessDays || "0") || 0,
+        review: {
+          includedRevisionRounds:
+            Number(terms.includedRevisionRounds || "0") || 0,
+          additionalRevisionFee: String(terms.additionalRevisionFee || ""),
+          reshootObligation,
+          reshootObligationRequired: terms.reshootObligationRequired || "yes",
+          draftDate: terms.draftDate || "",
+          reshootFee: String(terms.reshootFee || ""),
+        },
+        commercial: {
+          influencerFee,
+          influencerBudget: influencerFee,
+          currency: "USD",
+
+          wantAdvancePayment: Boolean(terms.wantAdvancePayment),
+          advancePaymentAmount: terms.wantAdvancePayment
+            ? Number(terms.advancePaymentAmount || "0") || 0
+            : 0,
+          advancePaymentType: terms.wantAdvancePayment
+            ? terms.advancePaymentType || ""
+            : "",
+
+          paymentStructure: terms.wantAdvancePayment
+            ? terms.advancePaymentType || "Advance payment requested"
+            : "No advance payment",
+          platformMilestonePaymentStructure: terms.wantAdvancePayment
+            ? terms.advancePaymentType || "Advance payment requested"
+            : "No advance payment",
+          customSplit: terms.wantAdvancePayment
+            ? terms.advancePaymentType || ""
+            : "",
+
+          advancePaymentTrigger: terms.wantAdvancePayment
+            ? "Advance payment requested by influencer"
+            : "",
+          remainingPaymentTrigger: terms.wantAdvancePayment
+            ? "Remaining amount payable after completion"
+            : "",
+
+          laneAMarketplaceFeeNote: terms.laneAMarketplaceFeeNote || "",
+        },
+        shipping: {
+          productShippingApplicable: "Yes",
+          shipToName: terms.shipToName || local.legalName || "",
+          shipToAddress: terms.sameAsAbove
+            ? buildAddressText(local)
+            : terms.shipToAddress || "",
+          productReceiptConfirmationDeadline:
+            terms.productReceiptConfirmationDeadline || "",
+          productReturnable: terms.productReturnable || "",
+        },
+      },
+    },
+  };
+}
+
 
 function InfluencerContractModal({
   open,
@@ -1334,7 +1579,7 @@ function InfluencerContractModal({
   campaign,
   readOnly = false,
   onAfterAction,
-  sidebarOffset = 400,
+  sidebarOffset = 0,
 }: {
   open: boolean;
   onClose: () => void;
@@ -1345,22 +1590,24 @@ function InfluencerContractModal({
   sidebarOffset?: number;
 }) {
   const [local, setLocal] = useState<LocalInfluencer>(emptyLocal);
+  const [creatorTerms, setCreatorTerms] = useState<CreatorContractTerms>(emptyCreatorTerms);
+  const [creatorErrors, setCreatorErrors] = useState<Record<string, string>>({});
   const [previewUrl, setPreviewUrl] = useState("");
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const initialPreviewLoadedForRef = useRef("");
   const [isWorking, setIsWorking] = useState(false);
   const [liteLoaded, setLiteLoaded] = useState(false);
   const [effectiveContractId, setEffectiveContractId] =
     useState<string>(contractId);
   const [savedSignatureId, setSavedSignatureId] = useState("");
   const [meta, setMeta] = useState<ContractMeta | null>(null);
-  const [showSignModal, setShowSignModal] = useState(false);
-  const [showAcceptSignatureModal, setShowAcceptSignatureModal] = useState(false);
+  const [showInfluencerSignatureModal, setShowInfluencerSignatureModal] = useState(false);
+  const [signatureModalInitialTab, setSignatureModalInitialTab] =
+    useState<"upload" | "manage">("upload");
   const [signatureChecked, setSignatureChecked] = useState(false);
+  const [signatureAgreeError, setSignatureAgreeError] = useState(false);
   const [signatureLoading, setSignatureLoading] = useState(false);
   const [savedSignatureUrl, setSavedSignatureUrl] = useState("");
-  const [signatureFile, setSignatureFile] = useState<File | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [selectedSignaturePreview, setSelectedSignaturePreview] = useState("");
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<keyof LocalInfluencer, string>>
   >({});
@@ -1393,9 +1640,27 @@ function InfluencerContractModal({
   const zipRegex = /^\d{4,10}$/;
 
   const validateOptionalInfluencerForm = useCallback(
-    (data: LocalInfluencer) => {
+    (
+      data: LocalInfluencer,
+      options: { requireRequiredFields?: boolean } = {}
+    ) => {
       const v = sanitizeLocal(data);
       const errors: Partial<Record<keyof LocalInfluencer, string>> = {};
+      const requireRequiredFields = Boolean(options.requireRequiredFields);
+
+      if (requireRequiredFields) {
+        if (!v.legalName) {
+          errors.legalName = "Creator legal name is required.";
+        }
+
+        if (!v.postingHandleUrl) {
+          errors.postingHandleUrl = "Creator posting handle URL is required.";
+        }
+
+        if (!v.contactEmail) {
+          errors.contactEmail = "Creator email/contact is required.";
+        }
+      }
 
       if (v.contactEmail && !emailRegex.test(v.contactEmail)) {
         errors.contactEmail = "Enter a valid email address.";
@@ -1408,10 +1673,6 @@ function InfluencerContractModal({
       if (v.zip && !zipRegex.test(v.zip)) {
         errors.zip = "ZIP / Postal Code must be 4 to 10 digits.";
       }
-
-      // if (v.taxId && !taxIdRegex.test(v.taxId)) {
-      //   errors.taxId = "Tax ID format is invalid.";
-      // }
 
       if (v.taxFormType && !["W-9", "W-8"].includes(v.taxFormType)) {
         errors.taxFormType = "Select a valid tax form type.";
@@ -1440,6 +1701,52 @@ function InfluencerContractModal({
     },
     []
   );
+
+  const validateCreatorTerms = useCallback((data: CreatorContractTerms) => {
+    const errors: Record<string, string> = {};
+
+    if (!String(data.effectiveDate || "").trim()) {
+      errors.effectiveDate = "Effective date is required.";
+    }
+
+    if (!String(data.targetCountry || "").trim()) {
+      errors.targetCountry = "Target country is required.";
+    }
+
+    const revisionCount = Number(data.includedRevisionRounds || "0");
+    if (Number.isNaN(revisionCount) || revisionCount < 0) {
+      errors.includedRevisionRounds = "Revision rounds must be 0 or greater.";
+    }
+
+    const revisionFee = Number(data.additionalRevisionFee || "0");
+    if (data.additionalRevisionFee && (Number.isNaN(revisionFee) || revisionFee < 0)) {
+      errors.additionalRevisionFee = "Additional revision fees must be 0 or greater.";
+    }
+
+    const influencerFeeRaw = String(data.influencerFee ?? "").trim();
+    const influencerFee = Number(influencerFeeRaw);
+    if (!influencerFeeRaw) {
+      errors.influencerFee = "Influencer fee is required.";
+    } else if (Number.isNaN(influencerFee) || influencerFee < 0) {
+      errors.influencerFee = "Influencer fee must be 0 or greater.";
+    }
+
+    if (data.wantAdvancePayment) {
+      const advanceAmount = Number(data.advancePaymentAmount || "0");
+      if (Number.isNaN(advanceAmount) || advanceAmount <= 0) {
+        errors.advancePaymentAmount = "Advance payment amount is required.";
+      }
+      if (!String(data.advancePaymentType || "").trim()) {
+        errors.advancePaymentType = "Advance payment type is required.";
+      }
+    }
+
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors,
+    };
+  }, []);
+
   const cleanupPreview = useCallback(() => {
     setPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
@@ -1448,92 +1755,100 @@ function InfluencerContractModal({
     setPreviewBlob(null);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (selectedSignaturePreview) {
-        URL.revokeObjectURL(selectedSignaturePreview);
-      }
-    };
-  }, [selectedSignaturePreview]);
-
-  const handleSignatureFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (selectedSignaturePreview) {
-      URL.revokeObjectURL(selectedSignaturePreview);
-    }
-
-    const localPreviewUrl = URL.createObjectURL(file);
-
-    setSignatureFile(file);
-    setSelectedSignaturePreview(localPreviewUrl);
-    setSavedSignatureUrl("");
-  };
-
-  const openAcceptSignatureFlow = async () => {
+  const refreshInfluencerSignature = useCallback(async (): Promise<{
+    signatureId: string;
+    signatureUrl: string;
+  }> => {
     const influencerId = getInfluencerId();
-    if (!influencerId) {
-      toast({
-        icon: "error",
-        title: "Missing influencer",
-        text: "Influencer ID not found.",
-      });
-      return;
-    }
 
-    setSignatureLoading(true);
-    setSignatureChecked(false);
-    setSignatureFile(null);
-    setSavedSignatureId("");
+    if (!influencerId) {
+      setSavedSignatureId("");
+      setSavedSignatureUrl("");
+      return { signatureId: "", signatureUrl: "" };
+    }
 
     try {
-      const res = await apiGetInfluencerSignature(influencerId);
+      const primarySignature = await apiGetPrimaryInfluencerSignature(influencerId);
 
-      // res is already the typed payload, not an AxiosResponse
-      const existingId = res?._id || "";
-      const existingUrl =
-        res?.signatureUrl || res?.url || res?.signature?.url || "";
+      if (primarySignature?.signature) {
+        setSavedSignatureId(primarySignature._id || "");
+        setSavedSignatureUrl(primarySignature.signature || "");
 
-      if (existingId) setSavedSignatureId(existingId);
-      if (existingUrl) setSavedSignatureUrl(existingUrl);
-
-      setShowAcceptSignatureModal(true);
+        return {
+          signatureId: primarySignature._id || "",
+          signatureUrl: primarySignature.signature || "",
+        };
+      }
     } catch {
-      setShowAcceptSignatureModal(true);
-    } finally {
-      setSignatureLoading(false);
+      // Primary signature missing. Fallback to active list below.
     }
-  };
 
-  const mapApiToLocal = (
-    inf?: ContractInfluencerContent
-  ): LocalInfluencer => ({
-    legalName: inf?.legalName || "",
-    contactName: inf?.contactName || "",
-    postingHandleUrl: inf?.postingHandleUrl || "",
-    contactEmail: inf?.email || "",
-    contactPhone: inf?.phone || "",
-    whatsApp: inf?.whatsApp || "",
-    taxFormType: inf?.taxFormType || "",
-    taxId: inf?.taxId || "",
-    addressLine1: inf?.addressLine1 || "",
-    addressLine2: inf?.addressLine2 || "",
-    city: inf?.city || "",
-    state: inf?.state || "",
-    zip: inf?.zipPostalCode || "",
-    country: inf?.country || "",
-    ftcAcknowledgement: inf?.ftcAcknowledgement || "",
-    shipToName: inf?.shipToName || "",
-    shipToAddress: inf?.shipToAddress || "",
-    shipToPhone: inf?.shipToPhone || "",
-    deliveryNotes: inf?.deliveryNotes || "",
-    payoutMethod: "",
-    payoutAccount: "",
-    notes: inf?.notes || "",
-  });
+    try {
+      const result = await apiListInfluencerSignatures(influencerId);
+      const rows = Array.isArray(result.signatures) ? result.signatures : [];
+      const fallbackSignature = rows.find((item) => item.isPrimary) || rows[0] || null;
+
+      if (fallbackSignature?.signature) {
+        setSavedSignatureId(fallbackSignature._id || "");
+        setSavedSignatureUrl(fallbackSignature.signature || "");
+
+        if (!fallbackSignature.isPrimary && fallbackSignature._id) {
+          apiSetPrimaryInfluencerSignature(influencerId, fallbackSignature._id).catch(
+            () => undefined
+          );
+        }
+
+        return {
+          signatureId: fallbackSignature._id || "",
+          signatureUrl: fallbackSignature.signature || "",
+        };
+      }
+    } catch {
+      // Ignore and clear below.
+    }
+
+    setSavedSignatureId("");
+    setSavedSignatureUrl("");
+    return { signatureId: "", signatureUrl: "" };
+  }, []);
+
+  const openInfluencerSignatureModal = useCallback(
+    async (tab: "upload" | "manage" = "upload") => {
+      const influencerId = getInfluencerId();
+
+      if (!influencerId) {
+        toast({
+          icon: "error",
+          title: "Missing influencer",
+          text: "Influencer ID not found.",
+        });
+        return;
+      }
+
+      setSignatureModalInitialTab(tab);
+      setShowInfluencerSignatureModal(true);
+
+      refreshInfluencerSignature().catch(() => undefined);
+    },
+    [refreshInfluencerSignature]
+  );
+
+  const handleInfluencerSignatureSelected = useCallback(
+    (signature: InfluencerSignatureAsset) => {
+      setSavedSignatureId(signature._id || "");
+      setSavedSignatureUrl(signature.signature || "");
+      setSignatureAgreeError(false);
+      setShowInfluencerSignatureModal(false);
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    refreshInfluencerSignature().catch(() => undefined);
+  }, [open, refreshInfluencerSignature]);
+
+  const hasInfluencerSignature = Boolean(savedSignatureId || savedSignatureUrl);
 
   const toLocalFromLite = useCallback((lite: any): LocalInfluencer => {
     const primary = (lite?.primaryPlatform || "").toLowerCase();
@@ -1595,7 +1910,21 @@ function InfluencerContractModal({
         params: { influencerId },
       });
 
-      setLocal(toLocalFromLite(res.data?.influencer || {}));
+      const liteLocal = toLocalFromLite(res.data?.influencer || {});
+
+      setLocal((prev) =>
+        sanitizeLocal({
+          ...prev,
+          legalName: prev.legalName || liteLocal.legalName,
+          contactName: prev.contactName || liteLocal.contactName,
+          postingHandleUrl: prev.postingHandleUrl || liteLocal.postingHandleUrl,
+          contactEmail: prev.contactEmail || liteLocal.contactEmail,
+          contactPhone: prev.contactPhone || liteLocal.contactPhone,
+          whatsApp: prev.whatsApp || liteLocal.whatsApp,
+          taxFormType: prev.taxFormType || liteLocal.taxFormType,
+          taxId: prev.taxId || liteLocal.taxId,
+        })
+      );
     } catch (e: any) {
       console.warn("lite fetch failed", e?.message);
     } finally {
@@ -1633,8 +1962,8 @@ function InfluencerContractModal({
         setEffectiveContractId(nextMeta._id || nextMeta.contractId || contractId);
 
         const contentInfluencer = chosen?.content?.influencer || {};
-        setLocal((prev) =>
-          sanitizeLocal({
+        setLocal((prev) => {
+          const nextLocal = sanitizeLocal({
             ...prev,
             legalName: contentInfluencer.legalName ?? prev.legalName,
             contactName:
@@ -1661,15 +1990,19 @@ function InfluencerContractModal({
             shipToAddress: contentInfluencer.shipToAddress ?? prev.shipToAddress,
             shipToPhone: contentInfluencer.shipToPhone ?? prev.shipToPhone,
             deliveryNotes: contentInfluencer.deliveryNotes ?? prev.deliveryNotes,
-          })
-        );
+          });
+          setCreatorTerms(createCreatorTermsFromContract(chosen, nextLocal));
+          return nextLocal;
+        });
       } else {
         setMeta(null);
         setEffectiveContractId(contractId);
+        setCreatorTerms(emptyCreatorTerms);
       }
     } catch {
       setMeta(null);
       setEffectiveContractId(contractId);
+      setCreatorTerms(emptyCreatorTerms);
     }
   }, [campaign.brandId, campaign.id, contractId]);
 
@@ -1684,20 +2017,44 @@ function InfluencerContractModal({
 
   useEffect(() => {
     if (!open) return;
+
     let cancelled = false;
 
-    (async () => {
-      cleanupPreview();
+    initialPreviewLoadedForRef.current = "";
+    cleanupPreview();
+
+    setFieldErrors({});
+    setCreatorErrors({});
+    setSignatureAgreeError(false);
+    setSignatureChecked(false);
+
+    setLocal(emptyLocal);
+    setCreatorTerms(emptyCreatorTerms);
+    setLiteLoaded(false);
+
+    async function hydrateModal() {
       await fetchInfluencerLite();
       if (cancelled) return;
+
       await fetchContractMeta();
-    })();
+      if (cancelled) return;
+
+      await refreshInfluencerSignature().catch(() => undefined);
+    }
+
+    hydrateModal();
 
     return () => {
       cancelled = true;
       cleanupPreview();
     };
-  }, [open, fetchInfluencerLite, fetchContractMeta, cleanupPreview]);
+  }, [
+    open,
+    fetchInfluencerLite,
+    fetchContractMeta,
+    refreshInfluencerSignature,
+    cleanupPreview,
+  ]);
 
   useEffect(() => {
     if (!open || !effectiveContractId) return;
@@ -1705,13 +2062,17 @@ function InfluencerContractModal({
     markViewed(effectiveContractId);
   }, [open, effectiveContractId, markViewed]);
 
-  const generatePreview = useCallback(
-    async (silent = false) => {
+  const loadSavedPreview = useCallback(
+    async (silent = true, contractIdOverride?: string) => {
+      const id = contractIdOverride || effectiveContractId;
+      if (!id) return;
+
       setIsWorking(true);
+
       try {
         const res = await api.post(
           "/contract/viewPdf",
-          { contractId: effectiveContractId },
+          { contractId: id },
           { responseType: "blob" }
         );
 
@@ -1723,7 +2084,81 @@ function InfluencerContractModal({
         setPreviewBlob(blob);
         setPreviewUrl(url);
 
-        if (!silent) toast({ icon: "info", title: "PDF loaded" });
+        if (!silent) {
+          toast({ icon: "info", title: "PDF loaded" });
+        }
+      } catch (e: any) {
+        if (!silent) {
+          toast({
+            icon: "error",
+            title: "Preview Error",
+            text: apiMessage(e, "Failed to load PDF."),
+          });
+        }
+      } finally {
+        setIsWorking(false);
+      }
+    },
+    [effectiveContractId, cleanupPreview]
+  );
+
+  const generatePreview = useCallback(
+    async (silent = false) => {
+      setIsWorking(true);
+
+      try {
+        const sanitized = sanitizeLocal(local);
+
+        const optionalValidation = validateOptionalInfluencerForm(sanitized, {
+          requireRequiredFields: true,
+        });
+
+        const creatorValidation = validateCreatorTerms(creatorTerms);
+
+        setFieldErrors(optionalValidation.errors);
+        setCreatorErrors(creatorValidation.errors);
+
+        if (!optionalValidation.isValid || !creatorValidation.isValid) {
+          toast({
+            icon: "error",
+            title: "Invalid form",
+            text: "Please fix the highlighted fields before preview.",
+          });
+          return;
+        }
+
+        const payload = toContractInfluencerPayload(optionalValidation.sanitized);
+
+        const creatorUpdates = buildCreatorContractUpdatePayload(
+          optionalValidation.sanitized,
+          creatorTerms
+        );
+
+        const res = await api.post(
+          "/contract/influencer/confirm",
+          {
+            contractId: effectiveContractId,
+            influencer: payload,
+            creatorUpdates,
+            signatureInfluencer: savedSignatureUrl || "",
+            signatureInfluencerId: savedSignatureId || "",
+            savedSignatureId: savedSignatureId || "",
+            preview: true,
+          },
+          { responseType: "blob" }
+        );
+
+        cleanupPreview();
+
+        const blob = res.data as Blob;
+        const url = URL.createObjectURL(blob);
+
+        setPreviewBlob(blob);
+        setPreviewUrl(url);
+
+        if (!silent) {
+          toast({ icon: "info", title: "Preview updated" });
+        }
       } catch (e: any) {
         toast({
           icon: "error",
@@ -1735,30 +2170,56 @@ function InfluencerContractModal({
         setIsWorking(false);
       }
     },
-    [effectiveContractId, cleanupPreview]
+    [
+      effectiveContractId,
+      cleanupPreview,
+      local,
+      creatorTerms,
+      savedSignatureUrl,
+      savedSignatureId,
+      validateOptionalInfluencerForm,
+      validateCreatorTerms,
+    ]
   );
 
   useEffect(() => {
-    if (!open) return;
-    if (!previewUrl && effectiveContractId) {
-      generatePreview(true).catch(() => { });
-    }
-  }, [open, previewUrl, effectiveContractId, generatePreview]);
+    if (!open || !effectiveContractId) return;
+
+    if (initialPreviewLoadedForRef.current === effectiveContractId) return;
+
+    initialPreviewLoadedForRef.current = effectiveContractId;
+
+    // Initial preview should always show saved contract PDF.
+    // No validation, no highlighted errors.
+    loadSavedPreview(true, effectiveContractId).catch(() => undefined);
+  }, [open, effectiveContractId, loadSavedPreview]);
 
   const handleAcceptWithSignature = async () => {
-    if (!signatureChecked) {
-      toast({
-        icon: "error",
-        title: "Confirmation required",
-        text: "Please confirm that you agree to all terms before signing.",
-      });
+    if (!hasInfluencerSignature) {
+      await openInfluencerSignatureModal();
       return;
     }
 
-    const { isValid, errors, sanitized } = validateOptionalInfluencerForm(local);
-    setFieldErrors(errors);
+    if (!signatureChecked) {
+      setSignatureAgreeError(true);
 
-    if (!isValid) {
+      window.setTimeout(() => {
+        document
+          .getElementById("influencer-signature-section")
+          ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 0);
+
+      return;
+    }
+
+    const { isValid, errors, sanitized } = validateOptionalInfluencerForm(local, {
+      requireRequiredFields: true,
+    });
+    const creatorValidation = validateCreatorTerms(creatorTerms);
+    setFieldErrors(errors);
+    setCreatorErrors(creatorValidation.errors);
+
+    if (!isValid || !creatorValidation.isValid) {
       toast({
         icon: "error",
         title: "Invalid form",
@@ -1772,54 +2233,15 @@ function InfluencerContractModal({
 
     try {
       const payload = toContractInfluencerPayload(sanitized);
-      let signatureInfluencerId = savedSignatureId;
-
-      if (signatureFile && !signatureInfluencerId) {
-        const influencerId = getInfluencerId();
-
-        if (!influencerId) {
-          toast({
-            icon: "error",
-            title: "Missing influencer",
-            text: "Influencer ID not found.",
-          });
-          return;
-        }
-
-        const formData = new FormData();
-        formData.append("influencerId", influencerId);
-        formData.append("signature", signatureFile);
-
-        const uploadRes = await apiUploadInfluencerSignature(formData);
-        const uploadedId = uploadRes?._id || "";
-
-        if (!uploadedId) {
-          toast({
-            icon: "error",
-            title: "Upload failed",
-            text: "Signature uploaded but no ID returned. Please try again.",
-          });
-          return;
-        }
-
-        setSavedSignatureId(uploadedId);
-        setSignatureFile(null);
-        signatureInfluencerId = uploadedId;
-      }
-
-      if (!signatureInfluencerId) {
-        toast({
-          icon: "error",
-          title: "Signature required",
-          text: "Please upload a signature before continuing.",
-        });
-        return;
-      }
+      const creatorUpdates = buildCreatorContractUpdatePayload(sanitized, creatorTerms);
 
       await post("/contract/influencer/confirm", {
         contractId: effectiveContractId,
         influencer: payload,
-        signatureInfluencer: signatureInfluencerId,
+        creatorUpdates,
+        signatureInfluencer: savedSignatureUrl || savedSignatureId,
+        signatureInfluencerId: savedSignatureId,
+        savedSignatureId,
       });
 
       toast({
@@ -1828,7 +2250,6 @@ function InfluencerContractModal({
         text: "Contract accepted successfully.",
       });
 
-      setShowAcceptSignatureModal(false);
       await fetchContractMeta();
       onAfterAction?.();
       await generatePreview(true);
@@ -1845,20 +2266,45 @@ function InfluencerContractModal({
   };
 
   const acceptOrSave = async () => {
+    const sanitized = sanitizeLocal(local);
+    const creatorValidation = validateCreatorTerms(creatorTerms);
+    const optionalValidation = validateOptionalInfluencerForm(local, {
+      requireRequiredFields: true,
+    });
+
+    setCreatorErrors(creatorValidation.errors);
+    setFieldErrors(optionalValidation.errors);
+
+    if (!creatorValidation.isValid || !optionalValidation.isValid) {
+      toast({
+        icon: "error",
+        title: "Invalid form",
+        text: "Please fix the highlighted fields before continuing.",
+      });
+      return;
+    }
+
     if (!hasAcceptedCurrent(meta, "influencer")) {
-      await openAcceptSignatureFlow();
+      if (!hasInfluencerSignature) {
+        await openInfluencerSignatureModal();
+        return;
+      }
+
+      await handleAcceptWithSignature();
       return;
     }
 
     setIsWorking(true);
     try {
-      const payload = toContractInfluencerPayload(sanitizeLocal(local));
+      const payload = toContractInfluencerPayload(sanitized);
+      const creatorUpdates = buildCreatorContractUpdatePayload(sanitized, creatorTerms);
 
       await post("/contract/influencer/update", {
         contractId: effectiveContractId,
         influencerUpdates: {
           content: {
             influencer: payload,
+            ...creatorUpdates.content,
           },
         },
       });
@@ -1883,52 +2329,19 @@ function InfluencerContractModal({
     }
   };
 
-  const openSignature = () => {
-    if (locked) return false;
-
-    if (!readyToSign) {
-      toast({
-        icon: "error",
-        title: "Not ready to sign",
-        text: "Waiting for both parties to accept.",
-      });
-      return;
-    }
-
-    if (!influencerAccepted) {
-      toast({
-        icon: "error",
-        title: "Accept first",
-        text: "Please accept the contract before signing.",
-      });
-      return;
-    }
-
-    if (!brandAccepted) {
-      toast({
-        icon: "error",
-        title: "Brand acceptance pending",
-        text: "Brand must accept before signing can start.",
-      });
-      return;
-    }
-
-    setShowSignModal(true);
-  };
-
   if (!open) return null;
 
   return (
     <TooltipProvider delayDuration={150}>
       <InfluencerSidebarShell
-        isOpen={open && !showAcceptSignatureModal}
+        isOpen={open && !showInfluencerSignatureModal}
         onClose={onClose}
+        sidebarOffset={sidebarOffset}
         title={influencerAccepted ? "VIEW CONTRACT" : "ACCEPT CONTRACT"}
         subtitle={`${campaign?.productOrServiceName || "Agreement"} • ${campaign?.brandName || ""}`}
         previewUrl={previewUrl}
         previewBlob={previewBlob}
         pdfOnly={influencerAccepted}
-        sidebarOffset={sidebarOffset}
         footer={
           influencerAccepted ? (
             <Button
@@ -1965,11 +2378,8 @@ function InfluencerContractModal({
               <Button
                 variant="secondary"
                 className="shrink-0"
-                onClick={() =>
-                  previewUrl
-                    ? window.open(previewUrl, "_blank")
-                    : generatePreview()
-                }
+                onClick={() => generatePreview()}
+                disabled={isWorking}
               >
                 <Eye className="mr-2 h-5 w-5" />
                 Preview
@@ -2039,294 +2449,475 @@ function InfluencerContractModal({
         }
       >
         {!influencerAccepted && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 border-b border-gray-100 pb-3 text-xl font-semibold text-gray-800">
-              Fill Your Details to Accept
-            </div>
+          <div className="space-y-5">
+            <AccordionCard
+              title="Creator Overview"
+              subtitle="Add key details about the creator, including identity, contact information, legal address, and posting handle." defaultOpen
+            >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <FloatingInput
+                  id="creatorLegalName"
+                  label="Creator Legal Name *"
+                  value={local.legalName}
+                  onValueChange={(v) =>
+                    setLocal((p) => ({ ...p, legalName: v, contactName: v }))
+                  }
+                />
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <FloatingInput
-                id="legalName"
-                label="Legal Name"
-                value={local.legalName}
-                onChange={(v) => setLocal((p) => ({ ...p, legalName: v }))}
-              />
+                <FloatingInput
+                  id="creatorPostingHandleUrl"
+                  label="Creator Posting Handle URL *"
+                  value={local.postingHandleUrl}
+                  state={fieldErrors.postingHandleUrl ? "error" : undefined}
+                  errorText={fieldErrors.postingHandleUrl}
+                  onValueChange={(v) =>
+                    setLocal((p) => ({ ...p, postingHandleUrl: v }))
+                  }
+                />
 
-              <FloatingInput
-                id="contactEmail"
-                label="Email"
-                type="email"
-                value={local.contactEmail}
-                onChange={(v) => setLocal((p) => ({ ...p, contactEmail: v }))}
-              />
-
-              <FloatingInput
-                id="contactPhone"
-                label="Phone"
-                type="text"
-                value={local.contactPhone}
-                onChange={(v) =>
-                  setLocal((p) => ({
-                    ...p,
-                    contactPhone: v.replace(/\D/g, ""),
-                  }))
-                }
-              />
-
-              <FloatingSelect
-                label="Tax Form Type"
-                required
-                value={local.taxFormType || ""}
-                onValueChange={(v) =>
-                  setLocal((p) => ({ ...p, taxFormType: v }))
-                }
-              // disabled={!canEdit}
-              >
-                <SelectItem value="W-9">W-9</SelectItem>
-                <SelectItem value="W-8">W-8</SelectItem>
-              </FloatingSelect>
-
-              <FloatingInput
-                id="taxId"
-                label="Tax ID (SSN/EIN)"
-                value={local.taxId}
-                onChange={(v) => setLocal((p) => ({ ...p, taxId: v }))}
-              />
-
-              <FloatingInput
-                id="addressLine1"
-                label="Address Line 1"
-                value={local.addressLine1}
-                onChange={(v) => setLocal((p) => ({ ...p, addressLine1: v }))}
-              />
-
-              <FloatingInput
-                id="addressLine2"
-                label="Address Line 2"
-                value={local.addressLine2}
-                onChange={(v) => setLocal((p) => ({ ...p, addressLine2: v }))}
-              />
-
-              <FloatingInput
-                id="city"
-                label="City"
-                value={local.city}
-                onChange={(v) => setLocal((p) => ({ ...p, city: v }))}
-              />
-
-              <FloatingInput
-                id="state"
-                label="State"
-                value={local.state}
-                onChange={(v) => setLocal((p) => ({ ...p, state: v }))}
-              />
-
-              <FloatingInput
-                id="zip"
-                label="ZIP / Postal Code"
-                value={local.zip}
-                onChange={(v) => setLocal((p) => ({ ...p, zip: v }))}
-              />
-
-              <FloatingInput
-                id="country"
-                label="Country"
-                value={local.country}
-                onChange={(v) => setLocal((p) => ({ ...p, country: v }))}
-              />
-            </div>
-
-            <div className="mt-5 border-t pt-4">
-              <div className="mb-3 text-xl font-semibold text-gray-800">
-                FTC / Disclosure Acknowledgement
-              </div>
-              <FloatingTextarea
-                id="ftcAcknowledgement"
-                label="FTC / Disclosure Acknowledgement"
-                value={local.ftcAcknowledgement}
-                onChange={(v) =>
-                  setLocal((p) => ({ ...p, ftcAcknowledgement: v }))
-                }
-                rows={4}
-                disabled
-              />
-            </div>
-
-            {isGifting && (
-              <div className="mt-5 border-t pt-4">
-                <div className="mb-3 font-semibold text-gray-800">
-                  Shipping Details
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  <FloatingInput
-                    id="shipToName"
-                    label="Ship-To Name"
-                    value={local.shipToName}
-                    onChange={(v) => setLocal((p) => ({ ...p, shipToName: v }))}
-                    disabled={!canEdit}
-                  />
-
-                  <FloatingInput
-                    id="shipToPhone"
-                    label="Shipping Phone Number"
-                    value={local.shipToPhone}
-                    onChange={(v) =>
-                      setLocal((p) => ({ ...p, shipToPhone: v }))
+                <div className="lg:col-span-2">
+                  <LabeledTextarea
+                    id="creatorLegalAddress"
+                    label="Creator Legal Address"
+                    value={buildAddressText(local)}
+                    onChange={(e) =>
+                      setLocal((p) => ({
+                        ...p,
+                        addressLine1: e.target.value,
+                        addressLine2: "",
+                        city: "",
+                        state: "",
+                        zip: "",
+                        country: p.country,
+                      }))
                     }
-                    disabled={!canEdit}
+                    rows={3}
                   />
                 </div>
 
-                <div className="mt-3">
-                  <FloatingTextarea
-                    id="shipToAddress"
+                <FloatingInput
+                  id="creatorEmailContact"
+                  label="Creator Email/Contact *"
+                  type="email"
+                  value={local.contactEmail}
+                  state={fieldErrors.contactEmail ? "error" : undefined}
+                  errorText={fieldErrors.contactEmail}
+                  onValueChange={(v) =>
+                    setLocal((p) => ({ ...p, contactEmail: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="creatorPhone"
+                  label="Creator Phone"
+                  value={local.contactPhone}
+                  state={fieldErrors.contactPhone ? "error" : undefined}
+                  errorText={fieldErrors.contactPhone}
+                  onValueChange={(v) =>
+                    setLocal((p) => ({ ...p, contactPhone: v.replace(/\D/g, "") }))
+                  }
+                />
+              </div>
+            </AccordionCard>
+
+            <AccordionCard
+              title="Campaign Overview"
+              subtitle="Describe the campaign objective, creative direction, and expectations for the collaboration."
+            >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <FloatingInput
+                  id="creatorEffectiveDate"
+                  label="Effective Date"
+                  type="date"
+                  value={creatorTerms.effectiveDate}
+                  state={creatorErrors.effectiveDate ? "error" : undefined}
+                  errorText={creatorErrors.effectiveDate}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, effectiveDate: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="creatorTargetCountry"
+                  label="Target Country *"
+                  value={creatorTerms.targetCountry}
+                  state={creatorErrors.targetCountry ? "error" : undefined}
+                  errorText={creatorErrors.targetCountry}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, targetCountry: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="creatorTimezone"
+                  label="Timezone"
+                  value={creatorTerms.timezone}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, timezone: v }))
+                  }
+                />
+              </div>
+            </AccordionCard>
+
+            <AccordionCard
+              title="Deliverables and Publication Timeline"
+              subtitle="Define revision terms, reshoots, pre-shoot script approval, and submission deadlines."
+            >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <FloatingInput
+                  id="includedRevisionRounds"
+                  label="Included Revision Rounds"
+                  type="number"
+                  value={creatorTerms.includedRevisionRounds}
+                  state={creatorErrors.includedRevisionRounds ? "error" : undefined}
+                  errorText={creatorErrors.includedRevisionRounds}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, includedRevisionRounds: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="additionalRevisionFee"
+                  label="Additional Revision Fees"
+                  type="number"
+                  value={creatorTerms.additionalRevisionFee}
+                  state={creatorErrors.additionalRevisionFee ? "error" : undefined}
+                  errorText={creatorErrors.additionalRevisionFee}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, additionalRevisionFee: v }))
+                  }
+                />
+              </div>
+
+              <div className="mt-4 rounded-[16px] border border-[#E6E6E6] p-4">
+                <div className="mb-3 text-sm font-semibold text-[#1A1A1A]">
+                  Reshoot Obligation
+                </div>
+
+                <div className="space-y-3">
+                  <label className="flex items-center gap-3 text-sm font-medium text-[#8A8A8A]">
+                    <Checkbox
+                      checked={creatorTerms.reshootNoBriefFailure}
+                      onCheckedChange={(checked) =>
+                        setCreatorTerms((p) => ({
+                          ...p,
+                          reshootNoBriefFailure: checked === true,
+                        }))
+                      }
+                      className="shrink-0"
+                    />
+                    No reshoot required except for material failure to follow approved brief.
+                  </label>
+
+                  <label className="flex items-center gap-3 text-sm font-medium text-[#8A8A8A]">
+                    <Checkbox
+                      checked={creatorTerms.reshootOneIncluded}
+                      onCheckedChange={(checked) =>
+                        setCreatorTerms((p) => ({
+                          ...p,
+                          reshootOneIncluded: checked === true,
+                        }))
+                      }
+                      className="shrink-0"
+                    />
+                    One reshoot included
+                  </label>
+
+                  <label className="flex items-center gap-3 text-sm font-medium text-[#8A8A8A]">
+                    <Checkbox
+                      checked={creatorTerms.paidReshoot}
+                      onCheckedChange={(checked) =>
+                        setCreatorTerms((p) => ({
+                          ...p,
+                          paidReshoot: checked === true,
+                        }))
+                      }
+                      className="shrink-0"
+                    />
+                    Paid Re-shoot
+                  </label>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <FloatingInput
+                    id="draftDate"
+                    label="Add draft date"
+                    type="date"
+                    value={creatorTerms.draftDate}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({ ...p, draftDate: v }))
+                    }
+                  />
+
+                  <FloatingInput
+                    id="reshootFee"
+                    label="Reshoot Fees"
+                    type="number"
+                    value={creatorTerms.reshootFee}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({ ...p, reshootFee: v }))
+                    }
+                  />
+
+                  <FloatingSelect
+                    label="Reshoot Obligation"
+                    value={creatorTerms.reshootObligationRequired || "yes"}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({
+                        ...p,
+                        reshootObligationRequired: v as "yes" | "no",
+                      }))
+                    }
+                  >
+                    {YES_NO_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </FloatingSelect>
+
+                  <FloatingSelect
+                    label="Pre shoot Script Required"
+                    value={creatorTerms.preShootScriptRequired || "yes"}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({
+                        ...p,
+                        preShootScriptRequired: v as "yes" | "no",
+                        preShootScriptDue: v === "yes" ? p.preShootScriptDue : "",
+                      }))
+                    }
+                  >
+                    {YES_NO_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </FloatingSelect>
+
+                  {creatorTerms.preShootScriptRequired === "yes" ? (
+                    <>
+                      <FloatingInput
+                        id="preShootScriptDue"
+                        label="Pre Shoot Script Due"
+                        type="date"
+                        value={creatorTerms.preShootScriptDue}
+                        onValueChange={(v) =>
+                          setCreatorTerms((p) => ({ ...p, preShootScriptDue: v }))
+                        }
+                      />
+
+                      <FloatingInput
+                        id="scriptReviewBusinessDays"
+                        label="Script Review Business Days"
+                        type="number"
+                        value={creatorTerms.preShootScriptReviewBusinessDays}
+                        onValueChange={(v) =>
+                          setCreatorTerms((p) => ({
+                            ...p,
+                            preShootScriptReviewBusinessDays: v,
+                          }))
+                        }
+                      />
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </AccordionCard>
+
+            <AccordionCard
+              title="Payment Terms"
+              subtitle="Specify payment structure, advance payment request, and payout schedule."
+            >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <FloatingInput
+                  id="influencerFee"
+                  label="Influencer Fee"
+                  type="number"
+                  value={creatorTerms.influencerFee}
+                  state={creatorErrors.influencerFee ? "error" : undefined}
+                  errorText={creatorErrors.influencerFee}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, influencerFee: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="currencyUsd"
+                  label="Currency"
+                  value="$ US-Dollar"
+                  disabled
+                  onValueChange={() => undefined}
+                />
+              </div>
+
+              <label className="mt-4 flex items-center gap-3 text-sm font-medium text-[#1A1A1A]">
+                <Checkbox
+                  checked={creatorTerms.wantAdvancePayment}
+                  onCheckedChange={(checked) => {
+                    const isChecked = checked === true;
+
+                    setCreatorTerms((p) => ({
+                      ...p,
+                      wantAdvancePayment: isChecked,
+                      advancePaymentAmount: isChecked ? p.advancePaymentAmount : "",
+                      advancePaymentType: isChecked ? p.advancePaymentType : "",
+                    }));
+                  }}
+                  className="shrink-0"
+                />
+                I Want Advance Payment
+              </label>
+
+              {creatorTerms.wantAdvancePayment ? (
+                <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <FloatingInput
+                    id="advancePaymentAmount"
+                    label="Advance Payment Amount"
+                    type="number"
+                    value={creatorTerms.advancePaymentAmount}
+                    state={creatorErrors.advancePaymentAmount ? "error" : undefined}
+                    errorText={creatorErrors.advancePaymentAmount}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({ ...p, advancePaymentAmount: v }))
+                    }
+                  />
+
+                  <FloatingSelect
+                    label="Advance Payment Type"
+                    value={creatorTerms.advancePaymentType}
+                    onValueChange={(v) =>
+                      setCreatorTerms((p) => ({ ...p, advancePaymentType: v }))
+                    }
+                  >
+                    {ADVANCE_PAYMENT_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </FloatingSelect>
+                </div>
+              ) : null}
+
+              <label className="mt-4 flex items-start gap-3 text-sm leading-5 text-[#8A8A8A]">
+                <Checkbox className="mt-1 shrink-0" />
+                <span>{creatorTerms.laneAMarketplaceFeeNote}</span>
+              </label>
+            </AccordionCard>
+
+            <AccordionCard
+              title="Products, Shipping, Receipt, Loaner / Return Terms"
+              subtitle="Specify shipping details, product receipt deadlines, and loaner or return terms."
+            >
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <FloatingInput
+                  id="shipToName"
+                  label="Ship to name"
+                  value={creatorTerms.shipToName}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, shipToName: v }))
+                  }
+                />
+
+                <FloatingInput
+                  id="productReceiptDeadline"
+                  label="Product Receipt Confirmation Deadline"
+                  type="date"
+                  value={creatorTerms.productReceiptConfirmationDeadline}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({
+                      ...p,
+                      productReceiptConfirmationDeadline: v,
+                    }))
+                  }
+                />
+
+                <div className="lg:col-span-2">
+                  <LabeledTextarea
+                    id="shippingAddress"
                     label="Shipping Address"
-                    value={local.shipToAddress}
-                    onChange={(v) =>
-                      setLocal((p) => ({ ...p, shipToAddress: v }))
+                    value={
+                      creatorTerms.sameAsAbove
+                        ? buildAddressText(local)
+                        : creatorTerms.shipToAddress
+                    }
+                    onChange={(e) =>
+                      setCreatorTerms((p) => ({
+                        ...p,
+                        shipToAddress: e.target.value,
+                        sameAsAbove: false,
+                      }))
                     }
                     rows={3}
-                    disabled={!canEdit}
                   />
                 </div>
 
-                <div className="mt-3">
-                  <FloatingTextarea
-                    id="deliveryNotes"
-                    label="Delivery Instructions"
-                    value={local.deliveryNotes}
-                    onChange={(v) =>
-                      setLocal((p) => ({ ...p, deliveryNotes: v }))
-                    }
-                    rows={3}
-                    disabled={!canEdit}
+                <label className="flex items-center gap-3 text-sm font-medium text-[#8A8A8A]">
+                  <Checkbox
+                    checked={creatorTerms.sameAsAbove}
+                    onCheckedChange={(checked) => {
+                      const isChecked = checked === true;
+
+                      setCreatorTerms((p) => ({
+                        ...p,
+                        sameAsAbove: isChecked,
+                        shipToAddress: isChecked ? buildAddressText(local) : p.shipToAddress,
+                      }));
+                    }}
+                    className="shrink-0"
                   />
-                </div>
+                  Same as above
+                </label>
+
+                <FloatingSelect
+                  label="Loaner / Return Terms"
+                  value={creatorTerms.productReturnable}
+                  onValueChange={(v) =>
+                    setCreatorTerms((p) => ({ ...p, productReturnable: v }))
+                  }
+                >
+                  {PRODUCT_RETURNABLE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </FloatingSelect>
               </div>
-            )}
+            </AccordionCard>
+
+            <AccordionCard
+              title="Signature"
+              subtitle="Select your influencer signature and confirm agreement before accepting this contract."
+              defaultOpen
+            >
+              <InfluencerSignatureSection
+                signatureSrc={savedSignatureUrl}
+                hasSignature={hasInfluencerSignature}
+                agreed={signatureChecked}
+                onAgreeChange={(checked) => {
+                  setSignatureChecked(checked);
+                  if (checked) setSignatureAgreeError(false);
+                }}
+                showError={signatureAgreeError}
+                onManageSignatures={() =>
+                  openInfluencerSignatureModal(hasInfluencerSignature ? "manage" : "upload")
+                }
+              />
+            </AccordionCard>
           </div>
         )}
       </InfluencerSidebarShell>
 
-      <Dialog
-        open={showAcceptSignatureModal}
-        onOpenChange={(open) => {
-          if (!open) setShowAcceptSignatureModal(false);
-        }}
-      >
-        <DialogOverlay className="fixed inset-0 z-[9998] bg-black/40 backdrop-blur-sm" />
+      <InfluencerSignatureModal
+        open={showInfluencerSignatureModal}
+        influencerId={getInfluencerId()}
+        initialTab={signatureModalInitialTab}
+        selectedSignatureId={savedSignatureId}
+        isLoading={false}
+        onClose={() => setShowInfluencerSignatureModal(false)}
+        onSignatureSelected={handleInfluencerSignatureSelected}
+        onSignatureUploaded={refreshInfluencerSignature}
+      />
 
-        <DialogContent className="fixed left-1/2 top-1/2 z-[9999] w-[95vw] max-w-[480px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[24px] border-0 bg-white p-4 shadow-2xl">
-          <div className="space-y-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleSignatureFileChange}
-            />
-
-            <button
-              type="button"
-              className="block w-full rounded-2xl bg-[#F9F9F9] p-5 text-left"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <div className="flex min-h-[140px] items-center justify-center rounded-2xl bg-white p-4">
-                {selectedSignaturePreview ? (
-                  <img
-                    src={selectedSignaturePreview}
-                    alt="Signature"
-                    className="max-h-24 w-auto object-contain"
-                  />
-                ) : savedSignatureId ? (
-                  <div className="flex flex-col items-center gap-2 text-gray-600">
-                    <Signature className="h-16 w-16" />
-                    <span className="text-sm font-medium">
-                      Signature on file
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-gray-400">
-                    <Signature className="h-32 w-32 text-black" />
-                    <span className="text-sm text-gray-500">
-                      Click to upload signature
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[13px] text-gray-400">
-                  <InfoIcon className="h-4 w-4" />
-                  <span>
-                    {selectedSignaturePreview || savedSignatureUrl
-                      ? "Signature is selected as primary"
-                      : "Click the signature area to upload"}
-                  </span>
-                </div>
-
-                <span className="flex items-center gap-1 text-[13px] font-medium text-gray-900">
-                  {selectedSignaturePreview || savedSignatureUrl
-                    ? "Change signature"
-                    : "Upload signature"}
-                  <ChevronDown className="h-4 w-4" />
-                </span>
-              </div>
-            </button>
-
-            <label className="flex cursor-pointer items-start gap-4 rounded-2xl border border-gray-100 bg-white p-5 transition-colors hover:bg-gray-50/50">
-              <div className="relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors">
-                <input
-                  type="checkbox"
-                  className="peer sr-only"
-                  checked={signatureChecked}
-                  onChange={(e) => setSignatureChecked(e.target.checked)}
-                />
-                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-blue-600 peer-checked:after:translate-x-full peer-checked:after:border-white" />
-              </div>
-
-              <span className="text-[15px] leading-relaxed text-gray-800">
-                By signing, I confirm that I have read and therefore agree to
-                all contractual terms, which I acknowledge as legally binding.
-              </span>
-            </label>
-
-            {!signatureChecked && (
-              <div className="flex items-start gap-3 rounded-xl bg-[#FFF1F0] px-4 py-3 text-[14px] leading-tight text-[#E04438]">
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>
-                  Please confirm that you agree to all terms before signing the
-                  contract.
-                </p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-3 pt-2">
-              <Button
-                variant="ghost"
-                className="rounded-xl px-6 text-gray-500 hover:bg-gray-100"
-                onClick={() => setShowAcceptSignatureModal(false)}
-              >
-                Cancel
-              </Button>
-
-              <Button
-                onClick={handleAcceptWithSignature}
-                disabled={
-                  !signatureChecked ||
-                  isWorking ||
-                  signatureLoading ||
-                  (!savedSignatureUrl && !signatureFile && !savedSignatureId)
-                }
-                className="rounded-xl bg-black px-8 text-white hover:bg-gray-800 disabled:opacity-50"
-              >
-                Sign & Accept
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </TooltipProvider>
   );
 }
@@ -2349,14 +2940,72 @@ function CampaignCardSkeleton() {
   );
 }
 
+
+function extractCampaignList(res: any, tab?: string): any[] {
+  const data = res?.data ?? res;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.campaigns)) return data.campaigns;
+  if (Array.isArray(data?.contracts)) return data.contracts;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+
+  if (tab === "Rejected" && Array.isArray(data?.data?.data)) {
+    return data.data.data;
+  }
+
+  return [];
+}
+
+function normalizeRejectedItem(item: any) {
+  const campaignDoc = item?.campaignData || item?.campaign || item || {};
+
+  return {
+    ...campaignDoc,
+    _id:
+      campaignDoc?._id ||
+      item?.campaignId ||
+      item?.campaignData?._id ||
+      item?._id,
+    campaignId:
+      campaignDoc?._id ||
+      item?.campaignId ||
+      item?.campaignData?._id ||
+      item?._id,
+    contractId:
+      item?.contractMongoId ||
+      item?.contract?._id ||
+      item?.contractId ||
+      campaignDoc?.contractId ||
+      "",
+    contractMongoId:
+      item?.contractMongoId ||
+      item?.contract?._id ||
+      "",
+    feeAmount: item?.feeAmount ?? campaignDoc?.feeAmount ?? 0,
+    isContracted: 0,
+    isAccepted: item?.isAccepted ?? campaignDoc?.isAccepted ?? 0,
+    hasApplied: item?.hasApplied ?? campaignDoc?.hasApplied ?? 1,
+    hasMilestone: item?.hasMilestone ?? campaignDoc?.hasMilestone ?? 0,
+    status: item?.status || campaignDoc?.status || CONTRACT_STATUS.REJECTED,
+    campaignStatus:
+      item?.campaignStatus ||
+      item?.status ||
+      campaignDoc?.campaignStatus ||
+      campaignDoc?.status ||
+      CONTRACT_STATUS.REJECTED,
+    contractStatus: item?.contractStatus || item?.status || CONTRACT_STATUS.REJECTED,
+  };
+}
+
+
 /* ───────────────────────── Main Page ───────────────────────── */
 
 export default function MyCampaignsPage() {
   const [campaigns, setCampaigns] = useState<CampaignData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const pageRef = useRef<HTMLDivElement>(null);
-  const [sidebarOffset, setSidebarOffset] = useState(0);
   const [activeTab, setActiveTab] = useState("all");
   const [searchInput, setSearchInput] = useState("");
   const [campaignType, setCampaignType] = useState("all");
@@ -2377,9 +3026,8 @@ export default function MyCampaignsPage() {
   const [editorCampaign, setEditorCampaign] = useState<CampaignData | null>(
     null
   );
-  const [editorInitialMode, setEditorInitialMode] = useState<"view" | "edit">(
-    "edit"
-  );
+
+  const sidebarOffset = useInfluencerSidebarWidth();
 
   const [topSignOpen, setTopSignOpen] = useState(false);
   const [topSignContractId, setTopSignContractId] = useState("");
@@ -2391,23 +3039,6 @@ export default function MyCampaignsPage() {
   const [pendingRejectId, setPendingRejectId] = useState<string | null>(null);
 
   const router = useRouter();
-
-  useEffect(() => {
-    if (!pageRef.current) return;
-
-    const update = () => {
-      if (pageRef.current) {
-        setSidebarOffset(pageRef.current.getBoundingClientRect().left);
-      }
-    };
-
-    update();
-
-    const ro = new ResizeObserver(update);
-    ro.observe(document.documentElement);
-
-    return () => ro.disconnect();
-  }, []);
 
   const fetchCampaigns = useCallback(
     async (tab: string = activeTab) => {
@@ -2430,65 +3061,22 @@ export default function MyCampaignsPage() {
 
         if (tab === "applied") {
           res = await apiGetAppliedCampaigns(id, token);
-          rawCampaigns = Array.isArray(res)
-            ? res
-            : Array.isArray(res?.campaigns)
-              ? res.campaigns
-              : Array.isArray(res?.items)
-                ? res.items
-                : Array.isArray(res?.data)
-                  ? res.data
-                  : [];
+          rawCampaigns = extractCampaignList(res, tab);
         } else if (tab === "active") {
           res = await apiGetMyCampaigns(
             { influencerId: id, page: 1, limit: 10, search: searchInput || "" },
             token
           );
-          rawCampaigns = Array.isArray(res)
-            ? res
-            : Array.isArray(res?.campaigns)
-              ? res.campaigns
-              : Array.isArray(res?.items)
-                ? res.items
-                : Array.isArray(res?.data)
-                  ? res.data
-                  : [];
+          rawCampaigns = extractCampaignList(res, tab);
         } else if (tab === "Contracted") {
           res = await apiGetContractedCampaigns(id, token);
-          rawCampaigns = Array.isArray(res)
-            ? res
-            : Array.isArray(res?.campaigns)
-              ? res.campaigns
-              : Array.isArray(res?.contracts)
-                ? res.contracts
-                : Array.isArray(res?.data)
-                  ? res.data
-                  : [];
+          rawCampaigns = extractCampaignList(res, tab);
         } else if (tab === "Rejected") {
           res = await api.get(`/campaign/rejected/${id}`);
-          const items: any[] = Array.isArray(res?.data?.data)
-            ? res.data.data
-            : Array.isArray(res?.data)
-              ? res.data
-              : [];
-
-          rawCampaigns = items.map((item: any) => ({
-            ...(item.campaignData || item),
-            _id: item.campaignId || item.campaignData?._id || item._id,
-            status: item.status,
-            campaignStatus: item.status,
-          }));
+          rawCampaigns = extractCampaignList(res, tab).map(normalizeRejectedItem);
         } else {
           res = await apiGetAllCampaigns(id);
-          rawCampaigns = Array.isArray(res)
-            ? res
-            : Array.isArray(res?.campaigns)
-              ? res.campaigns
-              : Array.isArray(res?.items)
-                ? res.items
-                : Array.isArray(res?.data)
-                  ? res.data
-                  : [];
+          rawCampaigns = extractCampaignList(res, tab);
         }
 
         const mapped = rawCampaigns.map(mapApiCampaign);
@@ -2590,12 +3178,11 @@ export default function MyCampaignsPage() {
   const openEditor = (
     c: CampaignData,
     viewOnly = false,
-    startMode: "view" | "edit" = "edit"
+    _startMode: "view" | "edit" = "edit"
   ) => {
     setEditorCampaign(c);
     setEditorReadOnly(viewOnly);
     setEditorContractId(c.contractId);
-    setEditorInitialMode(startMode);
     setEditorOpen(true);
   };
 
@@ -2653,6 +3240,8 @@ export default function MyCampaignsPage() {
         name: influencerIdentity.legalName || influencerIdentity.name || "",
         email: influencerIdentity.email || "",
         signatureImageDataUrl: sigDataUrl,
+        signatureDataUrl: sigDataUrl,
+        signatureInfluencer: sigDataUrl,
       });
 
       toast({
@@ -2966,8 +3555,6 @@ export default function MyCampaignsPage() {
                   contractMeta?._id ||
                   contractMeta?.contractId ||
                   campaign.contractId;
-                console.log("contractMeta", contractMeta);
-
                 const contractProp =
                   campaign.isContracted === 1 && effectiveContractId
                     ? {
@@ -3011,7 +3598,7 @@ export default function MyCampaignsPage() {
                     form={form}
                     meta={previewMeta}
                     contract={activeTab === "active" ? undefined : contractProp}
-                    showViewMilestone={activeTab === "active"}
+                    showViewMilestone={activeTab === "active" && !!effectiveContractId}
                     onViewMilestone={() =>
                       router.push(
                         `/influencer/my-campaigns/view-milestone?campaignId=${encodeURIComponent(
