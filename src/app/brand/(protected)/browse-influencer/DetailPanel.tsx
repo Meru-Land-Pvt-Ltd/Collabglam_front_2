@@ -3225,7 +3225,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       editorPayload?: EmailEditorPayload
     ) => {
       const safeHandle = getActiveSafeHandle();
-      const normalizedPlatform = getActivePlatform();
 
       if (!brandId) {
         await Swal.fire(
@@ -3665,8 +3664,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         );
         return;
       }
-
-      const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
 
       if (
         !normalizedPlatform ||
