@@ -66,6 +66,7 @@ interface DetailPanelProps {
   onChangeCalc: (calc: 'median' | 'average') => void;
   brandId: string;
   campaignId?: string | null;
+  campaignName?: string | null;
   handle: string | null;
   lastFetchedAt?: string | null;
   onRefreshReport?: () => Promise<void> | void;
@@ -129,19 +130,42 @@ type AdminCheckStatusResponse = {
   message?: string;
 };
 
+type InvitationCreateItem = {
+  _id?: string;
+  invitationId?: string | null;
+  handle: string;
+  platform: 'youtube' | 'instagram' | 'tiktok';
+  userId?: string | null;
+  modashUserId?: string | null;
+  brandId: string;
+  campaignId?: string | null;
+  status: 'invited' | 'available';
+  createdAt: string;
+  updatedAt: string;
+};
+
 type InvitationCreateResp = {
-  status: 'saved' | 'exists';
-  data?: {
-    invitationId: string;
-    handle: string;
-    platform: 'youtube' | 'instagram' | 'tiktok';
-    brandId: string;
-    campaignId?: string | null;
-    status: 'invited' | 'available';
-    createdAt: string;
-    updatedAt: string;
-  };
+  status: 'saved' | 'exists' | 'error';
+  data?: InvitationCreateItem | InvitationCreateItem[] | null;
+  results?: Array<{
+    status?: 'saved' | 'exists';
+    message?: string;
+    emailSent?: boolean;
+    emailSkippedReason?: string | null;
+    emailMeta?: {
+      recipientEmail?: string;
+      emailSource?: string;
+      messageId?: string | null;
+      subject?: string;
+      campaignId?: string | null;
+    } | null;
+    data?: InvitationCreateItem;
+  }>;
   message?: string;
+  createdCount?: number;
+  existingCount?: number;
+  updatedCount?: number;
+  emailSentCount?: number;
   emailSent?: boolean;
   emailSkippedReason?: string | null;
   emailMeta?: {
@@ -153,17 +177,26 @@ type InvitationCreateResp = {
   } | null;
 };
 
-type CreateMissingResp = {
-  status: 'saved' | 'exists';
-  data: {
-    missingId: string;
-    handle: string;
-    platform: 'youtube' | 'instagram' | 'tiktok';
-    brandId: string;
-    note: string | null;
-    createdAt: string;
-  };
+type InvitationListItem = {
+  _id: string;
+  handle?: string;
+  platform?: 'youtube' | 'instagram' | 'tiktok';
+  brandId?: string;
+  campaignId?: string | null;
+  campaign?: {
+    _id?: string;
+  } | null;
+  status?: 'invited' | 'available';
+};
+
+type InvitationListResp = {
+  status: 'success' | 'error';
   message?: string;
+  page?: number;
+  limit?: number;
+  total?: number;
+  hasNext?: boolean;
+  data?: InvitationListItem[];
 };
 
 type BrandCampaignImage = {
@@ -229,6 +262,7 @@ type CampaignInvitePickerProps = {
   items: BrandCampaignItem[];
   selectedIds: string[];
   onSelectedIdsChange: (ids: string[]) => void;
+  invitedCampaignIds: Set<string>;
   search: string;
   onSearchChange: (value: string) => void;
   loading: boolean;
@@ -249,6 +283,39 @@ function normalizePlatform(platform: Platform | null): 'instagram' | 'tiktok' | 
   if (value.includes('tiktok')) return 'tiktok';
   if (value.includes('youtube')) return 'youtube';
   return 'instagram';
+}
+
+function getInvitationCampaignId(item: InvitationListItem | any): string {
+  return String(item?.campaignId || item?.campaign?._id || '').trim();
+}
+
+function getInfluencerUserIdForInvitation(params: {
+  selectedReport?: any;
+  raw?: any;
+  data?: any;
+}) {
+  const { selectedReport, raw, data } = params;
+
+  const profileRoot =
+    data?.profile ??
+    raw?.profile ??
+    raw ??
+    {};
+
+  return String(
+    selectedReport?.modashId ||
+    selectedReport?._id ||
+    selectedReport?.userId ||
+    profileRoot?.userId ||
+    profileRoot?.modashId ||
+    profileRoot?.channelId ||
+    profileRoot?.id ||
+    raw?._modashProfileId ||
+    data?._modashProfileId ||
+    raw?._id ||
+    data?._id ||
+    ''
+  ).trim();
 }
 
 function mapReportPost(post: Record<string, any>): SocialPost {
@@ -1032,6 +1099,7 @@ function CampaignInvitePicker({
   items,
   selectedIds,
   onSelectedIdsChange,
+  invitedCampaignIds,
   search,
   onSearchChange,
   loading,
@@ -1088,6 +1156,7 @@ function CampaignInvitePicker({
         ) : items.length ? (
           <div className="space-y-1">
             {items.map((item) => {
+              const isAlreadyInvited = invitedCampaignIds.has(String(item.campaignId));
               const checked = selectedIds.includes(item.campaignId);
               const imageSrc = getCampaignPrimaryImage(item);
 
@@ -1095,17 +1164,23 @@ function CampaignInvitePicker({
                 <button
                   key={item.campaignId}
                   type="button"
+                  disabled={isAlreadyInvited}
                   onClick={() => {
+                    if (isAlreadyInvited) return;
                     onSelectedIdsChange(checked ? [] : [item.campaignId]);
                   }}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${checked
-                    ? 'border border-gray-300 bg-gray-50'
-                    : 'border border-transparent hover:bg-gray-50'
+                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${isAlreadyInvited
+                    ? 'cursor-not-allowed border border-gray-100 bg-gray-50 opacity-70'
+                    : checked
+                      ? 'border border-gray-300 bg-gray-50'
+                      : 'border border-transparent hover:bg-gray-50'
                     }`}
                 >
                   <Checkbox
                     checked={checked}
+                    disabled={isAlreadyInvited}
                     onCheckedChange={() => {
+                      if (isAlreadyInvited) return;
                       onSelectedIdsChange(checked ? [] : [item.campaignId]);
                     }}
                     onClick={(event) => event.stopPropagation()}
@@ -1129,8 +1204,14 @@ function CampaignInvitePicker({
                     <div className="truncate text-[13px] font-medium text-gray-900">
                       {item.campaignTitle}
                     </div>
-                    <div className="mt-0.5 text-[11px] capitalize text-gray-400">
-                      {item.status || 'active'}
+                    <div className="mt-0.5 flex items-center gap-2 text-[11px] capitalize text-gray-400">
+                      <span>{item.status || 'active'}</span>
+
+                      {isAlreadyInvited ? (
+                        <span className="rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                          Invited
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </button>
@@ -1846,6 +1927,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     onChangeCalc: _onChangeCalc,
     brandId,
     campaignId: campaignIdProp,
+    campaignName: campaignNameProp,
     handle,
     lastFetchedAt,
     onRefreshReport,
@@ -1855,7 +1937,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const router = useRouter();
     const searchParams = useSearchParams();
     const queryCampaignId = searchParams?.get('campaignId') || '';
+    const queryCampaignName = searchParams?.get('campaignName') || '';
+
     const campaignId = String(campaignIdProp || queryCampaignId || '').trim();
+
+    const campaignName = String(
+      campaignNameProp || queryCampaignName || ''
+    ).trim();
+
     const hasLockedCampaign = Boolean(campaignId);
     const [hasAnyEmail, setHasAnyEmail] = useState<boolean | null>(null);
     const [checkingEmail, setCheckingEmail] = useState(false);
@@ -1874,6 +1963,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       campaignId ? [campaignId] : []
     );
     const [campaignSearch, setCampaignSearch] = useState('');
+
+    const [checkingInvitation, setCheckingInvitation] = useState(false);
+    const [invitedCampaignIds, setInvitedCampaignIds] = useState<Set<string>>(
+      () => new Set()
+    );
 
     const [rateCardLoading, setRateCardLoading] = useState(false);
     const [rateCardError, setRateCardError] = useState<string | null>(null);
@@ -2014,6 +2108,80 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       };
     }, [open, handle, platform]);
 
+    useEffect(() => {
+      if (!open || !brandId) {
+        setInvitedCampaignIds(new Set());
+        return;
+      }
+
+      const rawPlatformValue = String(platform ?? '').toLowerCase();
+
+      if (!['youtube', 'instagram', 'tiktok'].includes(rawPlatformValue)) {
+        setInvitedCampaignIds(new Set());
+        return;
+      }
+
+      const normalizedPlatform = normalizePlatform(platform);
+      const rawHandle = handle ? String(handle).trim() : '';
+      const safeHandle = rawHandle
+        ? rawHandle.startsWith('@')
+          ? rawHandle.toLowerCase()
+          : `@${rawHandle.toLowerCase()}`
+        : '';
+
+      if (!safeHandle || !/^[A-Za-z0-9._-]+$/.test(safeHandle.replace(/^@/, ''))) {
+        setInvitedCampaignIds(new Set());
+        return;
+      }
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          setCheckingInvitation(true);
+
+          const resp = await post<InvitationListResp>('/newinvitations/list', {
+            brandId,
+            handle: safeHandle,
+            platform: normalizedPlatform,
+            status: 'invited',
+            page: 1,
+            limit: 200,
+          });
+
+          if (cancelled) return;
+
+          const invitedIds = new Set(
+            (Array.isArray(resp?.data) ? resp.data : [])
+              .filter((item) => String(item?.status || '').toLowerCase() === 'invited')
+              .map(getInvitationCampaignId)
+              .filter(Boolean)
+          );
+
+          setInvitedCampaignIds(invitedIds);
+
+          setSelectedCampaignIds((prev) => {
+            if (campaignId) return [campaignId];
+            return prev.filter((id) => !invitedIds.has(id));
+          });
+        } catch (err) {
+          console.error('Failed to fetch invitation list', err);
+
+          if (!cancelled) {
+            setInvitedCampaignIds(new Set());
+          }
+        } finally {
+          if (!cancelled) {
+            setCheckingInvitation(false);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [open, brandId, handle, platform, campaignId]);
+
     const formattedLastUpdated = lastUpdatedAt
       ? new Date(lastUpdatedAt).toLocaleString()
       : 'Not fetched yet';
@@ -2062,9 +2230,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
       return {
         campaignId: activeCampaignIdForPanel,
-        campaignTitle: 'selected campaign',
+        campaignTitle: campaignName || 'selected campaign',
       };
-    }, [activeCampaignIdForPanel, brandCampaigns]);
+    }, [activeCampaignIdForPanel, brandCampaigns, campaignName]);
 
     const selectionReasonItems = useMemo(() => {
       return buildProfileSelectionReasons({
@@ -2487,21 +2655,41 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
     if (!open) return null;
 
-    const hasUserId = Boolean(
-      (data?.profile as any)?.userId ||
-      selectedReport?.modashId ||
-      (selectedReport as any)?._id ||
-      (raw as any)?._modashProfileId ||
-      (data as any)?._modashProfileId
+    const influencerUserId = getInfluencerUserIdForInvitation({
+      selectedReport,
+      raw,
+      data,
+    });
+
+    const hasUserId = Boolean(influencerUserId);
+    const activeInviteCampaignIds = campaignId ? [campaignId] : selectedCampaignIds;
+
+    const invitedSelectedCampaignIds = activeInviteCampaignIds.filter((id) =>
+      invitedCampaignIds.has(String(id))
     );
-    const canAct = hasUserId && !loading && !sendingInvite && !refreshing && !checkingEmail;
+
+    const isCurrentInviteAlreadySent =
+      activeInviteCampaignIds.length > 0 &&
+      invitedSelectedCampaignIds.length === activeInviteCampaignIds.length;
+
+    const canAct =
+      hasUserId &&
+      !loading &&
+      !sendingInvite &&
+      !refreshing &&
+      !checkingEmail &&
+      !checkingInvitation &&
+      !isCurrentInviteAlreadySent;
+
     const effectiveHasEmail =
       hasAnyEmail !== null ? hasAnyEmail : emailExists === true;
 
     const ctaTitle = hasUserId
-      ? effectiveHasEmail
-        ? 'Message this creator'
-        : 'Send invitation to collect email'
+      ? isCurrentInviteAlreadySent
+        ? 'Already invited for this campaign'
+        : effectiveHasEmail
+          ? 'Message this creator'
+          : 'Send invitation to collect email'
       : 'Profile not ready';
 
     const displayName =
@@ -2515,8 +2703,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       selectedReport?.handle ??
       (handle && (handle.startsWith('@') ? handle : `@${handle}`)) ??
       '';
-
-    const activeInviteCampaignIds = campaignId ? [campaignId] : selectedCampaignIds;
 
     const handleRefreshData = async (e: React.MouseEvent) => {
       e.preventDefault();
@@ -2640,7 +2826,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
 
       const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
-      if (!normalizedPlatform || !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)) {
+
+      if (
+        !normalizedPlatform ||
+        !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)
+      ) {
         await Swal.fire('Unsupported platform', 'Unsupported or missing platform.', 'warning');
         return;
       }
@@ -2655,7 +2845,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
 
       const campaignIds = Array.isArray(chosenCampaignIds)
-        ? chosenCampaignIds.filter(Boolean)
+        ? [...new Set(chosenCampaignIds.filter(Boolean))]
         : [];
 
       if (!campaignIds.length) {
@@ -2667,77 +2857,94 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
+      const creatorUserId = getInfluencerUserIdForInvitation({
+        selectedReport,
+        raw,
+        data,
+      });
+
+      if (!creatorUserId) {
+        await Swal.fire(
+          'Missing user ID',
+          'Could not send invitation because influencer userId was not found.',
+          'warning'
+        );
+        return;
+      }
+
       try {
         setSendingInvite(true);
 
-        const missingResult = await Promise.allSettled([
-          post2<CreateMissingResp>('/missing/create', {
-            handle: safeHandle,
-            platform: normalizedPlatform,
-            brandId,
-          }),
-        ]);
+        const resp = await post<InvitationCreateResp>('/newinvitations/create', {
+          handle: safeHandle,
+          platform: normalizedPlatform,
+          brandId,
+          status: 'invited',
 
-        if (missingResult[0].status !== 'fulfilled') {
-          console.error('Missing/create failed', missingResult[0].reason);
-        }
+          // New backend supports one influencer + multiple campaigns
+          campaignIds,
 
-        const invitationResults = await Promise.allSettled(
-          campaignIds.map((campaignIdItem) =>
-            post<InvitationCreateResp>('/newinvitations/create', {
-              handle: safeHandle,
-              platform: normalizedPlatform,
-              brandId,
-              status: 'invited',
-              campaignId: campaignIdItem,
-              emailTemplate: editorPayload
-                ? {
-                  subject: editorPayload.subject,
-                  body: editorPayload.body,
-                  htmlBody: editorPayload.htmlBody,
-                  attachments: editorPayload.attachments,
-                  fromEmail: emailDraft?.fromEmail || '',
-                  fromName: emailDraft?.fromName || 'CollabGlam',
-                }
-                : undefined,
-            })
-          )
-        );
+          // Store influencer userId in invitation
+          userId: creatorUserId,
+          modashUserId: creatorUserId,
 
-        let savedCount = 0;
-        let existsCount = 0;
-        let emailSentCount = 0;
-        const emailSkipReasons: string[] = [];
+          campaignName,
 
-        invitationResults.forEach((result) => {
-          if (result.status === 'fulfilled') {
-            const resp = result.value;
-            if (resp?.status === 'saved') savedCount += 1;
-            else if (resp?.status === 'exists') existsCount += 1;
-
-            if (resp?.emailSent) {
-              emailSentCount += 1;
-            } else if (resp?.emailSkippedReason) {
-              emailSkipReasons.push(resp.emailSkippedReason);
+          emailTemplate: editorPayload
+            ? {
+              subject: editorPayload.subject,
+              body: editorPayload.body,
+              htmlBody: editorPayload.htmlBody,
+              attachments: editorPayload.attachments,
+              fromEmail: emailDraft?.fromEmail || '',
+              fromName: emailDraft?.fromName || 'CollabGlam',
             }
-          } else {
-            console.error('Invitation/create failed', result.reason);
-          }
+            : undefined,
         });
 
-        if (!savedCount && !existsCount) {
+        if (!resp || resp.status === 'error') {
           await Swal.fire(
             'Something went wrong',
-            'We couldn’t send the invitation. Please try again in a moment.',
+            resp?.message || 'We couldn’t send the invitation. Please try again in a moment.',
             'error'
           );
           return;
         }
 
+        const savedCount =
+          Number(resp.createdCount ?? 0) ||
+          (resp.status === 'saved' ? campaignIds.length : 0);
+
+        const existsCount =
+          Number(resp.existingCount ?? 0) ||
+          (resp.status === 'exists' ? campaignIds.length : 0);
+
+        const emailSentCount =
+          Number(resp.emailSentCount ?? 0) ||
+          (resp.emailSent ? 1 : 0);
+
+        const emailSkipReasons = [
+          resp.emailSkippedReason,
+          ...(Array.isArray(resp.results)
+            ? resp.results.map((item) => item.emailSkippedReason)
+            : []),
+        ].filter(Boolean) as string[];
+
         setCampaignPickerOpen(false);
         setEmailEditorOpen(false);
 
+        setInvitedCampaignIds((prev) => {
+          const next = new Set(prev);
+          campaignIds.forEach((id) => next.add(id));
+          return next;
+        });
+
+        setSelectedCampaignIds((prev) =>
+          prev.filter((id) => !campaignIds.includes(id))
+        );
+
         const uniqueSkipReason = [...new Set(emailSkipReasons)].filter(Boolean)[0];
+
         const emailSummary = editorPayload
           ? emailSentCount > 0
             ? `${emailSentCount} email${emailSentCount > 1 ? 's' : ''} sent.`
@@ -2764,12 +2971,13 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           );
         }
 
-        router.push('/brand/invited');
+        router.push('/brand/creator-hub?tab=invited');
       } catch (err: any) {
         const msg =
           err?.response?.data?.message ||
           err?.message ||
           'Failed to send invitation';
+
         console.error(err);
         await Swal.fire('Error', msg, 'error');
       } finally {
@@ -2824,12 +3032,12 @@ export const DetailPanel = React.memo<DetailPanelProps>(
 
       try {
         setSendingInvite(true);
-
         const previewResp = await post<CampaignInvitationTemplatePreviewResp>(
           '/campaign-invitation/template-preview',
           {
             brandId,
             campaignIds,
+            campaignName,
             platform: normalizedPlatform,
             handle: safeHandle,
           }
@@ -3003,6 +3211,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           email: creatorEmail,
           brandId,
           campaignId: campaignId || undefined,
+          campaignName: campaignName || undefined,
           handle: safeHandle,
           platform: normalizedPlatform,
         });
@@ -3045,6 +3254,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
     const handleSendInvitation = async (e: React.MouseEvent) => {
       e.preventDefault();
+
       if (!canAct || sendingInvite) return;
 
       const rawHandle = handle ? String(handle).trim() : '';
@@ -3064,6 +3274,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       }
 
       const normalizedPlatform = (platform ?? '').toLowerCase() as Platform;
+
       if (
         !normalizedPlatform ||
         !['youtube', 'instagram', 'tiktok'].includes(normalizedPlatform)
@@ -3085,77 +3296,97 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         return;
       }
 
+      const campaignIds = activeInviteCampaignIds.filter(Boolean);
+
+      if (!campaignIds.length) {
+        await Swal.fire(
+          'Select campaign',
+          'Please select at least one active campaign.',
+          'warning'
+        );
+        return;
+      }
+
+      const creatorUserId = getInfluencerUserIdForInvitation({
+        selectedReport,
+        raw,
+        data,
+      });
+
+      if (!creatorUserId) {
+        await Swal.fire(
+          'Missing user ID',
+          'Could not send invitation because influencer userId was not found.',
+          'warning'
+        );
+        return;
+      }
+
       try {
         setSendingInvite(true);
 
-        const invitationPayload: {
-          handle: string;
-          platform: Platform;
-          brandId: string;
-          status: 'invited' | 'available';
-          campaignId?: string;
-        } = {
+        const resp = await post<InvitationCreateResp>('/newinvitations/create', {
           handle: safeHandle,
           platform: normalizedPlatform,
           brandId,
           status: 'invited',
-        };
 
-        if (campaignId) {
-          invitationPayload.campaignId = campaignId;
-        }
+          // New backend accepts campaignIds even for one campaign
+          campaignIds,
 
-        const [missingResult, invitationResult] = await Promise.allSettled([
-          post2<CreateMissingResp>('/missing/create', {
-            handle: safeHandle,
-            platform: normalizedPlatform,
-            brandId,
-          }),
-          post<InvitationCreateResp>('/newinvitations/create', invitationPayload),
-        ]);
+          // Store influencer id
+          userId: creatorUserId,
+          modashUserId: creatorUserId,
 
-        if (missingResult.status === 'fulfilled') {
-          console.log('Missing/create result', missingResult.value);
-        } else {
-          console.error('Missing/create failed', missingResult.reason);
-        }
+          campaignName,
+        });
 
-        let invitationStatus: InvitationCreateResp['status'] | 'error' = 'error';
-
-        if (invitationResult.status === 'fulfilled') {
-          const resp = invitationResult.value;
-          if (resp?.status === 'saved' || resp?.status === 'exists') {
-            invitationStatus = resp.status;
-          } else {
-            invitationStatus = 'error';
-          }
-        } else {
-          console.error('Invitation/create failed', invitationResult.reason);
-          invitationStatus = 'error';
-        }
-
-        if (invitationStatus === 'error') {
+        if (!resp || resp.status === 'error') {
           await Swal.fire(
             'Something went wrong',
-            'We couldn’t send the invitation. Please try again in a moment.',
+            resp?.message || 'We couldn’t send the invitation. Please try again in a moment.',
             'error'
           );
           return;
         }
 
-        if (invitationStatus === 'saved') {
+        const savedCount =
+          Number(resp.createdCount ?? 0) ||
+          (resp.status === 'saved' ? campaignIds.length : 0);
+
+        const existsCount =
+          Number(resp.existingCount ?? 0) ||
+          (resp.status === 'exists' ? campaignIds.length : 0);
+
+        if (savedCount > 0) {
           await Swal.fire(
             'Invitation sent',
-            'We’ve sent an invitation to this creator. They’ll see it and can reply soon.',
+            `Invitation saved for ${savedCount} campaign${savedCount > 1 ? 's' : ''}.`,
             'success'
+          );
+        } else if (existsCount > 0) {
+          await Swal.fire(
+            'Already invited',
+            `This creator is already invited for ${existsCount} campaign${existsCount > 1 ? 's' : ''}.`,
+            'info'
           );
         } else {
           await Swal.fire(
-            'Already invited',
-            'You’ve already sent an invitation to this creator. They’ll be able to reply once they see it.',
-            'info'
+            'Invitation processed',
+            resp.message || 'Invitation processed successfully.',
+            'success'
           );
         }
+
+        setInvitedCampaignIds((prev) => {
+          const next = new Set(prev);
+          campaignIds.forEach((id) => next.add(id));
+          return next;
+        });
+
+        setSelectedCampaignIds((prev) =>
+          prev.filter((id) => !campaignIds.includes(id))
+        );
 
         router.push('/brand/invited');
       } catch (err: any) {
@@ -3163,6 +3394,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           err?.response?.data?.message ||
           err?.message ||
           'Failed to send invitation';
+
         console.error(err);
         await Swal.fire('Error', msg, 'error');
       } finally {
@@ -3402,10 +3634,14 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                         onClick={(e) => {
                           e.preventDefault();
 
+                          if (isCurrentInviteAlreadySent) return;
+
                           if (activeInviteCampaignIds.length) {
-                            const selectedCampaign = brandCampaigns.find(
-                              (item) => item.campaignId === activeInviteCampaignIds[0]
-                            );
+                            const selectedCampaign =
+                              activeCampaignForPanel ||
+                              brandCampaigns.find(
+                                (item) => item.campaignId === activeInviteCampaignIds[0]
+                              );
 
                             const proxyEmail =
                               localStorage.getItem('brandProxyEmail') ||
@@ -3417,7 +3653,10 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                               localStorage.getItem('brandName') ||
                               'CollabGlam';
 
-                            const campaignTitle = selectedCampaign?.campaignTitle || 'your campaign';
+                            const campaignTitle =
+                              selectedCampaign?.campaignTitle ||
+                              campaignName ||
+                              'your campaign';
 
                             const subject = `Invitation to Collaborate - ${brandName}`;
 
@@ -3492,7 +3731,12 @@ Team CollabGlam`;
                         className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity ${canAct ? 'hover:opacity-90' : 'cursor-not-allowed opacity-70'
                           }`}
                       >
-                        {sendingInvite && brandId ? (
+                        {checkingInvitation ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            Checking…
+                          </>
+                        ) : sendingInvite && brandId ? (
                           <>
                             {effectiveHasEmail ? (
                               <MessageSquare className="h-4 w-4 animate-pulse" />
@@ -3501,6 +3745,11 @@ Team CollabGlam`;
                             )}
                             Sending…
                           </>
+                        ) : isCurrentInviteAlreadySent ? (
+                          <>
+                            <Send className="h-4 w-4" />
+                            Invited
+                          </>
                         ) : (
                           <>
                             {effectiveHasEmail ? (
@@ -3508,7 +3757,7 @@ Team CollabGlam`;
                             ) : (
                               <Send className="h-4 w-4" />
                             )}
-                            Send Invitation
+                            {campaignName ? `Send Invitation For ${campaignName}` : 'Send Invitation'}
                           </>
                         )}
                       </button>
@@ -3517,10 +3766,10 @@ Team CollabGlam`;
                         <button
                           type="button"
                           onClick={handleCampaignPickerToggle}
-                          disabled={campaignsLoading || loading}
+                          disabled={campaignsLoading || checkingInvitation || loading}
                           className="inline-flex w-10 items-center justify-center border-l border-white/20 hover:bg-white/10"
                         >
-                          {campaignsLoading ? (
+                          {campaignsLoading || checkingInvitation ? (
                             <RefreshCw className="h-4 w-4 animate-spin" />
                           ) : campaignPickerOpen ? (
                             <CaretUpIcon className="h-4 w-4" />
@@ -3538,10 +3787,15 @@ Team CollabGlam`;
                         allItems={brandCampaigns}
                         items={filteredCampaigns}
                         selectedIds={selectedCampaignIds}
-                        onSelectedIdsChange={setSelectedCampaignIds}
+                        onSelectedIdsChange={(ids) => {
+                          setSelectedCampaignIds(
+                            ids.filter((id) => !invitedCampaignIds.has(id))
+                          );
+                        }}
+                        invitedCampaignIds={invitedCampaignIds}
                         search={campaignSearch}
                         onSearchChange={setCampaignSearch}
-                        loading={campaignsLoading}
+                        loading={campaignsLoading || checkingInvitation}
                         sending={sendingInvite}
                         onSend={finalizeCampaignInvitations}
                       />

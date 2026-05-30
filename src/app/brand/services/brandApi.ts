@@ -15,6 +15,8 @@ const CAMPAIGN_INVITATION_BASE = "/campaign-invitation";
 const Apply_Base = "/apply";
 const CONTRACT_BASE = "/contract";
 const DISPUTE_BASE = "/dispute";
+const BRAND_FOLDER_BASE = `${BRAND_BASE}/folder`;
+const NEW_INVITATIONS_BASE = "/newinvitations";
 /** -------------------------
  *  ✅ Response Unwrap Helpers
  *  ------------------------*/
@@ -3134,3 +3136,246 @@ export async function apiAddRevision(payload: AddRevisionPayload) {
     raisedByRole: payload.raisedByRole ?? "Brand",
   });
 }
+
+/** -------------------------
+ *  ✅ CREATOR HUB PAGE APIs
+ *  ------------------------*/
+export type BrandCreatorFolderItem = {
+  _id?: string;
+  id?: string;
+  profileKey?: string;
+  influencerId?: string;
+  creatorId?: string;
+  userId?: string;
+  modashId?: string;
+  name?: string;
+  fullname?: string;
+  username?: string;
+  handle?: string;
+  email?: string;
+  provider?: string;
+  platform?: string;
+  country?: string;
+  language?: string;
+  location?: string;
+  categories?: string[];
+  niche?: string[];
+  followers?: number | string | null;
+  engagements?: number | null;
+  engagementRate?: number | null;
+  averageViews?: number | null;
+  primaryLink?: string;
+  profileUrl?: string;
+  url?: string;
+  links?: string[];
+  picture?: string;
+  avatarUrl?: string;
+  profileImage?: string;
+  status?: string;
+  source?: Record<string, any>;
+  raw?: any;
+  addedAt?: string;
+  updatedAt?: string;
+};
+
+export type BrandCreatorFolder = {
+  _id?: string;
+  id?: string;
+  brandId?: string;
+  brandName?: string;
+  title?: string;
+  name?: string;
+  slug?: string;
+  description?: string;
+  type?: "folder" | "bookmark" | "good_fit" | string;
+  creatorTier?: string;
+  linkedCampaign?: any | null;
+  assignedCampaign?: any | null;
+  items?: BrandCreatorFolderItem[];
+  itemCount?: number;
+  isDefault?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  archivedAt?: string | null;
+};
+
+export type BrandFolderListParams = {
+  type?: "all" | "folder" | "bookmark" | "good_fit" | string;
+  includeItems?: boolean;
+  _t?: string | number;
+  [key: string]: any;
+};
+
+export type BrandFolderListResponse = {
+  totalCount?: number;
+  folderCount?: number;
+  bookmarkCount?: number;
+  goodFitCount?: number;
+  folders?: BrandCreatorFolder[];
+  groups?: {
+    folders?: BrandCreatorFolder[];
+    bookmarks?: BrandCreatorFolder[];
+    goodFit?: BrandCreatorFolder[];
+  };
+};
+
+export async function apiBrandFolderList(params: BrandFolderListParams = {}) {
+  return apiGet<BrandFolderListResponse>(`${BRAND_FOLDER_BASE}/list`, {
+    type: params.type ?? "all",
+    includeItems: params.includeItems ?? true,
+    ...params,
+  });
+}
+
+export type CreateBrandFolderPayload = {
+  title: string;
+  name?: string;
+  description?: string;
+  type?: "folder" | "bookmark" | "good_fit" | string;
+  folderType?: string;
+  kind?: string;
+  campaignId?: string;
+  linkedCampaignId?: string;
+  creatorTier?: string;
+  tier?: string;
+  [key: string]: any;
+};
+
+export type CreateBrandFolderResponse = {
+  _id?: string;
+  id?: string;
+  title?: string;
+  name?: string;
+  linkedCampaign?: any;
+  [key: string]: any;
+};
+
+export async function apiBrandFolderCreate(payload: CreateBrandFolderPayload) {
+  return apiPost<CreateBrandFolderResponse>(`${BRAND_FOLDER_BASE}/create`, payload);
+}
+
+export type NewInvitationStatus = "invited" | "available" | string;
+
+export type NewInvitationRow = {
+  invitationId: string;
+  brandId: string;
+  handle: string;
+  platform: string;
+  status: NewInvitationStatus;
+  campaignId?: string | null;
+  campaignName?: string | null;
+  missingEmailId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: any;
+};
+
+export type NewInvitationsListPayload = {
+  brandId: string;
+  page?: number;
+  limit?: number;
+  status?: string;
+  [key: string]: any;
+};
+
+export type NewInvitationsListResponse = {
+  page: number;
+  limit: number;
+  total: number;
+  hasNext: boolean;
+  data: NewInvitationRow[];
+};
+
+export async function apiNewInvitationsList(payload: NewInvitationsListPayload) {
+  const { page, limit, status, ...rest } = payload;
+
+  return apiPost<NewInvitationsListResponse>(`${NEW_INVITATIONS_BASE}/list`, {
+    ...rest,
+    page: page ?? 1,
+    limit: limit ?? 100,
+    status: status ?? "all",
+  });
+}
+
+export type CreateNewInvitationPayload = {
+  handle: string;
+  platform: string;
+  brandId: string;
+  status: "invited" | "available";
+  campaignId?: string;
+  campaignTitle?: string;
+  [key: string]: any;
+};
+
+export type CreateNewInvitationResponse = {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  status?: "saved" | "exists" | "error" | string;
+  data?: any;
+};
+
+export async function apiNewInvitationCreate(payload: CreateNewInvitationPayload) {
+  const client = resolveClient();
+
+  if (typeof client?.post === "function") {
+    const res = await client.post(`${NEW_INVITATIONS_BASE}/create`, payload);
+    const body = res?.data ?? res;
+
+    return {
+      ...body,
+      success: body?.success ?? true,
+      message: body?.message || "Invitation created successfully.",
+      status:
+        body?.status ||
+        body?.data?.status ||
+        (body?.success === false ? "error" : "saved"),
+      data: body?.data ?? body,
+    } as CreateNewInvitationResponse;
+  }
+
+  const body: any = await apiPost<any>(`${NEW_INVITATIONS_BASE}/create`, payload);
+
+  return {
+    ...body,
+    success: body?.success ?? true,
+    message: body?.message || "Invitation created successfully.",
+    status:
+      body?.status ||
+      body?.data?.status ||
+      (body?.success === false ? "error" : "saved"),
+    data: body?.data ?? body,
+  } as CreateNewInvitationResponse;
+}
+
+export type NonFullManagedCampaignsParams = {
+  brandId: string;
+  page?: number;
+  limit?: number;
+  _t?: string | number;
+  [key: string]: any;
+};
+
+export type NonFullManagedCampaignsResponse = {
+  success?: boolean;
+  message?: string;
+  data?: any;
+  campaigns?: any[];
+  items?: any[];
+};
+
+export async function apiGetNonFullManagedCampaigns(
+  params: NonFullManagedCampaignsParams
+) {
+  const { page, limit, ...rest } = params;
+
+  return apiGet<NonFullManagedCampaignsResponse>(
+    `${CAMPAIGN_BASE}/getNonFullManagedCampaigns`,
+    {
+      ...rest,
+      page: page ?? 1,
+      limit: limit ?? 500,
+    }
+  );
+}
+

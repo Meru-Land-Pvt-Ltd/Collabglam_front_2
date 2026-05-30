@@ -1952,6 +1952,42 @@ export default function ViewCampaignPage() {
 
   const shownBudgetText = shownBudgetValue.toLocaleString("en-US");
   const showLoadMore = recommendedRows.length > 0 && recommendedHasMore !== false;
+  const goToBrowseInfluencer = () => {
+    const id = normalizeMongoId(campaignId);
+
+    const name = String(
+      campaignDisplayTitle ||
+      (campaign as any)?.campaignTitle ||
+      decodedCampaignTitleFromQuery ||
+      ""
+    ).trim();
+
+    if (!id) {
+      toast({ icon: "error", title: "Campaign ID not found" });
+      return;
+    }
+
+    if (!name) {
+      toast({ icon: "error", title: "Campaign name not found" });
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(
+        "browseCampaignContext",
+        JSON.stringify({
+          campaignId: id,
+          campaignName: name,
+        })
+      );
+    }
+
+    const query = new URLSearchParams();
+    query.set("campaignId", id);
+    query.set("campaignName", name);
+
+    router.push(`/brand/browse-influencer?${query.toString()}`);
+  };
 
   return (
     <div className={PAGE_WRAP}>
@@ -2028,7 +2064,7 @@ export default function ViewCampaignPage() {
                     size="sm"
                     className="my-0 h-8 rounded-lg border border-[#1A1A1A] bg-white px-2 shadow-none gap-2"
                     rightIcon={<UsersIcon weight="bold" style={{ width: "0.875rem", height: "0.875rem" }} />}
-                    onClick={() => router.push("/brand/browse-influencer")}
+                    onClick={goToBrowseInfluencer}
                   >
                     <>
                       <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
@@ -2042,15 +2078,15 @@ export default function ViewCampaignPage() {
                 </>
               ) : (
                 <Button
-  variant="raised"
-  size="sm"
-  rightIcon={
-    <FolderSimpleStarIcon
-      weight="bold"
-      style={{ width: "0.875rem", height: "0.875rem" }}
-    />
-  }
-  className="
+                  variant="raised"
+                  size="sm"
+                  rightIcon={
+                    <FolderSimpleStarIcon
+                      weight="bold"
+                      style={{ width: "0.875rem", height: "0.875rem" }}
+                    />
+                  }
+                  className="
     my-0
     flex h-[2rem]
     items-center justify-center
@@ -2062,14 +2098,14 @@ export default function ViewCampaignPage() {
     shadow-none
     hover:bg-[#F7F7F7]
   "
-  onClick={() =>
-    router.push(`/brand/campaign/${encodeURIComponent(campaignId)}/pitch-folder?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`)
-  }
->
-  <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
-    Pitch folder
-  </span>
-</Button>
+                  onClick={() =>
+                    router.push(`/brand/campaign/${encodeURIComponent(campaignId)}/pitch-folder?campaignTitle=${encodeURIComponent(campaignDisplayTitle)}`)
+                  }
+                >
+                  <span className="text-center text-[#1A1A1A] text-[0.75rem] font-semibold leading-5 whitespace-nowrap hidden sm:inline">
+                    Pitch folder
+                  </span>
+                </Button>
               )}
 
               <InfluencerContextMenu
@@ -2107,7 +2143,7 @@ export default function ViewCampaignPage() {
                   }
                 }}
                 onViewInfluencerList={() => router.push(`/brand/influ/all?campaignId=${campaignId}`)}
-                onInviteInfluencer={() => router.push(`/brand/browse-influencer?campaignId=${campaignId}`)}
+                onInviteInfluencer={goToBrowseInfluencer}
                 onRaiseDispute={() =>
                   router.push(`/brand/disputes/?id=${encodeURIComponent(campaignId)}`)
                 }
