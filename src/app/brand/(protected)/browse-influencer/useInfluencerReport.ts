@@ -1,6 +1,11 @@
 import { useState, useCallback } from 'react';
 import { Platform, ReportResponse, ModashReportRaw } from './types';
 import { normalizeReport } from './utils';
+import {
+  createReportApiError,
+  isReportLimitExceededError,
+  isReportLimitExceededPayload,
+} from './reportLimit';
 
 type CalcMethod = 'median' | 'average';
 type AuthRole = 'brand' | 'admin';
@@ -19,10 +24,12 @@ interface UseInfluencerReportReturn {
   rawReport: ModashReportRaw | null;
   loading: boolean;
   error: string | null;
+  limitExceeded: boolean;
   lastFetchedAt: string | null;
   brandId: string | null;
   adminId: string | null;
   authRole: AuthRole | null;
+  clearLimitExceeded: () => void;
   fetchReport: {
     (
       id: string,
@@ -42,6 +49,7 @@ interface UseInfluencerReportReturn {
 
 type PublicCreatorResponse = {
   message?: string;
+  msg?: string;
   error?: string;
   data?: {
     _id?: string;
@@ -73,8 +81,8 @@ type PublicCreatorResponse = {
 };
 
 const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const API_REPORT_ENDPOINT = `${BACKEND_BASE_URL}modash/report`;
-const API_CREATOR_ENDPOINT = `${BACKEND_BASE_URL}modash/creator`;
+const API_REPORT_ENDPOINT = `${BACKEND_BASE_URL}/modash/report`;
+const API_CREATOR_ENDPOINT = `${BACKEND_BASE_URL}/modash/creator`;
 
 function cleanId(v: any): string | null {
   const s = String(v || '').trim();
@@ -197,6 +205,7 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
   const [rawReport, setRawReport] = useState<ModashReportRaw | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [limitExceeded, setLimitExceeded] = useState(false);
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null);
 
   const initialAuth = getAuthFromStorage();
@@ -215,6 +224,7 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
       try {
         setLoading(true);
         setError(null);
+        setLimitExceeded(false);
 
         let opts: FetchReportOptions | undefined;
         if (typeof arg4 === 'string' || arg4 == null) {
@@ -244,13 +254,22 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
           );
           const creatorRaw: PublicCreatorResponse = await creatorRes.json();
 
+          if (isReportLimitExceededPayload(creatorRaw, creatorRes.status)) {
+            throw createReportApiError(
+              creatorRaw,
+              creatorRes.status,
+              'Report limit exceeded'
+            );
+          }
+
           if (!creatorRes.ok || creatorRaw?.error) {
             const msg =
               creatorRaw?.message ||
+              creatorRaw?.msg ||
               (typeof creatorRaw?.error === 'string'
                 ? creatorRaw.error
                 : `Failed to fetch creator (${creatorRes.status})`);
-            throw new Error(msg);
+            throw createReportApiError(creatorRaw, creatorRes.status, msg);
           }
 
           const { normalized, syntheticRaw, fetchedAt } =
@@ -281,13 +300,18 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
         const res = await fetch(`${API_REPORT_ENDPOINT}?${q.toString()}`);
         const raw: ModashReportRaw = await res.json();
 
+        if (isReportLimitExceededPayload(raw, res.status)) {
+          throw createReportApiError(raw, res.status, 'Report limit exceeded');
+        }
+
         if (!res.ok || (raw as any)?.error) {
           const msg =
             (raw as any)?.message ||
+            (raw as any)?.msg ||
             (typeof (raw as any)?.error === 'string'
               ? (raw as any).error
               : `Failed to fetch report (${res.status})`);
-          throw new Error(msg);
+          throw createReportApiError(raw, res.status, msg);
         }
 
         const normalized: ReportResponse = normalizeReport(raw, platform);
@@ -301,7 +325,13 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
             : null;
         setLastFetchedAt(fetchedAt);
       } catch (e: any) {
-        setError(e?.message || 'Something went wrong');
+        if (isReportLimitExceededError(e)) {
+          setLimitExceeded(true);
+          setError(null);
+        } else {
+          setError(e?.message || 'Something went wrong');
+        }
+
         setReport(null);
         setRawReport(null);
         setLastFetchedAt(null);
@@ -312,15 +342,21 @@ export function useInfluencerReport(): UseInfluencerReportReturn {
     []
   );
 
+  const clearLimitExceeded = useCallback(() => {
+    setLimitExceeded(false);
+  }, []);
+
   return {
     report,
     rawReport,
     loading,
     error,
+    limitExceeded,
     lastFetchedAt,
     brandId,
     adminId,
     authRole,
+    clearLimitExceeded,
     fetchReport: fetchReport as UseInfluencerReportReturn['fetchReport'],
   };
 }
