@@ -255,6 +255,39 @@ export async function apiSaveBrandOnboarding(payload: {
   return apiPost<{ message: string; brandId: string }>(`${BRAND_BASE}/save-brand-onboarding`, payload);
 }
 
+export type BrandProfilePicUploadData = {
+  name?: string;
+
+  // Some controllers return profileImage/profileImageKey/profileImageBucket
+  profileImage?: string;
+  profileImageKey?: string;
+  profileImageBucket?: string;
+
+  // Your current upload controller response returns dataUrl/key/bucket
+  dataUrl?: string;
+  key?: string;
+  bucket?: string;
+
+  contentType?: string;
+  size?: number;
+};
+
+export async function apiUploadBrandProfilePic(file: File) {
+  if (!file) {
+    throw new Error("Brand profile image is required");
+  }
+
+  const formData = new FormData();
+
+  // Must match backend route: upload.single("brandProfilePic")
+  formData.append("brandProfilePic", file);
+
+  return apiPost<BrandProfilePicUploadData>(
+    `${BRAND_BASE}/upload-brand-profile-pic`,
+    formData
+  );
+}
+
 /** -------------------------
  *  ✅ FORGOT PASSWORD
  *  ------------------------*/

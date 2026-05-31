@@ -12,7 +12,11 @@ import { FloatingMultiSelect, FloatingSelect, SelectItem } from "@/components/ui
 import { CropImageModal } from "@/components/ui/crop-image-modal";
 import { VggCardStack } from "@/components/ui/brand/VggAnimatedCard";
 
-import { apiSaveBrandOnboarding, getApiErrorMessage } from "../../services/brandApi";
+import {
+  apiSaveBrandOnboarding,
+  apiUploadBrandProfilePic,
+  getApiErrorMessage,
+} from "../../services/brandApi";
 
 // ✅ Toast
 import { toast, ToastStyles } from "@/components/ui/toast";
@@ -265,15 +269,6 @@ export default function BrandOnboardingPage() {
       }
     }
   }, [router]);
-
-  async function fileToDataUrl(file: File): Promise<string> {
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error("Failed to read file"));
-      reader.readAsDataURL(file);
-    });
-  }
 
   const openCropForFile = (file: File) => {
     const url = URL.createObjectURL(file);
@@ -629,8 +624,21 @@ export default function BrandOnboardingPage() {
 
     if (stepIndex === 2) {
       if (onboardData.brandImageFile) {
-        const profilePic = await fileToDataUrl(onboardData.brandImageFile);
-        await apiSaveBrandOnboarding({ profilePic, isProfilePicSkip: false });
+        const uploadedImage = await apiUploadBrandProfilePic(
+          onboardData.brandImageFile
+        );
+
+        const uploadedProfilePicUrl =
+          uploadedImage?.profileImage || uploadedImage?.dataUrl || "";
+
+        if (!uploadedProfilePicUrl) {
+          throw new Error("Profile image uploaded, but image URL was not returned");
+        }
+
+        await apiSaveBrandOnboarding({
+          profilePic: uploadedProfilePicUrl,
+          isProfilePicSkip: false,
+        });
         return;
       }
 
