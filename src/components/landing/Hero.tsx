@@ -6,7 +6,7 @@ import { ArrowRight, PlayCircle } from 'lucide-react';
 const stats = [
   { value: '500+', label: 'YouTube Campaigns Managed' },
   { value: '2,500+', label: 'Verified Creator Network' },
-  { value: '48–72h', label: 'Creator Matches Delivered' },
+  { value: '15 min', label: 'Creator Matches Delivered' },
   { value: '3.2×', label: 'Average Campaign ROAS' },
 ];
 
