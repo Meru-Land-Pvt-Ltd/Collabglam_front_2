@@ -23,6 +23,7 @@ import {
   apiGetCategories,
   apiGetNonFullManagedCampaigns,
   apiNewInvitationCreate,
+  apiNewInvitationFollowUp,
   apiNewInvitationsList,
   getApiErrorMessage,
 } from "@/app/brand/services/brandApi";
@@ -230,8 +231,10 @@ type InvitationCampaignLock = {
   campaignId: string;
   campaignTitle: string;
   createdAt: string;
-  expiresAt: string;
+  expiresAt?: string;
   status?: string;
+  isPermanent?: boolean;
+  followUpSentAt?: string;
 };
 
 type Invitation = {
@@ -257,6 +260,18 @@ type Invitation = {
 
   campaignId?: string | null;
   campaignName?: string | null;
+  emailTo?: string | null;
+  emailFrom?: string | null;
+  emailSubject?: string | null;
+  emailMessageId?: string | null;
+  emailSentAt?: string | null;
+
+  followUpEmailTo?: string | null;
+  followUpEmailFrom?: string | null;
+  followUpSubject?: string | null;
+  followUpMessageId?: string | null;
+  followUpSentAt?: string | null;
+  permanentCampaignLock?: boolean;
   campaign?: {
     _id?: string;
     brandId?: string;
@@ -1386,6 +1401,47 @@ function formatDate(value?: string) {
   return `${mm}/${dd}`;
 }
 
+function getDateFromUnknown(value?: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getInvitationDateRangeText(
+  row: InfluencerRow,
+  locks: InvitationCampaignLock[] = [],
+  tab: CreatorHubTab
+) {
+  if (tab === "invited") {
+    return row.invitationDate || "-";
+  }
+
+  const dateValues = [
+    ...locks.map((lock) => lock.createdAt),
+    ...row.relatedCampaigns.map((campaign) => campaign.assignedAt),
+    (row.raw as any)?.invitedAt,
+    (row.raw as any)?.invitationDate,
+    (row.raw as any)?.invitationCreatedAt,
+    (row.raw as any)?.invitation?.createdAt,
+  ];
+
+  const dates = dateValues
+    .map(getDateFromUnknown)
+    .filter((date): date is Date => Boolean(date))
+    .sort((a, b) => a.getTime() - b.getTime());
+
+  if (!dates.length) {
+    return row.invitationDate || "-";
+  }
+
+  const firstDate = formatDate(dates[0].toISOString());
+  const lastDate = formatDate(dates[dates.length - 1].toISOString());
+
+  return firstDate === lastDate ? firstDate : `${firstDate} - ${lastDate}`;
+}
+
 function getStatus(item: GoodFitInfluencer): InfluencerStatus {
   const normalizedStatus = String((item as any).status || (item as any).raw?.status || "")
     .trim()
@@ -2250,6 +2306,140 @@ function getRowCampaignName(row: InfluencerRow) {
   ).trim();
 }
 
+function getCampaignDisplayName(campaign?: RelatedCampaign | null) {
+  return String(
+    campaign?.campaignTitle ||
+    campaign?.productOrServiceName ||
+    campaign?.campaignsId ||
+    getIdString(campaign?.campaignId) ||
+    ""
+  ).trim();
+}
+
+function getCampaignKeyFromCampaign(campaign?: RelatedCampaign | null, fallback = "") {
+  return String(
+    getIdString(campaign?.campaignId) ||
+    campaign?.campaignsId ||
+    campaign?.campaignTitle ||
+    campaign?.productOrServiceName ||
+    fallback
+  ).trim();
+}
+
+function getRowInvitedCampaignNames(
+  row: InfluencerRow,
+  locks: InvitationCampaignLock[] = []
+) {
+  const map = new Map<string, string>();
+
+  locks.forEach((lock, index) => {
+    const key = String(lock.campaignId || `lock-${index}`).trim();
+    const label = String(lock.campaignTitle || getShortIdLabel("Campaign", key)).trim();
+
+    if (!key || !label || label === "—") return;
+
+    map.set(key, label);
+  });
+
+  if (!map.size) {
+    row.relatedCampaigns.forEach((campaign, index) => {
+      const key = getCampaignKeyFromCampaign(campaign, `campaign-${index}`);
+      const label = getCampaignDisplayName(campaign);
+
+      if (!key || !label || label === "—") return;
+
+      map.set(key, label);
+    });
+  }
+
+  if (!map.size && row.campaignName && row.campaignName !== "—") {
+    map.set(row.campaignName, row.campaignName);
+  }
+
+  return Array.from(map.values());
+}
+
+function CampaignNamesCell({
+  row,
+  locks = [],
+  singleOnly = false,
+}: {
+  row: InfluencerRow;
+  locks?: InvitationCampaignLock[];
+  singleOnly?: boolean;
+}) {
+  if (singleOnly) {
+    const campaignName = getRowCampaignName(row);
+
+    if (!campaignName || campaignName === "—") {
+      return <span className="text-[#777777]">—</span>;
+    }
+
+    return (
+      <span
+        className="block max-w-[145px] truncate"
+        title={campaignName}
+      >
+        {campaignName}
+      </span>
+    );
+  }
+
+  const campaignNames = getRowInvitedCampaignNames(row, locks);
+  const [firstCampaignName] = campaignNames;
+  const remainingCount = Math.max(0, campaignNames.length - 1);
+  const title = campaignNames.length ? campaignNames.join("\n") : "—";
+
+  if (!firstCampaignName) {
+    return <span className="text-[#777777]">—</span>;
+  }
+
+  return (
+    <div
+      className="flex max-w-[145px] items-center gap-1.5"
+      title={title}
+    >
+      <span className="min-w-0 flex-1 truncate">
+        {firstCampaignName}
+      </span>
+
+      {remainingCount > 0 ? (
+        <span className="shrink-0 rounded-full bg-[#F3F3F3] px-1.5 py-0.5 text-[10px] font-semibold text-[#555555]">
+          +{remainingCount}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+
+function getDisplayRowStatus(
+  row: InfluencerRow,
+  locks: InvitationCampaignLock[] = []
+): InfluencerStatus {
+  if (locks.length > 0) return "Sent";
+
+  const rawStatus = String(
+    row.raw?.status ||
+    row.raw?.invitation?.status ||
+    row.status ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (
+    rawStatus === "sent" ||
+    rawStatus === "invited" ||
+    rawStatus === "followup_sent" ||
+    rawStatus === "follow_up_sent"
+  ) {
+    return "Sent";
+  }
+
+  return row.status;
+}
+
 function getRowPlatform(row: InfluencerRow) {
   return String(
     row.raw?.provider ||
@@ -2388,28 +2578,74 @@ function getInvitationLockFromInvitation(invitation: any): InvitationCampaignLoc
   const campaignId = getInvitationCampaignId(invitation);
   if (!campaignId) return null;
 
-  const createdAt = String(invitation?.createdAt || invitation?.updatedAt || new Date().toISOString()).trim();
+  const statusText = String(
+    invitation?.status ||
+    invitation?.followUpStatus ||
+    invitation?.followupStatus ||
+    ""
+  ).toLowerCase();
+
+  const followUpSentAt = String(
+    invitation?.followUpSentAt ||
+    invitation?.followupSentAt ||
+    invitation?.lastFollowUpAt ||
+    invitation?.lastFollowupAt ||
+    ""
+  ).trim();
+
+  const isPermanent = Boolean(
+    invitation?.isPermanent ||
+    invitation?.permanentLock ||
+    invitation?.permanentCampaignLock ||
+    invitation?.lockPermanently ||
+    invitation?.followUpSentAt ||
+    invitation?.isFollowUp ||
+    invitation?.followUp ||
+    invitation?.followup ||
+    followUpSentAt ||
+    statusText.includes("follow") ||
+    statusText.includes("permanent")
+  );
+
+  const createdAt = String(
+    followUpSentAt ||
+    invitation?.createdAt ||
+    invitation?.updatedAt ||
+    new Date().toISOString()
+  ).trim();
   const createdTime = new Date(createdAt).getTime();
   const safeCreatedTime = Number.isNaN(createdTime) ? Date.now() : createdTime;
-  const expiresAt = new Date(safeCreatedTime + 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = isPermanent
+    ? undefined
+    : new Date(safeCreatedTime + 24 * 60 * 60 * 1000).toISOString();
 
   return {
     invitationId: String(invitation?._id || invitation?.invitationId || "").trim(),
     campaignId,
     campaignTitle: String(
       invitation?.campaignName ||
+      invitation?.campaignTitle ||
       invitation?.campaign?.campaignTitle ||
+      invitation?.campaign?.campaignName ||
       invitation?.campaign?.name ||
       invitation?.campaign?.title ||
-      "Campaign"
+      getShortIdLabel("Campaign", campaignId)
     ).trim(),
     createdAt: new Date(safeCreatedTime).toISOString(),
     expiresAt,
     status: invitation?.status,
+    isPermanent,
+    followUpSentAt:
+      followUpSentAt || String(invitation?.followUpSentAt || "").trim() || undefined,
   };
 }
 
+function isCampaignLockPermanent(lock: InvitationCampaignLock | null | undefined) {
+  return Boolean(lock?.isPermanent);
+}
+
 function getLockRemainingMs(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
+  if (isCampaignLockPermanent(lock)) return Number.POSITIVE_INFINITY;
   if (!lock?.expiresAt) return 0;
   const expiresAt = new Date(lock.expiresAt).getTime();
   if (Number.isNaN(expiresAt)) return 0;
@@ -2417,10 +2653,11 @@ function getLockRemainingMs(lock: InvitationCampaignLock | null | undefined, now
 }
 
 function isCampaignLockActive(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
-  return getLockRemainingMs(lock, now) > 0;
+  return isCampaignLockPermanent(lock) || getLockRemainingMs(lock, now) > 0;
 }
 
 function formatLockRemaining(ms: number) {
+  if (!Number.isFinite(ms)) return "Permanent";
   if (ms <= 0) return "00:00";
 
   const totalMinutes = Math.ceil(ms / 60000);
@@ -2432,6 +2669,8 @@ function formatLockRemaining(ms: number) {
 }
 
 function getCampaignLockLabel(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
+  if (isCampaignLockPermanent(lock)) return "Locked permanently";
+
   const remaining = getLockRemainingMs(lock, now);
   return remaining > 0 ? `Locked ${formatLockRemaining(remaining)}` : "Follow up";
 }
@@ -2861,6 +3100,7 @@ function getEmailEditorHtmlBody(context: PendingInvitationContext | null) {
       : "";
 
   const displayHandle = context.handle || context.row.handle || "";
+  const creatorName = escapeTemplateHtml(displayName || displayHandle || "Creator");
 
   const {
     campaignTitle,
@@ -2870,8 +3110,59 @@ function getEmailEditorHtmlBody(context: PendingInvitationContext | null) {
     timeline,
   } = getCampaignDetailsForEmail(context);
 
+  const detailRows = [
+    ["Campaign", campaignTitle],
+    ["Brand", brandName],
+    ["Objective", objective],
+    ["Deliverables", deliverables],
+    ["Compensation", compensation],
+    ["Timeline", timeline],
+  ]
+    .filter(([, value]) => String(value || "").trim())
+    .map(
+      ([label, value]) => `
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid #eeeeee;color:#777777;font-size:13px;width:130px;">${escapeTemplateHtml(label)}</td>
+          <td style="padding:10px 12px;border-bottom:1px solid #eeeeee;color:#171717;font-size:13px;font-weight:600;">${escapeTemplateHtml(String(value))}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  if (context.mode === "followup") {
+    return `
+      <div style="font-family:Inter, Arial, sans-serif;color:#171717;line-height:1.65;">
+        <p>Hi ${creatorName},</p>
+        <p>
+          Just following up on our collaboration invitation for
+          <strong> ${escapeTemplateHtml(campaignTitle)}</strong>. Your content style still feels like a
+          strong match for <strong>${escapeTemplateHtml(brandName)}</strong>, and we would be excited to explore
+          this campaign with you.
+        </p>
+
+        <div style="margin:18px 0;padding:18px;border:1px solid #eadfd9;border-radius:14px;background:#fffaf7;">
+          <p style="margin:0 0 8px;font-size:14px;font-weight:700;color:#8c4b30;">Quick campaign recap</p>
+          <table style="width:100%;border-collapse:collapse;background:#ffffff;border:1px solid #eeeeee;border-radius:10px;overflow:hidden;">
+            <tbody>
+              ${detailRows}
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          If you are interested, please reply to this email and we can share the next steps, brief details,
+          and any clarification you need before moving forward.
+        </p>
+        <p>
+          We would love to hear your thoughts and hopefully build something meaningful together.
+        </p>
+        <p>Warm regards,<br /><strong>Team CollabGlam</strong></p>
+      </div>
+    `;
+  }
+
   return `
-    <p>Dear ${escapeTemplateHtml(displayName || displayHandle || "Creator")},</p>
+    <p>Dear ${creatorName},</p>
     <p>I hope you are doing well.</p>
     <p>
       We are reaching out to formally invite you to collaborate with <strong>${escapeTemplateHtml(brandName)}</strong>
@@ -3143,9 +3434,14 @@ export default function CreatorHubPage() {
 
         if (!identityKey || !lock) return;
 
+        const currentLock = next[identityKey]?.[lock.campaignId];
+        const finalLock = isCampaignLockPermanent(currentLock)
+          ? { ...lock, ...currentLock }
+          : lock;
+
         next[identityKey] = {
           ...(next[identityKey] || {}),
-          [lock.campaignId]: lock,
+          [lock.campaignId]: finalLock,
         };
       });
 
@@ -3192,6 +3488,16 @@ export default function CreatorHubPage() {
       if (!identityKey) return null;
 
       return invitationLocks[identityKey]?.[campaignId] || null;
+    },
+    [getRowInvitationIdentityKey, invitationLocks]
+  );
+
+  const getCampaignLocksForRow = React.useCallback(
+    (row: InfluencerRow) => {
+      const identityKey = getRowInvitationIdentityKey(row);
+      if (!identityKey) return [];
+
+      return Object.values(invitationLocks[identityKey] || {});
     },
     [getRowInvitationIdentityKey, invitationLocks]
   );
@@ -3288,6 +3594,15 @@ export default function CreatorHubPage() {
 
       const existingLock = freshLock || getCampaignLockForRow(row, campaignId);
 
+      if (isCampaignLockPermanent(existingLock)) {
+        showToastMessage(
+          "info",
+          "Campaign permanently locked",
+          "A follow-up has already been sent for this campaign, so it cannot be invited again."
+        );
+        return;
+      }
+
       if (isCampaignLockActive(existingLock, Date.now())) {
         const remaining = formatLockRemaining(getLockRemainingMs(existingLock, Date.now()));
         showToastMessage(
@@ -3306,6 +3621,16 @@ export default function CreatorHubPage() {
   const handleFollowUpInvitation = React.useCallback(
     (row: InfluencerRow, campaignId: string) => {
       const lock = getCampaignLockForRow(row, campaignId);
+
+      if (isCampaignLockPermanent(lock)) {
+        showToastMessage(
+          "info",
+          "Campaign permanently locked",
+          "A follow-up has already been sent for this campaign."
+        );
+        return;
+      }
+
       openEmailEditorForCampaign(row, campaignId, "followup", lock);
     },
     [getCampaignLockForRow, openEmailEditorForCampaign]
@@ -3348,7 +3673,16 @@ export default function CreatorHubPage() {
           email?: EmailEditorPayload;
           isFollowUp?: boolean;
           followUp?: boolean;
+          lockPermanently?: boolean;
+          permanentCampaignLock?: boolean;
+          followUpSentAt?: string;
           invitationId?: string;
+          emailTemplate?: {
+            subject?: string;
+            textBody?: string;
+            htmlBody?: string;
+            attachments?: EmailEditorPayload["attachments"];
+          };
         } = {
           handle,
           platform,
@@ -3365,17 +3699,32 @@ export default function CreatorHubPage() {
           email: emailPayload,
           isFollowUp: mode === "followup",
           followUp: mode === "followup",
+          lockPermanently: mode === "followup",
+          permanentCampaignLock: mode === "followup",
+          followUpSentAt: mode === "followup" ? new Date().toISOString() : undefined,
           invitationId,
+          emailTemplate: {
+            subject: emailPayload.subject,
+            textBody: emailPayload.body,
+            htmlBody: emailPayload.htmlBody,
+            attachments: emailPayload.attachments,
+          },
         };
 
         let invitationCreatedAt = "";
         let createdInvitationId = "";
 
         try {
-          const resp = await apiNewInvitationCreate(invitationPayload);
+          const resp =
+            mode === "followup"
+              ? await apiNewInvitationFollowUp(invitationPayload)
+              : await apiNewInvitationCreate(invitationPayload);
 
           backendToastMessage =
-            getInvitationMessage(resp) || "Invitation created successfully.";
+            getInvitationMessage(resp) ||
+            (mode === "followup"
+              ? "Follow-up sent successfully."
+              : "Invitation created successfully.");
 
           if (!isInvitationSuccessResponse(resp)) {
             throw new Error(
@@ -3393,10 +3742,9 @@ export default function CreatorHubPage() {
             invitationError?.message ||
             "";
 
-          if (isDuplicateInvitationError(invitationError)) {
+          if (mode !== "followup" && isDuplicateInvitationError(invitationError)) {
             console.error("Invitation/create duplicate", invitationError);
-            backendToastMessage =
-              duplicateMessage || "Invitation already exists.";
+            backendToastMessage = duplicateMessage || "Invitation already exists.";
             invitationCreatedAt = new Date().toISOString();
           } else {
             throw invitationError;
@@ -3409,9 +3757,9 @@ export default function CreatorHubPage() {
           ? Date.now()
           : sentDate.getTime();
 
-        const expiresAt = new Date(
-          safeSentTime + 24 * 60 * 60 * 1000
-        ).toISOString();
+        const expiresAt = mode === "followup"
+          ? undefined
+          : new Date(safeSentTime + 24 * 60 * 60 * 1000).toISOString();
 
         const identityKey = getRowInvitationIdentityKey(row);
 
@@ -3426,7 +3774,9 @@ export default function CreatorHubPage() {
                 campaignTitle,
                 createdAt: new Date(safeSentTime).toISOString(),
                 expiresAt,
-                status: "sent",
+                status: mode === "followup" ? "followup_sent" : "sent",
+                isPermanent: mode === "followup",
+                followUpSentAt: mode === "followup" ? sentAt : undefined,
               },
             },
           }));
@@ -3595,7 +3945,7 @@ export default function CreatorHubPage() {
 
         const cacheBust = `${Date.now()}-${refreshFolderListKey}`;
 
-        const [folderResponse, brandCreatedCampaignResponse] = await Promise.all([
+        const [folderResponse, brandCreatedCampaignResponse, brandInvitationResponse] = await Promise.all([
           apiBrandFolderList({
             type: "all",
             includeItems: true,
@@ -3608,6 +3958,14 @@ export default function CreatorHubPage() {
             limit: 500,
             _t: cacheBust,
           } as any).catch(() => null),
+
+          apiNewInvitationsList({
+            brandId,
+            page: 1,
+            limit: 1000,
+            status: "all",
+            _t: cacheBust,
+          } as any).catch(() => null),
         ]);
 
         const folders = extractBrandFolderList(folderResponse);
@@ -3618,7 +3976,13 @@ export default function CreatorHubPage() {
           extractNonFullManagedCampaignList(brandCreatedCampaignResponse)
         );
 
+        const invitationItems = extractInvitationList(brandInvitationResponse);
+
         if (!mounted) return;
+
+        if (invitationItems.length) {
+          mergeInvitationLocks(invitationItems);
+        }
 
         setBrandFolders(folders);
         setCampaignOptions(options);
@@ -3659,7 +4023,7 @@ export default function CreatorHubPage() {
     return () => {
       mounted = false;
     };
-  }, [refreshFolderListKey]);
+  }, [refreshFolderListKey, mergeInvitationLocks]);
 
   React.useEffect(() => {
     const selectedFolders =
@@ -3670,7 +4034,23 @@ export default function CreatorHubPage() {
     const items = mergeGoodFitItems(brandFoldersToGoodFitItems(selectedFolders));
 
     const rows = items
-      .map(mapGoodFitItem)
+      .map((item, index) => {
+        const row = mapGoodFitItem(item, index);
+        const identityKey = getInvitationIdentityKeyFromValues(
+          getRowUserId(row),
+          getInvitationHandle(row),
+          getRowPlatform(row)
+        );
+
+        const rowLocks = identityKey
+          ? Object.values(invitationLocks[identityKey] || {})
+          : [];
+
+        return {
+          ...row,
+          status: rowLocks.length > 0 ? "Sent" : row.status,
+        };
+      })
       .filter((row) => rowMatchesSearch(row, debouncedSearch))
       .filter((row) => rowMatchesCategoryFilter(row, selectedCategoryLabel))
       .filter((row) => rowMatchesDateFilter(row, selectedDateFilter))
@@ -3685,6 +4065,7 @@ export default function CreatorHubPage() {
     moreFilters,
     selectedCategoryLabel,
     selectedDateFilter,
+    invitationLocks,
   ]);
 
   React.useEffect(() => {
@@ -4098,6 +4479,7 @@ export default function CreatorHubPage() {
                 ) : (
                   filteredRows.map((row, index) => {
                     const checked = selectedIds.includes(row.id);
+                    const rowCampaignLocks = getCampaignLocksForRow(row);
 
                     return (
                       <tr
@@ -4139,7 +4521,7 @@ export default function CreatorHubPage() {
                         </td>
 
                         <td className="border-r border-[#E5E5E5] px-4">
-                          <StatusBadge status={row.status} />
+                          <StatusBadge status={getDisplayRowStatus(row, rowCampaignLocks)} />
                         </td>
 
                         <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
@@ -4158,12 +4540,11 @@ export default function CreatorHubPage() {
                         </td>
 
                         <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          <span
-                            className="block max-w-[115px] truncate"
-                            title={getRowCampaignName(row)}
-                          >
-                            {getRowCampaignName(row)}
-                          </span>
+                          <CampaignNamesCell
+                            row={row}
+                            locks={activeTab === "hub" ? rowCampaignLocks : []}
+                            singleOnly={activeTab === "invited"}
+                          />
                         </td>
 
                         <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
@@ -4177,7 +4558,12 @@ export default function CreatorHubPage() {
                         </td>
 
                         <td className="border-r border-[#E5E5E5] px-4 text-[#222222]">
-                          {row.invitationDate}
+                          <span
+                            className="block max-w-[120px] truncate"
+                            title={getInvitationDateRangeText(row, rowCampaignLocks, activeTab)}
+                          >
+                            {getInvitationDateRangeText(row, rowCampaignLocks, activeTab)}
+                          </span>
                         </td>
 
                         <td className="px-4">
@@ -4231,7 +4617,8 @@ export default function CreatorHubPage() {
                                       const selectedCampaignId = String(campaignId || "");
                                       const lock = getCampaignLockForRow(row, selectedCampaignId);
                                       const remainingMs = getLockRemainingMs(lock, lockNow);
-                                      const locked = remainingMs > 0;
+                                      const permanentlyLocked = isCampaignLockPermanent(lock);
+                                      const locked = permanentlyLocked || remainingMs > 0;
                                       const canFollowUp = Boolean(lock && !locked);
 
                                       return (
@@ -4246,8 +4633,10 @@ export default function CreatorHubPage() {
                                               event.stopPropagation();
                                               showToastMessage(
                                                 "info",
-                                                "Invitation already sent",
-                                                `This campaign is locked for ${formatLockRemaining(remainingMs)}.`
+                                                permanentlyLocked ? "Campaign permanently locked" : "Invitation already sent",
+                                                permanentlyLocked
+                                                  ? "A follow-up has already been sent for this campaign."
+                                                  : `This campaign is locked for ${formatLockRemaining(remainingMs)}.`
                                               );
                                               return;
                                             }
@@ -4334,12 +4723,12 @@ export default function CreatorHubPage() {
                                     Move to folder
                                   </ComboboxItem>
 
-                                  <ComboboxItem value="view-rate-card" showIndicator={false}>
+                                  {/* <ComboboxItem value="view-rate-card" showIndicator={false}>
                                     <FileTextIcon size={14} />
                                     View rate card
-                                  </ComboboxItem>
+                                  </ComboboxItem> */}
 
-                                  <ComboboxItem
+                                  {/* <ComboboxItem
                                     value="copy-profile-link"
                                     showIndicator={false}
                                     onClick={async () => {
@@ -4353,7 +4742,7 @@ export default function CreatorHubPage() {
                                   >
                                     <CopyIcon size={14} />
                                     Copy profile link
-                                  </ComboboxItem>
+                                  </ComboboxItem> */}
 
                                   <ComboboxItem
                                     value="delete"
