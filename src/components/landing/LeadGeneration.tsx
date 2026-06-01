@@ -637,7 +637,7 @@ export default function LeadGeneration() {
 
           <p className="max-w-2xl text-base leading-8 text-[#a3a2b8] sm:text-lg lg:pb-2">
             Tell us about your brand and we&apos;ll send a curated, AI-matched
-            creator shortlist within 48–72 hours. No commitment, no credit card
+            creator shortlist within 15 minutes. No commitment, no credit card
             required.
           </p>
         </div>
@@ -699,7 +699,7 @@ export default function LeadGeneration() {
                     </h3>
 
                     <p className="mt-2 text-sm font-semibold text-[#6b7280]">
-                      Free · No credit card · Delivered in 48–72 hours
+                      Free · No credit card · Delivered in 15 minutes
                     </p>
                   </div>
 
@@ -795,7 +795,7 @@ export default function LeadGeneration() {
 
                 <p className="text-center text-xs font-medium leading-6 text-[#6b7280]">
                   No subscription. No credit card. Free creator shortlist in
-                  48–72 hours.
+                  15 minutes.
                 </p>
               </form>
             </div>

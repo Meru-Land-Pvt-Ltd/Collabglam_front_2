@@ -12,7 +12,7 @@ const processSteps = [
   {
     id: '02',
     icon: UsersRound,
-    title: 'Receive Creator Matches in 48–72 hrs',
+    title: 'Receive Creator Matches in 15 mins',
     description:
       'Get a curated shortlist of pre-vetted creators with full profiles, audience stats, AI Match Scores, and Audience Credibility Scores. You pick who you like.',
   },
@@ -136,7 +136,7 @@ export default function SimpleProcess() {
               Ready to see your creator shortlist?
             </h3>
             <p className="mt-2 text-sm leading-6 text-[#6b7280]">
-              Submit your brand details and get creator matches within 48–72 hours.
+              Submit your brand details and get creator matches within 15 minutes.
             </p>
           </div>
 

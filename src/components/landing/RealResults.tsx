@@ -1,11 +1,11 @@
 const caseStudies = [
   {
-    initials: 'MT',
-    brand: 'MHD Tech',
+    initials: 'NT',
+    brand: 'NexaHome Tech',
     category: 'Consumer Electronics',
     budget: '$8,000 budget',
     story:
-      'MHD Tech launched a new smart home device with zero social presence. CollabGlam matched them with 6 mid-tier tech reviewers, coordinated a synchronized launch week, and managed end-to-end reporting from brief to post-campaign analytics.',
+      'NexaHome Tech launched a new smart home device with zero social presence. CollabGlam matched them with 6 mid-tier tech reviewers, coordinated a synchronized launch week, and managed end-to-end reporting from brief to post-campaign analytics.',
     metrics: [
       { value: '430K', label: 'Total views generated' },
       { value: '3.8×', label: 'Return on ad spend' },
@@ -109,9 +109,8 @@ export default function RealResults() {
                 {study.metrics.map((metric, index) => (
                   <div
                     key={metric.label}
-                    className={`p-5 ${
-                      index % 2 === 0 ? 'border-r border-white/[0.08]' : ''
-                    } ${index < 2 ? 'border-b border-white/[0.08]' : ''}`}
+                    className={`p-5 ${index % 2 === 0 ? 'border-r border-white/[0.08]' : ''
+                      } ${index < 2 ? 'border-b border-white/[0.08]' : ''}`}
                   >
                     <p className="text-3xl font-extrabold tracking-[-0.05em] text-[#f97316]">
                       {metric.value}

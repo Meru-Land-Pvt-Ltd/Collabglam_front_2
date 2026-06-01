@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Mail, MapPin, Phone } from 'lucide-react';
+import { Instagram, Mail, MapPin, Phone } from 'lucide-react';
 
 const footerColumns = [
   {
@@ -35,18 +35,11 @@ const footerColumns = [
   },
 ];
 
-const socialLinks = [
-  { label: 'Facebook', value: 'f', href: '#' },
-  { label: 'X', value: '𝕏', href: '#' },
-  { label: 'Instagram', value: '▣', href: '#' },
-  { label: 'YouTube', value: '▶', href: '#' },
-];
-
 export default function Footer() {
   return (
     <footer className="border-t border-white/[0.08] bg-[#0c0c12] px-4 text-white sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <div className="grid gap-12 py-16 lg:grid-cols-[1.2fr_1.8fr] lg:py-20">
+        <div className="grid gap-12 py-16 lg:grid-cols-[1.15fr_1.85fr] lg:py-20">
           {/* Brand */}
           <div>
             <Link href="/" className="inline-flex items-center gap-3">
@@ -124,18 +117,15 @@ export default function Footer() {
             Right Creators.
           </p>
 
-          <div className="flex items-center gap-3">
-            {socialLinks.map((social) => (
-              <a
-                key={social.label}
-                href={social.href}
-                aria-label={social.label}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-sm font-extrabold text-white/50 transition hover:border-[#f97316]/30 hover:bg-[#f97316]/10 hover:text-[#f97316]"
-              >
-                {social.value}
-              </a>
-            ))}
-          </div>
+          <a
+            href="https://www.instagram.com/collabglamllc"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Instagram"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-white/50 transition hover:border-[#f97316]/30 hover:bg-[#f97316]/10 hover:text-[#f97316]"
+          >
+            <Instagram className="h-4 w-4" />
+          </a>
         </div>
       </div>
     </footer>
