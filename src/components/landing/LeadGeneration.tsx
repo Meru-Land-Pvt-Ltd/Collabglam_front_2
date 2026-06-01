@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   BarChart3,
@@ -131,6 +132,7 @@ function SelectField({
         className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-[#fafaf7] px-4 text-sm font-semibold text-[#101018] outline-none transition focus:border-[#f97316]/60 focus:bg-white focus:ring-4 focus:ring-[#f97316]/10"
       >
         <option value="">Select…</option>
+
         {options.map((option) => (
           <option key={option} value={option}>
             {option}
@@ -142,6 +144,8 @@ function SelectField({
 }
 
 export default function LeadGeneration() {
+  const router = useRouter();
+
   const [leadForm, setLeadForm] = useState<LeadFormData>(emptyLeadForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -183,6 +187,7 @@ export default function LeadGeneration() {
       });
 
       setLeadForm(emptyLeadForm);
+      router.push('/brand/signup');
     } catch (error: any) {
       await Swal.fire({
         icon: 'error',
@@ -216,8 +221,9 @@ export default function LeadGeneration() {
           </h2>
 
           <p className="mt-6 max-w-2xl text-base leading-8 text-[#A3A2B8] sm:text-lg">
-            Tell us about your brand and we'll send a curated, AI-matched creator
-            shortlist within 48–72 hours. No commitment, no credit card required.
+            Tell us about your brand and we&apos;ll send a curated, AI-matched
+            creator shortlist within 48–72 hours. No commitment, no credit card
+            required.
           </p>
 
           <div className="mt-9 grid gap-3">
@@ -339,7 +345,8 @@ export default function LeadGeneration() {
             </button>
 
             <p className="text-center text-xs font-medium leading-6 text-[#6b7280]">
-              No subscription. No credit card. Free creator shortlist in 48–72 hours.
+              No subscription. No credit card. Free creator shortlist in 48–72
+              hours.
             </p>
           </form>
         </div>

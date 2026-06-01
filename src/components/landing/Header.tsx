@@ -99,13 +99,13 @@ export default function Header() {
         </nav>
 
         {/* Desktop CTA */}
-        <a
-          href="#lead"
-          className="group hidden items-center justify-center rounded-xl bg-[#F97316] px-6 py-3 text-sm font-bold text-white shadow-[0_6px_24px_rgba(249,115,22,0.35)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#C2410C] hover:shadow-[0_10px_32px_rgba(249,115,22,0.45)] lg:inline-flex"
-        >
-          Get Started Free
-          <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
-        </a>
+<a
+  href="/brand/signup"
+  className="group hidden items-center justify-center rounded-xl bg-[#F97316] px-6 py-3 text-sm font-bold text-white shadow-[0_6px_24px_rgba(249,115,22,0.35)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#C2410C] hover:shadow-[0_10px_32px_rgba(249,115,22,0.45)] lg:inline-flex"
+>
+  Get Started Free
+  <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+</a>
 
         {/* Mobile Menu Button */}
         <button
@@ -127,9 +127,8 @@ export default function Header() {
       {/* Mobile Nav */}
       <div
         id={mobileMenuId}
-        className={`border-t border-white/[0.07] bg-[#0c0c12]/95 px-4 py-5 backdrop-blur-2xl transition lg:hidden ${
-          isMobileMenuOpen ? 'block' : 'hidden'
-        }`}
+        className={`border-t border-white/[0.07] bg-[#0c0c12]/95 px-4 py-5 backdrop-blur-2xl transition lg:hidden ${isMobileMenuOpen ? 'block' : 'hidden'
+          }`}
       >
         <nav className="mx-auto max-w-7xl space-y-2" aria-label="Mobile navigation">
           {navLinks.map((link) => (
@@ -144,7 +143,7 @@ export default function Header() {
           ))}
 
           <a
-            href="#lead"
+            href="/brand/signup"
             onClick={closeMobileMenu}
             className="mt-4 flex w-full items-center justify-center rounded-xl bg-[#F97316] px-6 py-3 text-sm font-bold text-white shadow-[0_6px_24px_rgba(249,115,22,0.35)] transition hover:bg-[#C2410C]"
           >
