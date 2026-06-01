@@ -26,23 +26,23 @@ const benefits = [
   },
   {
     icon: MessageCircle,
-    text: 'Centralised inbox — all creator comms on one platform',
+    text: 'Centralised inbox — all creator communication in one place',
   },
   {
     icon: FileText,
-    text: 'AI campaign brief generator — go live in minutes',
+    text: 'AI campaign brief generator to launch faster',
   },
   {
     icon: Target,
-    text: 'Managed Plan option — CollabGlam runs the whole campaign',
+    text: 'Managed Plan option if you want CollabGlam to run everything',
   },
   {
     icon: Lock,
-    text: 'No hidden fees. No commissions. Transparent pricing always.',
+    text: 'No hidden fees, no confusing commissions, full pricing clarity',
   },
   {
     icon: CheckCircle2,
-    text: 'Average 3.2× ROAS across campaigns on the platform',
+    text: 'Campaign workflow built around better creator fit and stronger ROI',
   },
 ];
 
@@ -103,6 +103,23 @@ const emptyLeadForm: LeadFormData = {
   managedPlan: '',
 };
 
+function getErrorMessage(error: unknown) {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'response' in error &&
+    typeof (error as any).response?.data?.message === 'string'
+  ) {
+    return (error as any).response.data.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Something went wrong while submitting the form.';
+}
+
 function SelectField({
   label,
   name,
@@ -120,7 +137,7 @@ function SelectField({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.12em] text-[#6b7280]">
+      <span className="mb-2 block text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#6b7280]">
         {label}
       </span>
 
@@ -129,16 +146,54 @@ function SelectField({
         value={value}
         onChange={onChange}
         required
-        className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-[#fafaf7] px-4 text-sm font-semibold text-[#101018] outline-none transition focus:border-[#f97316]/60 focus:bg-white focus:ring-4 focus:ring-[#f97316]/10"
+        className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-white px-4 text-sm font-semibold text-[#101018] outline-none transition focus:border-[#f97316]/60 focus:ring-4 focus:ring-[#f97316]/10"
       >
         <option value="">Select…</option>
-
         {options.map((option) => (
           <option key={option} value={option}>
             {option}
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function TextInput({
+  label,
+  name,
+  type,
+  value,
+  placeholder,
+  autoComplete,
+  onChange,
+}: {
+  label: string;
+  name: keyof LeadFormData;
+  type: string;
+  value: string;
+  placeholder: string;
+  autoComplete?: string;
+  onChange: (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-[11px] font-extrabold uppercase tracking-[0.14em] text-[#6b7280]">
+        {label}
+      </span>
+
+      <input
+        name={name}
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        required
+        autoComplete={autoComplete}
+        className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-white px-4 text-sm font-semibold text-[#101018] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#f97316]/60 focus:ring-4 focus:ring-[#f97316]/10"
+      />
     </label>
   );
 }
@@ -188,14 +243,11 @@ export default function LeadGeneration() {
 
       setLeadForm(emptyLeadForm);
       router.push('/brand/signup');
-    } catch (error: any) {
+    } catch (error: unknown) {
       await Swal.fire({
         icon: 'error',
         title: 'Submission failed',
-        text:
-          error?.response?.data?.message ||
-          error?.message ||
-          'Something went wrong while submitting the form.',
+        text: getErrorMessage(error),
         confirmButtonColor: '#f97316',
       });
     } finally {
@@ -206,149 +258,174 @@ export default function LeadGeneration() {
   return (
     <section
       id="lead"
-      className="relative overflow-hidden bg-[#0c0c12] px-4 py-20 text-white sm:px-6 lg:px-8 lg:py-28"
+      className="relative overflow-hidden border-y border-white/[0.08] bg-[#0c0c12] px-4 py-20 text-white sm:px-6 lg:px-8 lg:py-28"
     >
-      <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-start">
-        {/* Left */}
-        <div>
-          <div className="inline-flex items-center rounded-full border border-[#F97316]/25 bg-[#F97316]/10 px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.18em] text-orange-300">
-            Get Started Free
+      <div className="mx-auto max-w-7xl">
+        {/* Top Heading */}
+        <div className="grid gap-8 border-b border-white/[0.08] pb-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
+          <div>
+            <div className="inline-flex items-center rounded-full border border-[#f97316]/25 bg-[#f97316]/10 px-4 py-1.5 text-[11px] font-extrabold uppercase tracking-[0.18em] text-orange-300">
+              Get Started Free
+            </div>
+
+            <h2 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.05] tracking-[-0.04em] text-white sm:text-5xl lg:text-[60px]">
+              Get Matched with Your{' '}
+              <span className="text-[#f97316]">Perfect Creators</span>
+            </h2>
           </div>
 
-          <h2 className="mt-5 max-w-3xl text-4xl font-extrabold leading-[1.05] tracking-[-0.04em] text-white sm:text-5xl lg:text-[60px]">
-            Get Matched with Your{' '}
-            <span className="text-[#F97316]">Perfect Creators</span>
-          </h2>
-
-          <p className="mt-6 max-w-2xl text-base leading-8 text-[#A3A2B8] sm:text-lg">
+          <p className="max-w-2xl text-base leading-8 text-[#a3a2b8] sm:text-lg lg:pb-2">
             Tell us about your brand and we&apos;ll send a curated, AI-matched
             creator shortlist within 48–72 hours. No commitment, no credit card
             required.
           </p>
-
-          <div className="mt-9 grid gap-3">
-            {benefits.map((benefit) => {
-              const Icon = benefit.icon;
-
-              return (
-                <div
-                  key={benefit.text}
-                  className="flex items-center gap-4 rounded-2xl border border-white/[0.08] bg-white/[0.035] p-4"
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#F97316]/20 bg-[#F97316]/10 text-[#F97316]">
-                    <Icon className="h-5 w-5" />
-                  </span>
-
-                  <p className="text-sm font-medium leading-6 text-white/62">
-                    {benefit.text}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
-        {/* Form */}
-        <div className="rounded-[32px] border border-[#e7e1d6] bg-[#fafaf7] p-6 shadow-[0_30px_90px_rgba(0,0,0,0.32)] sm:p-8">
-          <div>
-            <h3 className="text-2xl font-extrabold tracking-[-0.035em] text-[#101018]">
-              Get Your Creator Shortlist
-            </h3>
+        {/* Split Layout */}
+        <div className="grid lg:grid-cols-[0.92fr_1.08fr]">
+          {/* Left Benefits */}
+          <aside className="border-b border-white/[0.08] py-10 lg:border-b-0 lg:border-r lg:py-14 lg:pr-12">
+            <div className="max-w-xl">
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#f97316]">
+                What happens next
+              </p>
 
-            <p className="mt-2 text-sm font-semibold text-[#6b7280]">
-              Free · No credit card · Delivered in 48–72 hours
-            </p>
-          </div>
+              <h3 className="mt-3 text-2xl font-extrabold tracking-[-0.035em] text-white sm:text-3xl">
+                Your campaign request becomes a creator-matching brief.
+              </h3>
 
-          <form onSubmit={handleLeadSubmit} className="mt-8 space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SelectField
-                label="Product Category"
-                name="productType"
-                value={leadForm.productType}
-                options={productOptions}
-                onChange={handleLeadChange}
-              />
-
-              <SelectField
-                label="Campaign Budget"
-                name="budget"
-                value={leadForm.budget}
-                options={budgetOptions}
-                onChange={handleLeadChange}
-              />
-
-              <SelectField
-                label="Target Platform"
-                name="platform"
-                value={leadForm.platform}
-                options={platformOptions}
-                onChange={handleLeadChange}
-              />
-
-              <SelectField
-                label="Primary Market"
-                name="market"
-                value={leadForm.market}
-                options={marketOptions}
-                onChange={handleLeadChange}
-              />
+              <p className="mt-4 text-sm leading-7 text-white/55">
+                Once submitted, your information is saved first. Then you&apos;ll
+                be redirected to create your brand account and continue the
+                onboarding flow.
+              </p>
             </div>
 
-            <label className="block">
-              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.12em] text-[#6b7280]">
-                Brand / Company Name
-              </span>
+            <div className="mt-10 grid gap-0 divide-y divide-white/[0.08]">
+              {benefits.map((benefit, index) => {
+                const Icon = benefit.icon;
 
-              <input
-                name="brandName"
-                type="text"
-                value={leadForm.brandName}
-                onChange={handleLeadChange}
-                placeholder="Your brand name"
-                required
-                className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-white px-4 text-sm font-semibold text-[#101018] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#f97316]/60 focus:ring-4 focus:ring-[#f97316]/10"
-              />
-            </label>
+                return (
+                  <div key={benefit.text} className="flex gap-5 py-5">
+                    <div className="flex w-14 shrink-0 justify-center">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#f97316]/20 bg-[#f97316]/10 text-[#f97316]">
+                        <Icon className="h-[18px] w-[18px]" />
+                      </span>
+                    </div>
 
-            <label className="block">
-              <span className="mb-2 block text-xs font-extrabold uppercase tracking-[0.12em] text-[#6b7280]">
-                Business Email
-              </span>
+                    <div>
+                      <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-white/30">
+                        0{index + 1}
+                      </p>
 
-              <input
-                name="email"
-                type="email"
-                value={leadForm.email}
-                onChange={handleLeadChange}
-                placeholder="you@yourcompany.com"
-                required
-                className="h-12 w-full rounded-xl border border-[#e7e1d6] bg-white px-4 text-sm font-semibold text-[#101018] outline-none transition placeholder:text-[#a3a3a3] focus:border-[#f97316]/60 focus:ring-4 focus:ring-[#f97316]/10"
-              />
-            </label>
+                      <p className="mt-1 text-sm font-medium leading-7 text-white/66">
+                        {benefit.text}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
 
-            <SelectField
-              label="Interested in Managed Plan?"
-              name="managedPlan"
-              value={leadForm.managedPlan}
-              options={managedOptions}
-              onChange={handleLeadChange}
-            />
+          {/* Right Form */}
+          <div className="py-10 lg:py-14 lg:pl-12">
+            <div className="bg-[#fafaf7] p-6 text-[#101018] sm:p-8 lg:p-10">
+              <div className="flex flex-col gap-4 border-b border-[#e7e1d6] pb-6 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h3 className="text-2xl font-extrabold tracking-[-0.035em] text-[#101018]">
+                    Get Your Creator Shortlist
+                  </h3>
 
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="inline-flex h-14 w-full items-center justify-center rounded-2xl bg-[#f97316] px-6 text-base font-extrabold text-white transition hover:bg-[#c2410c] disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              {isSubmitting ? 'Submitting...' : 'Get My Creator Matches — Free'}
-              {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
-            </button>
+                  <p className="mt-2 text-sm font-semibold text-[#6b7280]">
+                    Free · No credit card · Delivered in 48–72 hours
+                  </p>
+                </div>
+              </div>
 
-            <p className="text-center text-xs font-medium leading-6 text-[#6b7280]">
-              No subscription. No credit card. Free creator shortlist in 48–72
-              hours.
-            </p>
-          </form>
+              <form onSubmit={handleLeadSubmit} className="mt-7 space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SelectField
+                    label="Product Category"
+                    name="productType"
+                    value={leadForm.productType}
+                    options={productOptions}
+                    onChange={handleLeadChange}
+                  />
+
+                  <SelectField
+                    label="Campaign Budget"
+                    name="budget"
+                    value={leadForm.budget}
+                    options={budgetOptions}
+                    onChange={handleLeadChange}
+                  />
+
+                  <SelectField
+                    label="Target Platform"
+                    name="platform"
+                    value={leadForm.platform}
+                    options={platformOptions}
+                    onChange={handleLeadChange}
+                  />
+
+                  <SelectField
+                    label="Primary Market"
+                    name="market"
+                    value={leadForm.market}
+                    options={marketOptions}
+                    onChange={handleLeadChange}
+                  />
+                </div>
+
+                <TextInput
+                  label="Brand / Company Name"
+                  name="brandName"
+                  type="text"
+                  value={leadForm.brandName}
+                  onChange={handleLeadChange}
+                  placeholder="Your brand name"
+                  autoComplete="organization"
+                />
+
+                <TextInput
+                  label="Business Email"
+                  name="email"
+                  type="email"
+                  value={leadForm.email}
+                  onChange={handleLeadChange}
+                  placeholder="you@yourcompany.com"
+                  autoComplete="email"
+                />
+
+                <SelectField
+                  label="Interested in Managed Plan?"
+                  name="managedPlan"
+                  value={leadForm.managedPlan}
+                  options={managedOptions}
+                  onChange={handleLeadChange}
+                />
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  aria-busy={isSubmitting}
+                  className="inline-flex h-14 w-full items-center justify-center rounded-2xl bg-[#f97316] px-6 text-base font-extrabold text-white transition hover:bg-[#c2410c] disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSubmitting
+                    ? 'Submitting...'
+                    : 'Get My Creator Matches — Free'}
+
+                  {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
+                </button>
+
+                <p className="text-center text-xs font-medium leading-6 text-[#6b7280]">
+                  No subscription. No credit card. Free creator shortlist in
+                  48–72 hours.
+                </p>
+              </form>
+            </div>
+          </div>
         </div>
       </div>
     </section>
