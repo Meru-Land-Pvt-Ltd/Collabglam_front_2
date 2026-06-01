@@ -8,29 +8,33 @@ import {
   EyeIcon,
   FileTextIcon,
   FolderSimpleIcon,
-  FunnelSimpleIcon,
-  MagnifyingGlassIcon,
   PaperPlaneTiltIcon,
-  PlusIcon,
   TrashIcon,
   UserIcon,
-  XIcon,
 } from "@phosphor-icons/react";
+import EmailEditor, {
+  type EmailEditorPayload,
+} from "@/components/ui/EmailEditor";
+import { toast } from "@/components/ui/toast";
 import api from "@/lib/api";
 import {
+  apiBrandFolderCreate,
+  apiBrandFolderList,
   apiGetCategories,
+  apiGetNonFullManagedCampaigns,
+  apiNewInvitationCreate,
+  apiNewInvitationsList,
   getApiErrorMessage,
 } from "@/app/brand/services/brandApi";
+import { DetailPanel } from "@/app/brand/(protected)/browse-influencer/DetailPanel";
 import {
   Combobox,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxItem,
   ComboboxList,
-  ComboboxSeparator,
   ComboboxTrigger,
 } from "@/components/ui/combobox";
-import { toast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -39,7 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { MoreFiltersDropdown } from "../browse-influencer/MoreFiltersDropdown";
+import { CreatorHubFilters } from "./CreatorHubFilter";
 
 type RelatedCampaign = {
   campaignId?: string | { _id?: string; id?: string; campaignsId?: string };
@@ -72,6 +76,7 @@ type CampaignOption = {
   type?: string;
   isFullyManaged?: boolean;
   goodFitCount?: number;
+  raw?: any;
 };
 
 type CategoryOption = {
@@ -127,9 +132,26 @@ type ModashProfileData = {
 };
 
 type GoodFitInfluencer = {
+  influencerId?: string;
+  creatorId?: string;
+  userId?: string;
+  modashId?: string;
+  profileKey?: string;
   _id?: string;
+
+  invitationId?: string | null;
+  invitation?: Invitation | null;
+  campaign?: Invitation["campaign"] | null;
+
   provider?: string;
+  platform?: string;
+
   name?: string;
+  fullname?: string;
+  fullName?: string;
+  username?: string;
+  creatorTitle?: string;
+
   handle?: string;
   followers?: number | string;
   primaryLink?: string;
@@ -139,6 +161,8 @@ type GoodFitInfluencer = {
   country?: string;
   location?: string;
   language?: string;
+  status?: string;
+
   selectionReason?: string;
   goodFit?: boolean;
   influencerRateCard?: string;
@@ -146,8 +170,10 @@ type GoodFitInfluencer = {
   rateCardCurrency?: string;
   shippingAddress?: string;
   comments?: string;
+
   modash?: ModashProfileData | null;
   modashProfile?: ModashProfileData | null;
+
   filterData?: {
     followers?: number | null;
     engagements?: number | null;
@@ -164,6 +190,7 @@ type GoodFitInfluencer = {
     language?: string;
     categories?: string[];
   };
+
   picture?: string;
   avatarUrl?: string;
   relatedCampaigns?: RelatedCampaign[];
@@ -182,55 +209,108 @@ type GoodFitInfluencer = {
   folder?: RelatedFolder;
 };
 
-type GoodFitApiResponse = {
-  success?: boolean;
-  message?: string;
-  data?: {
-    campaign?: RelatedCampaign;
-    totalFolderCount?: number;
-    totalCampaignCount?: number;
-    totalGoodFitCount?: number;
-    campaigns?: RelatedCampaign[];
-    items?: GoodFitInfluencer[];
-  };
-};
-
-type CampaignListResponse = {
-  success?: boolean;
-  data?: any;
-  campaigns?: any[];
-  items?: any[];
-};
-
 type InvitationStatus = "invited" | "available" | string;
 
-type Invitation = {
-  invitationId: string;
-  brandId: string;
+type PendingInvitationMode = "invite" | "followup";
+
+type PendingInvitationContext = {
+  row: InfluencerRow;
+  campaignId: string;
+  campaignTitle: string;
+  selectedCampaign?: any;
   handle: string;
   platform: string;
+  brandId: string;
+  mode: PendingInvitationMode;
+  invitationId?: string;
+};
+
+type InvitationCampaignLock = {
+  invitationId?: string;
+  campaignId: string;
+  campaignTitle: string;
+  createdAt: string;
+  expiresAt: string;
+  status?: string;
+};
+
+type Invitation = {
+  _id?: string;
+  invitationId?: string | null;
+
+  brandId: string;
+  brandName?: string;
+  brandEmail?: string;
+  brandIndustry?: string;
+  brandCompanySize?: string;
+
+  handle: string;
+  platform: string;
+  userId?: string | null;
+  modashUserId?: string | null;
+
   status: InvitationStatus;
+
+  aiScore?: number | null;
+  rawAiScore?: number | null;
+  recommendationReason?: string;
+
   campaignId?: string | null;
   campaignName?: string | null;
+  campaign?: {
+    _id?: string;
+    brandId?: string;
+    brandName?: string;
+    campaignTitle?: string;
+    description?: string;
+    campaignType?: string;
+    campaignCategory?: string;
+    campaignSubcategory?: string;
+    campaignBudget?: number | null;
+    budget?: number | null;
+    influencerBudget?: number | null;
+    paymentType?: string;
+    platformSelection?: string[];
+    numberOfInfluencers?: number | null;
+    influencerTier?: string;
+    minFollowers?: number | null;
+    maxFollowers?: number | null;
+    creatorContentLanguage?: string;
+    audienceContentLanguage?: string;
+    targetCountry?: string;
+    additionalNotes?: string;
+    hashtags?: string[];
+    timeline?: {
+      startDate?: string;
+      endDate?: string;
+    } | null;
+    startAt?: string | null;
+    endAt?: string | null;
+    status?: string;
+    publishStatus?: string;
+    approvalMode?: string;
+    isFullyManaged?: boolean;
+    managementType?: string;
+    isActive?: number | boolean | null;
+    createdAt?: string;
+    updatedAt?: string;
+  } | null;
+
   missingEmailId?: string | null;
+  email?: string | null;
+  missingEmail?: any;
+  creatorTitle?: string;
+
+  country?: string;
+  countryName?: string;
+  countryCode?: string;
+  location?: string;
+  language?: string;
+  languageCode?: string;
+  languages?: any[];
+
   createdAt: string;
   updatedAt: string;
-};
-
-type InvitationListResponse = {
-  page: number;
-  limit: number;
-  total: number;
-  hasNext: boolean;
-  data: Invitation[];
-};
-
-type NonFullManagedCampaignListResponse = {
-  success?: boolean;
-  message?: string;
-  data?: any;
-  campaigns?: any[];
-  items?: any[];
 };
 
 type CreateInvitationResponse = {
@@ -239,26 +319,6 @@ type CreateInvitationResponse = {
   error?: string;
   status?: "saved" | "exists" | "error" | string;
   data?: any;
-};
-
-type CreateMissingResp = {
-  success?: boolean;
-  message?: string;
-  error?: string;
-  data?: any;
-};
-
-type CreateFolderResponse = {
-  success?: boolean;
-  message?: string;
-  error?: string;
-  data?: {
-    _id?: string;
-    title?: string;
-    name?: string;
-    linkedCampaign?: RelatedCampaign;
-    [key: string]: any;
-  };
 };
 
 type BrandFolderItem = {
@@ -329,34 +389,15 @@ type BrandFolder = {
   archivedAt?: string | null;
 };
 
-type BrandFolderListResponse = {
-  success?: boolean;
-  message?: string;
-  error?: string;
-  data?: {
-    totalCount?: number;
-    folderCount?: number;
-    bookmarkCount?: number;
-    goodFitCount?: number;
-    folders?: BrandFolder[];
-    groups?: {
-      folders?: BrandFolder[];
-      bookmarks?: BrandFolder[];
-      goodFit?: BrandFolder[];
-    };
-  };
-};
-
-const BRAND_FOLDER_LIST_ENDPOINT = "/brand/folder/list";
-const BRAND_FOLDER_CREATE_ENDPOINT = "/brand/folder/create";
-const NEW_INVITATIONS_LIST_ENDPOINT = "/newinvitations/list";
-const NEW_INVITATIONS_CREATE_ENDPOINT = "/newinvitations/create";
-const MISSING_EMAIL_CREATE_ENDPOINT = "/missing/create";
-const NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT = "/campaign/getNonFullManagedCampaigns";
-const SHAREMITRA_API_BASE =
-  process.env.NEXT_PUBLIC_SHAREMITRA_API_BASE_URL || "https://api.sharemitra.com";
-
-type InfluencerStatus = "Sent" | "Pending" | "Rejected" | "Good Fit" | "Media Kit" | "Bookmarked";
+type InfluencerStatus =
+  | "Sent"
+  | "Pending"
+  | "Invited"
+  | "Available"
+  | "Rejected"
+  | "Good Fit"
+  | "Media Kit"
+  | "Bookmarked";
 
 type InfluencerRow = {
   id: string;
@@ -380,6 +421,8 @@ type InfluencerRow = {
 const statusStyles: Record<InfluencerStatus, string> = {
   Sent: "bg-[#F7F7F7] text-[#777777] before:bg-[#21B15A]",
   Pending: "bg-[#F7F7F7] text-[#777777] before:bg-[#FF8A3D]",
+  Invited: "bg-[#F7F7F7] text-[#777777] before:bg-[#3D7CFF]",
+  Available: "bg-[#F7F7F7] text-[#777777] before:bg-[#21B15A]",
   Rejected: "bg-[#F7F7F7] text-[#777777] before:bg-[#EF4C3C]",
   "Good Fit": "bg-[#F7F7F7] text-[#777777] before:bg-[#21B15A]",
   "Media Kit": "bg-[#F7F7F7] text-[#777777] before:bg-[#3D7CFF]",
@@ -575,36 +618,6 @@ function parseAgeRange(value: unknown) {
   return null;
 }
 
-function hasActiveMoreFilters(filters: MoreFiltersState) {
-  const searchMode = String(filters.search?.mode || "").trim();
-
-  if (searchMode && searchMode !== "combined") return true;
-
-  const influencer = filters.influencer || {};
-
-  if (
-    influencer.tier ||
-    typeof influencer.isVerified === "boolean" ||
-    typeof influencer.ageMin === "number" ||
-    typeof influencer.ageMax === "number" ||
-    influencer.gender
-  ) {
-    return true;
-  }
-
-  const audience = filters.audience || {};
-
-  if (audience.country) return true;
-
-  const platform = filters.platform || {};
-
-  return Object.values(platform).some(
-    (item) =>
-      typeof item?.followersMin === "number" ||
-      typeof item?.followersMax === "number"
-  );
-}
-
 function rangesOverlap(
   left: { min?: number; max?: number } | null,
   right: { min?: number; max?: number } | null
@@ -714,76 +727,16 @@ function getModashCategories(item: GoodFitInfluencer) {
         : [];
 }
 
-function buildGoodFitApiParams(
-  filters: MoreFiltersState,
-  searchText: string
-) {
-  const params: Record<string, string | number | boolean> = {};
-  const q = searchText.trim();
-
-  if (q) params.q = q;
-
-  const searchMode = String(filters.search?.mode || "").trim();
-  if (searchMode) params.searchMode = searchMode;
-
-  const tier = String(filters.influencer?.tier || "").trim();
-  if (tier) params.tier = tier;
-
-  if (typeof filters.influencer?.isVerified === "boolean") {
-    params.isVerified = filters.influencer.isVerified;
-  }
-
-  const gender = String(filters.influencer?.gender || "")
-    .trim()
-    .toLowerCase();
-
-  if (gender && gender !== "all") {
-    params.gender =
-      gender === "male" || gender === "female"
-        ? gender
-        : gender.replace(/^@+/, "");
-  }
-
-  if (typeof filters.influencer?.ageMin === "number") {
-    params.ageMin = filters.influencer.ageMin;
-  }
-
-  if (typeof filters.influencer?.ageMax === "number") {
-    params.ageMax = filters.influencer.ageMax;
-  }
-
-  const country = String(filters.audience?.country || "").trim();
-  if (country) params.country = country;
-
-  const platformRanges = Object.values(filters.platform || {}).filter(
-    (range) =>
-      typeof range?.followersMin === "number" ||
-      typeof range?.followersMax === "number"
-  );
-
-  if (platformRanges.length) {
-    const firstRange = platformRanges[0];
-
-    if (
-      typeof firstRange.followersMin === "number" &&
-      params.followersMin === undefined
-    ) {
-      params.followersMin = firstRange.followersMin;
-    }
-
-    if (
-      typeof firstRange.followersMax === "number" &&
-      params.followersMax === undefined
-    ) {
-      params.followersMax = firstRange.followersMax;
-    }
-  }
-
-  return params;
-}
-
-
 type CreatorHubTab = "hub" | "invited";
+
+type DateFilterValue =
+  | "all"
+  | "today"
+  | "yesterday"
+  | "last_7_days"
+  | "last_30_days"
+  | "this_month"
+  | "last_month";
 
 function getTabFromSearchParam(): CreatorHubTab {
   if (typeof window === "undefined") return "hub";
@@ -813,77 +766,50 @@ function writeTabToSearchParam(tab: CreatorHubTab) {
 function getStoredBrandId() {
   if (typeof window === "undefined") return "";
 
-  return String(window.localStorage.getItem("brandId") || "").trim();
-}
+  const directKeys = [
+    "brandId",
+    "brand_id",
+    "brandID",
+    "currentBrandId",
+    "selectedBrandId",
+  ];
 
-
-function getStoredAuthToken() {
-  if (typeof window === "undefined") return "";
-
-  const token =
-    window.localStorage.getItem("brand_token") ||
-    window.localStorage.getItem("brandToken") ||
-    window.localStorage.getItem("token") ||
-    window.localStorage.getItem("authToken") ||
-    "";
-
-  return String(token || "").trim();
-}
-
-function getAuthHeaders() {
-  const token = getStoredAuthToken();
-
-  if (!token) return {};
-
-  return {
-    Authorization: token.toLowerCase().startsWith("bearer ")
-      ? token
-      : `Bearer ${token}`,
-  };
-}
-
-async function post<T>(url: string, payload: unknown): Promise<T> {
-  const response = await api.post<T>(url, payload);
-
-  return response.data;
-}
-
-async function post2<T>(url: string, payload: unknown): Promise<T> {
-  const fullUrl = `${SHAREMITRA_API_BASE}${url.startsWith("/") ? url : `/${url}`}`;
-
-  const response = await fetch(fullUrl, {
-    method: "POST",
-    // headers: {
-    //   "Content-Type": "application/json",
-    //   ...getAuthHeaders(),
-    // },
-    body: JSON.stringify(payload),
-  });
-
-  let data: any = null;
-
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
+  for (const key of directKeys) {
+    const value = String(window.localStorage.getItem(key) || "").trim();
+    if (value && value !== "undefined" && value !== "null") {
+      return value;
+    }
   }
 
-  if (!response.ok) {
-    const error = new Error(
-      data?.message || data?.error || `Request failed with ${response.status}`
-    ) as Error & { response?: { data?: any; status?: number } };
+  const jsonKeys = ["brand", "user", "authUser", "userData", "brandData"];
 
-    error.response = {
-      data,
-      status: response.status,
-    };
+  for (const key of jsonKeys) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
 
-    throw error;
+      const parsed = JSON.parse(raw);
+
+      const value = String(
+        parsed?.brandId ||
+        parsed?.brand_id ||
+        parsed?.brand?._id ||
+        parsed?.brand?.id ||
+        parsed?._id ||
+        parsed?.id ||
+        ""
+      ).trim();
+
+      if (value && value !== "undefined" && value !== "null") {
+        return value;
+      }
+    } catch {
+      // Ignore invalid localStorage JSON
+    }
   }
 
-  return data as T;
+  return "";
 }
-
 
 function displayText(value?: string | number | null) {
   const text = String(value ?? "").trim();
@@ -1386,7 +1312,6 @@ function getProfileImageUrl(item?: GoodFitInfluencer | BrandFolderItem | null) {
   return /^https?:\/\//i.test(url) ? url : "";
 }
 
-
 function isUrlLikeLabel(value?: string | number | null) {
   const text = String(value ?? "").trim();
 
@@ -1485,7 +1410,8 @@ function getStatus(item: GoodFitInfluencer): InfluencerStatus {
 function getInvitationStatus(status?: InvitationStatus): InfluencerStatus {
   const normalized = String(status || "").trim().toLowerCase();
 
-  if (normalized === "available" || normalized === "sent") return "Sent";
+  if (normalized === "invited" || normalized === "sent") return "Sent";
+  if (normalized === "available") return "Available";
   if (normalized === "rejected" || normalized === "blocked") return "Rejected";
 
   return "Pending";
@@ -1625,7 +1551,6 @@ function mergeGoodFitItems(items: GoodFitInfluencer[]) {
   return Array.from(map.values());
 }
 
-
 function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
   const relatedCampaigns = normalizeRelatedCampaigns(item);
   const relatedFolders = normalizeRelatedFolders(item);
@@ -1670,50 +1595,140 @@ function mapGoodFitItem(item: GoodFitInfluencer, index: number): InfluencerRow {
 function mapInvitationToRow(invitation: Invitation, index: number): InfluencerRow {
   const handle = normalizeHandle(invitation.handle);
   const cleanUsername = handle !== "—" ? handle.replace("@", "") : "username";
-  const campaignName = displayText(invitation.campaignName) || "—";
+
+  const campaign = invitation.campaign || null;
+
+  const campaignId = String(
+    invitation.campaignId ||
+    campaign?._id ||
+    ""
+  ).trim();
+
+  const campaignName = displayText(
+    invitation.campaignName ||
+    campaign?.campaignTitle ||
+    campaign?.campaignType ||
+    "—"
+  );
+
+  const category = displayCategory(
+    getCategoryListFromValues(
+      campaign?.campaignCategory,
+      campaign?.campaignSubcategory
+    )
+  );
+
+  const country = getDisplayCountry(
+    invitation.country ||
+    invitation.countryName ||
+    invitation.countryCode ||
+    invitation.location ||
+    campaign?.targetCountry ||
+    ""
+  );
+
+  const language = getDisplayLanguage(
+    invitation.language ||
+    invitation.languageCode ||
+    invitation.languages?.[0] ||
+    campaign?.creatorContentLanguage ||
+    campaign?.audienceContentLanguage ||
+    ""
+  );
+
+  const profileUrl = getInvitationProfileUrl(invitation);
+
+  const rowId = String(
+    invitation._id ||
+    invitation.invitationId ||
+    `${invitation.handle || "invited"}-${campaignId || index}`
+  );
 
   return {
-    id: String(invitation.invitationId || `${invitation.handle || "invited"}-${index}`),
-    profile: cleanUsername === "username" ? "Label" : cleanUsername,
+    id: rowId,
+    profile:
+      invitation.creatorTitle && invitation.creatorTitle !== handle
+        ? invitation.creatorTitle
+        : cleanUsername === "username"
+          ? "Label"
+          : cleanUsername,
     username: cleanUsername,
     handle,
     avatarUrl: getProfileImageUrl(invitation as any),
     status: getInvitationStatus(invitation.status),
-    category: "—",
+
+    category,
     folder: campaignName,
     campaignName,
-    country: getDisplayCountry(
-      (invitation as any).country ||
-      (invitation as any).countryName ||
-      (invitation as any).countryCode ||
-      (invitation as any).location ||
-      (invitation as any).modash?.country
-    ),
-    language: getDisplayLanguage(getModashLanguageText(invitation as any)),
+
+    country,
+    language,
+
     invitationDate: formatDate(invitation.createdAt),
-    profileUrl: getInvitationProfileUrl(invitation),
-    relatedCampaigns: invitation.campaignId
+    profileUrl,
+
+    relatedCampaigns: campaignId
       ? [
         {
-          campaignId: invitation.campaignId,
-          campaignTitle: invitation.campaignName || undefined,
+          campaignId,
+          campaignTitle: campaignName,
           assignedAt: invitation.createdAt,
         },
       ]
       : [],
+
     relatedFolders: [],
+
     raw: {
-      _id: invitation.invitationId,
+      _id: rowId,
+      invitationId: invitation.invitationId || null,
+
+      userId: invitation.userId || invitation.modashUserId || "",
+      influencerId: invitation.userId || invitation.modashUserId || "",
+      creatorId: invitation.userId || invitation.modashUserId || "",
+      modashId: invitation.modashUserId || invitation.userId || "",
+
       provider: invitation.platform,
-      name: cleanUsername,
+      platform: invitation.platform,
+
+      name:
+        invitation.creatorTitle ||
+        cleanUsername ||
+        handle ||
+        "Label",
+      fullname:
+        invitation.creatorTitle ||
+        cleanUsername ||
+        handle ||
+        "Label",
+      username: cleanUsername,
       handle,
-      primaryLink: getInvitationProfileUrl(invitation),
-      country: "",
+
+      primaryLink: profileUrl,
+      links: profileUrl ? [profileUrl] : [],
+
+      country,
+      location: country,
+      language,
+
       goodFit: false,
+      status: invitation.status,
+
+      invitation,
+      campaign,
+
+      relatedCampaigns: campaignId
+        ? [
+          {
+            campaignId,
+            campaignTitle: campaignName,
+            assignedAt: invitation.createdAt,
+          },
+        ]
+        : [],
     },
   };
 }
-
 function extractBrandFolderList(payload: any): BrandFolder[] {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.data?.folders)) return payload.data.folders;
@@ -1822,8 +1837,49 @@ function mapBrandFolderItemToGoodFit(
     assignedCampaign: linkedCampaign || undefined,
   };
 
+  const reportUserId = String(
+    item.userId ||
+    raw?.userId ||
+    raw?.profile?.userId ||
+    raw?.creator?.userId ||
+    raw?.modash?.userId ||
+    raw?.modashProfile?.userId ||
+    modash?.userId ||
+    item.influencerId ||
+    raw?.influencerId ||
+    raw?.profile?.influencerId ||
+    raw?.creator?.influencerId ||
+    raw?.modash?.influencerId ||
+    raw?.modashProfile?.influencerId ||
+    modash?.influencerId ||
+    item.creatorId ||
+    raw?.creatorId ||
+    raw?.profile?.creatorId ||
+    raw?.creator?.creatorId ||
+    item.modashId ||
+    raw?.modashId ||
+    raw?.profile?.modashId ||
+    raw?.creator?.modashId ||
+    raw?.modash?.modashId ||
+    raw?.modashProfile?.modashId ||
+    modash?.modashId ||
+    item.profileKey ||
+    raw?.profileKey ||
+    raw?.profile?.profileKey ||
+    raw?.creator?.profileKey ||
+    raw?.modash?._id ||
+    raw?.modashProfile?._id ||
+    modash?._id ||
+    ""
+  ).trim();
+
   return {
-    _id: String(item._id || item.id || item.profileKey || `${folderId}-${index}`),
+    _id: String(item._id || item.id || item.profileKey || reportUserId || `${folderId}-${index}`),
+    userId: reportUserId,
+    influencerId: String(item.influencerId || raw?.influencerId || reportUserId || "").trim(),
+    creatorId: String(item.creatorId || raw?.creatorId || reportUserId || "").trim(),
+    modashId: String(item.modashId || raw?.modashId || modash?._id || reportUserId || "").trim(),
+    profileKey: String(item.profileKey || raw?.profileKey || reportUserId || "").trim(),
     provider: item.provider || item.platform || raw?.provider || raw?.platform,
     name,
     handle,
@@ -1964,9 +2020,9 @@ function mapFolderToCampaignOption(folder: any): CampaignOption | null {
     type: String(folder?.type || folder?.folderType || "folder"),
     isFullyManaged: false,
     goodFitCount: Number(folder?.itemCount || folder?.items?.length || 0),
+    raw: campaign || folder,
   };
 }
-
 
 function looksLikeMongoId(value: unknown) {
   return /^[a-f0-9]{24}$/i.test(String(value ?? "").trim());
@@ -2017,8 +2073,6 @@ function findCampaignTitleDeep(value: any, depth = 0): string {
 
   if (typeof value !== "object") return "";
 
-  // Backend currently sends campaignTitle as a URL in some records.
-  // Prefer real display-name fields first.
   const displayName = pickCampaignTextFromKeys(value, [
     "campaignName",
     "campaign_name",
@@ -2043,7 +2097,6 @@ function findCampaignTitleDeep(value: any, depth = 0): string {
 
   if (nestedName) return nestedName;
 
-  // Use campaignTitle only after safer fields, and only if it is not a URL/id.
   const campaignTitle = pickCampaignTextFromKeys(value, [
     "campaignTitle",
     "campaign_title",
@@ -2120,7 +2173,6 @@ function getCampaignOptionDisplayName(campaign: any, id: string) {
   return label;
 }
 
-
 function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
   const id = String(
     getIdString(campaign?.campaignId) ||
@@ -2139,6 +2191,7 @@ function mapRawCampaignToCampaignOption(campaign: any): CampaignOption | null {
     label,
     type: "campaign",
     isFullyManaged: Boolean(campaign?.isFullyManaged),
+    raw: campaign,
   };
 }
 
@@ -2172,7 +2225,6 @@ function buildCreateCampaignOptions(campaigns: any[]): CampaignOption[] {
     a.label.localeCompare(b.label)
   );
 }
-
 
 function getRowCampaignId(row: InfluencerRow) {
   const campaign = row.relatedCampaigns.find((item) => {
@@ -2218,7 +2270,6 @@ function getInvitationHandle(row: InfluencerRow) {
   return handle.startsWith("@") ? handle : `@${handle}`;
 }
 
-
 function getInvitationCreatedAtFromResponse(payload: any) {
   return String(
     payload?.data?.createdAt ||
@@ -2230,23 +2281,252 @@ function getInvitationCreatedAtFromResponse(payload: any) {
   ).trim();
 }
 
-function getInvitationCreateStatus(payload: any): "saved" | "exists" | "error" {
-  const status = String(
-    payload?.status ||
-    payload?.data?.status ||
-    payload?.data?.data?.status ||
+function getInvitationIdFromResponse(payload: any) {
+  return String(
+    payload?.data?._id ||
+    payload?.data?.invitationId ||
+    payload?.data?.invitation?._id ||
+    payload?.data?.invitation?.invitationId ||
+    payload?.data?.data?._id ||
+    payload?.data?.data?.invitationId ||
+    payload?.data?.data?.invitation?._id ||
+    payload?.data?.data?.invitation?.invitationId ||
+    payload?._id ||
+    payload?.invitationId ||
     ""
-  )
+  ).trim();
+}
+function getInvitationMessage(payload: any) {
+  return String(
+    payload?.message ||
+    payload?.data?.message ||
+    payload?.data?.data?.message ||
+    payload?.result?.message ||
+    payload?.response?.data?.message ||
+    payload?.error ||
+    payload?.data?.error ||
+    ""
+  ).trim();
+}
+
+function isInvitationSuccessResponse(payload: any) {
+  const status = String(payload?.status || payload?.data?.status || "")
     .trim()
     .toLowerCase();
+  const message = getInvitationMessage(payload).toLowerCase();
 
-  if (status === "saved" || status === "exists") return status;
+  return (
+    payload?.success === true ||
+    status === "saved" ||
+    status === "exists" ||
+    status === "created" ||
+    status === "success" ||
+    status === "sent" ||
+    message.includes("invitation created successfully") ||
+    message.includes("created successfully") ||
+    message.includes("sent successfully")
+  );
+}
 
-  if (payload?.success === true || payload?.data?.success === true) {
-    return "saved";
+function extractInvitationList(payload: any): Invitation[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.data)) return payload.data.data;
+  if (Array.isArray(payload?.invitations)) return payload.invitations;
+  if (Array.isArray(payload?.data?.invitations)) return payload.data.invitations;
+  if (Array.isArray(payload?.data?.data?.invitations)) return payload.data.data.invitations;
+  return [];
+}
+
+function getInvitationCampaignId(invitation: any) {
+  return String(
+    invitation?.campaignId ||
+    invitation?.campaign?._id ||
+    invitation?.campaign?.id ||
+    invitation?.campaign?.campaignId ||
+    ""
+  ).trim();
+}
+
+function getInvitationUserId(invitation: any) {
+  return String(
+    invitation?.userId ||
+    invitation?.modashUserId ||
+    invitation?.influencerId ||
+    invitation?.creatorId ||
+    invitation?.raw?.userId ||
+    invitation?.raw?.modashUserId ||
+    ""
+  ).trim();
+}
+
+function getInvitationIdentityKeyFromValues(userId?: string, handle?: string, platform?: string) {
+  const cleanUserId = String(userId || "").trim();
+
+  if (cleanUserId && cleanUserId !== "undefined" && cleanUserId !== "null") {
+    return `user:${cleanUserId}`;
   }
 
-  return "error";
+  const cleanHandle = String(handle || "")
+    .trim()
+    .replace(/^@+/, "")
+    .toLowerCase();
+  const cleanPlatform = String(platform || "").trim().toLowerCase();
+
+  return cleanHandle ? `handle:${cleanPlatform}:${cleanHandle}` : "";
+}
+
+function getInvitationIdentityKeyFromInvitation(invitation: any) {
+  return getInvitationIdentityKeyFromValues(
+    getInvitationUserId(invitation),
+    invitation?.handle,
+    invitation?.platform
+  );
+}
+
+function getInvitationLockFromInvitation(invitation: any): InvitationCampaignLock | null {
+  const campaignId = getInvitationCampaignId(invitation);
+  if (!campaignId) return null;
+
+  const createdAt = String(invitation?.createdAt || invitation?.updatedAt || new Date().toISOString()).trim();
+  const createdTime = new Date(createdAt).getTime();
+  const safeCreatedTime = Number.isNaN(createdTime) ? Date.now() : createdTime;
+  const expiresAt = new Date(safeCreatedTime + 24 * 60 * 60 * 1000).toISOString();
+
+  return {
+    invitationId: String(invitation?._id || invitation?.invitationId || "").trim(),
+    campaignId,
+    campaignTitle: String(
+      invitation?.campaignName ||
+      invitation?.campaign?.campaignTitle ||
+      invitation?.campaign?.name ||
+      invitation?.campaign?.title ||
+      "Campaign"
+    ).trim(),
+    createdAt: new Date(safeCreatedTime).toISOString(),
+    expiresAt,
+    status: invitation?.status,
+  };
+}
+
+function getLockRemainingMs(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
+  if (!lock?.expiresAt) return 0;
+  const expiresAt = new Date(lock.expiresAt).getTime();
+  if (Number.isNaN(expiresAt)) return 0;
+  return Math.max(0, expiresAt - now);
+}
+
+function isCampaignLockActive(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
+  return getLockRemainingMs(lock, now) > 0;
+}
+
+function formatLockRemaining(ms: number) {
+  if (ms <= 0) return "00:00";
+
+  const totalMinutes = Math.ceil(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) return `${minutes}m`;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function getCampaignLockLabel(lock: InvitationCampaignLock | null | undefined, now = Date.now()) {
+  const remaining = getLockRemainingMs(lock, now);
+  return remaining > 0 ? `Locked ${formatLockRemaining(remaining)}` : "Follow up";
+}
+
+function showToastMessage(
+  type: "success" | "error" | "info" | "warning",
+  title: string,
+  description?: string
+) {
+  toast({
+    icon: type,
+    title,
+    text: description,
+  });
+}
+
+function startOfDay(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function getRowDateValue(row: InfluencerRow) {
+  const raw: any = row.raw || {};
+
+  const value = String(
+    raw.createdAt ||
+    raw.updatedAt ||
+    raw.addedAt ||
+    raw.invitedAt ||
+    raw.invitationDate ||
+    raw.invitationCreatedAt ||
+    raw.invitation?.createdAt ||
+    raw.source?.importedAt ||
+    ""
+  ).trim();
+
+  if (!value && row.invitationDate && row.invitationDate !== "-") {
+    const currentYear = new Date().getFullYear();
+    const date = new Date(`${row.invitationDate}/${currentYear}`);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function rowMatchesDateFilter(row: InfluencerRow, filter: DateFilterValue) {
+  if (filter === "all") return true;
+
+  const rowDate = getRowDateValue(row);
+  if (!rowDate) return false;
+
+  const today = startOfDay(new Date());
+  const rowDay = startOfDay(rowDate);
+
+  if (filter === "today") {
+    return rowDay.getTime() === today.getTime();
+  }
+
+  if (filter === "yesterday") {
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    return rowDay.getTime() === yesterday.getTime();
+  }
+
+  if (filter === "last_7_days") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    return rowDay >= start && rowDay <= today;
+  }
+
+  if (filter === "last_30_days") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 29);
+    return rowDay >= start && rowDay <= today;
+  }
+
+  if (filter === "this_month") {
+    return (
+      rowDay.getFullYear() === today.getFullYear() &&
+      rowDay.getMonth() === today.getMonth()
+    );
+  }
+
+  if (filter === "last_month") {
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+
+    return (
+      rowDay.getFullYear() === lastMonth.getFullYear() &&
+      rowDay.getMonth() === lastMonth.getMonth()
+    );
+  }
+
+  return true;
 }
 
 function isDuplicateInvitationError(error: any) {
@@ -2269,7 +2549,6 @@ function isSupportedInvitationPlatform(platform: string) {
   return ["youtube", "instagram", "tiktok"].includes(platform);
 }
 
-
 function getCampaignOptionById(
   campaignOptions: CampaignOption[],
   campaignId?: string | null
@@ -2291,7 +2570,6 @@ function getCampaignLabelById(
 ) {
   return getCampaignOptionById(campaignOptions, campaignId)?.label || "";
 }
-
 
 function Avatar({ index, name, src }: { index: number; name: string; src?: string }) {
   const [imageFailed, setImageFailed] = React.useState(false);
@@ -2342,7 +2620,6 @@ function Avatar({ index, name, src }: { index: number; name: string; src?: strin
   );
 }
 
-
 function StatusBadge({ status }: { status: InfluencerStatus }) {
   return (
     <span
@@ -2350,40 +2627,6 @@ function StatusBadge({ status }: { status: InfluencerStatus }) {
     >
       {status}
     </span>
-  );
-}
-
-function FilterSelect({
-  label,
-  value,
-  children,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  children: React.ReactNode;
-  onChange?: (value: string) => void;
-}) {
-  return (
-    <label className="inline-flex h-8 items-center gap-2 text-xs text-[#111111]">
-      <span>{label}</span>
-
-      <span className="relative inline-flex items-center rounded-md bg-[#EFEFEF]">
-        <select
-          value={value}
-          onChange={(event) => onChange?.(event.target.value)}
-          className="h-7 min-w-[58px] max-w-[170px] cursor-pointer appearance-none rounded-md bg-transparent py-1 pl-2 pr-6 text-xs font-medium text-[#111111] outline-none"
-        >
-          {children}
-        </select>
-
-        <CaretDownIcon
-          size={10}
-          weight="bold"
-          className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#222]"
-        />
-      </span>
-    </label>
   );
 }
 
@@ -2402,6 +2645,258 @@ function CountryCell({ country }: { country: string }) {
   );
 }
 
+function getRowEmail(row: InfluencerRow | null) {
+  if (!row) return "";
+
+  const raw: any = row.raw || {};
+  const rawRaw: any = raw.raw || {};
+
+  return String(
+    raw.email ||
+    rawRaw.email ||
+    raw.profile?.email ||
+    raw.creator?.email ||
+    ""
+  ).trim();
+}
+
+// function getEmailEditorSubject(context: PendingInvitationContext | null) {
+//   if (!context) return "";
+
+//   return context.campaignTitle && context.campaignTitle !== "—"
+//     ? `Collaboration invitation for ${context.campaignTitle}`
+//     : "Collaboration invitation";
+// }
+
+function escapeTemplateHtml(value: string) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function getBrandDisplayName() {
+  if (typeof window === "undefined") return "CollabGlam";
+
+  return (
+    localStorage.getItem("brandName") ||
+    localStorage.getItem("brand_name") ||
+    "CollabGlam"
+  );
+}
+
+function getCampaignValue(campaign: any, paths: string[]) {
+  for (const path of paths) {
+    const value = readPathValue(campaign, path);
+    const text = readableTextFromUnknown(value);
+
+    if (text && text !== "—") return text;
+  }
+
+  return "";
+}
+
+function getCampaignListValue(campaign: any, paths: string[]) {
+  for (const path of paths) {
+    const value = readPathValue(campaign, path);
+    const list = readableListFromUnknown(value);
+
+    if (list.length) return list.join(", ");
+  }
+
+  return "";
+}
+
+function formatDateForEmail(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getCampaignTimelineValue(campaign: any) {
+  const directTimeline = getCampaignValue(campaign, [
+    "timeline",
+    "campaignTimeline",
+    "campaign_timeline",
+    "duration",
+    "schedule",
+    "brief.timeline",
+    "details.timeline",
+  ]);
+
+  if (directTimeline) return directTimeline;
+
+  const start =
+    formatDateForEmail(
+      campaign?.startAt ||
+      campaign?.startDate ||
+      campaign?.campaignStartDate ||
+      campaign?.timeline?.startAt ||
+      campaign?.timeline?.startDate
+    ) || "";
+
+  const end =
+    formatDateForEmail(
+      campaign?.endAt ||
+      campaign?.endDate ||
+      campaign?.campaignEndDate ||
+      campaign?.timeline?.endAt ||
+      campaign?.timeline?.endDate
+    ) || "";
+
+  if (start && end) return `${start} - ${end}`;
+  if (start) return start;
+  if (end) return end;
+
+  return "";
+}
+
+function getCampaignDetailsForEmail(context: PendingInvitationContext | null) {
+  const selectedCampaign = context?.selectedCampaign || {};
+  const campaignName = context?.campaignTitle || "";
+
+  const campaignTitle =
+    selectedCampaign?.campaignTitle ||
+    selectedCampaign?.campaign_name ||
+    selectedCampaign?.campaignName ||
+    selectedCampaign?.title ||
+    selectedCampaign?.name ||
+    selectedCampaign?.productOrServiceName ||
+    campaignName ||
+    "your campaign";
+
+  const objective = getCampaignValue(selectedCampaign, [
+    "objective",
+    "campaignObjective",
+    "campaign_objective",
+    "goal",
+    "goals",
+    "description",
+    "brief.objective",
+    "brief.description",
+    "details.objective",
+    "details.description",
+  ]);
+
+  const deliverables =
+    getCampaignListValue(selectedCampaign, [
+      "deliverables",
+      "deliverablesRequired",
+      "campaignDeliverables",
+      "contentDeliverables",
+      "contentRequirements",
+      "requirements",
+      "brief.deliverables",
+      "brief.contentRequirements",
+      "details.deliverables",
+    ]) ||
+    getCampaignValue(selectedCampaign, [
+      "deliverables",
+      "deliverablesRequired",
+      "campaignDeliverables",
+      "contentDeliverables",
+      "contentRequirements",
+      "requirements",
+      "brief.deliverables",
+      "details.deliverables",
+    ]);
+
+  const compensation = getCampaignValue(selectedCampaign, [
+    "compensation",
+    "campaignBudget",
+    "budget",
+    "campaign_budget",
+    "rate",
+    "price",
+    "pricing",
+    "payout",
+    "payment",
+    "brief.compensation",
+    "brief.budget",
+    "details.compensation",
+    "details.budget",
+  ]);
+
+  const timeline = getCampaignTimelineValue(selectedCampaign);
+
+  return {
+    selectedCampaign,
+    campaignTitle,
+    objective,
+    deliverables,
+    compensation,
+    timeline,
+  };
+}
+
+function getEmailEditorSubject(context: PendingInvitationContext | null) {
+  const brandName = getBrandDisplayName();
+
+  return context?.mode === "followup"
+    ? `Follow-up: Invitation to Collaborate - ${brandName}`
+    : `Invitation to Collaborate - ${brandName}`;
+}
+
+
+function getEmailEditorHtmlBody(context: PendingInvitationContext | null) {
+  if (!context) return "";
+
+  const brandName = getBrandDisplayName();
+
+  const displayName =
+    context.row.profile &&
+      context.row.profile !== "—" &&
+      context.row.profile !== "Label"
+      ? context.row.profile
+      : "";
+
+  const displayHandle = context.handle || context.row.handle || "";
+
+  const {
+    campaignTitle,
+    objective,
+    deliverables,
+    compensation,
+    timeline,
+  } = getCampaignDetailsForEmail(context);
+
+  return `
+    <p>Dear ${escapeTemplateHtml(displayName || displayHandle || "Creator")},</p>
+    <p>I hope you are doing well.</p>
+    <p>
+      We are reaching out to formally invite you to collaborate with <strong>${escapeTemplateHtml(brandName)}</strong>
+      for our upcoming campaign, <strong>"${escapeTemplateHtml(campaignTitle)}"</strong>. Based on your creative work and
+      audience alignment, we believe you would be an excellent fit for this project.
+    </p>
+    <h3>Campaign Details</h3>
+    <p><strong>Campaign Name:</strong> ${escapeTemplateHtml(campaignTitle)}</p>
+    <p><strong>Brand:</strong> ${escapeTemplateHtml(brandName)}</p>
+    <p><strong>Objective:</strong>${objective ? ` ${escapeTemplateHtml(objective)}` : ""}</p>
+    <p><strong>Deliverables Required:</strong>${deliverables ? ` ${escapeTemplateHtml(deliverables)}` : ""}</p>
+    <p><strong>Compensation:</strong>${compensation ? ` ${escapeTemplateHtml(compensation)}` : ""}</p>
+    <p><strong>Campaign Timeline:</strong>${timeline ? ` ${escapeTemplateHtml(timeline)}` : ""}</p>
+    <p>To proceed, please review the full brief using the button below.</p>
+    <p>
+      If you have any questions or need further clarification, feel free to contact the brand
+      or reach out to CollabGlam Support.
+    </p>
+    <p>
+      We look forward to the opportunity of working together and hope to have you onboard for this campaign.
+    </p>
+    <p>Warm regards,<br /><strong>Team CollabGlam</strong></p>
+  `;
+}
+
 
 export default function CreatorHubPage() {
   const [activeTab, setActiveTab] = React.useState<CreatorHubTab>("hub");
@@ -2416,9 +2911,21 @@ export default function CreatorHubPage() {
   const [createCampaignOptions, setCreateCampaignOptions] = React.useState<CampaignOption[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = React.useState("all");
   const [selectedCategoryId, setSelectedCategoryId] = React.useState("all");
+  const [selectedDateFilter, setSelectedDateFilter] =
+    React.useState<DateFilterValue>("all");
   const [categoryOptions, setCategoryOptions] = React.useState<CategoryOption[]>([]);
   const [categoryLoading, setCategoryLoading] = React.useState(false);
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [profilePanelOpen, setProfilePanelOpen] = React.useState(false);
+  const [profilePanelRow, setProfilePanelRow] = React.useState<InfluencerRow | null>(null);
+  const [emailEditorOpen, setEmailEditorOpen] = React.useState(false);
+  const [pendingInvitation, setPendingInvitation] =
+    React.useState<PendingInvitationContext | null>(null);
+  const [invitedRefreshKey, setInvitedRefreshKey] = React.useState(0);
+  const [invitationLocks, setInvitationLocks] = React.useState<
+    Record<string, Record<string, InvitationCampaignLock>>
+  >({});
+  const [lockNow, setLockNow] = React.useState(() => Date.now());
   const [moreFilters, setMoreFilters] = React.useState<MoreFiltersState>({
     search: { mode: "combined" },
     influencer: {},
@@ -2429,8 +2936,6 @@ export default function CreatorHubPage() {
     },
     audience: {},
   });
-  const [folderComboboxOpen, setFolderComboboxOpen] = React.useState(false);
-  const [folderMenuSearch, setFolderMenuSearch] = React.useState("");
   const [createFolderOpen, setCreateFolderOpen] = React.useState(false);
   const [createFolderName, setCreateFolderName] = React.useState("");
   const [createFolderTier, setCreateFolderTier] = React.useState("");
@@ -2440,11 +2945,14 @@ export default function CreatorHubPage() {
   const [refreshFolderListKey, setRefreshFolderListKey] = React.useState(0);
   const [creatorTierComboboxOpen, setCreatorTierComboboxOpen] = React.useState(false);
   const [linkCampaignComboboxOpen, setLinkCampaignComboboxOpen] = React.useState(false);
-  const [filterDropdownOpen, setFilterDropdownOpen] = React.useState(false);
-  const filterAnchorRef = React.useRef<HTMLDivElement | null>(null);
   const [activeActionComboboxId, setActiveActionComboboxId] = React.useState<string | null>(null);
   const [activeInviteCampaignPickerId, setActiveInviteCampaignPickerId] = React.useState<string | null>(null);
   const [sendingInvitationId, setSendingInvitationId] = React.useState<string | null>(null);
+  const [profilePanelLoading, setProfilePanelLoading] = React.useState(false);
+  const [profilePanelError, setProfilePanelError] = React.useState<string | null>(null);
+  const [profilePanelReport, setProfilePanelReport] = React.useState<any | null>(null);
+  const [profilePanelLastFetchedAt, setProfilePanelLastFetchedAt] = React.useState<string | null>(null);
+  const [profilePanelCalc, setProfilePanelCalc] = React.useState<"median" | "average">("median");
 
   React.useEffect(() => {
     const initialTab = getTabFromSearchParam();
@@ -2462,6 +2970,14 @@ export default function CreatorHubPage() {
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
+  }, []);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      setLockNow(Date.now());
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   React.useEffect(() => {
@@ -2529,9 +3045,6 @@ export default function CreatorHubPage() {
     });
   }, []);
 
-  const applyMoreFilters = React.useCallback(() => {
-    setFilterDropdownOpen(false);
-  }, []);
 
   const resetCreateFolderForm = React.useCallback(() => {
     setCreateFolderName("");
@@ -2573,31 +3086,33 @@ export default function CreatorHubPage() {
         payload.tier = createFolderTier;
       }
 
-      const response = await api.post<CreateFolderResponse>(
-        BRAND_FOLDER_CREATE_ENDPOINT,
-        payload
-      );
+      const response = await apiBrandFolderCreate(payload as any);
 
       const createdFolderId = String(
-        response?.data?.data?._id ||
-        response?.data?.data?.id ||
+        (response as any)?.data?._id ||
+        (response as any)?.data?.id ||
+        (response as any)?._id ||
+        (response as any)?.id ||
         ""
       );
 
       resetCreateFolderForm();
       setCreateFolderOpen(false);
       setRefreshFolderListKey((prev) => prev + 1);
+      showToastMessage("success", "Folder created successfully.");
 
       if (createdFolderId) {
         setSelectedCampaignId(createdFolderId);
       }
     } catch (err: any) {
-      setCreateFolderError(
+      const message =
         err?.response?.data?.error ||
         err?.response?.data?.message ||
         err?.message ||
-        "Failed to create folder."
-      );
+        "Failed to create folder.";
+
+      setCreateFolderError(message);
+      showToastMessage("error", message);
     } finally {
       setCreateFolderSubmitting(false);
     }
@@ -2608,12 +3123,91 @@ export default function CreatorHubPage() {
     resetCreateFolderForm,
   ]);
 
-  const handleSendInvitation = React.useCallback(
-    async (row: InfluencerRow, campaignIdOverride?: string) => {
+  const getRowInvitationIdentityKey = React.useCallback((row: InfluencerRow) => {
+    const userId = getRowUserId(row);
+    const handle = getInvitationHandle(row);
+    const platform = getRowPlatform(row);
+
+    return getInvitationIdentityKeyFromValues(userId, handle, platform);
+  }, []);
+
+  const mergeInvitationLocks = React.useCallback((items: Invitation[]) => {
+    setInvitationLocks((prev) => {
+      const next: Record<string, Record<string, InvitationCampaignLock>> = {
+        ...prev,
+      };
+
+      items.forEach((item) => {
+        const identityKey = getInvitationIdentityKeyFromInvitation(item);
+        const lock = getInvitationLockFromInvitation(item);
+
+        if (!identityKey || !lock) return;
+
+        next[identityKey] = {
+          ...(next[identityKey] || {}),
+          [lock.campaignId]: lock,
+        };
+      });
+
+      return next;
+    });
+  }, []);
+
+  const loadInvitationLocksForRow = React.useCallback(
+    async (row: InfluencerRow) => {
+      const brandId = getStoredBrandId();
+      const handle = getInvitationHandle(row);
+      const platform = getRowPlatform(row);
+      const userId = getRowUserId(row);
+
+      if (!brandId) return [];
+
+      try {
+        const response = await apiNewInvitationsList({
+          brandId,
+          userId,
+          modashUserId: userId,
+          handle,
+          platform,
+          page: 1,
+          limit: 100,
+          status: "all",
+        } as any);
+
+        const items = extractInvitationList(response);
+        mergeInvitationLocks(items);
+
+        return items;
+      } catch (err) {
+        console.error("Failed to check invitation locks", err);
+        return [];
+      }
+    },
+    [mergeInvitationLocks]
+  );
+
+  const getCampaignLockForRow = React.useCallback(
+    (row: InfluencerRow, campaignId: string) => {
+      const identityKey = getRowInvitationIdentityKey(row);
+      if (!identityKey) return null;
+
+      return invitationLocks[identityKey]?.[campaignId] || null;
+    },
+    [getRowInvitationIdentityKey, invitationLocks]
+  );
+
+  const openEmailEditorForCampaign = React.useCallback(
+    (
+      row: InfluencerRow,
+      campaignId: string,
+      mode: PendingInvitationMode = "invite",
+      lock?: InvitationCampaignLock | null
+    ) => {
       const handle = getInvitationHandle(row);
 
       if (!handle) {
         setError("Invalid or missing handle to send invitation.");
+        showToastMessage("error", "Invalid or missing handle to send invitation.");
         return;
       }
 
@@ -2621,6 +3215,7 @@ export default function CreatorHubPage() {
 
       if (!brandId) {
         setError("Missing brandId in localStorage.");
+        showToastMessage("error", "Missing brandId in localStorage.");
         return;
       }
 
@@ -2628,27 +3223,110 @@ export default function CreatorHubPage() {
 
       if (!isSupportedInvitationPlatform(platform)) {
         setError("Unsupported or missing platform.");
+        showToastMessage("error", "Unsupported or missing platform.");
         return;
       }
 
       if (!/^[A-Za-z0-9._-]+$/.test(handle.replace(/^@/, ""))) {
         setError("Invalid or missing handle to send invitation.");
+        showToastMessage("error", "Invalid or missing handle to send invitation.");
         return;
       }
 
+      const selectedCampaignOption =
+        getCampaignOptionById(createCampaignOptions, campaignId) ||
+        getCampaignOptionById(campaignOptions, campaignId);
+
+      const selectedCampaign = selectedCampaignOption?.raw || null;
+
+      const selectedCampaignTitle =
+        selectedCampaign?.campaignTitle ||
+        selectedCampaign?.campaignName ||
+        selectedCampaign?.title ||
+        selectedCampaign?.name ||
+        selectedCampaign?.productOrServiceName ||
+        selectedCampaignOption?.label ||
+        getRowCampaignName(row);
+
+      setError("");
+      setActiveInviteCampaignPickerId(null);
+
+      setPendingInvitation({
+        row,
+        campaignId,
+        campaignTitle: selectedCampaignTitle,
+        selectedCampaign,
+        handle,
+        platform,
+        brandId,
+        mode,
+        invitationId: lock?.invitationId,
+      });
+
+      setEmailEditorOpen(true);
+    },
+    [campaignOptions, createCampaignOptions]
+  );
+
+  const handleSendInvitation = React.useCallback(
+    async (row: InfluencerRow, campaignIdOverride?: string) => {
       const campaignId = String(
         campaignIdOverride || getRowCampaignId(row) || ""
       ).trim();
 
       if (!campaignId) {
         setActiveInviteCampaignPickerId(row.id);
+        void loadInvitationLocksForRow(row);
         return;
       }
 
-      const selectedCampaignTitle =
-        getCampaignLabelById(createCampaignOptions, campaignId) ||
-        getCampaignLabelById(campaignOptions, campaignId) ||
-        getRowCampaignName(row);
+      const freshInvitations = await loadInvitationLocksForRow(row);
+      const freshLock =
+        freshInvitations
+          .map(getInvitationLockFromInvitation)
+          .find((lock) => lock?.campaignId === campaignId) || null;
+
+      const existingLock = freshLock || getCampaignLockForRow(row, campaignId);
+
+      if (isCampaignLockActive(existingLock, Date.now())) {
+        const remaining = formatLockRemaining(getLockRemainingMs(existingLock, Date.now()));
+        showToastMessage(
+          "info",
+          "Invitation already sent",
+          `This campaign is locked for ${remaining}. You can send a follow-up after 24 hours.`
+        );
+        return;
+      }
+
+      openEmailEditorForCampaign(row, campaignId, existingLock ? "followup" : "invite", existingLock);
+    },
+    [getCampaignLockForRow, loadInvitationLocksForRow, openEmailEditorForCampaign]
+  );
+
+  const handleFollowUpInvitation = React.useCallback(
+    (row: InfluencerRow, campaignId: string) => {
+      const lock = getCampaignLockForRow(row, campaignId);
+      openEmailEditorForCampaign(row, campaignId, "followup", lock);
+    },
+    [getCampaignLockForRow, openEmailEditorForCampaign]
+  );
+
+  const handleEmailEditorSend = React.useCallback(
+    async (emailPayload: EmailEditorPayload) => {
+      if (!pendingInvitation) return;
+
+      const {
+        row,
+        campaignId,
+        campaignTitle,
+        handle,
+        platform,
+        brandId,
+        mode,
+        invitationId,
+      } = pendingInvitation;
+
+      let backendToastMessage = "";
 
       try {
         setSendingInvitationId(row.id);
@@ -2661,71 +3339,98 @@ export default function CreatorHubPage() {
           status: "invited" | "available";
           campaignId?: string;
           campaignTitle?: string;
+          userId?: string;
+          emailSubject?: string;
+          emailBody?: string;
+          emailHtmlBody?: string;
+          emailTo?: string;
+          emailAttachments?: EmailEditorPayload["attachments"];
+          email?: EmailEditorPayload;
+          isFollowUp?: boolean;
+          followUp?: boolean;
+          invitationId?: string;
         } = {
           handle,
           platform,
           brandId,
           status: "invited",
+          campaignId,
+          campaignTitle,
+          userId: getRowUserId(row),
+          emailSubject: emailPayload.subject,
+          emailBody: emailPayload.body,
+          emailHtmlBody: emailPayload.htmlBody,
+          emailTo: emailPayload.to,
+          emailAttachments: emailPayload.attachments,
+          email: emailPayload,
+          isFollowUp: mode === "followup",
+          followUp: mode === "followup",
+          invitationId,
         };
 
-        if (campaignId) {
-          invitationPayload.campaignId = campaignId;
-        }
-
-        if (selectedCampaignTitle) {
-          invitationPayload.campaignTitle = selectedCampaignTitle;
-        }
-
-        const [missingResult, invitationResult] = await Promise.allSettled([
-          post2<CreateMissingResp>(MISSING_EMAIL_CREATE_ENDPOINT, {
-            handle,
-            platform,
-            brandId,
-          }),
-          post<CreateInvitationResponse>(
-            NEW_INVITATIONS_CREATE_ENDPOINT,
-            invitationPayload
-          ),
-        ]);
-
-        if (missingResult.status === "fulfilled") {
-          console.log("Missing/create result", missingResult.value);
-        } else {
-          console.error("Missing/create failed", missingResult.reason);
-        }
-
-        let invitationStatus: CreateInvitationResponse["status"] | "error" =
-          "error";
         let invitationCreatedAt = "";
+        let createdInvitationId = "";
 
-        if (invitationResult.status === "fulfilled") {
-          const resp = invitationResult.value;
+        try {
+          const resp = await apiNewInvitationCreate(invitationPayload);
 
-          if (resp?.status === "saved" || resp?.status === "exists") {
-            invitationStatus = resp.status;
-          } else if (resp?.success === true) {
-            invitationStatus = "saved";
-          } else {
-            invitationStatus = "error";
+          backendToastMessage =
+            getInvitationMessage(resp) || "Invitation created successfully.";
+
+          if (!isInvitationSuccessResponse(resp)) {
+            throw new Error(
+              backendToastMessage ||
+              "We couldn’t send the invitation. Please try again in a moment."
+            );
           }
 
           invitationCreatedAt = getInvitationCreatedAtFromResponse(resp);
-        } else if (isDuplicateInvitationError(invitationResult.reason)) {
-          console.error("Invitation/create duplicate", invitationResult.reason);
-          invitationStatus = "exists";
-        } else {
-          console.error("Invitation/create failed", invitationResult.reason);
-          invitationStatus = "error";
-        }
+          createdInvitationId = getInvitationIdFromResponse(resp);
+        } catch (invitationError: any) {
+          const duplicateMessage =
+            invitationError?.response?.data?.message ||
+            invitationError?.response?.data?.error ||
+            invitationError?.message ||
+            "";
 
-        if (invitationStatus === "error") {
-          setError(
-            "We couldn’t send the invitation. Please try again in a moment."
-          );
-          return;
+          if (isDuplicateInvitationError(invitationError)) {
+            console.error("Invitation/create duplicate", invitationError);
+            backendToastMessage =
+              duplicateMessage || "Invitation already exists.";
+            invitationCreatedAt = new Date().toISOString();
+          } else {
+            throw invitationError;
+          }
         }
 
         const sentAt = invitationCreatedAt || new Date().toISOString();
+        const sentDate = new Date(sentAt);
+        const safeSentTime = Number.isNaN(sentDate.getTime())
+          ? Date.now()
+          : sentDate.getTime();
+
+        const expiresAt = new Date(
+          safeSentTime + 24 * 60 * 60 * 1000
+        ).toISOString();
+
+        const identityKey = getRowInvitationIdentityKey(row);
+
+        if (identityKey) {
+          setInvitationLocks((prev) => ({
+            ...prev,
+            [identityKey]: {
+              ...(prev[identityKey] || {}),
+              [campaignId]: {
+                invitationId: createdInvitationId || invitationId,
+                campaignId,
+                campaignTitle,
+                createdAt: new Date(safeSentTime).toISOString(),
+                expiresAt,
+                status: "sent",
+              },
+            },
+          }));
+        }
 
         setHubRows((prev) =>
           prev.map((item) => {
@@ -2733,20 +3438,21 @@ export default function CreatorHubPage() {
 
             const campaignPayload: RelatedCampaign = {
               campaignId,
-              campaignTitle: selectedCampaignTitle || undefined,
+              campaignTitle: campaignTitle || undefined,
               assignedAt: sentAt,
             };
 
             const alreadyHasCampaign = item.relatedCampaigns.some((campaign) => {
               const existingId =
                 getIdString(campaign.campaignId) || campaign.campaignsId;
+
               return existingId === campaignId;
             });
 
             return {
               ...item,
               status: "Sent",
-              campaignName: selectedCampaignTitle || item.campaignName,
+              campaignName: campaignTitle || item.campaignName,
               invitationDate: formatDate(sentAt),
               relatedCampaigns: alreadyHasCampaign
                 ? item.relatedCampaigns.map((campaign) => {
@@ -2758,7 +3464,7 @@ export default function CreatorHubPage() {
                       ...campaign,
                       campaignTitle:
                         campaign.campaignTitle ||
-                        selectedCampaignTitle ||
+                        campaignTitle ||
                         undefined,
                       assignedAt: campaign.assignedAt || sentAt,
                     }
@@ -2769,41 +3475,38 @@ export default function CreatorHubPage() {
           })
         );
 
-        setActiveInviteCampaignPickerId(null);
-      } catch (err: any) {
-        setError(
-          err?.response?.data?.error ||
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to send invitation."
+        showToastMessage(
+          "success",
+          backendToastMessage ||
+          (mode === "followup"
+            ? "Follow-up sent successfully."
+            : "Invitation sent successfully.")
         );
+
+        setInvitedRefreshKey((prev) => prev + 1);
+        handleTabChange("invited");
+      } catch (err: any) {
+        const backendErrorMessage =
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to send invitation.";
+
+        showToastMessage("error", backendErrorMessage);
       } finally {
         setSendingInvitationId(null);
+        setEmailEditorOpen(false);
+        setPendingInvitation(null);
+        setActiveInviteCampaignPickerId(null);
+
+        // Refresh visible data whether invite API succeeds or fails.
+        setInvitedRefreshKey((prev) => prev + 1);
+        setRefreshFolderListKey((prev) => prev + 1);
       }
     },
-    [campaignOptions, createCampaignOptions]
+    [getRowInvitationIdentityKey, handleTabChange, pendingInvitation]
   );
 
-  const filteredCampaignOptions = React.useMemo(() => {
-    const q = folderMenuSearch.trim().toLowerCase();
-    if (!q) return campaignOptions;
-    return campaignOptions.filter((campaign) =>
-      campaign.label.toLowerCase().includes(q)
-    );
-  }, [campaignOptions, folderMenuSearch]);
-
-  const selectedCampaignLabel = React.useMemo(() => {
-    if (selectedCampaignId === "all") return "All";
-    return (
-      campaignOptions.find((campaign) => campaign.id === selectedCampaignId)?.label ||
-      "All"
-    );
-  }, [campaignOptions, selectedCampaignId]);
-
-  const folderComboboxItems = React.useMemo(
-    () => ["all", ...filteredCampaignOptions.map((campaign) => campaign.id)],
-    [filteredCampaignOptions]
-  );
 
   const getCampaignOptionLabel = React.useCallback(
     (value: string) => {
@@ -2833,14 +3536,6 @@ export default function CreatorHubPage() {
     );
   }, [categoryOptions, selectedCategoryId]);
 
-  const hasAnyFilterSelected = React.useMemo(() => {
-    return (
-      selectedCampaignId !== "all" ||
-      selectedCategoryId !== "all" ||
-      Boolean(search.trim()) ||
-      hasActiveMoreFilters(moreFilters)
-    );
-  }, [selectedCampaignId, selectedCategoryId, search, moreFilters]);
 
   React.useEffect(() => {
     let mounted = true;
@@ -2901,35 +3596,26 @@ export default function CreatorHubPage() {
         const cacheBust = `${Date.now()}-${refreshFolderListKey}`;
 
         const [folderResponse, brandCreatedCampaignResponse] = await Promise.all([
-          api.get<BrandFolderListResponse>(BRAND_FOLDER_LIST_ENDPOINT, {
-            params: {
-              type: "all",
-              includeItems: true,
-              _t: cacheBust,
-            },
-          }),
+          apiBrandFolderList({
+            type: "all",
+            includeItems: true,
+            _t: cacheBust,
+          } as any),
 
-          api
-            .get<NonFullManagedCampaignListResponse>(
-              NON_FULL_MANAGED_CAMPAIGNS_ENDPOINT,
-              {
-                params: {
-                  brandId,
-                  page: 1,
-                  limit: 500,
-                  _t: cacheBust,
-                },
-              }
-            )
-            .catch(() => null),
+          apiGetNonFullManagedCampaigns({
+            brandId,
+            page: 1,
+            limit: 500,
+            _t: cacheBust,
+          } as any).catch(() => null),
         ]);
 
-        const folders = extractBrandFolderList(folderResponse.data);
+        const folders = extractBrandFolderList(folderResponse);
 
         const options = buildCampaignOptionsFromGoodFitFolders(folders);
 
         const createOptions = buildCreateCampaignOptions(
-          extractNonFullManagedCampaignList(brandCreatedCampaignResponse?.data)
+          extractNonFullManagedCampaignList(brandCreatedCampaignResponse)
         );
 
         if (!mounted) return;
@@ -2987,6 +3673,7 @@ export default function CreatorHubPage() {
       .map(mapGoodFitItem)
       .filter((row) => rowMatchesSearch(row, debouncedSearch))
       .filter((row) => rowMatchesCategoryFilter(row, selectedCategoryLabel))
+      .filter((row) => rowMatchesDateFilter(row, selectedDateFilter))
       .filter((row) => rowMatchesMoreFilters(row, moreFilters));
 
     setHubRows(rows);
@@ -2997,6 +3684,7 @@ export default function CreatorHubPage() {
     debouncedSearch,
     moreFilters,
     selectedCategoryLabel,
+    selectedDateFilter,
   ]);
 
   React.useEffect(() => {
@@ -3017,23 +3705,22 @@ export default function CreatorHubPage() {
         setLoading(true);
         setError("");
 
-        const response = await api.post<InvitationListResponse>(
-          NEW_INVITATIONS_LIST_ENDPOINT,
-          {
-            brandId,
-            page: 1,
-            limit: 100,
-            status: "all",
-          }
-        );
+        const response = await apiNewInvitationsList({
+          brandId,
+          page: 1,
+          limit: 100,
+          status: "all",
+        });
 
-        const items = Array.isArray(response.data?.data)
-          ? response.data.data
-          : [];
+        const items = extractInvitationList(response);
 
         if (!mounted) return;
 
-        setInvitedRows(items.map(mapInvitationToRow));
+        mergeInvitationLocks(items);
+
+        setInvitedRows(items.map((item: Invitation, index: number) =>
+          mapInvitationToRow(item, index)
+        ));
         setSelectedIds([]);
       } catch (err: any) {
         if (!mounted) return;
@@ -3057,7 +3744,7 @@ export default function CreatorHubPage() {
     return () => {
       mounted = false;
     };
-  }, [activeTab]);
+  }, [activeTab, invitedRefreshKey, mergeInvitationLocks]);
 
   const displayRows = activeTab === "invited" ? invitedRows : hubRows;
 
@@ -3090,10 +3777,196 @@ export default function CreatorHubPage() {
     );
   };
 
-  const openProfile = (url: string) => {
-    if (!url) return;
-    window.open(url, "_blank", "noopener,noreferrer");
+  function getRowUserId(row: InfluencerRow | null) {
+    if (!row) return "";
+
+    const raw: any = row.raw || {};
+    const rawRaw: any = raw.raw || {};
+    const modash: any = getItemModash(raw) || {};
+
+    const candidates = [
+      raw.userId,
+      rawRaw.userId,
+      modash.userId,
+
+      raw.influencerId,
+      rawRaw.influencerId,
+      modash.influencerId,
+
+      raw.creatorId,
+      rawRaw.creatorId,
+      modash.creatorId,
+
+      raw.modashId,
+      rawRaw.modashId,
+      modash.modashId,
+
+      raw.profileKey,
+      rawRaw.profileKey,
+      modash.profileKey,
+
+      raw.modash?._id,
+      raw.modashProfile?._id,
+      rawRaw.modash?._id,
+      rawRaw.modashProfile?._id,
+      modash._id,
+    ];
+
+    for (const value of candidates) {
+      const id = String(value || "").trim();
+
+      if (
+        id &&
+        id !== "undefined" &&
+        id !== "null" &&
+        id !== "—"
+      ) {
+        return id;
+      }
+    }
+
+    return "";
+  }
+
+  function getPanelFallbackRaw(row: InfluencerRow | null) {
+    if (!row) return null;
+
+    const raw: any = row.raw || {};
+    const modash: any = getItemModash(raw) || {};
+    const userId = getRowUserId(row);
+    const platform = getRowPlatform(row);
+    const cleanHandle = String(
+      modash.handle || raw.handle || raw.raw?.handle || row.handle || row.username || ""
+    )
+      .replace(/^@/, "")
+      .trim();
+
+    return {
+      ...raw,
+      ...modash,
+      userId,
+      influencerId: raw.influencerId || userId,
+      creatorId: raw.creatorId || userId,
+      modashId: raw.modashId || modash.modashId || userId,
+      provider: raw.provider || raw.platform || raw.filterData?.provider || modash.provider || platform,
+      platform,
+      username: modash.username || raw.username || cleanHandle || row.username,
+      handle: cleanHandle ? `@${cleanHandle}` : row.handle,
+      fullname: modash.fullname || raw.fullname || raw.name || row.profile,
+      name: raw.name || modash.fullname || row.profile,
+      picture: getProfileImageUrl(raw) || modash.picture || row.avatarUrl,
+      url: row.profileUrl || modash.url || raw.primaryLink || raw.profileUrl || raw.url || raw.links?.[0] || "",
+      profile: {
+        ...modash,
+        userId,
+        influencerId: raw.influencerId || userId,
+        provider: raw.provider || raw.platform || modash.provider || platform,
+        username: modash.username || raw.username || cleanHandle || row.username,
+        handle: cleanHandle ? `@${cleanHandle}` : row.handle,
+        fullname: modash.fullname || raw.fullname || raw.name || row.profile,
+        picture: getProfileImageUrl(raw) || modash.picture || row.avatarUrl,
+        url: row.profileUrl || modash.url || raw.primaryLink || raw.profileUrl || raw.url || raw.links?.[0] || "",
+      },
+    };
+  }
+
+  function extractReportPayload(response: any) {
+    return (
+      response?.data?.report ||
+      response?.data?.profile ||
+      response?.data ||
+      response?.report ||
+      response?.profile ||
+      response ||
+      null
+    );
+  }
+
+  const fetchProfileReport = React.useCallback(
+    async (row: InfluencerRow, calc: "median" | "average" = profilePanelCalc) => {
+      const userId = getRowUserId(row);
+      const platform = getRowPlatform(row);
+      const fallbackRaw = getPanelFallbackRaw(row);
+
+      setProfilePanelReport(fallbackRaw);
+      setProfilePanelError(null);
+      setProfilePanelLastFetchedAt(null);
+
+      if (!userId) {
+        setProfilePanelError(null);
+        setProfilePanelLoading(false);
+        return;
+      }
+
+      try {
+        setProfilePanelLoading(true);
+
+        const brandId = getStoredBrandId();
+
+        const response = await api.get<any>("/modash/report", {
+          params: {
+            userId,
+            platform,
+            calc,
+            brandId,
+          },
+        });
+
+        const report = extractReportPayload(response);
+
+        setProfilePanelReport(report || fallbackRaw);
+        setProfilePanelLastFetchedAt(new Date().toISOString());
+      } catch (err: any) {
+        setProfilePanelReport(fallbackRaw);
+        setProfilePanelError(
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message ||
+          "Failed to fetch creator report."
+        );
+      } finally {
+        setProfilePanelLoading(false);
+      }
+    },
+    [profilePanelCalc]
+  );
+
+  const openProfile = (row: InfluencerRow) => {
+    setProfilePanelRow(row);
+    setProfilePanelOpen(true);
+    void fetchProfileReport(row);
   };
+
+  const handlePanelCalcChange = React.useCallback(
+    (calc: "median" | "average") => {
+      setProfilePanelCalc(calc);
+
+      if (profilePanelRow) {
+        void fetchProfileReport(profilePanelRow, calc);
+      }
+    },
+    [fetchProfileReport, profilePanelRow]
+  );
+
+  const profilePanelRaw = React.useMemo(() => {
+    return profilePanelReport || getPanelFallbackRaw(profilePanelRow);
+  }, [profilePanelReport, profilePanelRow]);
+
+  const profilePanelHandle = React.useMemo(() => {
+    if (!profilePanelRow) return null;
+
+    const handle = String(
+      profilePanelRaw?.handle ||
+      profilePanelRaw?.username ||
+      profilePanelRow.handle ||
+      profilePanelRow.username ||
+      ""
+    )
+      .replace(/^@/, "")
+      .trim();
+
+    return handle && handle !== "—" ? handle : null;
+  }, [profilePanelRaw, profilePanelRow]);
 
   return (
     <div className="min-h-screen bg-white text-[#111111]">
@@ -3126,168 +3999,29 @@ export default function CreatorHubPage() {
       </div>
 
       <main className="px-8 py-8 pb-20">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-5">
-            <label className="inline-flex h-8 items-center gap-2 text-xs text-[#111111]">
-              <span>Folder</span>
-
-              <Combobox
-                items={folderComboboxItems}
-                value={selectedCampaignId}
-                onValueChange={(value) => {
-                  setSelectedCampaignId(String(value || "all"));
-                  setFolderComboboxOpen(false);
-                }}
-                open={folderComboboxOpen}
-                onOpenChange={setFolderComboboxOpen}
-              >
-                <ComboboxTrigger
-                  className="inline-flex h-7 min-w-[120px] items-center justify-between gap-3 rounded-md bg-[#EFEFEF] px-3 text-xs font-medium text-[#111111]"
-                >
-                  <span className="max-w-[140px] truncate">{selectedCampaignLabel}</span>
-                </ComboboxTrigger>
-
-                <ComboboxContent
-                  className="w-[190px] px-2 py-2"
-                  showSearch
-                  searchPlaceholder="Search..."
-                  searchInputProps={{
-                    value: folderMenuSearch,
-                    onChange: (event) =>
-                      setFolderMenuSearch(
-                        (event.target as HTMLInputElement).value
-                      ),
-                  }}
-                >
-                  <ComboboxEmpty>No folders found.</ComboboxEmpty>
-
-                  <ComboboxList className="max-h-[210px] px-0">
-                    {(item) => (
-                      <ComboboxItem
-                        key={item}
-                        value={item}
-                        showIndicator={false}
-                        className={
-                          selectedCampaignId === item ? "bg-[#d9d9d9]" : ""
-                        }
-                      >
-                        <span className="truncate">
-                          {getCampaignOptionLabel(String(item))}
-                        </span>
-                      </ComboboxItem>
-                    )}
-                  </ComboboxList>
-
-                  <ComboboxSeparator />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFolderComboboxOpen(false);
-                      setCreateFolderError("");
-                      setCreateFolderOpen(true);
-                    }}
-                    className="flex h-8 w-full items-center rounded-lg bg-[#EFEFEF] px-2 text-left text-sm font-medium text-[#111111] hover:bg-[#E4E4E4]"
-                  >
-                    + Add folder
-                  </button>
-                </ComboboxContent>
-              </Combobox>
-            </label>
-
-            <FilterSelect
-              label="Category"
-              value={selectedCategoryId}
-              onChange={(value) => setSelectedCategoryId(value)}
-            >
-              <option value="all">
-                {categoryLoading ? "Loading..." : "All"}
-              </option>
-
-              {categoryOptions.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.label}
-                </option>
-              ))}
-            </FilterSelect>
-
-            <FilterSelect label="Date" value="all">
-              <option value="all">All</option>
-            </FilterSelect>
-
-            {hasAnyFilterSelected ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch("");
-                  setDebouncedSearch("");
-                  setSelectedCampaignId("all");
-                  setSelectedCategoryId("all");
-                  setFolderMenuSearch("");
-                  resetMoreFilters();
-                }}
-                className="inline-flex h-8 items-center gap-1 rounded-md bg-[#EDEDED] px-3 text-xs font-medium text-[#333333] hover:bg-[#E3E3E3]"
-              >
-                Clear
-                <XIcon size={12} weight="bold" />
-              </button>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="h-9 w-[230px] rounded-md border border-[#DCDCDC] bg-white px-3 pr-9 text-sm outline-none placeholder:text-[#777777] focus:border-black"
-              />
-
-              <MagnifyingGlassIcon
-                size={16}
-                weight="regular"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5C5C5C]"
-              />
-            </div>
-
-            <div ref={filterAnchorRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setFilterDropdownOpen((prev) => !prev)}
-                className="inline-flex h-9 min-w-[110px] items-center justify-between rounded-md border border-[#DCDCDC] bg-white px-3 text-sm text-[#111111] hover:bg-[#F7F7F7]"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <FunnelSimpleIcon size={16} weight="regular" />
-                  Filters
-                </span>
-                <CaretDownIcon size={12} weight="bold" />
-              </button>
-
-              <MoreFiltersDropdown
-                open={filterDropdownOpen}
-                onClose={() => setFilterDropdownOpen(false)}
-                anchorRef={filterAnchorRef}
-                filters={moreFilters as any}
-                updateFilter={updateMoreFilter}
-                onReset={resetMoreFilters}
-                onApply={applyMoreFilters}
-                loading={loading}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                setCreateFolderError("");
-                setCreateFolderOpen(true);
-              }}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-[#171717] px-4 text-[12px] font-medium text-white shadow-sm hover:bg-black"
-            >
-              <PlusIcon size={16} weight="bold" />
-              Create folder
-            </button>
-          </div>
-        </div>
+        <CreatorHubFilters
+          selectedCampaignId={selectedCampaignId}
+          setSelectedCampaignId={setSelectedCampaignId}
+          selectedCategoryId={selectedCategoryId}
+          setSelectedCategoryId={setSelectedCategoryId}
+          categoryOptions={categoryOptions}
+          categoryLoading={categoryLoading}
+          search={search}
+          setSearch={setSearch}
+          setDebouncedSearch={setDebouncedSearch}
+          moreFilters={moreFilters}
+          updateMoreFilter={updateMoreFilter}
+          resetMoreFilters={resetMoreFilters}
+          loading={loading}
+          campaignOptions={campaignOptions}
+          getCampaignOptionLabel={getCampaignOptionLabel}
+          selectedDateFilter={selectedDateFilter}
+          setSelectedDateFilter={setSelectedDateFilter}
+          onCreateFolderClick={() => {
+            setCreateFolderError("");
+            setCreateFolderOpen(true);
+          }}
+        />
 
         <div className="overflow-hidden rounded-lg border border-[#DCDCDC] bg-white">
           <div className="overflow-x-auto">
@@ -3385,8 +4119,7 @@ export default function CreatorHubPage() {
 
                             <button
                               type="button"
-                              onClick={() => openProfile(row.profileUrl)}
-                              disabled={!row.profileUrl}
+                              onClick={() => openProfile(row)}
                               className="min-w-0 text-left disabled:cursor-default"
                             >
                               <span
@@ -3463,15 +4196,15 @@ export default function CreatorHubPage() {
                                 items={createCampaignOptions.map((campaign) => campaign.id)}
                                 value=""
                                 open={activeInviteCampaignPickerId === row.id}
-                                onOpenChange={(open) =>
-                                  setActiveInviteCampaignPickerId(open ? row.id : null)
-                                }
-                                onValueChange={(campaignId) => {
-                                  const selectedCampaignId = String(campaignId || "");
-                                  setActiveInviteCampaignPickerId(null);
-                                  if (selectedCampaignId) {
-                                    handleSendInvitation(row, selectedCampaignId);
+                                onOpenChange={(open) => {
+                                  setActiveInviteCampaignPickerId(open ? row.id : null);
+                                  if (open) {
+                                    void loadInvitationLocksForRow(row);
                                   }
+                                }}
+                                onValueChange={() => {
+                                  // Selection is handled inside each campaign row so locked campaigns
+                                  // can show a timer and expired campaigns can open Follow Up.
                                 }}
                               >
                                 <ComboboxTrigger
@@ -3494,24 +4227,73 @@ export default function CreatorHubPage() {
                                 >
                                   <ComboboxEmpty>No campaigns found.</ComboboxEmpty>
                                   <ComboboxList className="max-h-[220px] px-0">
-                                    {(campaignId) => (
-                                      <ComboboxItem
-                                        key={campaignId}
-                                        value={campaignId}
-                                        showIndicator={false}
-                                        onClick={() => {
-                                          const selectedCampaignId = String(campaignId || "");
-                                          setActiveInviteCampaignPickerId(null);
-                                          if (selectedCampaignId) {
-                                            handleSendInvitation(row, selectedCampaignId);
-                                          }
-                                        }}
-                                      >
-                                        <span className="truncate">
-                                          {getCampaignOptionLabel(String(campaignId))}
-                                        </span>
-                                      </ComboboxItem>
-                                    )}
+                                    {(campaignId) => {
+                                      const selectedCampaignId = String(campaignId || "");
+                                      const lock = getCampaignLockForRow(row, selectedCampaignId);
+                                      const remainingMs = getLockRemainingMs(lock, lockNow);
+                                      const locked = remainingMs > 0;
+                                      const canFollowUp = Boolean(lock && !locked);
+
+                                      return (
+                                        <ComboboxItem
+                                          key={campaignId}
+                                          value={campaignId}
+                                          showIndicator={false}
+                                          className={locked ? "cursor-not-allowed opacity-70" : ""}
+                                          onClick={(event) => {
+                                            if (locked) {
+                                              event.preventDefault();
+                                              event.stopPropagation();
+                                              showToastMessage(
+                                                "info",
+                                                "Invitation already sent",
+                                                `This campaign is locked for ${formatLockRemaining(remainingMs)}.`
+                                              );
+                                              return;
+                                            }
+
+                                            setActiveInviteCampaignPickerId(null);
+
+                                            if (selectedCampaignId) {
+                                              if (canFollowUp) {
+                                                handleFollowUpInvitation(row, selectedCampaignId);
+                                              } else {
+                                                handleSendInvitation(row, selectedCampaignId);
+                                              }
+                                            }
+                                          }}
+                                        >
+                                          <div className="flex w-full min-w-0 items-center justify-between gap-2">
+                                            <span className="min-w-0 flex-1 truncate">
+                                              {getCampaignOptionLabel(selectedCampaignId)}
+                                            </span>
+
+                                            {locked ? (
+                                              <span className="shrink-0 rounded-full bg-[#FFF3D6] px-2 py-0.5 text-[10px] font-medium text-[#8A5A00]">
+                                                {getCampaignLockLabel(lock, lockNow)}
+                                              </span>
+                                            ) : canFollowUp ? (
+                                              <button
+                                                type="button"
+                                                onMouseDown={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                }}
+                                                onClick={(event) => {
+                                                  event.preventDefault();
+                                                  event.stopPropagation();
+                                                  setActiveInviteCampaignPickerId(null);
+                                                  handleFollowUpInvitation(row, selectedCampaignId);
+                                                }}
+                                                className="shrink-0 rounded-full bg-[#171717] px-2 py-0.5 text-[10px] font-medium text-white hover:bg-black"
+                                              >
+                                                Follow up
+                                              </button>
+                                            ) : null}
+                                          </div>
+                                        </ComboboxItem>
+                                      );
+                                    }}
                                   </ComboboxList>
                                 </ComboboxContent>
                               </Combobox>
@@ -3539,7 +4321,7 @@ export default function CreatorHubPage() {
                                     value="view-profile"
                                     showIndicator={false}
                                     onClick={() => {
-                                      openProfile(row.profileUrl);
+                                      openProfile(row);
                                       setActiveActionComboboxId(null);
                                     }}
                                   >
@@ -3772,6 +4554,59 @@ export default function CreatorHubPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <DetailPanel
+        open={profilePanelOpen}
+        onClose={() => setProfilePanelOpen(false)}
+        loading={profilePanelLoading}
+        error={profilePanelError}
+        data={profilePanelRaw ? ({ profile: profilePanelRaw } as any) : null}
+        raw={profilePanelRaw || {}}
+        platform={profilePanelRow ? (getRowPlatform(profilePanelRow) as any) : null}
+        emailExists={Boolean(profilePanelRow?.raw?.email)}
+        onChangeCalc={handlePanelCalcChange}
+        brandId={getStoredBrandId()}
+        campaignId={profilePanelRow ? getRowCampaignId(profilePanelRow) || null : null}
+        handle={profilePanelHandle}
+        lastFetchedAt={
+          profilePanelLastFetchedAt ||
+          String(
+            profilePanelRaw?.updatedAt ||
+            profilePanelRaw?.createdAt ||
+            profilePanelRow?.raw?.modash?.updatedAt ||
+            profilePanelRow?.raw?.modashProfile?.updatedAt ||
+            ""
+          ) ||
+          null
+        }
+        onRefreshReport={() => {
+          if (!profilePanelRow) return;
+          return fetchProfileReport(profilePanelRow, profilePanelCalc);
+        }}
+      />
+      <EmailEditor
+        open={emailEditorOpen}
+        onClose={() => {
+          if (sendingInvitationId) return;
+          setEmailEditorOpen(false);
+          setPendingInvitation(null);
+        }}
+        fromName={getBrandDisplayName()}
+        toName={pendingInvitation?.row.profile || ""}
+        toEmail={getRowEmail(pendingInvitation?.row || null)}
+        toLabel={
+          getRowEmail(pendingInvitation?.row || null) ||
+          pendingInvitation?.handle ||
+          ""
+        }
+        toAvatar={pendingInvitation?.row.avatarUrl || null}
+        subject={getEmailEditorSubject(pendingInvitation)}
+        initialHtmlBody={getEmailEditorHtmlBody(pendingInvitation)}
+        startExpanded={false}
+        sending={Boolean(
+          pendingInvitation && sendingInvitationId === pendingInvitation.row.id
+        )}
+        onSend={handleEmailEditorSend}
+      />
 
       {selectedIds.length > 0 ? (
         <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-[#E7E7E7] bg-white px-8 py-3">

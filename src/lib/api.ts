@@ -606,6 +606,15 @@ export const clearToken = () => {
     localStorage.removeItem(TOKEN_KEY);
   } catch { }
 };
+function buildApiUrl(baseUrl: string, endpoint: string) {
+  const base = String(baseUrl || "").replace(/\/+$/, "");
+  const path = String(endpoint || "").startsWith("/")
+    ? String(endpoint || "")
+    : `/${String(endpoint || "")}`;
+
+  return `${base}${path}`;
+}
+
 export async function adminPostBlob(
   endpoint: string,
   body?: unknown
@@ -615,7 +624,7 @@ export async function adminPostBlob(
     process.env.NEXT_PUBLIC_BACKEND_URL ||
     "";
 
-  const response = await fetch(`${baseUrl}${endpoint}`, {
+  const response = await fetch(buildApiUrl(baseUrl, endpoint), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -629,7 +638,7 @@ export async function adminPostBlob(
 
     try {
       const errorData = await response.json();
-      message = errorData?.message || message;
+      message = errorData?.message || errorData?.error || message;
     } catch {
       // PDF/blob endpoints may not return JSON errors.
     }
