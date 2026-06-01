@@ -3412,3 +3412,53 @@ export async function apiGetNonFullManagedCampaigns(
   );
 }
 
+
+
+export type FollowUpNewInvitationPayload = CreateNewInvitationPayload & {
+  invitationId?: string;
+  emailTemplate?: {
+    subject?: string;
+    textBody?: string;
+    htmlBody?: string;
+    attachments?: any[];
+  };
+  [key: string]: any;
+};
+
+export async function apiNewInvitationFollowUp(
+  payload: FollowUpNewInvitationPayload
+) {
+  const client = resolveClient();
+
+  if (typeof client?.post === "function") {
+    const res = await client.post(`${NEW_INVITATIONS_BASE}/followup`, payload);
+    const body = res?.data ?? res;
+
+    return {
+      ...body,
+      success: body?.success ?? body?.status === "success",
+      message: body?.message || "Follow-up sent successfully.",
+      status:
+        body?.status ||
+        body?.data?.status ||
+        (body?.success === false ? "error" : "success"),
+      data: body?.data ?? body,
+    } as CreateNewInvitationResponse;
+  }
+
+  const body: any = await apiPost<any>(
+    `${NEW_INVITATIONS_BASE}/followup`,
+    payload
+  );
+
+  return {
+    ...body,
+    success: body?.success ?? body?.status === "success",
+    message: body?.message || "Follow-up sent successfully.",
+    status:
+      body?.status ||
+      body?.data?.status ||
+      (body?.success === false ? "error" : "success"),
+    data: body?.data ?? body,
+  } as CreateNewInvitationResponse;
+}
