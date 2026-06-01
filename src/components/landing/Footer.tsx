@@ -71,11 +71,11 @@ export default function Footer() {
 
             <div className="mt-7 space-y-3">
               <a
-                href="mailto:care@collabglam.com"
+                href="mailto:help@collabglam.com"
                 className="flex items-center gap-3 text-sm font-medium text-white/55 transition hover:text-[#f97316]"
               >
                 <Mail className="h-4 w-4" />
-                care@collabglam.com
+                help@collabglam.com
               </a>
 
               <a
@@ -88,7 +88,7 @@ export default function Footer() {
 
               <div className="flex items-center gap-3 text-sm font-medium text-white/55">
                 <MapPin className="h-4 w-4" />
-                Florida, USA
+                Las Vegas, Nevada, USA
               </div>
             </div>
           </div>
