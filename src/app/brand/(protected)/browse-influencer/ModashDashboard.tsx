@@ -9,8 +9,8 @@ import { DetailPanel } from "./DetailPanel";
 import { useInfluencerReport } from "./useInfluencerReport";
 import type { Platform as ReportPlatform } from "./types";
 import { useEmailStatus } from "./useEmailStatus";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ModashReportLimitModal } from "./ModashReportLimitModal";
-import { useRouter } from "next/navigation";
 
 const DETAIL_PANEL_STORAGE_KEY = "brand_modash_detail_panel_state";
 const SEARCH_UI_STORAGE_KEY = "brand_modash_search_ui_state";
@@ -254,6 +254,12 @@ export default function ModashDashboard() {
   const [platforms, setPlatforms] = useState<Platform[]>([DEFAULT_PLATFORM]);
   const [queryText, setQueryText] = useState("");
   const [brandId, setBrandId] = useState<string>("");
+  const searchParams = useSearchParams();
+
+  const campaignIdFromQuery = searchParams.get("campaignId") || "";
+  const campaignNameFromQuery = searchParams.get("campaignName") || "";
+
+  const [lockedCampaignName, setLockedCampaignName] = useState(campaignNameFromQuery);
   const [panelOpen, setPanelOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPlatform, setSelectedPlatform] =
@@ -278,7 +284,25 @@ export default function ModashDashboard() {
     const id = localStorage.getItem("brandId") || "";
     if (id) setBrandId(id);
   }, []);
+  useEffect(() => {
+    if (!campaignIdFromQuery) return;
 
+    if (campaignNameFromQuery) {
+      setLockedCampaignName(campaignNameFromQuery);
+      return;
+    }
+
+    try {
+      const saved = sessionStorage.getItem("browseCampaignContext");
+      if (!saved) return;
+
+      const parsed = JSON.parse(saved);
+
+      if (parsed?.campaignId === campaignIdFromQuery && parsed?.campaignName) {
+        setLockedCampaignName(parsed.campaignName);
+      }
+    } catch { }
+  }, [campaignIdFromQuery, campaignNameFromQuery]);
   const {
     report,
     rawReport,
@@ -670,6 +694,8 @@ export default function ModashDashboard() {
         }}
         emailExists={emailExists}
         brandId={brandId}
+        campaignId={campaignIdFromQuery}
+        campaignName={lockedCampaignName}
         handle={selectedHandle}
         lastFetchedAt={lastFetchedAt}
         onRefreshReport={handleRefreshReport}

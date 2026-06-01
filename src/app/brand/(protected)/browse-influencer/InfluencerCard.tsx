@@ -97,12 +97,12 @@ async function copyWithFallback(text: string) {
 function getInfluencerId(influencer: any) {
   return String(
     influencer?.influencerId ||
-      influencer?.creatorId ||
-      influencer?.userId ||
-      influencer?.modashId ||
-      influencer?.id ||
-      influencer?._id ||
-      ""
+    influencer?.creatorId ||
+    influencer?.userId ||
+    influencer?.modashId ||
+    influencer?.id ||
+    influencer?._id ||
+    ""
   ).trim();
 }
 
@@ -113,10 +113,10 @@ function getInfluencerCategories(influencer: any) {
         typeof item === "string"
           ? item
           : item?.categoryName ||
-            item?.subcategoryName ||
-            item?.name ||
-            item?.subcategory ||
-            ""
+          item?.subcategoryName ||
+          item?.name ||
+          item?.subcategory ||
+          ""
       )
       .filter(Boolean);
   }
@@ -149,21 +149,26 @@ function getBookmarkProfileKey(influencer: any, platform?: Platform) {
 
   const link = normalizeBookmarkLink(
     influencer?.primaryLink ||
-      influencer?.profileUrl ||
-      influencer?.url ||
-      influencer?.links?.[0]
+    influencer?.profileUrl ||
+    influencer?.profile_url ||
+    influencer?.url ||
+    influencer?.links?.[0]
   );
   if (link) return `link:${link}`;
 
   const selectedPlatform = normalizePlatform(influencer?.platform || platform);
   const handle = String(
-    influencer?.handle || influencer?.username || influencer?.userName || ""
+    influencer?.handle ||
+    influencer?.username ||
+    influencer?.userName ||
+    influencer?.screenName ||
+    ""
   )
     .trim()
     .toLowerCase()
     .replace(/^@+/, "");
 
-  if (selectedPlatform || handle) return `handle:${selectedPlatform}:${handle}`;
+  if (handle) return `handle:${selectedPlatform}:${handle}`;
 
   const name = String(
     influencer?.fullname || influencer?.fullName || influencer?.name || ""
@@ -217,12 +222,76 @@ async function getBookmarkedProfileKeys() {
   return bookmarkKeysPromise;
 }
 
+function toPlainPayloadObject(value: any) {
+  try {
+    return JSON.parse(JSON.stringify(value || {}));
+  } catch {
+    return value || {};
+  }
+}
+
+function getFirstText(...values: any[]): string {
+  for (const value of values) {
+    if (value == null) continue;
+
+    if (Array.isArray(value)) {
+      const nested: string = getFirstText(...value);
+      if (nested) return nested;
+      continue;
+    }
+
+    if (typeof value === "object") {
+      const nested: string = getFirstText(
+        value.code,
+        value.isoCode,
+        value.countryCode,
+        value.languageCode,
+        value.name,
+        value.title,
+        value.label,
+        value.country,
+        value.language
+      );
+
+      if (nested) return nested;
+      continue;
+    }
+
+    const text = String(value).trim();
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function getArrayValues(...values: any[]): any[] {
+  for (const value of values) {
+    if (Array.isArray(value)) return value.filter(Boolean);
+
+    if (typeof value === "string" && value.trim()) {
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+  }
+
+  return [];
+}
+
 function buildBookmarkPayload(influencer: any, platform: Platform) {
+  const rawInfluencer = toPlainPayloadObject(influencer);
+
   const selectedPlatform = normalizePlatform(influencer?.platform || platform);
   const influencerId = getInfluencerId(influencer);
 
   const profileUrl = String(
-    influencer?.primaryLink || influencer?.url || influencer?.profileUrl || ""
+    influencer?.primaryLink ||
+    influencer?.url ||
+    influencer?.profileUrl ||
+    influencer?.profile_url ||
+    influencer?.links?.[0] ||
+    ""
   ).trim();
 
   const avatar =
@@ -232,17 +301,68 @@ function buildBookmarkPayload(influencer: any, platform: Platform) {
     influencer?.thumbnail ||
     influencer?.profilePicture ||
     influencer?.profileImage ||
+    influencer?.avatarUrl ||
+    influencer?.image ||
+    influencer?.photo ||
     "";
 
   const handle =
-    influencer?.handle || influencer?.username || influencer?.userName || "";
+    influencer?.handle ||
+    influencer?.username ||
+    influencer?.userName ||
+    influencer?.screenName ||
+    "";
+
+  const country = getFirstText(
+    influencer?.country,
+    influencer?.countryCode,
+    influencer?.location?.country,
+    influencer?.location?.countryCode,
+    influencer?.location?.isoCode,
+    influencer?.profile?.country,
+    influencer?.account?.country,
+    influencer?.audience?.country,
+    influencer?.audience?.countries?.[0],
+    influencer?.audience?.geoCountries?.[0]
+  );
+
+  const language = getFirstText(
+    influencer?.language,
+    influencer?.languageCode,
+    influencer?.languages,
+    influencer?.profile?.language,
+    influencer?.account?.language,
+    influencer?.audience?.language,
+    influencer?.audience?.languages,
+    influencer?.stats?.language
+  );
+
+  const location = getFirstText(
+    influencer?.location?.name,
+    influencer?.location?.fullName,
+    influencer?.location?.city,
+    influencer?.location,
+    country
+  );
+
+  const categories = getInfluencerCategories(influencer);
+
+  const links = Array.from(
+    new Set([
+      ...(Array.isArray(influencer?.links) ? influencer.links : []),
+      profileUrl,
+    ].filter(Boolean))
+  );
 
   return {
     profile: {
+      ...rawInfluencer,
+
       influencerId,
       creatorId: String(influencer?.creatorId || influencerId || "").trim(),
       userId: String(influencer?.userId || influencerId || "").trim(),
       modashId: String(influencer?.modashId || "").trim(),
+
       name:
         influencer?.fullname ||
         influencer?.fullName ||
@@ -256,24 +376,37 @@ function buildBookmarkPayload(influencer: any, platform: Platform) {
         "",
       username: influencer?.username || handle || "",
       handle,
+
       provider: selectedPlatform,
       platform: selectedPlatform,
+
       email: influencer?.email || "",
-      country:
-        influencer?.country ||
-        influencer?.location?.country ||
-        influencer?.location ||
-        "",
-      location:
-        influencer?.location ||
-        influencer?.country ||
-        influencer?.location?.country ||
-        "",
+      emails: getArrayValues(influencer?.emails, influencer?.contacts?.emails),
+
+      country,
+      countryCode: country,
+
+      language,
+      languageCode: language,
+      languages: getArrayValues(
+        influencer?.languages,
+        influencer?.audience?.languages
+      ),
+
+      location,
+      city: getFirstText(influencer?.city, influencer?.location?.city),
+      region: getFirstText(
+        influencer?.region,
+        influencer?.state,
+        influencer?.location?.region,
+        influencer?.location?.state
+      ),
+
       followers: Number(
         influencer?.followers ??
-          influencer?.followerCount ??
-          influencer?.stats?.followers ??
-          0
+        influencer?.followerCount ??
+        influencer?.stats?.followers ??
+        0
       ),
       engagementRate: Number(
         influencer?.engagementRate ?? influencer?.stats?.engagementRate ?? 0
@@ -283,27 +416,42 @@ function buildBookmarkPayload(influencer: any, platform: Platform) {
       ),
       averageViews: Number(
         influencer?.averageViews ??
-          influencer?.stats?.avgViews ??
-          influencer?.stats?.views ??
-          0
+        influencer?.stats?.avgViews ??
+        influencer?.stats?.views ??
+        0
       ),
+
       primaryLink: profileUrl,
       profileUrl,
       url: profileUrl,
-      links: profileUrl ? [profileUrl] : [],
+      links,
+
       picture: avatar,
       avatarUrl: avatar,
       profileImage: avatar,
+
       bio: influencer?.bio || influencer?.description || "",
       description: influencer?.description || influencer?.bio || "",
+
       isVerified: Boolean(influencer?.isVerified || influencer?.verified),
       verified: Boolean(influencer?.isVerified || influencer?.verified),
       isPrivate: Boolean(influencer?.isPrivate),
-      categories: getInfluencerCategories(influencer),
-      niche: getInfluencerCategories(influencer),
+
+      categories,
+      niche: categories,
+
       searchType: influencer?.searchType || "standard",
       source: influencer?.source || "standard",
+
+      audience: influencer?.audience || null,
+      stats: influencer?.stats || null,
+      contacts: influencer?.contacts || null,
+      profile: influencer?.profile || null,
+      account: influencer?.account || null,
+
       profileKey: getBookmarkProfileKey(influencer, platform),
+
+      raw: rawInfluencer,
     },
   };
 }
@@ -364,7 +512,8 @@ export function InfluencerCard({
     "";
 
   const isVerified = Boolean(influencer?.isVerified || influencer?.verified);
-  const profileUrl = influencer?.primaryLink || influencer?.url || influencer?.profileUrl || "#";
+  const profileUrl =
+    influencer?.primaryLink || influencer?.url || influencer?.profileUrl || "#";
 
   useEffect(() => {
     let mounted = true;
@@ -439,7 +588,10 @@ export function InfluencerCard({
     try {
       setSaving(true);
 
-      await post("/brand/bookmark/profile", buildBookmarkPayload(influencer, platform));
+      await post(
+        "/brand/bookmark/profile",
+        buildBookmarkPayload(influencer, platform)
+      );
 
       setIsSaved(true);
 
@@ -476,7 +628,9 @@ export function InfluencerCard({
 
     try {
       const userId = getInfluencerId(influencer);
-      const selectedPlatform = normalizePlatform(influencer?.platform || platform);
+      const selectedPlatform = normalizePlatform(
+        influencer?.platform || platform
+      );
 
       if (!userId) {
         await Swal.fire({
@@ -513,25 +667,25 @@ export function InfluencerCard({
             "",
           followers: Number(
             influencer?.followers ??
-              influencer?.followerCount ??
-              influencer?.stats?.followers ??
-              0
+            influencer?.followerCount ??
+            influencer?.stats?.followers ??
+            0
           ),
           engagementRate: Number(
             influencer?.engagementRate ??
-              influencer?.stats?.engagementRate ??
-              0
+            influencer?.stats?.engagementRate ??
+            0
           ),
           engagements: Number(
             influencer?.engagements ??
-              influencer?.stats?.engagements ??
-              0
+            influencer?.stats?.engagements ??
+            0
           ),
           averageViews: Number(
             influencer?.averageViews ??
-              influencer?.stats?.avgViews ??
-              influencer?.stats?.views ??
-              0
+            influencer?.stats?.avgViews ??
+            influencer?.stats?.views ??
+            0
           ),
           picture:
             influencer?.picture ||
