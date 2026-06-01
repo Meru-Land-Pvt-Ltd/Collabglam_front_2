@@ -26,9 +26,21 @@ type QA = {
   answers: string[];
 };
 
+type BrandFeatureValue =
+  | string
+  | number
+  | boolean
+  | string[]
+  | {
+    unlimited?: boolean;
+    fairUsage?: boolean;
+    limit?: number;
+  }
+  | null;
+
 type BrandFeature = {
   key?: string | null;
-  value?: string | number | { unlimited?: boolean } | null;
+  value?: BrandFeatureValue;
   limit?: number | null;
   used?: number | null;
   note?: string | null;
@@ -144,6 +156,20 @@ const BRAND_TYPES = [
 
 const PLATFORM_OPTIONS = ["Instagram", "Youtube", "Tiktok"] as const;
 
+const FEATURE_LABELS: Record<string, string> = {
+  influencer_search_per_month: "Influencer Search",
+  influencer_profile_views_per_month: "Influencer Profile Reports",
+  invites_per_month: "Invites Per Month",
+  active_campaigns: "Active Campaigns",
+};
+
+const FEATURE_ORDER = [
+  "influencer_search_per_month",
+  "influencer_profile_views_per_month",
+  "invites_per_month",
+  "active_campaigns",
+];
+
 function formatDate(input?: string | null) {
   if (!input) return "—";
   const date = new Date(input);
@@ -196,22 +222,65 @@ function getPlatformFromPage3(items?: QA[]): PlatformOption {
   return "Youtube";
 }
 
-function featureValueLabel(feature: BrandFeature) {
-  if (feature?.limit === -1) return "Unlimited";
+function getFeatureLimit(feature: BrandFeature) {
+  if (feature?.limit === -1) return -1;
+
   if (
     feature?.limit !== undefined &&
     feature?.limit !== null &&
-    feature.limit > 0
+    Number.isFinite(Number(feature.limit))
   ) {
-    return String(feature.limit);
+    return Number(feature.limit);
   }
+
+  const value = feature?.value;
+
+  if (typeof value === "number") return value;
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (value.unlimited === true) return -1;
+    if (typeof value.limit === "number") return value.limit;
+  }
+
+  return 0;
+}
+
+function getFeatureLabel(key?: string | null) {
+  const normalizedKey = String(key || "").trim();
+
+  if (FEATURE_LABELS[normalizedKey]) {
+    return FEATURE_LABELS[normalizedKey];
+  }
+
+  return prettifyFeatureKey(normalizedKey);
+}
+
+function featureValueLabel(feature: BrandFeature) {
+  const limit = getFeatureLimit(feature);
+
+  if (limit === -1) return "Unlimited";
+  if (limit > 0) return String(limit);
+
   if (
     feature?.value !== undefined &&
     feature?.value !== null &&
     feature.value !== ""
   ) {
+    if (typeof feature.value === "boolean") {
+      return feature.value ? "Included" : "Not included";
+    }
+
+    if (Array.isArray(feature.value)) {
+      return feature.value.join(", ");
+    }
+
+    if (typeof feature.value === "object") {
+      return "Included";
+    }
+
     return String(feature.value);
   }
+
   return "Included";
 }
 
@@ -235,9 +304,11 @@ function normalizeWalletData(data: WalletApiPayload): WalletData {
 
 function featureProgress(feature: BrandFeature) {
   const used = Number(feature?.used ?? 0);
-  const limit = Number(feature?.limit ?? 0);
-  if (feature?.limit === -1) return 100;
+  const limit = getFeatureLimit(feature);
+
+  if (limit === -1) return 100;
   if (!Number.isFinite(limit) || limit <= 0) return 100;
+
   return normalizePercent((used / limit) * 100);
 }
 
@@ -371,16 +442,29 @@ export default function BrandProfilePage() {
 
   const metrics = useMemo(() => {
     const features = Array.isArray(subscription?.features)
-      ? subscription.features.slice(0, 6)
+      ? subscription.features
       : [];
-    return features.map((feature) => ({
-      label: prettifyFeatureKey(feature?.key),
-      usedText:
-        feature?.limit === -1
-          ? `${feature?.used ?? 0} / Unlimited`
-          : `${feature?.used ?? 0} / ${featureValueLabel(feature)}`,
-      percent: featureProgress(feature),
-    }));
+
+    const featureMap = new Map(
+      features
+        .filter((feature) => feature?.key)
+        .map((feature) => [String(feature.key), feature])
+    );
+
+    return FEATURE_ORDER.map((key) => featureMap.get(key))
+      .filter((feature): feature is BrandFeature => Boolean(feature))
+      .map((feature) => {
+        const limit = getFeatureLimit(feature);
+
+        return {
+          label: getFeatureLabel(feature.key),
+          usedText:
+            limit === -1
+              ? `${feature?.used ?? 0} / Unlimited`
+              : `${feature?.used ?? 0} / ${featureValueLabel(feature)}`,
+          percent: featureProgress(feature),
+        };
+      });
   }, [subscription]);
 
   const displayName = brand?.name || brand?.brandName || "Brand Admin";
@@ -766,10 +850,6 @@ export default function BrandProfilePage() {
                     label="Frozen"
                     value={formatMoney(wallet?.frozenBalance)}
                   />
-
-                  {/* <button className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#ececec] bg-white px-5 text-sm font-medium text-[#111111] hover:bg-[#fafafa]">
-                    Add Funds
-                  </button> */}
                 </div>
               </section>
 

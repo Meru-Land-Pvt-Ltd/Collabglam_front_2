@@ -48,6 +48,7 @@ import {
   FolderSimpleStarIcon,
   ChartLineUp,
 } from "@phosphor-icons/react";
+import InviteMembersModal from "@/components/ui/brand/inviteMember";
 
 /* -------------------------------- routing -------------------------------- */
 
@@ -453,7 +454,6 @@ export default function BrandSidebar({
   );
 
   const [brandLite, setBrandLite] = useState<BrandLiteRes | null>(null);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [helpDialogOpen, setHelpDialogOpen] = useState(false);
   const [helpDialogPosition, setHelpDialogPosition] = useState({
     top: 0,
@@ -486,6 +486,9 @@ export default function BrandSidebar({
   const campaignHoverRef = useRef(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedCollapsed = useRef(false);
+
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [inviteMemberOpen, setInviteMemberOpen] = useState(false);
 
   const tight = isShort;
   const railMode = isDesktop && (collapsed || isClosing);
@@ -528,6 +531,11 @@ export default function BrandSidebar({
     ],
     []
   );
+
+  const openInviteMemberModal = useCallback(() => {
+    setProfileMenuOpen(false);
+    setInviteMemberOpen(true);
+  }, []);
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((w) => w.key === workspaceKey) ?? workspaces[0],
@@ -1704,6 +1712,21 @@ export default function BrandSidebar({
                           <span>Profile</span>
                         </button>
 
+                        {/* <button
+                          type="button"
+                          onClick={openInviteMemberModal}
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-[14px] font-medium text-[#1a1a1a] transition hover:bg-[#F5F5F5]"
+                        >
+                          <span className="flex items-center gap-3">
+                            <UserPlus size={20} />
+                            <span>Invite Member</span>
+                          </span>
+
+                          <span className="rounded-full bg-[#1a1a1a] px-2 py-0.5 text-[10px] font-semibold text-white">
+                            Invite
+                          </span>
+                        </button> */}
+
                         <div className="h-px w-full bg-neutral-200" />
 
                         <button
@@ -1805,6 +1828,12 @@ export default function BrandSidebar({
           <>
             {isDesktop ? DesktopAside : MobileDrawer}
             {HelpDialogModal}
+
+            <InviteMembersModal
+              open={inviteMemberOpen}
+              onOpenChange={setInviteMemberOpen}
+              brandId={brandId}
+            />
           </>
         </MotionConfig>
       </LazyMotion>

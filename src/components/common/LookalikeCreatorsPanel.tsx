@@ -2,18 +2,27 @@ import { ArrowUpRight } from "lucide-react";
 import { SectionCard } from "./SectionCard";
 import { buildInitials, type LookalikeCreator } from "./viewModashShared";
 
-type SupportedPlatform = "instagram" | "tiktok" | "youtube";
+export type SupportedPlatform = "instagram" | "tiktok" | "youtube";
 
-type LookalikePanelItem = LookalikeCreator & {
+export type LookalikePanelItem = LookalikeCreator & {
   userId?: string;
   modashId?: string;
   platform?: SupportedPlatform | string;
   provider?: SupportedPlatform | string;
+
+  username?: string;
+  fullname?: string;
+  picture?: string;
+  followersRaw?: number;
+  engagementsRaw?: number;
+  engagementRateRaw?: number;
+  raw?: any;
 };
 
 type LookalikeCreatorsPanelProps = {
   items?: LookalikePanelItem[];
   platform?: SupportedPlatform | string | null;
+  onSelectLookalike?: (item: LookalikePanelItem) => void;
 };
 
 function normalizePlatform(value?: string | null): SupportedPlatform {
@@ -58,9 +67,9 @@ function buildMediaKitUrl(
 
   const resolvedPlatform = normalizePlatform(
     String(item.platform ?? item.provider ?? "") ||
-      inferPlatformFromUrl(item.url) ||
-      fallbackPlatform ||
-      "instagram"
+    inferPlatformFromUrl(item.url) ||
+    fallbackPlatform ||
+    "instagram"
   );
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -73,11 +82,17 @@ function buildMediaKitUrl(
 export function LookalikeCreatorsPanel({
   items = [],
   platform,
+  onSelectLookalike,
 }: LookalikeCreatorsPanelProps) {
   const safeItems = Array.isArray(items) ? items : [];
   const hasItems = safeItems.length > 0;
 
   const openProfile = (item: LookalikePanelItem) => {
+    if (onSelectLookalike) {
+      onSelectLookalike(item);
+      return;
+    }
+
     const mediaKitUrl = buildMediaKitUrl(item, platform);
     if (!mediaKitUrl) return;
 
@@ -113,7 +128,7 @@ export function LookalikeCreatorsPanel({
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {safeItems.map((item) => {
             const mediaKitUrl = buildMediaKitUrl(item, platform);
-            const canOpen = Boolean(mediaKitUrl);
+            const canOpen = Boolean(onSelectLookalike || mediaKitUrl);
 
             return (
               <div
@@ -129,10 +144,15 @@ export function LookalikeCreatorsPanel({
                 }}
                 tabIndex={canOpen ? 0 : -1}
                 role={canOpen ? "button" : undefined}
-                title={canOpen ? "Open media kit" : undefined}
-                className={`rounded-2xl border border-[#efe8dd] bg-[#fffdfa] p-4 text-center transition ${
-                  canOpen ? "cursor-pointer hover:bg-[#fdf8f1] hover:shadow-sm" : ""
-                }`}
+                title={
+                  canOpen
+                    ? onSelectLookalike
+                      ? "Open in this modal"
+                      : "Open media kit"
+                    : undefined
+                }
+                className={`rounded-2xl border border-[#efe8dd] bg-[#fffdfa] p-4 text-center transition ${canOpen ? "cursor-pointer hover:bg-[#fdf8f1] hover:shadow-sm" : ""
+                  }`}
               >
                 <div className="mx-auto h-14 w-14 overflow-hidden rounded-full bg-[#ece4d8]">
                   {item.avatar ? (

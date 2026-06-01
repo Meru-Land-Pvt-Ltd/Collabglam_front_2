@@ -120,7 +120,7 @@ type ContractFormState = {
     preShootScriptReviewBusinessDays: string;
     mandatoryTagsMentionsLinksCodes: string;
     review: {
-      needRevisionRounds: "" | "yes" | "no";
+      needRevisionRounds: "" | "yes" | "no" | "__select_revision_rounds__";
       includedRevisionRounds: string;
       additionalRevisionFee: string;
       reshootObligation: string;
@@ -234,12 +234,17 @@ const PAYMENT_TYPE = {
   GIFTING: "product_gifting",
 } as const;
 
+const PAYMENT_STRUCTURE_DUMMY_VALUE = "__select_payment_structure__";
+const REVISION_ROUNDS_DUMMY_VALUE = "__select_revision_rounds__";
+const MINIMUM_LIVE_PERIOD_DUMMY_VALUE = "__select_duration__";
+
 const CONTRACT_TYPE_LABELS: Record<PaymentType, string> = {
   fixed_payment: "Fixed Contract",
   milestone_based: "Milestone Contract",
   product_gifting: "Product Gifting Contract",
 };
 const YES_NO_BOOL_OPTIONS = [
+  { value: REVISION_ROUNDS_DUMMY_VALUE, label: "Select" },
   { value: "yes", label: "Yes" },
   { value: "no", label: "No" },
 ];
@@ -278,6 +283,7 @@ const PLATFORM_OPTIONS = [
 ];
 
 const MINIMUM_LIVE_PERIOD_OPTIONS = [
+  { value: MINIMUM_LIVE_PERIOD_DUMMY_VALUE, label: "Select a duration" },
   { value: "30 days", label: "30 days" },
   { value: "60 days", label: "60 days" },
   { value: "2 months", label: "2 months" },
@@ -298,6 +304,11 @@ const PAYMENT_TYPE_OPTIONS = [
 ];
 
 const PAYMENT_STRUCTURE_OPTIONS = [
+  {
+    value: PAYMENT_STRUCTURE_DUMMY_VALUE,
+    label: "Select Payment Structure",
+    description: "",
+  },
   {
     value: "25 / 25 / 50",
     label: "25 / 25 / 50",
@@ -517,8 +528,6 @@ function getAtPath(obj: any, path: string, fallback: any = "") {
   return value === undefined || value === null ? fallback : value;
 }
 
-
-
 function setAtPath<T extends Record<string, any>>(obj: T, path: string, value: any): T {
   const clone = deepClone(obj);
   const keys = String(path).split(".");
@@ -584,14 +593,6 @@ function normalizeNeedRevisionRounds(raw: any): "" | "yes" | "no" {
   if (["no", "false", "0", "not required", "not needed"].includes(value)) return "no";
 
   return "";
-}
-
-function resolveInfluencerFeeValue(commercial: ContractFormState["scheduleA"]["commercial"]) {
-  return String(
-    commercial.influencerBudget ||
-    commercial.totalCampaignFee ||
-    ""
-  );
 }
 
 function createDefaultCommercialMilestone(index: number = 1): ContractMilestone {
@@ -668,7 +669,7 @@ function createDefaultScheduleDeliverable(index: number = 1): ScheduleADeliverab
     liveDate: "",
     preShootScriptRequired: false,
     preShootScriptDue: "",
-    preShootScriptReviewBusinessDays: "2",
+    preShootScriptReviewBusinessDays: "",
   };
 }
 
@@ -756,7 +757,7 @@ function createDefaultContractForm(): ContractFormState {
       preShootScriptReviewBusinessDays: "",
       mandatoryTagsMentionsLinksCodes: "",
       review: {
-        needRevisionRounds: "no",
+        needRevisionRounds: "",
         includedRevisionRounds: "",
         additionalRevisionFee: "",
         reshootObligation: "",
@@ -766,14 +767,13 @@ function createDefaultContractForm(): ContractFormState {
       commercial: {
         totalCampaignFee: "",
         currency: "USD",
-        paymentStructure: "50 / 50",
+        paymentStructure: "",
         customSplit: "",
         advancePaymentTrigger: "",
         remainingPaymentTrigger: "",
         paymentProcessorFeesBorneBy: "",
         paymentProcessorFeesNotes: "",
-        laneAMarketplaceFeeNote:
-          "Unless expressly stated otherwise, 10% of the applicable Influencer compensation funded through the Platform is deducted from the Influencer payout and retained by CollabGlam; the Brand-funded campaign amount remains fixed.",
+        laneAMarketplaceFeeNote: "",
         milestones: [createDefaultCommercialMilestone()],
         influencerBudget: ""
       },
@@ -1257,11 +1257,8 @@ export default function ContractSidebarExtracted({
       base.campaign.territoryTargetCountry = "Worldwide";
       base.campaign.effectiveDate = toInputDate(new Date());
 
-      if (typeof campaignBudget === "number") {
-        base.scheduleA.commercial.totalCampaignFee = String(campaignBudget);
-      } else {
-        base.scheduleA.commercial.totalCampaignFee = String(inf?.feeAmount ?? 0);
-      }
+      // Do not prefill Influencer fees from campaignBudget or influencer API data.
+      // Keep it empty until the brand enters it manually in the form.
 
       if (campaignTimeline?.startDate) {
         const start = toInputDate(campaignTimeline.startDate);
@@ -1296,12 +1293,22 @@ export default function ContractSidebarExtracted({
       merged.scheduleA.preShootScriptRequired = normalizePreShootScriptRequired(
         merged.scheduleA.preShootScriptRequired
       );
-      merged.scheduleA.commercial.influencerBudget = resolveInfluencerFeeValue(
-        merged.scheduleA.commercial
-      );
-      merged.scheduleA.commercial.totalCampaignFee = resolveInfluencerFeeValue(
-        merged.scheduleA.commercial
-      );
+      const contractCommercial = meta?.content?.scheduleA?.commercial;
+      const savedInfluencerFee =
+        contractCommercial?.influencerBudget !== undefined &&
+          contractCommercial?.influencerBudget !== null &&
+          String(contractCommercial.influencerBudget).trim() !== ""
+          ? String(contractCommercial.influencerBudget)
+          : contractCommercial?.totalCampaignFee !== undefined &&
+            contractCommercial?.totalCampaignFee !== null &&
+            String(contractCommercial.totalCampaignFee).trim() !== ""
+            ? String(contractCommercial.totalCampaignFee)
+            : "";
+
+      // Only prefill Influencer fees from saved getContract content.
+      // Do not prefill it from campaignBudget or influencer profile fee data.
+      merged.scheduleA.commercial.influencerBudget = savedInfluencerFee;
+      merged.scheduleA.commercial.totalCampaignFee = savedInfluencerFee;
       merged.scheduleA.commercial.currency = "USD";
 
       const revisionFromMeta = meta?.content?.scheduleA?.review || {};
@@ -1313,15 +1320,21 @@ export default function ContractSidebarExtracted({
         Number(revisionFromMeta.includedRevisionRounds || 0) > 0 ||
         Boolean(String(revisionFromMeta.additionalRevisionFee || "").trim());
 
+      const hasRevisionContent =
+        Boolean(meta?.content?.scheduleA?.review) ||
+        Boolean(String(merged.scheduleA.review.needRevisionRounds || "").trim()) ||
+        Boolean(String(merged.scheduleA.review.includedRevisionRounds || "").trim()) ||
+        Boolean(String(merged.scheduleA.review.additionalRevisionFee || "").trim());
+
       merged.scheduleA.review.needRevisionRounds =
         normalizedNeedRevisionRounds ||
-        (derivedNeedRevisionRounds ? "yes" : "no");
+        (derivedNeedRevisionRounds ? "yes" : hasRevisionContent ? "no" : "");
 
       if (merged.scheduleA.review.needRevisionRounds === "yes") {
         merged.scheduleA.review.includedRevisionRounds =
           String(merged.scheduleA.review.includedRevisionRounds || "1");
         merged.scheduleA.review.additionalRevisionFee =
-          String(merged.scheduleA.review.additionalRevisionFee || "0");
+          String(merged.scheduleA.review.additionalRevisionFee || "");
       } else {
         merged.scheduleA.review.includedRevisionRounds = "";
         merged.scheduleA.review.additionalRevisionFee = "";
@@ -1388,7 +1401,7 @@ export default function ContractSidebarExtracted({
             preShootScriptReviewBusinessDays: String(
               row?.preShootScriptReviewBusinessDays ||
               meta?.content?.scheduleA?.preShootScriptReviewBusinessDays ||
-              "2"
+              ""
             ),
           }))
           : [];
@@ -1536,6 +1549,21 @@ export default function ContractSidebarExtracted({
           "0"
         ) || 0;
 
+    const paymentStructure =
+      content.scheduleA.commercial.paymentStructure === PAYMENT_STRUCTURE_DUMMY_VALUE
+        ? ""
+        : content.scheduleA.commercial.paymentStructure;
+
+    const needRevisionRounds =
+      content.scheduleA.review.needRevisionRounds === REVISION_ROUNDS_DUMMY_VALUE
+        ? ""
+        : content.scheduleA.review.needRevisionRounds;
+
+    const minimumLivePeriod =
+      content.scheduleA.review.minimumLivePeriod === MINIMUM_LIVE_PERIOD_DUMMY_VALUE
+        ? ""
+        : content.scheduleA.review.minimumLivePeriod;
+
     content.campaign.paymentType = paymentType;
 
     const deliverablesForPayload = deliverables.filter(
@@ -1559,7 +1587,7 @@ export default function ContractSidebarExtracted({
       preShootScriptRequired: Boolean(row.preShootScriptRequired),
       preShootScriptDue: row.preShootScriptRequired ? row.preShootScriptDue : "",
       preShootScriptReviewBusinessDays:
-        Number(row.preShootScriptReviewBusinessDays || "2") || 2,
+        Number(row.preShootScriptReviewBusinessDays || ""),
     }));
 
     const firstPreShootDeliverable = deliverablePayload.find(
@@ -1596,22 +1624,24 @@ export default function ContractSidebarExtracted({
         preShootScriptRequired: Boolean(firstPreShootDeliverable),
         preShootScriptDue: firstPreShootDeliverable?.preShootScriptDue || "",
         preShootScriptReviewBusinessDays:
-          Number(firstPreShootDeliverable?.preShootScriptReviewBusinessDays || "2") || 2,
+          Number(firstPreShootDeliverable?.preShootScriptReviewBusinessDays || "") || 0,
         deliverables: deliverablePayload,
         review: {
           ...content.scheduleA.review,
-          needRevisionRounds: content.scheduleA.review.needRevisionRounds || "no",
+          needRevisionRounds,
+          minimumLivePeriod,
           includedRevisionRounds:
-            content.scheduleA.review.needRevisionRounds === "yes"
+            needRevisionRounds === "yes"
               ? Number(content.scheduleA.review.includedRevisionRounds || "1") || 1
               : 0,
           additionalRevisionFee:
-            content.scheduleA.review.needRevisionRounds === "yes"
-              ? String(content.scheduleA.review.additionalRevisionFee || "0")
+            needRevisionRounds === "yes"
+              ? String(content.scheduleA.review.additionalRevisionFee || "")
               : "",
         },
         commercial: {
           ...content.scheduleA.commercial,
+          paymentStructure,
           totalCampaignFee: influencerFee,
           influencerBudget: influencerFee,
           currency: "USD",
@@ -1689,7 +1719,7 @@ export default function ContractSidebarExtracted({
     );
     const revisionFeeValue = Number(revisionFeeRaw);
     const reviewDaysRaw = String(
-      contractForm.scheduleA.preShootScriptReviewBusinessDays ?? "2"
+      contractForm.scheduleA.preShootScriptReviewBusinessDays ?? ""
     );
     const reviewDays = Number(reviewDaysRaw);
 
@@ -2821,9 +2851,13 @@ export default function ContractSidebarExtracted({
 
                 <FloatingSelect
                   label="Need Revision Rounds"
-                  value={contractForm.scheduleA.review.needRevisionRounds || "no"}
+                  value={
+                    contractForm.scheduleA.review.needRevisionRounds ||
+                    REVISION_ROUNDS_DUMMY_VALUE
+                  }
                   onValueChange={(value) => {
-                    const nextValue = value as "yes" | "no";
+                    const nextValue =
+                      value === REVISION_ROUNDS_DUMMY_VALUE ? "" : (value as "yes" | "no");
 
                     setContractForm((prev) =>
                       setAtPath(
@@ -2840,7 +2874,7 @@ export default function ContractSidebarExtracted({
                         ),
                         "scheduleA.review.additionalRevisionFee",
                         nextValue === "yes"
-                          ? prev.scheduleA.review.additionalRevisionFee || "0"
+                          ? prev.scheduleA.review.additionalRevisionFee || ""
                           : ""
                       )
                     );
@@ -2988,7 +3022,7 @@ export default function ContractSidebarExtracted({
                     onCheckedChange={(checked) =>
                       setContractField(
                         "scheduleA.review.minimumLivePeriod",
-                        checked ? "2 months" : ""
+                        checked ? MINIMUM_LIVE_PERIOD_DUMMY_VALUE : ""
                       )
                     }
                     className="shrink-0"
@@ -3006,7 +3040,10 @@ export default function ContractSidebarExtracted({
 
                 <FloatingSelect
                   label="Select a duration"
-                  value={getAtPath(contractForm, "scheduleA.review.minimumLivePeriod")}
+                  value={
+                    getAtPath(contractForm, "scheduleA.review.minimumLivePeriod") ||
+                    MINIMUM_LIVE_PERIOD_DUMMY_VALUE
+                  }
                   onValueChange={(value) =>
                     setContractField("scheduleA.review.minimumLivePeriod", value)
                   }
@@ -3065,9 +3102,15 @@ export default function ContractSidebarExtracted({
                     <FloatingSelect
                       label="Payment Structure"
                       info={SIDEBAR_TOOLTIPS.paymentStructure}
-                      value={getAtPath(contractForm, "scheduleA.commercial.paymentStructure")}
+                      value={
+                        getAtPath(contractForm, "scheduleA.commercial.paymentStructure") ||
+                        PAYMENT_STRUCTURE_DUMMY_VALUE
+                      }
                       onValueChange={(value) =>
-                        setContractField("scheduleA.commercial.paymentStructure", value)
+                        setContractField(
+                          "scheduleA.commercial.paymentStructure",
+                          value === PAYMENT_STRUCTURE_DUMMY_VALUE ? "" : value
+                        )
                       }
                       searchable={false}
                     >
@@ -3077,9 +3120,11 @@ export default function ContractSidebarExtracted({
                             <span className="text-[15px] font-semibold text-[#1F1F1F]">
                               {option.label}
                             </span>
-                            <span className="text-xs font-normal text-[#B3B3B3]">
-                              ({option.description})
-                            </span>
+                            {option.description ? (
+                              <span className="text-xs font-normal text-[#B3B3B3]">
+                                ({option.description})
+                              </span>
+                            ) : null}
                           </span>
                         </SelectItem>
                       ))}

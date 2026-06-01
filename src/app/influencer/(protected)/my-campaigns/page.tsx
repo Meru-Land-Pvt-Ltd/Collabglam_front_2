@@ -303,7 +303,7 @@ type CreatorContractTerms = {
   preShootScriptRequired: "" | "yes" | "no";
   preShootScriptDue: string;
   preShootScriptReviewBusinessDays: string;
-  totalFees: string;
+  influencerFee: string;
   currency: string;
   wantAdvancePayment: boolean;
   advancePaymentAmount: string;
@@ -331,7 +331,7 @@ const emptyCreatorTerms: CreatorContractTerms = {
   preShootScriptRequired: "yes",
   preShootScriptDue: "",
   preShootScriptReviewBusinessDays: "0",
-  totalFees: "0",
+  influencerFee: "",
   currency: "USD",
   wantAdvancePayment: false,
   advancePaymentAmount: "",
@@ -1418,6 +1418,28 @@ const buildAddressText = (data: LocalInfluencer) =>
     .filter(Boolean)
     .join(", ");
 
+function getContractInfluencerFeeValue(commercial: any) {
+  const influencerFee = commercial?.influencerFee;
+  if (
+    influencerFee !== undefined &&
+    influencerFee !== null &&
+    String(influencerFee).trim() !== ""
+  ) {
+    return String(influencerFee);
+  }
+
+  const influencerBudget = commercial?.influencerBudget;
+  if (
+    influencerBudget !== undefined &&
+    influencerBudget !== null &&
+    String(influencerBudget).trim() !== ""
+  ) {
+    return String(influencerBudget);
+  }
+
+  return "";
+}
+
 function createCreatorTermsFromContract(contract: any, fallback: LocalInfluencer): CreatorContractTerms {
   const content = contract?.content || {};
   const campaignContent = content?.campaign || {};
@@ -1444,7 +1466,7 @@ function createCreatorTermsFromContract(contract: any, fallback: LocalInfluencer
     preShootScriptRequired: toYesNoValue(scheduleA?.preShootScriptRequired) || "yes",
     preShootScriptDue: String(scheduleA?.preShootScriptDue || ""),
     preShootScriptReviewBusinessDays: String(scheduleA?.preShootScriptReviewBusinessDays ?? "0"),
-    totalFees: String(commercial?.totalCampaignFee ?? commercial?.influencerBudget ?? "0"),
+    influencerFee: getContractInfluencerFeeValue(commercial),
     currency: "USD",
     wantAdvancePayment: Boolean(commercial?.wantAdvancePayment),
     advancePaymentAmount: String(commercial?.advancePaymentAmount || ""),
@@ -1478,7 +1500,8 @@ function buildCreatorContractUpdatePayload(
   terms: CreatorContractTerms
 ) {
   const reshootObligation = buildReshootObligationText(terms);
-  const totalFees = Number(terms.totalFees || "0") || 0;
+  const influencerFeeRaw = String(terms.influencerFee ?? "").trim();
+  const influencerFee = influencerFeeRaw ? Number(influencerFeeRaw) || 0 : "";
 
   return {
     content: {
@@ -1502,8 +1525,8 @@ function buildCreatorContractUpdatePayload(
           reshootFee: String(terms.reshootFee || ""),
         },
         commercial: {
-          totalCampaignFee: totalFees,
-          influencerBudget: totalFees,
+          influencerFee,
+          influencerBudget: influencerFee,
           currency: "USD",
 
           wantAdvancePayment: Boolean(terms.wantAdvancePayment),
@@ -1700,9 +1723,12 @@ function InfluencerContractModal({
       errors.additionalRevisionFee = "Additional revision fees must be 0 or greater.";
     }
 
-    const totalFees = Number(data.totalFees || "0");
-    if (Number.isNaN(totalFees) || totalFees < 0) {
-      errors.totalFees = "Total fees must be 0 or greater.";
+    const influencerFeeRaw = String(data.influencerFee ?? "").trim();
+    const influencerFee = Number(influencerFeeRaw);
+    if (!influencerFeeRaw) {
+      errors.influencerFee = "Influencer fee is required.";
+    } else if (Number.isNaN(influencerFee) || influencerFee < 0) {
+      errors.influencerFee = "Influencer fee must be 0 or greater.";
     }
 
     if (data.wantAdvancePayment) {
@@ -2704,14 +2730,14 @@ function InfluencerContractModal({
             >
               <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <FloatingInput
-                  id="totalFees"
-                  label="Total Fees"
+                  id="influencerFee"
+                  label="Influencer Fee"
                   type="number"
-                  value={creatorTerms.totalFees}
-                  state={creatorErrors.totalFees ? "error" : undefined}
-                  errorText={creatorErrors.totalFees}
+                  value={creatorTerms.influencerFee}
+                  state={creatorErrors.influencerFee ? "error" : undefined}
+                  errorText={creatorErrors.influencerFee}
                   onValueChange={(v) =>
-                    setCreatorTerms((p) => ({ ...p, totalFees: v }))
+                    setCreatorTerms((p) => ({ ...p, influencerFee: v }))
                   }
                 />
 
