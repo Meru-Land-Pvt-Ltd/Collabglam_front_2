@@ -190,6 +190,18 @@ type MediaKitShape = {
   contact?: any[];
   contacts?: any[];
   languages?: Array<{ name?: string }>;
+
+  // New demographics
+  countryDemographics?: AudienceCountry[];
+  audienceDemographics?: {
+    ages?: AudienceAge[];
+    genders?: AudienceGender[];
+    languages?: Array<{ code: string; weight: number }>;
+    interests?: Array<{ name: string; weight: number }>;
+    credibility?: number;
+  };
+  audience?: InfluencerReportShape['audience'];
+
   email?: string;
   phone?: string;
   additionalNotes?: string;
@@ -1263,6 +1275,8 @@ function InfluencerDetailFullPageInner({
   }, [activeReport, primaryReport, connectedProfiles, displayedReport]);
 
   const mediaKit = useMemo<MediaKitShape>(() => {
+    const audienceSource = audienceReport?.audience ?? {};
+
     return {
       _id: raw?._id ?? raw?.mediaKit?._id,
       mediaKitId: raw?.mediaKitId ?? raw?.mediaKit?.mediaKitId,
@@ -1271,15 +1285,48 @@ function InfluencerDetailFullPageInner({
       primaryInfluencerReport: displayedReport ?? undefined,
       influencerReports: connectedProfiles,
       socialProfiles: connectedProfiles,
+
       name: displayedReport?.fullname ?? displayedReport?.name,
       country: displayedReport?.country,
-      languages: displayedReport?.language?.name ? [{ name: displayedReport.language.name }] : [],
+      location: displayedReport?.location,
+      city: displayedReport?.city,
+      state: displayedReport?.state,
+
+      languages: displayedReport?.language?.name
+        ? [{ name: displayedReport.language.name }]
+        : [],
+
+      // New demographics for media kit
+      countryDemographics: Array.isArray(audienceSource?.geoCountries)
+        ? audienceSource.geoCountries
+        : [],
+      audienceDemographics: {
+        ages: Array.isArray(audienceSource?.ages) ? audienceSource.ages : [],
+        genders: Array.isArray(audienceSource?.genders) ? audienceSource.genders : [],
+        languages: Array.isArray(audienceSource?.languages)
+          ? audienceSource.languages
+          : [],
+        interests: Array.isArray(audienceSource?.interests)
+          ? audienceSource.interests
+          : [],
+        credibility: audienceSource?.credibility,
+      },
+      audience: audienceSource,
+
       email: raw?.email ?? raw?.mediaKit?.email,
       phone: raw?.phone ?? raw?.mediaKit?.phone,
       additionalNotes: raw?.additionalNotes ?? raw?.mediaKit?.additionalNotes,
       updatedAt: lastFetchedAt ?? raw?.updatedAt ?? raw?.mediaKit?.updatedAt,
     };
-  }, [raw, data, connectedProfiles, displayedReport, platform, lastFetchedAt]);
+  }, [
+    raw,
+    data,
+    connectedProfiles,
+    displayedReport,
+    audienceReport,
+    platform,
+    lastFetchedAt,
+  ]);
 
   const canAct = Boolean(displayedReport?.modashId) && !loading && !sendingInvite && !refreshing;
   const formattedLastUpdated = lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleString() : 'Not fetched yet';
@@ -1570,6 +1617,13 @@ function InfluencerDetailFullPageInner({
       label: item.code,
       value: Number((item.weight || 0) * 100),
     })) ?? [];
+
+  const hasAudienceDemographics =
+    audienceAge.length > 0 ||
+    audienceGender.length > 0 ||
+    topCountries.length > 0 ||
+    topLanguages.length > 0 ||
+    credibilityScore > 0;
 
   const lookalikeCreators = useMemo<LookalikeCreator[]>(() => {
     const merged = [
@@ -2090,7 +2144,7 @@ function InfluencerDetailFullPageInner({
             title="Unlock the complete profile"
             subtitle="Log in to explore recent post performance, post-level metrics, and content history."
           >
-            {credibilityScore ? (
+            {hasAudienceDemographics ? (
               <AudienceIntelligenceCard
                 ageData={audienceAge}
                 genderData={audienceGender}
