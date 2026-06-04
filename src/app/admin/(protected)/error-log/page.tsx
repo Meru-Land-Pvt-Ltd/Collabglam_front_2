@@ -35,6 +35,13 @@ type ErrorLog = {
   requestQuery?: Record<string, unknown>;
   environment?: string;
   stack?: string;
+
+  // grouped error fields from backend aggregation
+  count?: number;
+  occurrences?: number;
+  firstSeen?: string;
+  lastSeen?: string;
+
   createdAt?: string;
   updatedAt?: string;
 };
@@ -42,6 +49,7 @@ type ErrorLog = {
 type ErrorLogListResp = {
   success?: boolean;
   totalLogs?: number;
+  totalGroups?: number;
   currentPage?: number;
   totalPages?: number;
   logs?: ErrorLog[];
@@ -178,6 +186,17 @@ const shortText = (value?: string | null, max = 42) => {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 };
 
+const getOccurrenceCount = (row: ErrorLog) => {
+  const value = row.occurrences ?? row.count ?? 1;
+  return Number.isFinite(Number(value)) ? Number(value) : 1;
+};
+
+const getLastSeen = (row: ErrorLog) => row.lastSeen || row.createdAt;
+
+const getFirstSeen = (row: ErrorLog) => row.firstSeen || row.createdAt;
+
+const getActorEmail = (row: ErrorLog) => row.actorEmail || "—";
+
 const getStatusClass = (statusCode?: number) => {
   if (!statusCode) {
     return "bg-gray-100 text-gray-600 border border-gray-200";
@@ -214,7 +233,7 @@ export default function AdminErrorLogsPage() {
 
       setRows(data.logs || []);
       setTotalPages(data.totalPages || 1);
-      setTotal(data.totalLogs || 0);
+      setTotal(data.totalGroups || data.totalLogs || 0);
     } catch (e) {
       const message = getErrorMessage(e, "Failed to load error logs.");
       setError(message);
@@ -248,14 +267,14 @@ export default function AdminErrorLogsPage() {
   const to = Math.min(page * pageSize, total);
 
   const col = {
-    error: "min-w-0 flex-[2.25_1_0%]",
+    error: "min-w-0 flex-[2.2_1_0%]",
     code: "min-w-[12rem] flex-[0_0_12rem] shrink-0",
-    method: "min-w-[5.5rem] flex-[0_0_5.5rem] shrink-0",
+    count: "min-w-[7.5rem] flex-[0_0_7.5rem] shrink-0",
     status: "min-w-[6.5rem] flex-[0_0_6.5rem] shrink-0",
-    url: "min-w-0 flex-[1.55_1_0%]",
     role: "min-w-[8rem] flex-[0_0_8rem] shrink-0",
-    user: "min-w-[12rem] flex-[0_0_12rem] shrink-0",
-    date: "min-w-[9rem] flex-[0_0_9rem] shrink-0",
+    email: "min-w-[14rem] flex-[0_0_14rem] shrink-0",
+    lastSeen: "min-w-[9.5rem] flex-[0_0_9.5rem] shrink-0",
+    firstSeen: "min-w-[9.5rem] flex-[0_0_9.5rem] shrink-0",
   };
 
   const headerCell =
@@ -270,7 +289,7 @@ export default function AdminErrorLogsPage() {
           <div>
             <h1 className="text-2xl font-semibold text-[#1A1A1A]">Error Logs</h1>
             <p className="mt-1 text-sm text-gray-500">
-              Backend API error list only
+              Grouped backend API errors with occurrences and last seen time
             </p>
           </div>
 
@@ -284,11 +303,11 @@ export default function AdminErrorLogsPage() {
         </div>
 
         <div className="w-full overflow-x-auto overflow-y-visible">
-          <div className="mt-[1.5rem] min-w-[86rem] w-full pb-[2rem]">
+          <div className="mt-[1.5rem] min-w-[82rem] w-full pb-[2rem]">
             <div className="flex h-12 items-center rounded-lg bg-[#E6E6E6] px-3">
               <div className={`${col.error} pl-2 pr-3`}>
                 <div className={headerCell}>
-                  <span className="min-w-0 truncate">Error Message</span>
+                  <span className="min-w-0 truncate">Error Name / Message</span>
                   <HeaderCarets />
                 </div>
               </div>
@@ -300,9 +319,9 @@ export default function AdminErrorLogsPage() {
                 </div>
               </div>
 
-              <div className={`${col.method} px-1.5`}>
+              <div className={`${col.count} px-1.5`}>
                 <div className={headerCell}>
-                  <span>Method</span>
+                  <span>Count</span>
                   <HeaderCarets />
                 </div>
               </div>
@@ -314,13 +333,6 @@ export default function AdminErrorLogsPage() {
                 </div>
               </div>
 
-              <div className={`${col.url} px-1.5`}>
-                <div className={headerCell}>
-                  <span className="min-w-0 truncate">API URL</span>
-                  <HeaderCarets />
-                </div>
-              </div>
-
               <div className={`${col.role} px-1.5`}>
                 <div className={headerCell}>
                   <span>Role</span>
@@ -328,16 +340,23 @@ export default function AdminErrorLogsPage() {
                 </div>
               </div>
 
-              <div className={`${col.user} px-1.5`}>
+              <div className={`${col.email} px-1.5`}>
                 <div className={headerCell}>
-                  <span>User / Actor</span>
+                  <span className="min-w-0 truncate">Email</span>
                   <HeaderCarets />
                 </div>
               </div>
 
-              <div className={`${col.date} px-1.5`}>
+              <div className={`${col.lastSeen} px-1.5`}>
                 <div className={headerCell}>
-                  <span>Created</span>
+                  <span>Last Seen</span>
+                  <HeaderCarets />
+                </div>
+              </div>
+
+              <div className={`${col.firstSeen} px-1.5`}>
+                <div className={headerCell}>
+                  <span>First Seen</span>
                   <HeaderCarets />
                 </div>
               </div>
@@ -359,27 +378,27 @@ export default function AdminErrorLogsPage() {
                       <div className="h-3.5 w-24 rounded bg-gray-200" />
                     </div>
 
-                    <div className={`${col.method} px-1.5`}>
-                      <div className="h-6 w-14 rounded-full bg-gray-200" />
+                    <div className={`${col.count} px-1.5`}>
+                      <div className="h-6 w-16 rounded-full bg-gray-200" />
                     </div>
 
                     <div className={`${col.status} px-1.5`}>
                       <div className="h-6 w-16 rounded-full bg-gray-200" />
                     </div>
 
-                    <div className={`${col.url} px-1.5`}>
-                      <div className="h-3.5 w-3/4 rounded bg-gray-200" />
-                    </div>
-
                     <div className={`${col.role} px-1.5`}>
                       <div className="h-6 w-20 rounded-full bg-gray-200" />
                     </div>
 
-                    <div className={`${col.user} px-1.5`}>
+                    <div className={`${col.email} px-1.5`}>
+                      <div className="h-3.5 w-28 rounded bg-gray-200" />
+                    </div>
+
+                    <div className={`${col.lastSeen} px-1.5`}>
                       <div className="h-3.5 w-24 rounded bg-gray-200" />
                     </div>
 
-                    <div className={`${col.date} px-1.5`}>
+                    <div className={`${col.firstSeen} px-1.5`}>
                       <div className="h-3.5 w-24 rounded bg-gray-200" />
                     </div>
                   </div>
@@ -402,20 +421,15 @@ export default function AdminErrorLogsPage() {
               {!loading && !error && rows.length === 0 && (
                 <div className="flex flex-col items-center justify-center gap-3 py-20 text-[#888]">
                   <FileWarning className="size-9" />
-                  <p className="text-sm font-medium">No error logs found</p>
+                  <p className="text-sm font-medium">No grouped error logs found</p>
                 </div>
               )}
 
               {!loading &&
                 !error &&
                 rows.map((row) => {
-                  const actor =
-                    row.actorEmail ||
-                    row.adminId ||
-                    row.brandId ||
-                    row.influencerId ||
-                    row.userId ||
-                    "—";
+                  const occurrenceCount = getOccurrenceCount(row);
+                  const actorEmail = getActorEmail(row);
 
                   return (
                     <div
@@ -431,10 +445,10 @@ export default function AdminErrorLogsPage() {
                         </div>
 
                         <div
-                          title={row.name || ""}
+                          title={`${row.name || "Error"} • ${row.method || "—"} ${row.url || ""}`}
                           className="mt-0.5 max-w-full truncate text-xs text-gray-400"
                         >
-                          {row.name || "Error"} • {row.environment || "development"}
+                          {row.name || "Error"} • {row.method || "—"} • {row.environment || "development"}
                         </div>
                       </div>
 
@@ -447,9 +461,12 @@ export default function AdminErrorLogsPage() {
                         </div>
                       </div>
 
-                      <div className={`${col.method} px-1.5`}>
-                        <span className="rounded-full bg-[#F3F3F3] px-2.5 py-1 text-xs font-semibold text-[#1A1A1A]">
-                          {row.method || "—"}
+                      <div className={`${col.count} px-1.5`}>
+                        <span
+                          title={`${occurrenceCount} occurrence${occurrenceCount === 1 ? "" : "s"}`}
+                          className="rounded-full bg-[#F3F3F3] px-2.5 py-1 text-xs font-semibold text-[#1A1A1A]"
+                        >
+                          {occurrenceCount}
                         </span>
                       </div>
 
@@ -459,15 +476,6 @@ export default function AdminErrorLogsPage() {
                         >
                           {row.statusCode || "—"}
                         </span>
-                      </div>
-
-                      <div className={`${col.url} min-w-0 overflow-hidden px-1.5`}>
-                        <div
-                          title={row.url || ""}
-                          className="max-w-full truncate font-mono text-xs text-gray-600"
-                        >
-                          {row.url || "—"}
-                        </div>
                       </div>
 
                       <div className={`${col.role} px-1.5`}>
@@ -480,17 +488,21 @@ export default function AdminErrorLogsPage() {
                         )}
                       </div>
 
-                      <div className={`${col.user} min-w-0 overflow-hidden px-1.5`}>
+                      <div className={`${col.email} min-w-0 overflow-hidden px-1.5`}>
                         <div
-                          title={String(actor)}
+                          title={actorEmail}
                           className="max-w-full truncate text-xs text-gray-600"
                         >
-                          {shortText(String(actor), 28)}
+                          {shortText(actorEmail, 32)}
                         </div>
                       </div>
 
-                      <div className={`${col.date} whitespace-nowrap px-1.5 text-sm text-gray-500`}>
-                        {formatDateTime(row.createdAt)}
+                      <div className={`${col.lastSeen} whitespace-nowrap px-1.5 text-sm text-gray-500`}>
+                        {formatDateTime(getLastSeen(row))}
+                      </div>
+
+                      <div className={`${col.firstSeen} whitespace-nowrap px-1.5 text-sm text-gray-500`}>
+                        {formatDateTime(getFirstSeen(row))}
                       </div>
                     </div>
                   );
