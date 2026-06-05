@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   AlertCircle,
@@ -311,28 +311,28 @@ function getInfluencerUserIdForInvitation(params: {
 
   return String(
     selectedReport?.modashId ||
-      selectedReport?._id ||
-      selectedReport?.userId ||
-      profileRoot?.userId ||
-      profileRoot?.modashId ||
-      profileRoot?.channelId ||
-      profileRoot?.id ||
-      raw?._modashProfileId ||
-      data?._modashProfileId ||
-      raw?._id ||
-      data?._id ||
-      ''
+    selectedReport?._id ||
+    selectedReport?.userId ||
+    profileRoot?.userId ||
+    profileRoot?.modashId ||
+    profileRoot?.channelId ||
+    profileRoot?.id ||
+    raw?._modashProfileId ||
+    data?._modashProfileId ||
+    raw?._id ||
+    data?._id ||
+    ''
   ).trim();
 }
 
 function getLookalikeReportUserId(item: LookalikePanelItem): string {
   return String(
     (item.raw as any)?.userId ??
-      (item.raw as any)?.modashId ??
-      item.userId ??
-      item.modashId ??
-      item.id ??
-      ''
+    (item.raw as any)?.modashId ??
+    item.userId ??
+    item.modashId ??
+    item.id ??
+    ''
   ).trim();
 }
 
@@ -2095,6 +2095,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
   }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const pathname = usePathname();
+    const isAdminSide = pathname?.startsWith('/admin');
     const queryCampaignId = searchParams?.get('campaignId') || '';
     const queryCampaignName = searchParams?.get('campaignName') || '';
 
@@ -3107,11 +3109,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     };
 
     const handleGenerateSuggestedRateCard = async () => {
-      if (!brandId) {
-        await Swal.fire("Missing brand", "Missing brand _id.", "warning");
-        return;
-      }
-
       const activeCampaignId =
         selectedCampaignIds[0] || campaignId || searchParams?.get("campaignId") || "";
 
@@ -3135,9 +3132,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         ""
       ).trim();
 
-      // Modash/Instagram/TikTok reports have a local Mongo _id.
-      // YouTube preview reports usually only have a YouTube channel id, so do not
-      // block rate-card generation just because a Mongo profile id is missing.
       const influencerId = /^[a-f\d]{24}$/i.test(rawInfluencerId)
         ? rawInfluencerId
         : "";
@@ -3178,7 +3172,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         const response = await post<SuggestedRateCardResponse>(
           "/modash/rate-card/suggested",
           {
-            brandId,
+            ...(brandId ? { brandId } : {}),
             campaignId: activeCampaignId,
             ...(influencerId ? { influencerId } : {}),
             ...(youtubeChannelId
@@ -4284,12 +4278,14 @@ Team CollabGlam`;
                       campaignTitle={activeCampaignForPanel?.campaignTitle}
                     />
 
-                    <SuggestedRateCardBox
-                      loading={rateCardLoading}
-                      data={rateCardData}
-                      error={rateCardError}
-                      onGenerate={handleGenerateSuggestedRateCard}
-                    />
+                    {!isAdminSide ? (
+                      <SuggestedRateCardBox
+                        loading={rateCardLoading}
+                        data={rateCardData}
+                        error={rateCardError}
+                        onGenerate={handleGenerateSuggestedRateCard}
+                      />
+                    ) : null}
 
                     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_420px]">
                       {hasSectionAccess('recentPosts') ? (

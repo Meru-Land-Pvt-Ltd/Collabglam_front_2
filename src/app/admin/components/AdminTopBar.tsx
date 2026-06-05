@@ -582,22 +582,6 @@ export default function AdminTopBar() {
         </h1>
       </div>
 
-      <div className="hidden flex-1 px-8 lg:flex lg:max-w-md">
-        <div className="group relative flex w-full items-center rounded-xl bg-slate-100 transition-all focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-900 focus-within:ring-offset-1">
-          <Search className="absolute left-3.5 h-4 w-4 text-slate-400 group-focus-within:text-slate-900" />
-
-          <input
-            type="text"
-            placeholder="Search anything..."
-            className="w-full bg-transparent py-2.5 pl-10 pr-14 text-sm font-medium text-slate-900 placeholder:text-slate-500 focus:outline-none"
-          />
-
-          <div className="absolute right-2 hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-400 lg:block">
-            ⌘K
-          </div>
-        </div>
-      </div>
-
       <div className="flex shrink-0 items-center gap-3 lg:gap-4">
         <div ref={dropdownRef} className="relative">
           <button
@@ -795,14 +779,6 @@ export default function AdminTopBar() {
               </div>
             </div>
           ) : null}
-        </div>
-
-        <div className="hidden h-9 w-9 overflow-hidden rounded-full border-2 border-slate-200 bg-slate-100 md:block">
-          <img
-            src="https://api.dicebear.com/7.x/notionists/svg?seed=Admin"
-            alt="Admin avatar"
-            className="h-full w-full object-cover"
-          />
         </div>
       </div>
     </header>
