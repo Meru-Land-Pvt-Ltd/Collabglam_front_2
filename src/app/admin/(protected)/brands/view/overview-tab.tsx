@@ -249,7 +249,7 @@ function BrandProfileList({ rows }: { rows: BrandInfoRow[] }) {
   const rightRows = rows.slice(5, 10);
 
   return (
-    <div className="rounded-[28px] border border-black/10 bg-white px-5 py-4 shadow-sm">
+    <div className="rounded-[0.75rem] border border-black/10 bg-white px-5 py-4 shadow-sm">
       <div className="grid gap-x-10 xl:grid-cols-2">
         <div>
           {leftRows.map((row) => (

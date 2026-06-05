@@ -143,27 +143,27 @@ const TYPE_FILTERS: Array<{
   label: string;
   description: string;
 }> = [
-  {
-    id: "all",
-    label: "All",
-    description: "Every submitted rating",
-  },
-  {
-    id: "brand_to_influencer",
-    label: "Brand to Influencer",
-    description: "Ratings submitted by brand",
-  },
-  {
-    id: "influencer_to_brand",
-    label: "Influencer to Brand",
-    description: "Ratings given to brand",
-  },
-  {
-    id: "platform",
-    label: "Platform Feedback",
-    description: "Brand feedback for CollabGlam",
-  },
-];
+    {
+      id: "all",
+      label: "All",
+      description: "Every submitted rating",
+    },
+    {
+      id: "brand_to_influencer",
+      label: "Brand to Influencer",
+      description: "Ratings submitted by brand",
+    },
+    {
+      id: "influencer_to_brand",
+      label: "Influencer to Brand",
+      description: "Ratings given to brand",
+    },
+    {
+      id: "platform",
+      label: "Platform Feedback",
+      description: "Brand feedback for CollabGlam",
+    },
+  ];
 
 function safeNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
@@ -185,12 +185,12 @@ function formatDate(value?: string | null): string {
   return Number.isNaN(d.getTime())
     ? "—"
     : d.toLocaleString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 }
 
 function stringifyAnswer(value: unknown): string {
@@ -772,73 +772,24 @@ export function BrandRatingsTab({ brandId, brandName }: { brandId: string; brand
 
   return (
     <div className="space-y-5">
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <section className="rounded-3xl bg-white px-5 py-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">
-              Ratings
-            </p>
-            <h2 className="mt-2 text-2xl font-black tracking-[-0.03em] text-slate-900 md:text-3xl">
+            <h2 className="text-2xl font-black tracking-[-0.03em] text-slate-900 md:text-3xl">
               All Submitted Ratings
             </h2>
           </div>
 
-          <div className="grid min-w-[280px] gap-2 sm:grid-cols-2">
-            {[
-              {
-                label: "Avg. Brand → Influencer",
-                value: loadingStats ? "…" : brandToInfluencerAverage,
-                hint: `${brandToInfluencerCount} rows`,
-                icon: Building2,
-              },
-              {
-                label: "Avg. Influencer → Brand",
-                value: loadingStats ? "…" : influencerToBrandAverage,
-                hint: `${influencerToBrandCount} rows`,
-                icon: UserRound,
-              },
-            ].map((card) => {
-              const Icon = card.icon;
-
-              return (
-                <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-black text-slate-400">{card.label}</p>
-                    <Icon size={14} className="text-slate-400" />
-                  </div>
-                  <div className="mt-1 flex items-end justify-between gap-2">
-                    <p className="text-lg font-black text-slate-900">{card.value}</p>
-                    <p className="text-[11px] font-semibold text-slate-400">{card.hint}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
-          {error}
-        </div>
-      ) : null}
-
-      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-black text-slate-900">{selectedFilterMeta.label}</h3>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <Badge>{total || reviews.length} rows</Badge>
 
             <div className="relative">
               <select
                 value={filter}
-                onChange={(event) => changeFilter(event.target.value as RatingTypeFilter)}
-                className="h-10 min-w-[210px] appearance-none rounded-2xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-black text-slate-700 outline-none transition hover:bg-slate-50"
+                onChange={(event) =>
+                  changeFilter(event.target.value as RatingTypeFilter)
+                }
+                className="h-10 min-w-[230px] appearance-none rounded-2xl border border-slate-200 bg-white pl-4 pr-10 text-sm font-black text-slate-700 outline-none transition hover:bg-[#EDEDED]"
               >
                 {TYPE_FILTERS.map((item) => (
                   <option key={item.id} value={item.id}>
@@ -846,6 +797,7 @@ export function BrandRatingsTab({ brandId, brandName }: { brandId: string; brand
                   </option>
                 ))}
               </select>
+
               <ChevronDown
                 size={16}
                 className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -853,7 +805,15 @@ export function BrandRatingsTab({ brandId, brandName }: { brandId: string; brand
             </div>
           </div>
         </div>
+      </section>
 
+      {error ? (
+        <div className="rounded-[0.75rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="overflow-hidden">
         <AdminTable<AdminReview>
           data={reviews}
           columns={tableColumns}
@@ -869,7 +829,7 @@ export function BrandRatingsTab({ brandId, brandName }: { brandId: string; brand
               <button
                 type="button"
                 onClick={() => setSelectedReview(row)}
-                className="inline-flex h-9 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50"
+                className="inline-flex h-9 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-[#EDEDED]"
               >
                 <Eye size={14} />
                 View
@@ -889,7 +849,7 @@ export function BrandRatingsTab({ brandId, brandName }: { brandId: string; brand
             rowOptions: [10, 20, 50, 100],
             loading,
           }}
-          containerClassName="rounded-none border-0 shadow-none"
+          containerClassName="rounded-none border shadow-none"
         />
       </section>
 

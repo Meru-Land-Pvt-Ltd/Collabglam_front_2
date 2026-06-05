@@ -255,11 +255,10 @@ function TypeBadge({ type }: { type: PaymentHistoryItem["paymentType"] }) {
 
   return (
     <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black capitalize ${
-        isPlan
-          ? "border-blue-200 bg-blue-50 text-blue-700"
-          : "border-purple-200 bg-purple-50 text-purple-700"
-      }`}
+      className={`inline-flex rounded-full border px-3 py-1 text-xs font-black capitalize ${isPlan
+        ? "border-blue-200 bg-blue-50 text-blue-700"
+        : "border-purple-200 bg-purple-50 text-purple-700"
+        }`}
     >
       {isPlan ? "Plan" : "Milestone"}
     </span>
@@ -568,133 +567,139 @@ export function BrandInvoicesTab({ brandId }: { brandId: string }) {
         title="Payment History"
         description="Brand payment history, plan, and milestone."
         action={
-          <Button
-            onClick={fetchPaymentHistory}
-            disabled={loading}
-            className="rounded-2xl bg-[#1a1a1a] text-white hover:bg-[#1a1a1a]/90 disabled:opacity-60"
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
-        }
-      >
-        <div className="space-y-5 p-5">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-5">
-              <h3 className="text-2xl font-black tracking-[-0.03em] text-slate-900">
-                Filters
-              </h3>
-              <p className="mt-2 text-sm font-medium text-slate-500">
-                Affects the payment history table below only
+          <div className="flex max-w-full flex-wrap items-end justify-end gap-3">
+            <div className="w-[220px]">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                Search
               </p>
+
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={search}
+                  onChange={(event) => handleSearchChange(event.target.value)}
+                  placeholder="Search payments..."
+                  className="h-10 rounded-lg border-slate-200 bg-white pl-9 text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus-visible:ring-0"
+                />
+              </div>
             </div>
 
-            <div className="grid gap-4 px-5 py-6 xl:grid-cols-[1.2fr_0.8fr_0.8fr_0.8fr_auto] xl:items-end">
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                  Search
-                </p>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    value={search}
-                    onChange={(event) => handleSearchChange(event.target.value)}
-                    placeholder="Search payments..."
-                    className="h-11 rounded-lg border-slate-200 bg-white pl-11 text-sm font-semibold text-slate-700 shadow-none focus-visible:ring-0"
-                  />
-                </div>
-              </div>
+            <div className="w-[150px]">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                Status
+              </p>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                  Status
-                </p>
-                <Select value={status} onValueChange={handleStatusChange}>
-                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="failed">Failed</SelectItem>
-                    <SelectItem value="overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <Select value={status} onValueChange={handleStatusChange}>
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                  Payment Type
-                </p>
-                <Select
-                  value={paymentType}
-                  onValueChange={handlePaymentTypeChange}
-                >
-                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
-                    <SelectValue placeholder="Payment Type" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="plan">Plan</SelectItem>
-                    <SelectItem value="milestone">Milestone</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <SelectContent className="border-slate-200 bg-white">
+                  <SelectItem value="all" className="focus:bg-[#EDEDED]">
+                    All Status
+                  </SelectItem>
+                  <SelectItem value="paid" className="focus:bg-[#EDEDED]">
+                    Paid
+                  </SelectItem>
+                  <SelectItem value="pending" className="focus:bg-[#EDEDED]">
+                    Pending
+                  </SelectItem>
+                  <SelectItem value="failed" className="focus:bg-[#EDEDED]">
+                    Failed
+                  </SelectItem>
+                  <SelectItem value="overdue" className="focus:bg-[#EDEDED]">
+                    Overdue
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
-                  Date Range
-                </p>
-                <Select value={range} onValueChange={handleDateRangeChange}>
-                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
-                    <SelectValue placeholder="Date Range" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="all">All Time</SelectItem>
-                    <SelectItem value="7d">Last 7 Days</SelectItem>
-                    <SelectItem value="30d">Last 30 Days</SelectItem>
-                    <SelectItem value="90d">Last 90 Days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="w-[160px]">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                Payment Type
+              </p>
 
+              <Select value={paymentType} onValueChange={handlePaymentTypeChange}>
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
+                  <SelectValue placeholder="Payment Type" />
+                </SelectTrigger>
+
+                <SelectContent className="border-slate-200 bg-white">
+                  <SelectItem value="all" className="focus:bg-[#EDEDED]">
+                    All Types
+                  </SelectItem>
+                  <SelectItem value="plan" className="focus:bg-[#EDEDED]">
+                    Plan
+                  </SelectItem>
+                  <SelectItem value="milestone" className="focus:bg-[#EDEDED]">
+                    Milestone
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-[150px]">
+              <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+                Date Range
+              </p>
+
+              <Select value={range} onValueChange={handleDateRangeChange}>
+                <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
+                  <SelectValue placeholder="Date Range" />
+                </SelectTrigger>
+
+                <SelectContent className="border-slate-200 bg-white">
+                  <SelectItem value="all" className="focus:bg-[#EDEDED]">
+                    All Time
+                  </SelectItem>
+                  <SelectItem value="7d" className="focus:bg-[#EDEDED]">
+                    Last 7 Days
+                  </SelectItem>
+                  <SelectItem value="30d" className="focus:bg-[#EDEDED]">
+                    Last 30 Days
+                  </SelectItem>
+                  <SelectItem value="90d" className="focus:bg-[#EDEDED]">
+                    Last 90 Days
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {hasActiveFilters ? (
               <Button
                 type="button"
                 variant="outline"
-                disabled={!hasActiveFilters}
                 onClick={resetFilters}
-                className="h-11 rounded-lg border-slate-200 bg-slate-50 px-5 text-sm font-black text-slate-400 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="h-10 rounded-lg border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-none hover:bg-[#EDEDED]"
               >
                 Reset
               </Button>
-            </div>
+            ) : null}
           </div>
+        }
+      >
 
-          <div className="overflow-hidden rounded-2xl border border-black/10 bg-white">
-            <AdminTable<PaymentHistoryItem>
-              data={filteredInvoices}
-              columns={columns}
-              rowKey={(item, index) => getInvoiceId(item, index)}
-              loading={loading}
-              loadingRows={6}
-              error={null}
-              emptyTitle={error ? "Unable to load payment history" : "No payment found"}
-              emptyDescription={
-                error
-                  ? "Backend error is shown in the toast. Please try again."
-                  : "No payment history matched the selected filters."
-              }
-              sortBy={sortBy}
-              sortOrder={sortAsc ? "asc" : "desc"}
-              onSort={handleSort}
-              tableClassName="bg-white"
-            />
-          </div>
+        <div className="overflow-hidden rounded-2xl border border-black/10 bg-white">
+          <AdminTable<PaymentHistoryItem>
+            data={filteredInvoices}
+            columns={columns}
+            rowKey={(item, index) => getInvoiceId(item, index)}
+            loading={loading}
+            loadingRows={6}
+            error={null}
+            emptyTitle={error ? "Unable to load payment history" : "No payment found"}
+            emptyDescription={
+              error
+                ? "Backend error is shown in the toast. Please try again."
+                : "No payment history matched the selected filters."
+            }
+            sortBy={sortBy}
+            sortOrder={sortAsc ? "asc" : "desc"}
+            onSort={handleSort}
+            tableClassName="bg-white"
+          />
         </div>
-      </SectionCard>
+      </SectionCard >
     </>
   );
 }

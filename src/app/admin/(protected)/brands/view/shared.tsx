@@ -41,8 +41,8 @@ export function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="overflow-hidden rounded-[24px] border border-black/10 bg-white shadow-none">
-      <div className="border-b border-black/8 px-5 py-4 md:px-6">
+    <Card className="overflow-hidden rounded-[24px] !border-0 bg-white !shadow-none !ring-0">
+      <div className="px-5 py-4 md:px-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h3 className="text-[20px] font-black tracking-tight text-[#1a1a1a]">

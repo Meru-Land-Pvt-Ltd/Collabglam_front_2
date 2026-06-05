@@ -162,6 +162,7 @@ type InfluencerReportShape = {
     languages?: Array<{ code: string; weight: number }>;
     interests?: Array<{ name: string; weight: number }>;
     credibility?: number;
+    notable?: number;
     brandAffinity?: Array<{ name?: string; weight?: number }>;
     notableUsers?: ModashLookalike[];
   };
@@ -245,6 +246,17 @@ const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 function toNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function pickNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (value === undefined || value === null || value === '') continue;
+
+    const num = Number(value);
+    if (Number.isFinite(num)) return num;
+  }
+
+  return undefined;
 }
 
 function average(values: number[]): number {
@@ -705,17 +717,29 @@ function toInfluencerReportShape(
   const avgLikes =
     stats?.avgLikes?.value ??
     source?.avgLikes ??
-    root?.avgLikes;
+    source?.profile?.avgLikes ??
+    source?.profile?.stats?.avgLikes?.value ??
+    source?.profile?.profile?.avgLikes ??
+    root?.avgLikes ??
+    root?.engagements;
 
   const avgComments =
     stats?.avgComments?.value ??
     source?.avgComments ??
+    source?.profile?.avgComments ??
+    source?.profile?.stats?.avgComments?.value ??
+    source?.profile?.profile?.avgComments ??
     root?.avgComments;
 
   const avgViews =
     stats?.avgViews?.value ??
     source?.avgViews ??
     source?.avgReelsPlays ??
+    source?.profile?.avgViews ??
+    source?.profile?.avgReelsPlays ??
+    source?.profile?.stats?.avgViews?.value ??
+    source?.profile?.profile?.averageViews ??
+    source?.profile?.profile?.avgViews ??
     root?.averageViews ??
     root?.avgViews;
 
@@ -760,6 +784,19 @@ function toInfluencerReportShape(
   const resolvedFollowersRange =
     source?.audienceExtra?.followersRange ??
     root?.audienceExtra?.followersRange;
+
+  const audienceCredibility = pickNumber(
+    audience?.credibility,
+    audience?.notable,
+    source?.audience?.credibility,
+    source?.audience?.notable,
+    source?.profile?.audience?.credibility,
+    source?.profile?.audience?.notable,
+    source?.profile?.profile?.audience?.credibility,
+    source?.profile?.profile?.audience?.notable,
+    root?.audience?.credibility,
+    root?.audience?.notable
+  );
 
   return {
     modashId: String(
@@ -855,11 +892,9 @@ function toInfluencerReportShape(
     avgViews,
     avgReelsPlays:
       source?.avgReelsPlays ??
+      source?.profile?.avgReelsPlays ??
       root?.avgReelsPlays ??
-      source?.avgViews ??
-      root?.averageViews ??
-      root?.avgViews ??
-      stats?.avgViews?.value,
+      avgViews,
     audience: audience
       ? {
         geoCountries: Array.isArray(audience?.geoCountries)
@@ -892,7 +927,8 @@ function toInfluencerReportShape(
             weight: toNumber(i?.weight),
           }))
           : [],
-        credibility: audience?.credibility,
+        credibility: audienceCredibility,
+        notable: audience?.notable,
         brandAffinity: Array.isArray(audience?.brandAffinity)
           ? audience.brandAffinity
           : [],
@@ -1380,13 +1416,29 @@ function InfluencerDetailFullPageInner({
   }, [displayedReport, primaryReport, data, raw, connectedProfiles]);
 
   const credibilityScore = useMemo(() => {
-    const rawCredibility = audienceReport?.audience?.credibility;
-    if (rawCredibility !== undefined && rawCredibility !== null && Number.isFinite(Number(rawCredibility))) {
-      const num = Number(rawCredibility);
-      return num <= 1 ? Math.round(num * 100) : Math.round(num);
+    const rawCredibility = pickNumber(
+      audienceReport?.audience?.credibility,
+      audienceReport?.audience?.notable,
+      raw?.audience?.credibility,
+      raw?.audience?.notable,
+      raw?.profile?.audience?.credibility,
+      raw?.profile?.audience?.notable,
+      raw?.profile?.profile?.audience?.credibility,
+      raw?.profile?.profile?.audience?.notable,
+      (data as any)?.profile?.audience?.credibility,
+      (data as any)?.profile?.audience?.notable,
+      (data as any)?.profile?.profile?.audience?.credibility,
+      (data as any)?.profile?.profile?.audience?.notable
+    );
+
+    if (rawCredibility !== undefined) {
+      return rawCredibility <= 1
+        ? Math.round(rawCredibility * 100)
+        : Math.round(rawCredibility);
     }
+
     return 0;
-  }, [audienceReport]);
+  }, [audienceReport, raw, data]);
 
   const totalReach = useMemo(() => {
     if (!connectedProfiles.length) return toNumber(displayedReport?.followers ?? displayedReport?.subscribers);

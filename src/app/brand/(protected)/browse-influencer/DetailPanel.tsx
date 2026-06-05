@@ -2094,9 +2094,8 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     onReportLimitExceeded,
   }) => {
     const router = useRouter();
-    const searchParams = useSearchParams();
     const pathname = usePathname();
-    const isAdminSide = pathname?.startsWith('/admin');
+    const searchParams = useSearchParams();
     const queryCampaignId = searchParams?.get('campaignId') || '';
     const queryCampaignName = searchParams?.get('campaignName') || '';
 
@@ -2147,6 +2146,11 @@ export const DetailPanel = React.memo<DetailPanelProps>(
     const lookalikeReportRequestRef = useRef(0);
 
     const shouldLockFields = false;
+
+    const isAdminSide =
+      String(role || '').toLowerCase() === 'admin' ||
+      String(role || '').toLowerCase() === 'super_admin' ||
+      String(pathname || '').startsWith('/admin');
 
     const hasSectionAccess = (_section: SectionKey) => {
       if (!shouldLockFields) return true;
@@ -2655,32 +2659,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         profileRoot?.contacts ??
         [];
 
-      const audienceSource =
-        (selectedReport as any)?.audience ??
-        profileRoot?.audience ??
-        {};
-
-      const countryDemographics = Array.isArray(audienceSource?.geoCountries)
-        ? audienceSource.geoCountries
-        : [];
-
-      const audienceDemographics = {
-        ages: Array.isArray(audienceSource?.ages) ? audienceSource.ages : [],
-        genders: Array.isArray(audienceSource?.genders) ? audienceSource.genders : [],
-        languages: Array.isArray(audienceSource?.languages) ? audienceSource.languages : [],
-        interests: Array.isArray(audienceSource?.interests) ? audienceSource.interests : [],
-        credibility: audienceSource?.credibility,
-      };
-
       return {
         name: selectedReport.name,
         country: selectedReport.country,
-
-        // New demographics for media kit
-        countryDemographics,
-        audienceDemographics,
-        audience: audienceSource,
-
         influencerReports: activeAvailableProfiles,
         socialProfiles: activeAvailableProfiles,
         primaryInfluencerReport: selectedReport,
@@ -2703,15 +2684,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         contacts?: any[];
         email?: string;
         phone?: string;
-        countryDemographics?: any[];
-        audienceDemographics?: {
-          ages?: any[];
-          genders?: any[];
-          languages?: any[];
-          interests?: any[];
-          credibility?: number;
-        };
-        audience?: any;
       };
     }, [activeAvailableProfiles, selectedReport, raw, data]);
 
@@ -3144,15 +3116,6 @@ export const DetailPanel = React.memo<DetailPanelProps>(
       const activeCampaignId =
         selectedCampaignIds[0] || campaignId || searchParams?.get("campaignId") || "";
 
-      if (!activeCampaignId) {
-        await Swal.fire(
-          "Select campaign",
-          "Please select or open a campaign before generating a rate card.",
-          "warning"
-        );
-        return;
-      }
-
       const normalizedPlatform = activePlatformKey;
 
       const rawInfluencerId = String(
@@ -3164,6 +3127,9 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         ""
       ).trim();
 
+      // Modash/Instagram/TikTok reports have a local Mongo _id.
+      // YouTube preview reports usually only have a YouTube channel id, so do not
+      // block rate-card generation just because a Mongo profile id is missing.
       const influencerId = /^[a-f\d]{24}$/i.test(rawInfluencerId)
         ? rawInfluencerId
         : "";
@@ -3205,7 +3171,7 @@ export const DetailPanel = React.memo<DetailPanelProps>(
           "/modash/rate-card/suggested",
           {
             ...(brandId ? { brandId } : {}),
-            campaignId: activeCampaignId,
+            ...(activeCampaignId ? { campaignId: activeCampaignId } : {}),
             ...(influencerId ? { influencerId } : {}),
             ...(youtubeChannelId
               ? {
@@ -4043,39 +4009,40 @@ export const DetailPanel = React.memo<DetailPanelProps>(
                   </div>
 
                   {/* CTA row */}
-                  <div className="relative flex items-center">
-                    <div className="inline-flex overflow-hidden rounded-xl bg-black text-white shadow-sm">
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
+                  {!isAdminSide ? (
+                    <div className="relative flex items-center">
+                      <div className="inline-flex overflow-hidden rounded-xl bg-black text-white shadow-sm">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
 
-                          if (isCurrentInviteAlreadySent) return;
+                            if (isCurrentInviteAlreadySent) return;
 
-                          if (activeInviteCampaignIds.length) {
-                            const selectedCampaign =
-                              activeCampaignForPanel ||
-                              brandCampaigns.find(
-                                (item) => item.campaignId === activeInviteCampaignIds[0]
-                              );
+                            if (activeInviteCampaignIds.length) {
+                              const selectedCampaign =
+                                activeCampaignForPanel ||
+                                brandCampaigns.find(
+                                  (item) => item.campaignId === activeInviteCampaignIds[0]
+                                );
 
-                            const proxyEmail =
-                              localStorage.getItem('brandProxyEmail') ||
-                              localStorage.getItem('proxyEmail') ||
-                              localStorage.getItem('fromEmail') ||
-                              '';
+                              const proxyEmail =
+                                localStorage.getItem('brandProxyEmail') ||
+                                localStorage.getItem('proxyEmail') ||
+                                localStorage.getItem('fromEmail') ||
+                                '';
 
-                            const brandName =
-                              localStorage.getItem('brandName') ||
-                              'CollabGlam';
+                              const brandName =
+                                localStorage.getItem('brandName') ||
+                                'CollabGlam';
 
-                            const campaignTitle =
-                              selectedCampaign?.campaignTitle ||
-                              campaignName ||
-                              'your campaign';
+                              const campaignTitle =
+                                selectedCampaign?.campaignTitle ||
+                                campaignName ||
+                                'your campaign';
 
-                            const subject = `Invitation to Collaborate - ${brandName}`;
+                              const subject = `Invitation to Collaborate - ${brandName}`;
 
-                            const initialBody = `Dear ${displayName || displayHandle || 'Creator'},
+                              const initialBody = `Dear ${displayName || displayHandle || 'Creator'},
 
 I hope you are doing well.
 
@@ -4099,7 +4066,7 @@ We look forward to the opportunity of working together and hope to have you onbo
 Warm regards,
 Team CollabGlam`;
 
-                            const initialHtmlBody = `
+                              const initialHtmlBody = `
     <p>Dear ${displayName || displayHandle || 'Creator'},</p>
     <p>I hope you are doing well.</p>
     <p>
@@ -4125,97 +4092,98 @@ Team CollabGlam`;
     <p>Warm regards,<br /><strong>Team CollabGlam</strong></p>
   `;
 
-                            setEmailDraft({
-                              campaignIds: activeInviteCampaignIds,
-                              fromEmail: proxyEmail,
-                              fromName: brandName,
-                              toLabel: displayHandle || handle || '',
-                              subject,
-                              initialBody,
-                              initialHtmlBody,
-                            });
+                              setEmailDraft({
+                                campaignIds: activeInviteCampaignIds,
+                                fromEmail: proxyEmail,
+                                fromName: brandName,
+                                toLabel: displayHandle || handle || '',
+                                subject,
+                                initialBody,
+                                initialHtmlBody,
+                              });
 
-                            setCampaignPickerOpen(false);
-                            setEmailEditorOpen(true);
-                            return;
-                          }
-                          effectiveHasEmail ? handleMessageNow(e) : handleSendInvitation(e);
-                        }}
-                        disabled={!canAct}
-                        title={ctaTitle}
-                        className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity ${canAct ? 'hover:opacity-90' : 'cursor-not-allowed opacity-70'
-                          }`}
-                      >
-                        {checkingInvitation ? (
-                          <>
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                            Checking…
-                          </>
-                        ) : sendingInvite && brandId ? (
-                          <>
-                            {effectiveHasEmail ? (
-                              <MessageSquare className="h-4 w-4 animate-pulse" />
-                            ) : (
-                              <Send className="h-4 w-4 animate-pulse" />
-                            )}
-                            Sending…
-                          </>
-                        ) : isCurrentInviteAlreadySent ? (
-                          <>
-                            <Send className="h-4 w-4" />
-                            Invited
-                          </>
-                        ) : (
-                          <>
-                            {effectiveHasEmail ? (
-                              <MessageSquare className="h-4 w-4" />
-                            ) : (
-                              <Send className="h-4 w-4" />
-                            )}
-                            {campaignName ? `Send Invitation For ${campaignName}` : 'Send Invitation'}
-                          </>
-                        )}
-                      </button>
-
-                      {!hasLockedCampaign ? (
-                        <button
-                          type="button"
-                          onClick={handleCampaignPickerToggle}
-                          disabled={campaignsLoading || checkingInvitation || loading}
-                          className="inline-flex w-10 items-center justify-center border-l border-white/20 hover:bg-white/10"
+                              setCampaignPickerOpen(false);
+                              setEmailEditorOpen(true);
+                              return;
+                            }
+                            effectiveHasEmail ? handleMessageNow(e) : handleSendInvitation(e);
+                          }}
+                          disabled={!canAct}
+                          title={ctaTitle}
+                          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium transition-opacity ${canAct ? 'hover:opacity-90' : 'cursor-not-allowed opacity-70'
+                            }`}
                         >
-                          {campaignsLoading || checkingInvitation ? (
-                            <RefreshCw className="h-4 w-4 animate-spin" />
-                          ) : campaignPickerOpen ? (
-                            <CaretUpIcon className="h-4 w-4" />
+                          {checkingInvitation ? (
+                            <>
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                              Checking…
+                            </>
+                          ) : sendingInvite && brandId ? (
+                            <>
+                              {effectiveHasEmail ? (
+                                <MessageSquare className="h-4 w-4 animate-pulse" />
+                              ) : (
+                                <Send className="h-4 w-4 animate-pulse" />
+                              )}
+                              Sending…
+                            </>
+                          ) : isCurrentInviteAlreadySent ? (
+                            <>
+                              <Send className="h-4 w-4" />
+                              Invited
+                            </>
                           ) : (
-                            <CaretDownIcon className="h-4 w-4" />
+                            <>
+                              {effectiveHasEmail ? (
+                                <MessageSquare className="h-4 w-4" />
+                              ) : (
+                                <Send className="h-4 w-4" />
+                              )}
+                              {campaignName ? `Send Invitation For ${campaignName}` : 'Send Invitation'}
+                            </>
                           )}
                         </button>
+
+                        {!hasLockedCampaign ? (
+                          <button
+                            type="button"
+                            onClick={handleCampaignPickerToggle}
+                            disabled={campaignsLoading || checkingInvitation || loading}
+                            className="inline-flex w-10 items-center justify-center border-l border-white/20 hover:bg-white/10"
+                          >
+                            {campaignsLoading || checkingInvitation ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : campaignPickerOpen ? (
+                              <CaretUpIcon className="h-4 w-4" />
+                            ) : (
+                              <CaretDownIcon className="h-4 w-4" />
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {!hasLockedCampaign && campaignPickerOpen ? (
+                        <CampaignInvitePicker
+                          open={campaignPickerOpen}
+                          onClose={() => setCampaignPickerOpen(false)}
+                          allItems={brandCampaigns}
+                          items={filteredCampaigns}
+                          selectedIds={selectedCampaignIds}
+                          onSelectedIdsChange={(ids) => {
+                            setSelectedCampaignIds(
+                              ids.filter((id) => !invitedCampaignIds.has(id))
+                            );
+                          }}
+                          invitedCampaignIds={invitedCampaignIds}
+                          search={campaignSearch}
+                          onSearchChange={setCampaignSearch}
+                          loading={campaignsLoading || checkingInvitation}
+                          sending={sendingInvite}
+                          onSend={finalizeCampaignInvitations}
+                        />
                       ) : null}
                     </div>
-
-                    {!hasLockedCampaign && campaignPickerOpen ? (
-                      <CampaignInvitePicker
-                        open={campaignPickerOpen}
-                        onClose={() => setCampaignPickerOpen(false)}
-                        allItems={brandCampaigns}
-                        items={filteredCampaigns}
-                        selectedIds={selectedCampaignIds}
-                        onSelectedIdsChange={(ids) => {
-                          setSelectedCampaignIds(
-                            ids.filter((id) => !invitedCampaignIds.has(id))
-                          );
-                        }}
-                        invitedCampaignIds={invitedCampaignIds}
-                        search={campaignSearch}
-                        onSearchChange={setCampaignSearch}
-                        loading={campaignsLoading || checkingInvitation}
-                        sending={sendingInvite}
-                        onSend={finalizeCampaignInvitations}
-                      />
-                    ) : null}
-                  </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -4310,14 +4278,12 @@ Team CollabGlam`;
                       campaignTitle={activeCampaignForPanel?.campaignTitle}
                     />
 
-                    {!isAdminSide ? (
-                      <SuggestedRateCardBox
-                        loading={rateCardLoading}
-                        data={rateCardData}
-                        error={rateCardError}
-                        onGenerate={handleGenerateSuggestedRateCard}
-                      />
-                    ) : null}
+                    <SuggestedRateCardBox
+                      loading={rateCardLoading}
+                      data={rateCardData}
+                      error={rateCardError}
+                      onGenerate={handleGenerateSuggestedRateCard}
+                    />
 
                     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_420px]">
                       {hasSectionAccess('recentPosts') ? (

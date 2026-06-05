@@ -735,8 +735,8 @@ const CurrentStatusCell = React.memo(function CurrentStatusCell({
     <div className="flex justify-center">
       <span
         className={`inline-flex rounded-full border px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.08em] ${isPending
-            ? "border-amber-200 bg-amber-50 text-amber-700"
-            : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-emerald-200 bg-emerald-50 text-emerald-700"
           }`}
       >
         {isPending ? status.label || "Pending Signup" : "Active"}
@@ -1040,51 +1040,49 @@ const BrandExpandedPanel = React.memo(function BrandExpandedPanel({
         </div>
       ) : null}
 
-      <Card className="rounded-2xl border border-slate-200 bg-white shadow-none">
-        <div className="p-4">
-          <div className="mb-4">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
-              Assigned Team
-            </p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <AssigneePanelCard
-              title="Assigned RH"
-              currentValue={brand.assignedRh}
-              employeeId={brand.RHId}
-              brandId={brand._id}
-              role="RH"
-              options={rhOptions}
-              onSave={onAssignSave}
-              disabled={!canEditAssignments}
-              disabledLabel="Only Super Admin or RH can update assignment"
-            />
-
-            <AssigneePanelCard
-              title="Assigned BME"
-              currentValue={brand.assignedBme}
-              employeeId={brand.bdmId}
-              brandId={brand._id}
-              role="BME"
-              options={brandBmeOptions}
-              onSave={onAssignSave}
-              disabled={
-                !canEditAssignments ||
-                !brand.RHId ||
-                (!brand.assignedBme && brandBmeOptions.length === 0)
-              }
-              disabledLabel={
-                !canEditAssignments
-                  ? "Only Super Admin or RH can update assignment"
-                  : !brand.RHId
-                    ? "Assign RH first"
-                    : "No BME under RH"
-              }
-            />
-          </div>
+      <div className="p-4 border-0 bg-transparent shadow-none ring-0">
+        <div className="mb-4">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+            Assigned Team
+          </p>
         </div>
-      </Card>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <AssigneePanelCard
+            title="Assigned RH"
+            currentValue={brand.assignedRh}
+            employeeId={brand.RHId}
+            brandId={brand._id}
+            role="RH"
+            options={rhOptions}
+            onSave={onAssignSave}
+            disabled={!canEditAssignments}
+            disabledLabel="Only Super Admin or RH can update assignment"
+          />
+
+          <AssigneePanelCard
+            title="Assigned BME"
+            currentValue={brand.assignedBme}
+            employeeId={brand.bdmId}
+            brandId={brand._id}
+            role="BME"
+            options={brandBmeOptions}
+            onSave={onAssignSave}
+            disabled={
+              !canEditAssignments ||
+              !brand.RHId ||
+              (!brand.assignedBme && brandBmeOptions.length === 0)
+            }
+            disabledLabel={
+              !canEditAssignments
+                ? "Only Super Admin or RH can update assignment"
+                : !brand.RHId
+                  ? "Assign RH first"
+                  : "No BME under RH"
+            }
+          />
+        </div>
+      </div>
     </div>
   );
 });
@@ -1141,6 +1139,81 @@ const BrandActionButtons = React.memo(function BrandActionButtons({
     </div>
   );
 });
+
+
+type FilterOption<T extends string> = {
+  value: T;
+  label: string;
+};
+
+function FilterDropdown<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: FilterOption<T>[];
+  onChange: (value: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selectedLabel =
+    options.find((option) => option.value === value)?.label || "All";
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative w-[190px]">
+      <p className="mb-2 text-[11px] font-black uppercase tracking-[0.12em] text-slate-500">
+        {label}
+      </p>
+
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex h-10 w-full items-center justify-between rounded-xl border-0 bg-slate-50 px-3 text-left text-sm font-black text-slate-800 shadow-none outline-none ring-0"
+      >
+        <span>{selectedLabel}</span>
+        <span className="text-xs text-slate-500">⌄</span>
+      </button>
+
+      {open ? (
+        <div className="absolute left-0 top-[68px] z-50 w-full overflow-hidden rounded-[0.75rem] border border-[#EDEDED] bg-white">
+          {options.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              className={`block w-full px-3 py-2 text-left text-sm font-bold transition ${value === option.value
+                ? "bg-[#EDEDED] text-slate-900"
+                : "bg-white text-slate-700 hover:bg-[#EDEDED]"
+                }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 const AdminBrandPage: NextPage = () => {
   const [brands, setBrands] = useState<BrandRow[]>([]);
@@ -1672,23 +1745,18 @@ const AdminBrandPage: NextPage = () => {
   return (
     <div className={`${outfit.className} min-h-screen w-full`}>
       <ToastStyles />
-      <div className="flex w-full max-w-none flex-col gap-6 px-4 py-6 md:px-6 md:py-8">
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex w-full max-w-none flex-col gap-6 px-2 py-4">
+        <div className="rounded-[28px] bg-white p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-slate-600">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                ADMIN BRAND CONTROL
-              </div>
-
-              <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-950">
+              <h1 className="text-4xl font-black tracking-tight text-slate-950">
                 BRAND MANAGEMENT
               </h1>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                className="rounded-2xl"
+                className="rounded-[0.75rem"
                 onClick={() => setCreateOpen(true)}
                 disabled={!canCreateBrand}
                 title={
@@ -1700,24 +1768,12 @@ const AdminBrandPage: NextPage = () => {
                 <Plus className="mr-2 h-4 w-4" />
                 CREATE BRAND
               </Button>
-
-              <Button
-                variant="outline"
-                className="rounded-2xl"
-                onClick={fetchBrands}
-                disabled={loading}
-              >
-                <RefreshCw
-                  className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-                />
-                REFRESH
-              </Button>
             </div>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-[0.75rem] bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
               Signed Up This Month
             </p>
@@ -1728,7 +1784,7 @@ const AdminBrandPage: NextPage = () => {
             </p>
           </div>
 
-          <div className="rounded-[22px] p-5 border border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-sm ring-1 ring-amber-200/70">
+          <div className="rounded-[0.75rem] p-5 border border-amber-300 bg-gradient-to-br from-amber-50 via-yellow-50 to-white shadow-sm ring-1 ring-amber-200/70">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
               Fully Managed Brands
             </p>
@@ -1737,7 +1793,7 @@ const AdminBrandPage: NextPage = () => {
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-[0.75rem] border border-slate-200 bg-white p-5 shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
               Standard Brands
             </p>
@@ -1747,117 +1803,58 @@ const AdminBrandPage: NextPage = () => {
           </div>
         </div>
 
-        <Card className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <SlidersHorizontal className="h-4 w-4 text-slate-500" />
-                  <p className="text-sm font-black text-slate-900">FILTER BRANDS</p>
-                </div>
-                <p className="mt-1 text-xs font-medium text-slate-500">
-                  Signed up filter and brand status filter work together with AND logic.
-                </p>
-              </div>
+        <div className="bg-white px-4 py-3 md:px-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-wrap items-end gap-3">
+              <FilterDropdown<BrandSignupFilter>
+                label="Signed Up"
+                value={signupFilter}
+                onChange={setSignupFilter}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "fully_signedup", label: "Fully Signup" },
+                  { value: "not_signedup", label: "Not Signed Up" },
+                ]}
+              />
+
+              <FilterDropdown<BrandPlanFilter>
+                label="Brand Status"
+                value={brandPlanFilter}
+                onChange={setBrandPlanFilter}
+                options={[
+                  { value: "all", label: "All" },
+                  { value: "fully_managed", label: "Fully Managed" },
+                  { value: "standard", label: "Standard Brand" },
+                ]}
+              />
 
               {hasBrandFilters ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-3 py-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSignupFilter("all");
-                      setBrandPlanFilter("all");
-                    }}
-                    className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-black"
-                  >
-                    CLEAR FILTERS
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSignupFilter("all");
+                    setBrandPlanFilter("all");
+                  }}
+                  className="h-10 rounded-xl bg-slate-200 px-4 text-xs font-black text-black"
+                >
+                  CLEAR
+                </button>
               ) : null}
-
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                  Signed Up
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    ["all", "All"],
-                    ["fully_signedup", "Fully Signup"],
-                    ["not_signedup", "Not Signed Up"],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSignupFilter(value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${signupFilter === value
-                        ? "border-black bg-black text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                <p className="mb-2 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
-                  Brand Status
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    ["all", "All"],
-                    ["fully_managed", "Fully Managed"],
-                    ["standard", "Standard Brand"],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setBrandPlanFilter(value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-black transition ${brandPlanFilter === value
-                        ? "border-black bg-black text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="relative w-full border rounded-[0.75rem] max-w-md lg:w-[420px]">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search brands..."
+                className="h-10 rounded-xl border-0 bg-slate-50 pl-9 text-sm font-medium shadow-none focus-visible:ring-0"
+              />
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card className="rounded-[24px] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 p-4 md:p-5">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <SlidersHorizontal className="h-4 w-4 text-slate-500" />
-                    <p className="text-sm font-black text-slate-900">BRAND VIEW</p>
-                  </div>
-                  <p className="mt-1 text-xs font-medium text-slate-500">
-                    {scopeHint}
-                  </p>
-                </div>
-
-                <div className="relative w-full max-w-xl">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <Input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search by brand, email, plan, creator, RH, or BME..."
-                    className="h-11 rounded-2xl border-slate-200 bg-slate-50 pl-11 text-sm font-medium shadow-none focus-visible:ring-0"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
+        <Card className="rounded-[0.75rem] !border-0 bg-white !shadow-none !ring-0">
           <AdminTable<BrandRow>
             data={paginatedBrands}
             columns={columns}

@@ -526,9 +526,8 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
     const mode = formatBillingMode(getCouponMode(activeUnusedCoupon));
     const expiry = formatDate(activeUnusedCoupon.expiredAt);
 
-    return `This brand already has an active unused coupon${
-      promoCode ? ` (${promoCode})` : ""
-    } for ${subscriptionName} / ${mode}, expiring ${expiry}. A new coupon can be created only after the current coupon is used or expires.`;
+    return `This brand already has an active unused coupon${promoCode ? ` (${promoCode})` : ""
+      } for ${subscriptionName} / ${mode}, expiring ${expiry}. A new coupon can be created only after the current coupon is used or expires.`;
   }, [activeUnusedCoupon, getSubscriptionName]);
 
   const filteredCoupons = useMemo(() => {
@@ -601,7 +600,7 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
       showWarningToast(
         "Active coupon already exists",
         activeUnusedCouponMessage ||
-          "This brand already has an active unused coupon. You can create a new coupon only after the current one is used or expires."
+        "This brand already has an active unused coupon. You can create a new coupon only after the current one is used or expires."
       );
       return;
     }
@@ -637,7 +636,7 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
       showWarningToast(
         "Active coupon already exists",
         activeUnusedCouponMessage ||
-          "This brand already has an active unused coupon. A new coupon can be created only after the current coupon is used or expires."
+        "This brand already has an active unused coupon. A new coupon can be created only after the current coupon is used or expires."
       );
       return;
     }
@@ -798,76 +797,14 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
       <ToastStyles />
 
       <div className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-[24px] border border-black/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-black/35">
-                  Active Coupons
-                </p>
-                <p className="mt-3 text-2xl font-black text-[#1a1a1a]">
-                  {activeCount}
-                </p>
-                <p className="mt-1 text-sm font-medium text-black/50">
-                  Coupons available to use
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-50 text-emerald-700">
-                <BadgePercent size={20} />
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[24px] border border-black/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-black/35">
-                  Used Coupons
-                </p>
-                <p className="mt-3 text-2xl font-black text-[#1a1a1a]">
-                  {usedCount}
-                </p>
-                <p className="mt-1 text-sm font-medium text-black/50">
-                  Coupons already redeemed
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.04] text-black/70">
-                <CheckCircle2 size={20} />
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[24px] border border-black/10 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-black/35">
-                  Expired Coupons
-                </p>
-                <p className="mt-3 text-2xl font-black text-[#1a1a1a]">
-                  {expiredCount}
-                </p>
-                <p className="mt-1 text-sm font-medium text-black/50">
-                  Coupons past expiry date
-                </p>
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-700">
-                <XCircle size={20} />
-              </div>
-            </div>
-          </div>
-        </div>
-
         {hasActiveUnusedCoupon ? (
           <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800">
             {activeUnusedCouponMessage}
           </div>
         ) : null}
 
-        <div className="rounded-[28px] border border-black/10 bg-white shadow-sm">
-          <div className="flex flex-col gap-4 border-b border-black/8 p-5 md:flex-row md:items-center md:justify-between">
+        <div className="rounded-[28px]  bg-white ">
+          <div className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
             <div>
               <h2 className="text-xl font-black text-[#1a1a1a]">
                 Brand Coupons
@@ -877,31 +814,35 @@ export function BrandCouponsTab({ brand, onCreated }: BrandCouponsTabProps) {
               </p>
             </div>
 
-            <Button
-              className="h-11 rounded-full bg-[#1a1a1a] px-5 text-sm font-bold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-black/30"
-              onClick={handleOpenCreateDialog}
-              disabled={hasActiveUnusedCoupon}
-              title={
-                hasActiveUnusedCoupon
-                  ? "Create a new coupon only after the current active coupon is used or expires."
-                  : "Create Coupon"
-              }
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Create Coupon
-            </Button>
+            <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex h-11 w-full max-w-xl items-center rounded-full border border-black/10 bg-black/[0.02] px-4">
+                <Search className="mr-3 h-4 w-4 shrink-0 text-black/35" />
+
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search ..."
+                  className="w-full bg-transparent text-sm font-medium text-[#1a1a1a] outline-none placeholder:text-black/35"
+                />
+              </div>
+
+              <Button
+                className="h-11 shrink-0 rounded-full bg-[#1a1a1a] px-5 text-sm font-bold text-white hover:bg-black disabled:cursor-not-allowed disabled:bg-black/30"
+                onClick={handleOpenCreateDialog}
+                disabled={hasActiveUnusedCoupon}
+                title={
+                  hasActiveUnusedCoupon
+                    ? "Create a new coupon only after the current active coupon is used or expires."
+                    : "Create Coupon"
+                }
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create Coupon
+              </Button>
+            </div>
           </div>
 
           <div className="p-5">
-            <div className="mb-5 flex items-center rounded-full border border-black/10 bg-black/[0.02] px-4 py-3">
-              <Search className="mr-3 h-4 w-4 text-black/35" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by promo code, subscription, mode, price, or status..."
-                className="w-full bg-transparent text-sm font-medium text-[#1a1a1a] outline-none placeholder:text-black/35"
-              />
-            </div>
 
             <div className="overflow-hidden rounded-[22px] border border-black/8">
               <div className="grid grid-cols-12 bg-black/[0.03] px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-black/35">

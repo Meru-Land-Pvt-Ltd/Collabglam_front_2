@@ -294,11 +294,10 @@ function CampaignTypeButton({
     <button
       type="button"
       onClick={onClick}
-      className={`h-11 rounded-lg border px-5 text-sm font-semibold transition ${
-        active
-          ? "border-black bg-black text-white shadow-sm"
-          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-      }`}
+      className={`h-11 rounded-lg border px-5 text-sm font-semibold transition ${active
+        ? "border-black bg-black text-white shadow-sm"
+        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+        }`}
     >
       {children}
     </button>
@@ -534,6 +533,11 @@ export function BrandCampaignsTab({
 
     router.push(`/admin/campaigns/view?id=${encodeURIComponent(campaignId)}`);
   };
+  const hasCampaignFilters =
+    searchTerm.trim() !== "" ||
+    campaignTypeFilter !== "all" ||
+    dateRangeFilter !== "all_time" ||
+    statusFilter !== 0;
 
   const columns = useMemo<AdminTableColumn<CampaignWithApiFields>[]>(
     () => [
@@ -662,79 +666,72 @@ export function BrandCampaignsTab({
         title="Campaigns"
         description="Manage campaigns created for this brand."
       >
-        <div className="space-y-5 p-5">
-          <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-5">
-              <h3 className="text-2xl font-black tracking-[-0.03em] text-slate-900">
-                Filters
-              </h3>
-              <p className="mt-2 text-sm font-medium text-slate-500">
-                Affects the campaign table below only
-              </p>
-            </div>
-
-            <div className="grid gap-4 px-5 py-6 xl:grid-cols-[1.2fr_1.7fr_0.7fr_0.7fr_auto] xl:items-end">
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+        <div className="space-y-3 px-5 pb-5 pt-2">
+          <div className="overflow-hidden bg-white">
+            <div className="flex flex-wrap items-end gap-3 px-0 py-2">
+              <div className="w-full max-w-[240px]">
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
                   Search
                 </p>
+
                 <div className="relative">
-                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
-                    placeholder="Search .."
+                    placeholder="Search..."
                     value={searchTerm}
                     onChange={(event) => handleSearchChange(event.target.value)}
-                    className="h-11 rounded-lg border-slate-200 bg-white pl-11 text-sm font-semibold text-slate-700 shadow-none focus-visible:ring-0"
+                    className="h-10 rounded-lg border-slate-200 bg-white pl-9 text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus-visible:ring-0"
                   />
                 </div>
               </div>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+              <div className="w-full max-w-[220px]">
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
                   Campaign Type
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  <CampaignTypeButton
-                    active={campaignTypeFilter === "all"}
-                    onClick={() => handleCampaignTypeFilterChange("all")}
-                  >
-                    All
-                  </CampaignTypeButton>
 
-                  <CampaignTypeButton
-                    active={campaignTypeFilter === "standard_campaign"}
-                    onClick={() =>
-                      handleCampaignTypeFilterChange("standard_campaign")
-                    }
-                  >
-                    Standard Campaign
-                  </CampaignTypeButton>
+                <Select
+                  value={campaignTypeFilter}
+                  onValueChange={handleCampaignTypeFilterChange}
+                >
+                  <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
+                    <SelectValue placeholder="Campaign Type" />
+                  </SelectTrigger>
 
-                  <CampaignTypeButton
-                    active={campaignTypeFilter === "fully_managed"}
-                    onClick={() =>
-                      handleCampaignTypeFilterChange("fully_managed")
-                    }
-                  >
-                    Fully Managed Campaign
-                  </CampaignTypeButton>
-                </div>
+                  <SelectContent className="border-slate-200 bg-white">
+                    <SelectItem value="all" className="focus:bg-[#EDEDED]">
+                      All
+                    </SelectItem>
+                    <SelectItem value="standard_campaign" className="focus:bg-[#EDEDED]">
+                      Standard Campaign
+                    </SelectItem>
+                    <SelectItem value="fully_managed" className="focus:bg-[#EDEDED]">
+                      Fully Managed Campaign
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+              <div className="w-full max-w-[180px]">
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
                   Date Range
                 </p>
+
                 <Select
                   value={dateRangeFilter}
                   onValueChange={handleDateRangeChange}
                 >
-                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
+                  <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
                     <SelectValue placeholder="Date Range" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white">
+
+                  <SelectContent className="border-slate-200 bg-white">
                     {dateRangeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="focus:bg-[#EDEDED]"
+                      >
                         {option.label}
                       </SelectItem>
                     ))}
@@ -742,35 +739,43 @@ export function BrandCampaignsTab({
                 </Select>
               </div>
 
-              <div>
-                <p className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+              <div className="w-full max-w-[160px]">
+                <p className="mb-2 text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
                   Status
                 </p>
+
                 <Select
                   value={statusFilter.toString()}
                   onValueChange={handleStatusFilterChange}
                 >
-                  <SelectTrigger className="h-11 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none focus:ring-0">
+                  <SelectTrigger className="h-10 rounded-lg border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-none hover:bg-[#EDEDED] focus:ring-0">
                     <SelectValue placeholder="Status" />
                   </SelectTrigger>
-                  <SelectContent className="bg-white">
-                    <SelectItem value="0">All Status</SelectItem>
-                    <SelectItem value="1">Active</SelectItem>
-                    <SelectItem value="2">Inactive</SelectItem>
+
+                  <SelectContent className="border-slate-200 bg-white">
+                    <SelectItem value="0" className="focus:bg-[#EDEDED]">
+                      All Status
+                    </SelectItem>
+                    <SelectItem value="1" className="focus:bg-[#EDEDED]">
+                      Active
+                    </SelectItem>
+                    <SelectItem value="2" className="focus:bg-[#EDEDED]">
+                      Inactive
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              <div>
+              {hasCampaignFilters ? (
                 <Button
                   type="button"
                   variant="outline"
                   onClick={resetFilters}
-                  className="h-11 rounded-lg border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  className="h-10 rounded-lg border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 shadow-none hover:bg-[#EDEDED]"
                 >
                   Reset
                 </Button>
-              </div>
+              ) : null}
             </div>
           </div>
 
@@ -815,16 +820,16 @@ export function BrandCampaignsTab({
               pagination={
                 campaignsTotalPages > 1
                   ? {
-                      page: campaignsPage,
-                      totalPages: campaignsTotalPages,
-                      totalItems:
-                        campaignsTotalPages * Math.max(campaignList.length, 1),
-                      limit: Math.max(campaignList.length, 10),
-                      onPageChange: handlePageChange,
-                      loading: loadingCampaigns,
-                      showRowsSelector: false,
-                      showSummary: false,
-                    }
+                    page: campaignsPage,
+                    totalPages: campaignsTotalPages,
+                    totalItems:
+                      campaignsTotalPages * Math.max(campaignList.length, 1),
+                    limit: Math.max(campaignList.length, 10),
+                    onPageChange: handlePageChange,
+                    loading: loadingCampaigns,
+                    showRowsSelector: false,
+                    showSummary: false,
+                  }
                   : undefined
               }
             />
