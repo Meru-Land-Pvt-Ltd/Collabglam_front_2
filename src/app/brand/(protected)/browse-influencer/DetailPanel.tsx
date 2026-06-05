@@ -2655,9 +2655,32 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         profileRoot?.contacts ??
         [];
 
+      const audienceSource =
+        (selectedReport as any)?.audience ??
+        profileRoot?.audience ??
+        {};
+
+      const countryDemographics = Array.isArray(audienceSource?.geoCountries)
+        ? audienceSource.geoCountries
+        : [];
+
+      const audienceDemographics = {
+        ages: Array.isArray(audienceSource?.ages) ? audienceSource.ages : [],
+        genders: Array.isArray(audienceSource?.genders) ? audienceSource.genders : [],
+        languages: Array.isArray(audienceSource?.languages) ? audienceSource.languages : [],
+        interests: Array.isArray(audienceSource?.interests) ? audienceSource.interests : [],
+        credibility: audienceSource?.credibility,
+      };
+
       return {
         name: selectedReport.name,
         country: selectedReport.country,
+
+        // New demographics for media kit
+        countryDemographics,
+        audienceDemographics,
+        audience: audienceSource,
+
         influencerReports: activeAvailableProfiles,
         socialProfiles: activeAvailableProfiles,
         primaryInfluencerReport: selectedReport,
@@ -2680,6 +2703,15 @@ export const DetailPanel = React.memo<DetailPanelProps>(
         contacts?: any[];
         email?: string;
         phone?: string;
+        countryDemographics?: any[];
+        audienceDemographics?: {
+          ages?: any[];
+          genders?: any[];
+          languages?: any[];
+          interests?: any[];
+          credibility?: number;
+        };
+        audience?: any;
       };
     }, [activeAvailableProfiles, selectedReport, raw, data]);
 
