@@ -81,7 +81,7 @@ type PublicCreatorResponse = {
 };
 
 const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-const API_REPORT_ENDPOINT = `${BACKEND_BASE_URL}/modash/report`;
+const API_REPORT_ENDPOINT = `${BACKEND_BASE_URL}modash/report`;
 const API_CREATOR_ENDPOINT = `${BACKEND_BASE_URL}/modash/creator`;
 
 function cleanId(v: any): string | null {
