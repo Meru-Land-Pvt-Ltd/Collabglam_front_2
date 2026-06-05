@@ -1,56 +1,31 @@
-import Header from '@/components/landing/Header';
-import Hero from '@/components/landing/Hero';
-import BrandLogoWall from '@/components/landing/BrandLogoWall';
-import WhyCollabGlam from '@/components/landing/WhyCollabGlam';
-import PlatformFeatures from '@/components/landing/PlatformFeatures';
-import ManagedCampaignPlan from '@/components/landing/ManagedCampaignPlan';
-import SimpleProcess from '@/components/landing/SimpleProcess';
-import RealResults from '@/components/landing/RealResults';
-import AboutCollabGlam from '@/components/landing/AboutCollabGlam';
-import Testimonials from '@/components/landing/Testimonials';
-import FAQSection from '@/components/landing/FAQSection';
-import LeadGeneration from '@/components/landing/LeadGeneration';
-import Footer from '@/components/landing/Footer';
+// src/pages/index.tsx
+"use client";
 
-export default function Page() {
+import Features from "@/components/common/Features";
+import Footer from "@/components/common/Footer";
+import Header from "@/components/common/Header";
+import Hero from "@/components/common/Hero";
+import Credibility from "@/components/common/CredibilitySection";
+import CreatorsMatchSection from "@/components/common/CreatorMatchSection";
+import FAQ from "@/components/common/faq";
+import HowItWorks from "@/components/common/HowItWorks";
+import Pricing from "@/components/common/Pricing";
+import SocialProof from "@/components/common/SocialProof";
+
+export default function HomePage() {
   return (
-    <main className="min-h-screen bg-[#0c0c12]">
+    <div className="min-h-screen">
       <Header />
-
-      {/* Above the fold */}
       <Hero />
-
-      {/* Trust / social proof */}
-      <BrandLogoWall />
-
-      {/* Problem → solution */}
-      <WhyCollabGlam />
-
-      {/* Product value */}
-      <PlatformFeatures />
-
-      {/* Premium service offer */}
-      <ManagedCampaignPlan />
-
-      {/* How it works */}
-      <SimpleProcess />
-
-      {/* Proof / ROI */}
-      <RealResults />
-
-      {/* Brand story */}
-      <AboutCollabGlam />
-
-      {/* Voice of customers */}
-      <Testimonials />
-
-      {/* Objection handling */}
-      <FAQSection />
-
-      {/* Final conversion */}
-      <LeadGeneration />
-
+      <HowItWorks />
+      <Features />
+      <Credibility />
+      <CreatorsMatchSection />
+      <SocialProof />
+      {/* <SuccessStories /> */}
+      <Pricing />
+      <FAQ />
       <Footer />
-    </main>
+    </div>
   );
 }
