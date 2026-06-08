@@ -20,12 +20,7 @@ import {
 import type { Platform, ReportResponse } from '../brand/(protected)/browse-influencer/types';
 import { post } from '@/lib/api';
 import { Loader } from '@/components/ui/loader';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+
 
 import { AuditTrailTable } from '@/components/common/AuditTrailTable';
 import { AudienceIntelligenceCard } from '@/components/common/AudienceIntelligenceCard';
@@ -51,6 +46,7 @@ type Props = {
   onRefreshReport?: () => Promise<void> | void;
   onChangeCalc: (calc: 'median' | 'average') => void;
   viewerRole?: 'brand' | 'admin' | '';
+  youtubeEngagementRate?: number | null;
 };
 
 type StoreInvitationResponse =
@@ -1106,6 +1102,7 @@ function InfluencerDetailFullPageInner({
   onRefreshReport,
   onChangeCalc,
   viewerRole,
+  youtubeEngagementRate,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -1301,7 +1298,20 @@ function InfluencerDetailFullPageInner({
     setActivePlatform(normalisePlatform(initial?.provider ?? platform));
   }, [connectedProfiles, primaryReport, platform]);
 
-  const displayedReport = activeReport ?? primaryReport ?? null;
+  const baseDisplayedReport = activeReport ?? primaryReport ?? null;
+
+  const displayedReport = useMemo<InfluencerReportShape | null>(() => {
+    if (!baseDisplayedReport) return null;
+
+    if (activePlatform !== 'youtube') {
+      return baseDisplayedReport;
+    }
+
+    return {
+      ...baseDisplayedReport,
+      engagementRate: youtubeEngagementRate ?? undefined,
+    };
+  }, [baseDisplayedReport, activePlatform, youtubeEngagementRate]);
   const audienceReport = useMemo<InfluencerReportShape | null>(() => {
     if (hasAudienceInsights(activeReport)) return activeReport;
     if (hasAudienceInsights(primaryReport)) return primaryReport;
