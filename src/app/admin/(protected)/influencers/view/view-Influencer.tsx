@@ -270,31 +270,31 @@ const INFLUENCER_RATING_SCOPE_ITEMS: Array<{
   hint: string;
   icon: typeof MessageSquareText;
 }> = [
-  {
-    id: "all",
-    label: "All",
-    hint: "Every submitted rating",
-    icon: MessageSquareText,
-  },
-  {
-    id: "submitted_by_influencer",
-    label: "Influencer to Brand",
-    hint: "Ratings submitted by influencer",
-    icon: Users,
-  },
-  {
-    id: "given_to_influencer",
-    label: "Brand to Influencer",
-    hint: "Ratings given to influencer",
-    icon: Building2,
-  },
-  {
-    id: "platform",
-    label: "Platform Feedback",
-    hint: "Influencer feedback for CollabGlam",
-    icon: Globe,
-  },
-];
+    {
+      id: "all",
+      label: "All",
+      hint: "Every submitted rating",
+      icon: MessageSquareText,
+    },
+    {
+      id: "submitted_by_influencer",
+      label: "Influencer to Brand",
+      hint: "Ratings submitted by influencer",
+      icon: Users,
+    },
+    {
+      id: "given_to_influencer",
+      label: "Brand to Influencer",
+      hint: "Ratings given to influencer",
+      icon: Building2,
+    },
+    {
+      id: "platform",
+      label: "Platform Feedback",
+      hint: "Influencer feedback for CollabGlam",
+      icon: Globe,
+    },
+  ];
 
 function rrSafeNumber(value: unknown, fallback = 0): number {
   const n = Number(value);
@@ -316,12 +316,12 @@ function rrFormatDate(value?: string | null): string {
   return Number.isNaN(d.getTime())
     ? "—"
     : d.toLocaleString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 }
 
 function rrStringifyAnswer(value: unknown): string {
@@ -924,9 +924,21 @@ const Stat: React.FC<{
   delta?: number;
   color: string;
   icon?: React.ReactNode;
-}> = ({ label, value, sub, delta, color, icon }) => (
-  <div className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 p-5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300">
-    <div className="absolute left-0 top-0 h-[3px] w-full rounded-t-2xl" style={{ background: color }} />
+  className?: string;
+  hideTopBar?: boolean;
+}> = ({ label, value, sub, delta, color, icon, className, hideTopBar }) => (
+  <div
+    className={cx(
+      "relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/75 p-5 backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-slate-300",
+      className
+    )}
+  >
+    {!hideTopBar ? (
+      <div
+        className="absolute left-0 top-0 h-[3px] w-full rounded-t-2xl"
+        style={{ background: color }}
+      />
+    ) : null}
     <div className="flex items-start justify-between gap-2">
       <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">{label}</p>
@@ -1497,7 +1509,7 @@ export default function AdminInfluencerView() {
             <div className="mx-auto max-w-full px-4 py-2 sm:px-6">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200/70 bg-white/70 px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.05)]">
                 <TabsList className="flex h-auto flex-wrap gap-1 bg-transparent p-0">
-                  {["overview", "demographics", "ratings", "campaigns", "payment details"].map(v => (
+                  {["overview", "demographics", "campaigns", "payment details","ratings"].map(v => (
                     <TabsTrigger
                       key={v}
                       value={v}
@@ -1517,16 +1529,9 @@ export default function AdminInfluencerView() {
                       rel="noopener noreferrer"
                       className="ml-1 flex items-right gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-blue-700 transition hover:text-slate-700"
                     >
-                      Open <ExternalLink className="h-3.5 w-3.5" />
+                      Open Profile <ExternalLink className="h-3.5 w-3.5" />
                     </a>
                   ) : null}
-                  <div
-                    className="h-2 w-2 rounded-full shadow-sm transition-all duration-500"
-                    style={{ background: theme.accent }}
-                  />
-                  <span className="text-[15px] font-medium text-slate-400">
-                    {theme.label}{selectedProfile?.username ? ` · ${selectedProfile.username}` : ""}
-                  </span>
                 </div>
               </div>
             </div>
@@ -1534,28 +1539,40 @@ export default function AdminInfluencerView() {
         </div>
 
         <div className="relative z-0 w-full max-w-full px-4 pb-8 pt-6 sm:px-6">
-          <TabsContent value="overview" className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <TabsContent value="overview" className="space-y-8">
+            <div className="grid overflow-hidden rounded-2xl bg-white sm:grid-cols-[1fr_auto_1fr_auto_1fr]">
               <Stat
                 label="Followers"
                 value={fmtNum(selectedProfile?.followers)}
                 delta={selectedProfile?.stats?.followers?.compared}
                 color={theme.accent}
                 icon={<Users className="h-4 w-4" />}
+                className="!rounded-none !border-0 hover:!border-0"
+                hideTopBar
               />
+
+              <div className="hidden w-px bg-slate-200 sm:block" />
+
               <Stat
                 label="Engagement Rate"
                 value={fmtPercent(selectedProfile?.engagementRate)}
                 sub={theme.label}
                 color={theme.accent}
                 icon={<TrendingUp className="h-4 w-4" />}
+                className="!rounded-none !border-0 hover:!border-0"
+                hideTopBar
               />
+
+              <div className="hidden w-px bg-slate-200 sm:block" />
+
               <Stat
                 label="Campaigns"
                 value={fmtNum(campaignMeta.totalItems)}
                 sub="All time"
                 color={theme.accent}
                 icon={<BriefcaseBusiness className="h-4 w-4" />}
+                className="!rounded-none !border-0 hover:!border-0"
+                hideTopBar
               />
             </div>
 
@@ -1571,8 +1588,23 @@ export default function AdminInfluencerView() {
 
               <Sect title={<><Sparkles className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} Snapshot</>}>
                 <div className="mb-4 grid grid-cols-2 gap-3">
-                  <Stat label="Posts" value={fmtNum(selectedProfile?.postsCount)} color={theme.accent} icon={<Hash className="h-4 w-4" />} />
-                  <Stat label="Avg Plays" value={fmtNum(selectedProfile?.avgReelsPlays)} color={theme.accent} icon={<PlayCircle className="h-4 w-4" />} />
+                  <Stat
+                    label="Posts"
+                    value={fmtNum(selectedProfile?.postsCount)}
+                    color={theme.accent}
+                    icon={<Hash className="h-4 w-4" />}
+                    className="!border-0 hover:!border-0"
+                    hideTopBar
+                  />
+
+                  <Stat
+                    label="Avg Plays"
+                    value={fmtNum(selectedProfile?.avgReelsPlays)}
+                    color={theme.accent}
+                    icon={<PlayCircle className="h-4 w-4" />}
+                    className="!border-0 hover:!border-0"
+                    hideTopBar
+                  />
                 </div>
                 <KV label="Handle" value={selectedProfile?.username ? `${selectedProfile.username}` : selectedProfile?.handle || "—"} />
                 <KV label="Account Type" value={selectedProfile?.accountType || "—"} />
@@ -1583,35 +1615,52 @@ export default function AdminInfluencerView() {
             </div>
           </TabsContent>
 
-          <TabsContent value="demographics" className="space-y-4">
+          <TabsContent value="demographics" className="space-y-8">
             {selectedProfile ? (
               <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid overflow-hidden rounded-2xl bg-white sm:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
                   <Stat
                     label="Followers"
                     value={fmtNum(selectedProfile.followers)}
                     delta={selectedProfile.stats?.followers?.compared}
                     color={theme.accent}
                     icon={<Users className="h-4 w-4" />}
+                    className="!rounded-none !border-0 hover:!border-0"
+                    hideTopBar
                   />
+
+                  <div className="hidden w-px bg-slate-200 sm:block" />
+
                   <Stat
                     label="Avg. Like"
                     value={fmtNum(selectedProfile.engagements)}
                     color={theme.accent}
                     icon={<Zap className="h-4 w-4" />}
+                    className="!rounded-none !border-0 hover:!border-0"
+                    hideTopBar
                   />
+
+                  <div className="hidden w-px bg-slate-200 sm:block" />
+
                   <Stat
                     label="Avg Comments"
                     value={fmtNum(selectedProfile.avgComments)}
                     delta={selectedProfile.stats?.avgComments?.compared}
                     color={theme.accent}
                     icon={<MessageCircle className="h-4 w-4" />}
+                    className="!rounded-none !border-0 hover:!border-0"
+                    hideTopBar
                   />
+
+                  <div className="hidden w-px bg-slate-200 sm:block" />
+
                   <Stat
                     label="Paid Perf."
                     value={fmtWt(selectedProfile.stats?.paidPostPerformance)}
                     color={theme.accent}
                     icon={<BarChart3 className="h-4 w-4" />}
+                    className="!rounded-none !border-0 hover:!border-0"
+                    hideTopBar
                   />
                 </div>
 
@@ -1742,7 +1791,9 @@ export default function AdminInfluencerView() {
                 )}
 
                 {Object.keys(selectedProfile.statsByContentType || {}).length > 0 && (
-                  <Sect title={<><Layers3 className="h-4 w-4" style={{ color: theme.accent }} />Content Performance by Type</>}>
+                  <Sect
+                    className="border-0 !shadow-none"
+                    title={<><Layers3 className="h-4 w-4" style={{ color: theme.accent }} />Content Performance by Type</>}>
                     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       {Object.entries(selectedProfile.statsByContentType || {}).filter(([, v]) => !!v).map(([key, value]) => (
                         <div key={key} className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
@@ -1816,7 +1867,9 @@ export default function AdminInfluencerView() {
                   { key: "popular", label: "Top Posts", posts: selectedProfile.popularPosts, lim: 4 },
                   { key: "sponsored", label: "Sponsored Posts", posts: selectedProfile.sponsoredPosts, lim: 4 },
                 ].map(({ key, label, posts, lim }) => (
-                  <Sect key={key} title={<><Hash className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} — {label}</>}>
+                  <Sect
+
+                    key={key} title={<><Hash className="h-4 w-4" style={{ color: theme.accent }} />{theme.label} — {label}</>}>
                     {posts?.length ? (
                       <div className="space-y-2">
                         {posts.slice(0, lim).map((p, i) => (
@@ -1838,73 +1891,12 @@ export default function AdminInfluencerView() {
 
 
           <TabsContent value="ratings" className="space-y-5">
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:p-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="max-w-3xl">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="flex h-9 w-9 items-center justify-center rounded-xl"
-                      style={{ background: `${theme.accent}12`, color: theme.accent }}
-                    >
-                      <Star className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">
-                        Ratings
-                      </p>
-                      <h2 className="mt-0.5 text-xl font-bold tracking-tight text-slate-900">
-                        All Submitted Ratings
-                      </h2>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid min-w-[280px] gap-2 sm:grid-cols-2">
-                  {[
-                    {
-                      label: "Avg. Influencer → Brand",
-                      value: ratingStatsLoading ? "…" : influencerToBrandAverage,
-                      hint: `${influencerToBrandCount} rows`,
-                      icon: Users,
-                    },
-                    {
-                      label: "Avg. Brand → Influencer",
-                      value: ratingStatsLoading ? "…" : brandToInfluencerAverage,
-                      hint: `${brandToInfluencerCount} rows`,
-                      icon: Building2,
-                    },
-                  ].map((card) => {
-                    const Icon = card.icon;
-
-                    return (
-                      <div key={card.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 px-3 py-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] font-black text-slate-400">{card.label}</p>
-                          <Icon size={14} className="text-slate-400" />
-                        </div>
-                        <div className="mt-1 flex items-end justify-between gap-2">
-                          <p className="text-lg font-black text-slate-900">{card.value}</p>
-                          <p className="text-[11px] font-semibold text-slate-400">{card.hint}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </section>
-
-            {ratingError ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                {ratingError}
-              </div>
-            ) : null}
-
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-5">
+            <section className="rounded-2xl bg-white p-5 sm:p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-[15px] font-bold text-slate-900">{activeRatingScope.label}</h3>
-                  </div>
+                  <h2 className="mt-0.5 text-xl font-bold tracking-tight text-slate-900">
+                    All Submitted Ratings
+                  </h2>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -1925,6 +1917,7 @@ export default function AdminInfluencerView() {
                         </option>
                       ))}
                     </select>
+
                     <ChevronDown
                       size={16}
                       className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -1932,6 +1925,16 @@ export default function AdminInfluencerView() {
                   </div>
                 </div>
               </div>
+            </section>
+
+            {ratingError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {ratingError}
+              </div>
+            ) : null}
+
+            <section className="overflow-hidden bg-white">
+
 
               <AdminTable<RatingReviewItem>
                 data={ratingRows}
@@ -1968,7 +1971,7 @@ export default function AdminInfluencerView() {
                   rowOptions: [10, 20, 50, 100],
                   loading: ratingLoading,
                 }}
-                containerClassName="rounded-none border-0 shadow-none"
+                containerClassName="rounded-none shadow-none"
               />
             </section>
 
@@ -2109,7 +2112,9 @@ export default function AdminInfluencerView() {
           </TabsContent>
 
           <TabsContent value="campaigns" className="space-y-4">
-            <Sect title={<><BriefcaseBusiness className="h-4 w-4" style={{ color: theme.accent }} />Campaign History</>}>
+            <Sect
+              className="!border-0 !shadow-none"
+              title={<><BriefcaseBusiness className="h-4 w-4" style={{ color: theme.accent }} />Campaign History</>}>
               {campaignLoading ? (
                 <div className="rounded-xl border border-slate-200/80 bg-white/70 p-4">
                   <div className="space-y-3">
@@ -2123,7 +2128,7 @@ export default function AdminInfluencerView() {
                   <p className="text-sm font-semibold text-rose-600">{campaignError}</p>
                 </div>
               ) : campaigns.length > 0 ? (
-                <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white/70">
+                <div className="overflow-hidden rounded-xl bg-white/70">
                   <AdminTable<CampaignItem>
                     data={campaigns}
                     columns={campaignColumns}
@@ -2170,7 +2175,9 @@ export default function AdminInfluencerView() {
           </TabsContent>
 
           <TabsContent value="payment details" className="space-y-4">
-            <Sect title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Payment Methods</>}>
+            <Sect
+              className="!border-0 !shadow-none"
+              title={<><CreditCard className="h-4 w-4" style={{ color: theme.accent }} />Payment Methods</>}>
               {paymentLoading ? (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {[0, 1].map(i => <Skeleton key={i} className="h-44 rounded-xl" />)}

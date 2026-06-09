@@ -1,48 +1,29 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
-import {
-  ArrowUpDown,
-  Clock,
-  Dumbbell,
-  Globe,
-  LayoutGrid,
-  MapPin,
-  Search,
-  Shirt,
-  TrendingDown,
-  TrendingUp,
-  Utensils,
-  Video,
-  X,
-} from "lucide-react";
-import { InstagramLogoIcon, YoutubeLogoIcon } from "@phosphor-icons/react";
-
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/buttonComp";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
-} from "@/components/ui/combobox";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ManualPreviewCard } from "@/components/ui/cardPreview";
+import CampaignCard from "@/components/ui/influencer/card";
 
 import {
   apiGetAllActiveCampaigns,
   getApiErrorMessage,
   type ActiveCampaignItem,
 } from "@/services/influencerApi";
-import {
-  apiCategoryGetAll,
-  apiListCountries,
-} from "@/app/influencer/services/influencerApi";
 
 import { useRouter } from "next/navigation";
+
+import DiscoverFilter, {
+  EMPTY_DISCOVER_FILTERS,
+  type DiscoverFilterState,
+} from "./discoverfilter";
+
+import DiscoverTopbarFilter, {
+  EMPTY_DISCOVER_TOPBAR_FILTERS,
+  type DiscoverTopbarFilterState,
+} from "./discovertopbarfilter";
+
+import { apiApplyToCampaign } from "@/app/influencer/services/influencerApi";
 
 /* -------------------------------------------------------------------------- */
 /*                                   TYPES                                    */
@@ -64,33 +45,26 @@ type UICampaign = {
   brand: string;
   brandLogo?: string;
   image?: string;
+  images: string[];
+  campaignGoals: string[];
+  countries: string[];
+  ageLabel: string;
+  ageRanges: string[];
+  gender: string;
+  goalLabel: string;
+  paymentType: string;
+  minFollowers: number;
+  maxFollowers: number;
+  verified: boolean;
+  createdAt: string;
+  startAt: string;
+  endAt: string;
   raw: ActiveCampaignItem | any;
-};
-
-type SelectOption = {
-  value: string;
-  label: string;
-  icon: React.ElementType;
-};
-
-type CategoryRow = {
-  id: string;
-  name: string;
 };
 
 /* -------------------------------------------------------------------------- */
 /*                                  HELPERS                                   */
 /* -------------------------------------------------------------------------- */
-
-const sortOptions: SelectOption[] = [
-  { value: "match", label: "Best Match", icon: ArrowUpDown },
-  { value: "budget-high", label: "Highest Budget", icon: TrendingUp },
-  { value: "budget-low", label: "Lowest Budget", icon: TrendingDown },
-  { value: "ending", label: "Ending Soon", icon: Clock },
-];
-
-const filterTriggerClassName =
-  "flex h-12 w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-700 shadow-sm transition hover:border-gray-300 focus:outline-none";
 
 function normalizePlatformLabel(value?: string) {
   const v = String(value || "").trim().toLowerCase();
@@ -103,26 +77,6 @@ function normalizePlatformLabel(value?: string) {
   return value || "Unknown";
 }
 
-function getPlatformIcon(platform: string) {
-  const normalized = normalizePlatformLabel(platform);
-
-  if (normalized === "Instagram") return InstagramLogoIcon;
-  if (normalized === "YouTube") return YoutubeLogoIcon;
-  if (normalized === "TikTok") return Video;
-
-  return Globe;
-}
-
-function getCategoryIcon(category: string) {
-  const normalized = String(category || "").toLowerCase();
-
-  if (normalized.includes("fashion")) return Shirt;
-  if (normalized.includes("food")) return Utensils;
-  if (normalized.includes("fitness")) return Dumbbell;
-
-  return LayoutGrid;
-}
-
 function getDaysLeft(endAt?: string | null) {
   if (!endAt) return 0;
 
@@ -131,6 +85,7 @@ function getDaysLeft(endAt?: string | null) {
 
   const now = new Date();
   const diff = end.getTime() - now.getTime();
+
   return Math.max(Math.ceil(diff / (1000 * 60 * 60 * 24)), 0);
 }
 
@@ -148,16 +103,19 @@ function getStoredValue(keys: string[]) {
 function getInfluencerAuth() {
   const influencerId = getStoredValue([
     "influencerId",
+    "currentInfluencerId",
     "influencer_id",
     "userId",
     "user_id",
+    "_id",
   ]);
 
   const token = getStoredValue([
+    "influencer_token",
+    "influencerToken",
     "token",
     "authToken",
     "accessToken",
-    "influencerToken",
   ]);
 
   return { influencerId, token };
@@ -187,6 +145,7 @@ function getMappedTextList(items: any, keys: string[]) {
       if (item && typeof item === "object") {
         for (const key of keys) {
           const value = item?.[key];
+
           if (typeof value === "string" && value.trim()) {
             return value.trim();
           }
@@ -200,14 +159,142 @@ function getMappedTextList(items: any, keys: string[]) {
   return Array.from(new Set(values));
 }
 
+function getFirstTextValue(source: any, keys: string[]) {
+  if (!source || typeof source !== "object") return "";
+
+  for (const key of keys) {
+    const value = source?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function getCampaignCreatedAt(campaign: any) {
+  return getFirstTextValue(campaign, [
+    "createdAt",
+    "postedAt",
+    "publishedAt",
+    "created_at",
+    "posted_at",
+  ]);
+}
+
+function getCampaignStartAt(campaign: any) {
+  return getFirstTextValue(campaign, [
+    "startAt",
+    "startDate",
+    "campaignStartDate",
+    "start_at",
+  ]);
+}
+
+function getCampaignEndAt(campaign: any) {
+  return getFirstTextValue(campaign, [
+    "endAt",
+    "endDate",
+    "deadline",
+    "campaignEndDate",
+    "end_at",
+  ]);
+}
+
+function parseDate(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+function daysBetween(start?: string | null, end?: string | null) {
+  const startDate = parseDate(start);
+  const endDate = parseDate(end);
+
+  if (!startDate || !endDate) return 0;
+
+  const diff = endDate.getTime() - startDate.getTime();
+
+  if (diff <= 0) return 0;
+
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function isSameDay(a: Date, b: Date) {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isWithinLastDays(date: Date | null, days: number) {
+  if (!date) return false;
+
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+
+  return diff >= 0 && diff <= days * 24 * 60 * 60 * 1000;
+}
+
+function isInDateRange(date: Date | null, start?: string, end?: string) {
+  if (!date) return false;
+
+  const startDate = start ? parseDate(start) : null;
+  const endDate = end ? parseDate(end) : null;
+
+  if (startDate) {
+    startDate.setHours(0, 0, 0, 0);
+    if (date < startDate) return false;
+  }
+
+  if (endDate) {
+    endDate.setHours(23, 59, 59, 999);
+    if (date > endDate) return false;
+  }
+
+  return true;
+}
+
+function normalizeForCompare(value: string) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function findScrollParent(element: HTMLElement | null) {
+  if (typeof window === "undefined" || !element) return null;
+
+  let parent = element.parentElement;
+
+  while (parent) {
+    const style = window.getComputedStyle(parent);
+    const overflowY = style.overflowY;
+
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      parent.scrollHeight > parent.clientHeight
+    ) {
+      return parent;
+    }
+
+    parent = parent.parentElement;
+  }
+
+  return null;
+}
+
 function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
   const budget = Number(campaign?.campaignBudget ?? campaign?.budget ?? 0);
 
   const platforms: string[] = Array.isArray(campaign?.platformSelection)
     ? campaign.platformSelection
-        .filter((p: unknown): p is string => typeof p === "string")
-        .map((p: string) => normalizePlatformLabel(p))
-        .filter((p: any): p is string => Boolean(p))
+      .filter((p: unknown): p is string => typeof p === "string")
+      .map((p: string) => normalizePlatformLabel(p))
+      .filter((p: any): p is string => Boolean(p))
     : [];
 
   const normalizedPlatforms: string[] = Array.from(new Set(platforms));
@@ -240,10 +327,56 @@ function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
     campaign?.createdLocation?.country ||
     "";
 
-  const firstImage =
-    Array.isArray(campaign?.productImages) && campaign.productImages.length > 0
-      ? campaign.productImages[0]
-      : "";
+  const productImages = Array.isArray(campaign?.productImages)
+    ? campaign.productImages
+    : [];
+
+  const imageUrls = productImages.map(getImageUrl).filter(Boolean);
+
+  const firstImage = imageUrls[0] || "";
+
+  const campaignGoals = getMappedTextList(campaign?.campaignGoals, [
+    "goal",
+    "name",
+    "label",
+    "title",
+  ]);
+
+  const countries = getMappedTextList(campaign?.targetCountryIds, [
+    "countryName",
+    "name",
+    "label",
+    "title",
+  ]);
+
+  const ageRanges = [
+    ...getMappedTextList(campaign?.targetAgeRanges, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getMappedTextList(campaign?.targetAgeRangesDetails, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const goalLabel = campaignGoals[0] || "";
+  const ageLabel = compactAgeLabel(ageRanges);
+
+  const gender =
+    campaign?.gender ||
+    campaign?.targetGender ||
+    campaign?.audienceGender ||
+    campaign?.targetAudienceGender ||
+    "";
+
+  const createdAt = getCampaignCreatedAt(campaign);
+  const startAt = getCampaignStartAt(campaign);
+  const endAt = getCampaignEndAt(campaign);
 
   return {
     id,
@@ -251,7 +384,7 @@ function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
     description: campaign?.description || "No description available.",
     budgetMin: budget,
     budgetMax: budget,
-    daysLeft: getDaysLeft(campaign?.endAt),
+    daysLeft: getDaysLeft(endAt),
     match: Number(campaign?.matchScore ?? 0),
     category,
     platforms: normalizedPlatforms.length ? normalizedPlatforms : ["Unknown"],
@@ -262,410 +395,387 @@ function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
     location,
     applications,
     brand: brandName,
-    brandLogo: campaign?.brandLogo || "",
-    image: getImageUrl(firstImage),
+    brandLogo: getBrandLogoUrl(campaign),
+    image: firstImage,
+    images: imageUrls,
+    campaignGoals,
+    countries,
+    ageLabel,
+    ageRanges,
+    gender,
+    goalLabel,
+    paymentType: campaign?.paymentType || "",
+    minFollowers: Number(campaign?.minFollowers ?? 0),
+    maxFollowers: Number(campaign?.maxFollowers ?? 0),
+    verified: Boolean(
+      campaign?.isVerified ||
+      campaign?.isFullyManaged ||
+      campaign?.brandWasFullyManagedAtCreation ||
+      campaign?.brandSubscriptionSnapshot?.status === "active"
+    ),
+    createdAt,
+    startAt,
+    endAt,
     raw: campaign,
   };
 }
 
-function campaignToPreview(campaign: UICampaign) {
-  const rawCountries = getMappedTextList(campaign.raw?.targetCountryIds, [
-    "countryName",
-    "name",
-    "label",
-    "title",
-  ]);
+function matchesPostedBy(campaign: UICampaign, value: string) {
+  if (!value || value === "All") return true;
 
-  const ageRanges = [
-    ...getMappedTextList(campaign.raw?.targetAgeRanges, [
-      "range",
-      "name",
-      "label",
-      "title",
-    ]),
-    ...getMappedTextList(campaign.raw?.targetAgeRangesDetails, [
-      "range",
-      "name",
-      "label",
-      "title",
-    ]),
-  ].filter(Boolean);
+  const createdDate = parseDate(campaign.createdAt);
 
-  const uniqueAgeRanges = Array.from(new Set(ageRanges));
-
-  const goals = getMappedTextList(campaign.raw?.campaignGoals, [
-    "goal",
-    "name",
-    "label",
-    "title",
-  ]);
-
-  const productServiceInfo = getMappedTextList(campaign.raw?.productServiceInfo, [
-    "title",
-    "name",
-    "label",
-    "service",
-    "product",
-    "value",
-    "info",
-  ]);
-
-  const categories = Array.isArray(campaign.raw?.categories)
-    ? campaign.raw.categories
-    : [];
-
-  const allProductImages = Array.isArray(campaign.raw?.productImages)
-    ? campaign.raw.productImages
-    : [];
-
-  const productImages =
-    allProductImages.length > 0 ? [allProductImages[0]] : [];
-
-  const ageText = uniqueAgeRanges.join(", ");
-  const countryText = rawCountries.join(", ") || campaign.location || "";
-  const goalsText = goals.join(", ");
-  const productServiceText = productServiceInfo.join(", ");
-
-  const categoryWithAge = [campaign.category, ageText].filter(Boolean).join(" • ");
-
-  const topRightTag = [productServiceText, goalsText]
-    .filter(Boolean)
-    .join(" • ");
-
-  return {
-    form: {
-      title: campaign.raw?.campaignTitle || campaign.title,
-      name: campaign.raw?.campaignTitle || campaign.title,
-      campaignTitle: campaign.raw?.campaignTitle || campaign.title,
-
-      description: campaign.description,
-
-      categoryName: categoryWithAge || campaign.category,
-      categoryLabel: campaign.category,
-
-      ageGroup: ageText,
-      ageGroupText: ageText,
-      targetAgeRanges:
-        campaign.raw?.targetAgeRanges ||
-        uniqueAgeRanges.map((range: string) => ({ range })),
-
-      country: countryText,
-      countryText,
-      targetCountry:
-        rawCountries.length > 0
-          ? rawCountries
-          : countryText
-          ? [countryText]
-          : [],
-      targetCountryIds:
-        campaign.raw?.targetCountryIds ||
-        rawCountries.map((countryName: string) => ({ countryName })),
-
-      campaignGoals: goals.length
-        ? goals.map((goal: string) => ({ goal }))
-        : [],
-      goalText: goalsText,
-      goalsText,
-
-      productServiceInfo:
-        productServiceInfo.length > 0 ? productServiceInfo : [],
-      productServiceText,
-
-      topRightTag,
-      topTag: topRightTag,
-      badgeText: topRightTag,
-      tagText: topRightTag,
-
-      campaignBudget: campaign.budgetMax,
-      budget: campaign.budgetMax,
-
-      productImages,
-      allProductImages,
-      coverImage: getImageUrl(productImages[0]),
-      image: getImageUrl(productImages[0]),
-
-      secondaryText: countryText,
-      footerText: countryText,
-      subDescription: countryText,
-    },
-    meta: {
-      countryMap: rawCountries.reduce(
-        (acc: Record<string, string>, item: string) => {
-          acc[item] = item;
-          return acc;
-        },
-        {},
-      ),
-      ageMap: uniqueAgeRanges.reduce(
-        (acc: Record<string, string>, item: string) => {
-          acc[item] = item;
-          return acc;
-        },
-        {},
-      ),
-      goalsMap: goals.reduce((acc: Record<string, string>, item: string) => {
-        acc[item] = item;
-        return acc;
-      }, {}),
-      campaignBudget: campaign.budgetMax,
-      countryText,
-      ageText,
-      goalsText,
-      productServiceText,
-      topRightTag,
-    },
-  };
-}
-
-function resolveBudgetRange(
-  budgetValue: string,
-  maxBudget: number,
-): [number, number] {
-  switch (budgetValue) {
-    case "0-5000":
-      return [0, Math.min(5000, maxBudget)];
-    case "5000-10000":
-      return maxBudget >= 5000 ? [5000, Math.min(10000, maxBudget)] : [0, maxBudget];
-    case "10000-25000":
-      return maxBudget >= 10000
-        ? [10000, Math.min(25000, maxBudget)]
-        : [0, maxBudget];
-    case "25000-50000":
-      return maxBudget >= 25000
-        ? [25000, Math.min(50000, maxBudget)]
-        : [0, maxBudget];
-    case "50000+":
-      return maxBudget >= 50000 ? [50000, maxBudget] : [0, maxBudget];
+  switch (value) {
+    case "Past 24hrs":
+      return isWithinLastDays(createdDate, 1);
+    case "Past 2 days":
+      return isWithinLastDays(createdDate, 2);
+    case "Past Week":
+      return isWithinLastDays(createdDate, 7);
+    case "Past Month":
+      return isWithinLastDays(createdDate, 30);
     default:
-      return [0, maxBudget];
+      return true;
   }
 }
 
-function SingleFilterCombobox({
-  value,
-  onChange,
-  options,
-  placeholder,
-  searchPlaceholder,
-  widthClassName = "w-[220px]",
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  options: SelectOption[];
-  placeholder: string;
-  searchPlaceholder: string;
-  widthClassName?: string;
-}) {
-  const selectedOption =
-    options.find((option) => option.value === value) ?? options[0];
-  const Icon = selectedOption?.icon ?? LayoutGrid;
+function matchesCampaignGoal(campaign: UICampaign, value: string) {
+  if (!value || value === "All") return true;
 
-  return (
-    <div className={`${widthClassName} shrink-0`}>
-      <Combobox value={value} onValueChange={(nextValue: any) => onChange(String(nextValue))}>
-        <ComboboxTrigger className={filterTriggerClassName}>
-          <span className="flex min-w-0 items-center gap-2">
-            <Icon className="h-4 w-4 shrink-0 text-gray-500" />
-            <span className="truncate">
-              {selectedOption?.label || placeholder}
-            </span>
-          </span>
-        </ComboboxTrigger>
+  const selected = normalizeForCompare(value);
 
-        <ComboboxContent
-          showSearch
-          searchPlaceholder={searchPlaceholder}
-          className="group/combobox-content"
-        >
-          <ComboboxList>
-            {options.map((option) => {
-              const OptionIcon = option.icon;
-
-              return (
-                <ComboboxItem key={option.value} value={option.value}>
-                  <div className="flex items-center gap-2">
-                    <OptionIcon className="h-4 w-4 text-gray-500" />
-                    <span>{option.label}</span>
-                  </div>
-                </ComboboxItem>
-              );
-            })}
-            <ComboboxEmpty>No results found.</ComboboxEmpty>
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </div>
+  return campaign.campaignGoals.some(
+    (goal) => normalizeForCompare(goal) === selected
   );
 }
 
-function MultiFilterCombobox({
-  value,
-  onChange,
-  options,
-  widthClassName = "w-[250px]",
-}: {
-  value: string[];
-  onChange: (value: string[]) => void;
-  options: SelectOption[];
-  widthClassName?: string;
-}) {
-  const summary =
-    value.length === 0
-      ? "All Platforms"
-      : value.length === 1
-        ? value[0]
-        : `${value.length} Platforms`;
+function matchesCampaignDuration(campaign: UICampaign, value: string) {
+  if (!value || value === "All") return true;
 
-  const SummaryIcon =
-    value.length === 1 ? getPlatformIcon(value[0]) : Globe;
+  const durationDays = daysBetween(campaign.startAt, campaign.endAt);
 
-  return (
-    <div className={`${widthClassName} shrink-0`}>
-      <Combobox
-        multiple
-        value={value}
-        onValueChange={(nextValue: any) =>
-          onChange(Array.isArray(nextValue) ? nextValue : [])
-        }
-      >
-        <ComboboxTrigger className={filterTriggerClassName}>
-          <span className="flex min-w-0 items-center gap-2">
-            <SummaryIcon className="h-4 w-4 shrink-0 text-gray-500" />
-            <span className="truncate">{summary}</span>
-          </span>
-        </ComboboxTrigger>
+  if (!durationDays) return false;
 
-        <ComboboxContent
-          showSearch
-          searchPlaceholder="Search platforms..."
-          className="group/combobox-content"
-        >
-          <ComboboxList>
-            {options.map((option) => {
-              const OptionIcon = option.icon;
-
-              return (
-                <ComboboxItem
-                  key={option.value}
-                  value={option.value}
-                  showCheckbox
-                >
-                  <div className="flex items-center gap-2">
-                    <OptionIcon className="h-4 w-4 text-gray-500" />
-                    <span>{option.label}</span>
-                  </div>
-                </ComboboxItem>
-              );
-            })}
-            <ComboboxEmpty>No platforms found.</ComboboxEmpty>
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </div>
-  );
+  switch (value) {
+    case "Less then 1 Week":
+      return durationDays < 7;
+    case "1 Week":
+      return durationDays >= 7 && durationDays < 14;
+    case "2–3 Week":
+      return durationDays >= 14 && durationDays <= 21;
+    case "3–6 Weeks":
+      return durationDays > 21 && durationDays <= 42;
+    case "7–12 weeks":
+      return durationDays > 42 && durationDays <= 84;
+    case "More then 12 weeks":
+      return durationDays > 84;
+    default:
+      return true;
+  }
 }
 
+function matchesBudget(campaign: UICampaign, value: string) {
+  if (!value || value === "All") return true;
+
+  const budget = Number(campaign.budgetMax || 0);
+
+  switch (value) {
+    case "Under $100":
+      return budget < 100;
+    case "$100 – $500":
+      return budget >= 100 && budget <= 500;
+    case "$500 – $1K":
+      return budget > 500 && budget <= 1000;
+    case "$1K – $5K":
+      return budget > 1000 && budget <= 5000;
+    case "$5K – $10K":
+      return budget > 5000 && budget <= 10000;
+    case "$10K – $25K":
+      return budget > 10000 && budget <= 25000;
+    case "$25K – $50K":
+      return budget > 25000 && budget <= 50000;
+    case "$50K+":
+      return budget > 50000;
+    default:
+      return true;
+  }
+}
+
+function matchesDate(campaign: UICampaign, filters: DiscoverFilterState) {
+  const selectedDate = filters.Date;
+  const createdDate = parseDate(campaign.createdAt);
+  const deadlineDate = parseDate(campaign.endAt);
+
+  if (selectedDate && selectedDate !== "Recently Received") {
+    const now = new Date();
+
+    if (selectedDate === "Today" && !isSameDay(createdDate || new Date(0), now)) {
+      return false;
+    }
+
+    if (selectedDate === "This Week" && !isWithinLastDays(createdDate, 7)) {
+      return false;
+    }
+
+    if (selectedDate === "This Month" && !isWithinLastDays(createdDate, 30)) {
+      return false;
+    }
+  }
+
+  if (!filters.StartDate && !filters.EndDate) {
+    return true;
+  }
+
+  if (filters.DateRangeType === "Deadline") {
+    return isInDateRange(deadlineDate, filters.StartDate, filters.EndDate);
+  }
+
+  return isInDateRange(createdDate, filters.StartDate, filters.EndDate);
+}
+
+function matchesLocation(campaign: UICampaign, value: string[]) {
+  if (!value.length || value.includes("All")) return true;
+
+  const selectedLocations = value.map(normalizeForCompare);
+
+  return selectedLocations.includes(normalizeForCompare(campaign.location));
+}
+
+function matchesSearch(campaign: UICampaign, query: string) {
+  const q = normalizeForCompare(query);
+
+  if (!q) return true;
+
+  const searchableText = [
+    campaign.title,
+    campaign.description,
+    campaign.brand,
+    campaign.category,
+    campaign.location,
+    campaign.paymentType,
+    campaign.platformLabel,
+    ...campaign.platforms,
+    ...campaign.campaignGoals,
+    ...campaign.countries,
+    ...campaign.ageRanges,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return normalizeForCompare(searchableText).includes(q);
+}
+
+const TIER_RANGES = {
+  Nano: [0, 10000],
+  Micro: [10000, 100000],
+  Mid: [100000, 250000],
+  Macro: [250000, 1000000],
+  Mega: [1000000, Number.POSITIVE_INFINITY],
+} as const;
+
+function rangeOverlaps(
+  campaignMin: number,
+  campaignMax: number,
+  filterMin: number,
+  filterMax: number
+) {
+  const min = Number.isFinite(campaignMin) ? campaignMin : 0;
+  const max = Number.isFinite(campaignMax) && campaignMax > 0 ? campaignMax : min;
+
+  return Math.max(min, filterMin) <= Math.min(max, filterMax);
+}
+
+function matchesTopbarFilters(
+  campaign: UICampaign,
+  topbarFilters: DiscoverTopbarFilterState
+) {
+  if (topbarFilters.verifiedOnly && !campaign.verified) {
+    return false;
+  }
+
+  if (topbarFilters.platforms.length > 0) {
+    const campaignPlatforms = campaign.platforms.map(normalizeForCompare);
+
+    const selectedPlatforms = topbarFilters.platforms
+      .map(normalizePlatformLabel)
+      .map(normalizeForCompare);
+
+    const hasPlatformMatch = selectedPlatforms.some((platform) =>
+      campaignPlatforms.includes(platform)
+    );
+
+    if (!hasPlatformMatch) return false;
+  }
+
+  if (topbarFilters.paymentType) {
+    if (
+      normalizeForCompare(campaign.paymentType) !==
+      normalizeForCompare(topbarFilters.paymentType)
+    ) {
+      return false;
+    }
+  }
+
+  if (topbarFilters.age) {
+    const selectedAge = normalizeForCompare(topbarFilters.age);
+
+    const hasAgeMatch = campaign.ageRanges.some((range) => {
+      const normalizedRange = normalizeForCompare(range);
+
+      if (selectedAge === "45+") {
+        const numbers = String(range)
+          .match(/\d+/g)
+          ?.map(Number)
+          .filter((num) => Number.isFinite(num));
+
+        return (
+          normalizedRange.includes("45+") ||
+          normalizedRange.includes("45-") ||
+          Boolean(numbers?.some((num) => num >= 45))
+        );
+      }
+
+      return normalizedRange === selectedAge;
+    });
+
+    if (!hasAgeMatch) return false;
+  }
+
+  if (topbarFilters.gender !== "All") {
+    // If backend does not send gender, do not remove every campaign.
+    if (
+      campaign.gender &&
+      normalizeForCompare(campaign.gender) !==
+      normalizeForCompare(topbarFilters.gender)
+    ) {
+      return false;
+    }
+  }
+
+  if (topbarFilters.influencerTier) {
+    const [tierMin, tierMax] = TIER_RANGES[topbarFilters.influencerTier];
+
+    if (
+      !rangeOverlaps(
+        campaign.minFollowers,
+        campaign.maxFollowers,
+        tierMin,
+        tierMax
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+function compactAgeLabel(ranges: string[]) {
+  const clean = ranges.filter(Boolean);
+
+  if (clean.length === 0) return "";
+
+  const numbers = clean
+    .flatMap((range) => String(range).match(/\d+/g) || [])
+    .map(Number)
+    .filter((num) => Number.isFinite(num));
+
+  if (numbers.length >= 2) {
+    return `${Math.min(...numbers)}-${Math.max(...numbers)}`;
+  }
+
+  return clean[0] || "";
+}
+
+function getBrandLogoUrl(campaign: any) {
+  const logo =
+    campaign?.brandprofilepic ||
+    campaign?.brandProfilePic ||
+    campaign?.brand_profile_pic ||
+    campaign?.brandLogo ||
+    campaign?.brand?.brandprofilepic ||
+    campaign?.brand?.brandProfilePic ||
+    campaign?.brand?.logo ||
+    campaign?.brand?.logoUrl ||
+    campaign?.brand?.profileImage ||
+    campaign?.brandImage ||
+    "";
+
+  if (!logo) return "";
+
+  if (typeof logo === "string") return logo;
+
+  return (
+    logo?.dataUrl ||
+    logo?.url ||
+    logo?.path ||
+    logo?.src ||
+    logo?.imageUrl ||
+    ""
+  );
+}
 /* -------------------------------------------------------------------------- */
 /*                                    PAGE                                    */
 /* -------------------------------------------------------------------------- */
 
 export default function DiscoverCampaigns() {
   const router = useRouter();
+  const pageRef = useRef<HTMLDivElement | null>(null);
+
+  const [filters, setFilters] = useState<DiscoverFilterState>(
+    EMPTY_DISCOVER_FILTERS
+  );
+
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [selectedPlatform, setSelectedPlatform] = useState<string[]>([]);
-  const [selectedLocation, setSelectedLocation] = useState("all");
-  const [selectedBudget, setSelectedBudget] = useState("all");
-  const [sortBy, setSortBy] = useState("match");
-  const [budgetRange, setBudgetRange] = useState<[number, number]>([0, 100000]);
+  const [sortValue, setSortValue] = useState("Most Relevant");
 
+  const [topbarFilters, setTopbarFilters] =
+    useState<DiscoverTopbarFilterState>(EMPTY_DISCOVER_TOPBAR_FILTERS);
+
+  const [applyingCampaignIds, setApplyingCampaignIds] = useState<string[]>([]);
+  const [appliedCampaignIds, setAppliedCampaignIds] = useState<string[]>([]);
   const [campaigns, setCampaigns] = useState<UICampaign[]>([]);
   const [serverTotal, setServerTotal] = useState(0);
 
-  const [categoryOptions, setCategoryOptions] = useState<SelectOption[]>([
-    { value: "all", label: "All Categories", icon: LayoutGrid },
-  ]);
-
-  const [locationOptions, setLocationOptions] = useState<SelectOption[]>([
-    { value: "all", label: "All Locations", icon: Globe },
-  ]);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [topFilterCollapsed, setTopFilterCollapsed] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setDebouncedSearch(search.trim());
-    }, 400);
+    }, 350);
 
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [search]);
 
   useEffect(() => {
-    let ignore = false;
+    const pageElement = pageRef.current;
+    const scrollParent = findScrollParent(pageElement);
 
-    const fetchFilterOptions = async () => {
-      try {
-        const [categoriesRes, countriesRes] = await Promise.all([
-          apiCategoryGetAll(),
-          apiListCountries(),
-        ]);
-
-        if (ignore) return;
-
-        const mappedCategories: SelectOption[] = [
-          { value: "all", label: "All Categories", icon: LayoutGrid },
-          ...(Array.isArray(categoriesRes) ? categoriesRes : []).map(
-            (c: CategoryRow) => ({
-              value: String(c?.name || "").trim(),
-              label: String(c?.name || "").trim(),
-              icon: getCategoryIcon(String(c?.name || "")),
-            }),
-          ),
-        ].filter((item) => item.value);
-
-        const rawCountries: any[] = Array.isArray(countriesRes)
-          ? countriesRes
-          : Array.isArray((countriesRes as any)?.countries)
-            ? (countriesRes as any).countries
-            : Array.isArray((countriesRes as any)?.data)
-              ? (countriesRes as any).data
-              : [];
-
-        const mappedLocations: SelectOption[] = [
-          { value: "all", label: "All Locations", icon: Globe },
-          ...rawCountries
-            .map((country: any) => {
-              const name = String(
-                country?.name ??
-                  country?.countryName ??
-                  country?.label ??
-                  country?.title ??
-                  "",
-              ).trim();
-
-              return {
-                value: name,
-                label: name,
-                icon: name.toLowerCase() === "remote" ? Globe : MapPin,
-              };
-            })
-            .filter((item: SelectOption) => !!item.value),
-        ];
-
-        setCategoryOptions(mappedCategories);
-        setLocationOptions(mappedLocations);
-      } catch (err) {
-        console.error("Failed to load filter options", err);
-      }
+    const handleScroll = () => {
+      const scrollTop = scrollParent ? scrollParent.scrollTop : window.scrollY;
+      setTopFilterCollapsed(scrollTop > 24);
     };
 
-    fetchFilterOptions();
+    handleScroll();
+
+    if (scrollParent) {
+      scrollParent.addEventListener("scroll", handleScroll, { passive: true });
+
+      return () => {
+        scrollParent.removeEventListener("scroll", handleScroll);
+      };
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
-      ignore = true;
+      window.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
@@ -688,9 +798,9 @@ export default function DiscoverCampaigns() {
             influencerId,
             page: 1,
             limit: 100,
-            search: debouncedSearch,
+            search: "",
           },
-          token,
+          token
         );
 
         if (ignore) return;
@@ -705,21 +815,23 @@ export default function DiscoverCampaigns() {
           .filter((campaign: any) => {
             const role = campaign?.createdBy?.role;
             const adminRole = campaign?.createdBy?.adminRole;
+
             return role !== "admin" && adminRole !== "super_admin";
           })
           .map(mapApiCampaignToUi)
-          .filter((item: { id: any }) => Boolean(item.id));
+          .filter((item: UICampaign) => Boolean(item.id));
 
         setCampaigns(mapped);
         setServerTotal(
           Number(
             (res as any)?.data?.pagination?.total ??
-              (res as any)?.meta?.total ??
-              mapped.length,
-          ),
+            (res as any)?.meta?.total ??
+            mapped.length
+          )
         );
       } catch (err) {
         if (ignore) return;
+
         setCampaigns([]);
         setServerTotal(0);
         setError(getApiErrorMessage(err, "Failed to load campaigns."));
@@ -733,255 +845,197 @@ export default function DiscoverCampaigns() {
     return () => {
       ignore = true;
     };
-  }, [debouncedSearch]);
-
-  const platforms = useMemo<SelectOption[]>(() => {
-    const flat = campaigns.flatMap((c) => c.platforms || []);
-    const unique = [...new Set(flat.filter(Boolean))];
-
-    return unique.map((platform) => ({
-      value: platform,
-      label: platform,
-      icon: getPlatformIcon(platform),
-    }));
-  }, [campaigns]);
-
-  const maxBudget = useMemo(() => {
-    const max = Math.max(...campaigns.map((c) => c.budgetMax || 0), 0);
-    return max > 0 ? Math.ceil(max / 1000) * 1000 : 100000;
-  }, [campaigns]);
-
-  const budgetOptions = useMemo<SelectOption[]>(() => {
-    const options: SelectOption[] = [
-      { value: "all", label: "Any Budget", icon: ArrowUpDown },
-      { value: "0-5000", label: "Up to $5,000", icon: TrendingDown },
-    ];
-
-    if (maxBudget > 5000) {
-      options.push({
-        value: "5000-10000",
-        label: "$5,000 - $10,000",
-        icon: TrendingUp,
-      });
-    }
-
-    if (maxBudget > 10000) {
-      options.push({
-        value: "10000-25000",
-        label: "$10,000 - $25,000",
-        icon: TrendingUp,
-      });
-    }
-
-    if (maxBudget > 25000) {
-      options.push({
-        value: "25000-50000",
-        label: "$25,000 - $50,000",
-        icon: TrendingUp,
-      });
-    }
-
-    if (maxBudget > 50000) {
-      options.push({
-        value: "50000+",
-        label: "$50,000+",
-        icon: TrendingUp,
-      });
-    }
-
-    return options;
-  }, [maxBudget]);
-
-  useEffect(() => {
-    setBudgetRange(resolveBudgetRange(selectedBudget, maxBudget));
-  }, [maxBudget, selectedBudget]);
+  }, [refreshKey]);
 
   const filteredCampaigns = useMemo(() => {
     const filtered = campaigns.filter((campaign) => {
-      const matchesCategory =
-        selectedCategory === "all" || campaign.category === selectedCategory;
-
-      const matchesPlatform =
-        selectedPlatform.length === 0 ||
-        campaign.platforms.some((platform) => selectedPlatform.includes(platform));
-
-      const matchesLocation =
-        selectedLocation === "all" || campaign.location === selectedLocation;
-
-      const matchesBudget =
-        campaign.budgetMax >= budgetRange[0] &&
-        campaign.budgetMin <= budgetRange[1];
-
       return (
-        matchesCategory &&
-        matchesPlatform &&
-        matchesLocation &&
-        matchesBudget
+        matchesSearch(campaign, debouncedSearch) &&
+        matchesTopbarFilters(campaign, topbarFilters) &&
+        matchesPostedBy(campaign, filters["Posted By"]) &&
+        matchesLocation(campaign, filters.Location) &&
+        matchesCampaignGoal(campaign, filters["Campaign Goal"]) &&
+        matchesCampaignDuration(campaign, filters["Campaign Duration"]) &&
+        matchesBudget(campaign, filters.Budget) &&
+        matchesDate(campaign, filters)
       );
     });
 
-    switch (sortBy) {
-      case "budget-high":
+    switch (sortValue) {
+      case "Highest Budget":
         filtered.sort((a, b) => b.budgetMax - a.budgetMax);
         break;
-      case "budget-low":
-        filtered.sort((a, b) => a.budgetMin - b.budgetMin);
+
+      case "Recently Published":
+        filtered.sort((a, b) => {
+          const aTime = parseDate(a.createdAt)?.getTime() ?? 0;
+          const bTime = parseDate(b.createdAt)?.getTime() ?? 0;
+
+          return bTime - aTime;
+        });
         break;
-      case "ending":
+
+      case "Closing Soon":
         filtered.sort((a, b) => a.daysLeft - b.daysLeft);
         break;
+
+      case "Highest Match Score":
+      case "Most Relevant":
       default:
         filtered.sort((a, b) => b.match - a.match);
         break;
     }
 
     return filtered;
-  }, [
-    campaigns,
-    selectedCategory,
-    selectedPlatform,
-    selectedLocation,
-    sortBy,
-    budgetRange,
-  ]);
+  }, [campaigns, filters, sortValue, debouncedSearch, topbarFilters]);
+
+  const getCampaignDetailsHref = (campaign: UICampaign) => {
+    const campaignTitle = campaign.title || "Campaign Details";
+
+    return `/influencer/discover-campaigns/${encodeURIComponent(
+      campaign.id
+    )}?title=${encodeURIComponent(campaignTitle)}`;
+  };
+
+  const handleApplyToCampaign = async (campaign: UICampaign) => {
+    const { influencerId, token } = getInfluencerAuth();
+
+    if (!influencerId) {
+      alert("Influencer ID not found. Please sign in again.");
+      return;
+    }
+
+    if (appliedCampaignIds.includes(campaign.id)) return;
+    if (applyingCampaignIds.includes(campaign.id)) return;
+
+    try {
+      setApplyingCampaignIds((prev) => [...prev, campaign.id]);
+
+      const res = await apiApplyToCampaign(
+        {
+          campaignId: campaign.id,
+          influencerId,
+        },
+        token
+      );
+
+      setAppliedCampaignIds((prev) =>
+        prev.includes(campaign.id) ? prev : [...prev, campaign.id]
+      );
+
+      setCampaigns((prev) =>
+        prev.map((item) =>
+          item.id === campaign.id
+            ? {
+              ...item,
+              applications:
+                Number((res as any)?.applicantCount) ||
+                item.applications + 1,
+            }
+            : item
+        )
+      );
+
+      alert((res as any)?.message || "Applied successfully.");
+    } catch (err) {
+      alert(getApiErrorMessage(err, "Failed to apply to campaign."));
+    } finally {
+      setApplyingCampaignIds((prev) =>
+        prev.filter((id) => id !== campaign.id)
+      );
+    }
+  };
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen">
-        <div className="mx-auto max-w-[1400px] space-y-10 px-6 py-10">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Discover Campaigns
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Explore brand collaborations matched to your profile.
-              </p>
-            </div>
+      <div ref={pageRef} className="min-h-screen bg-white">
+        <DiscoverTopbarFilter
+          search={search}
+          setSearch={setSearch}
+          collapsed={topFilterCollapsed}
+          value={topbarFilters}
+          onApply={setTopbarFilters}
+          onClear={() => setTopbarFilters(EMPTY_DISCOVER_TOPBAR_FILTERS)}
+        />
 
-            <Badge variant="outline" className="px-3 py-1">
-              {filteredCampaigns.length}
-              {serverTotal > 0 ? ` of ${serverTotal}` : ""} campaigns found
-            </Badge>
-          </div>
+        <div className="mx-auto max-w-full bg-white">
+          <DiscoverFilter
+            filters={filters}
+            setFilters={setFilters}
+            sortValue={sortValue}
+            setSortValue={setSortValue}
+          />
 
-          <div className="overflow-x-auto">
-            <div className="flex min-w-max items-center gap-4 pb-1">
-              <div className="relative w-[340px] shrink-0">
-                <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <Input
-                  placeholder="Search campaigns, brands, or keywords..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="h-12 rounded-xl pl-11 pr-10"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2"
-                  >
-                    <X className="h-4 w-4 text-gray-400" />
-                  </button>
-                )}
+          <div className="px-6 pb-8 pt-8">
+            {loading ? (
+              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="h-[320px] animate-pulse rounded-2xl border bg-gray-100"
+                  />
+                ))}
               </div>
+            ) : error ? (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+                <p className="text-sm font-medium text-red-700">{error}</p>
 
-              <SingleFilterCombobox
-                value={selectedCategory}
-                onChange={setSelectedCategory}
-                options={categoryOptions}
-                placeholder="Category"
-                searchPlaceholder="Search categories..."
-                widthClassName="w-[220px]"
-              />
+                <Button
+                  className="mt-4"
+                  onClick={() => setRefreshKey((value) => value + 1)}
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : filteredCampaigns.length === 0 ? (
+              <div className="rounded-2xl border bg-white p-10 text-center">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  No campaigns found
+                </h3>
 
-              <MultiFilterCombobox
-                value={selectedPlatform}
-                onChange={setSelectedPlatform}
-                options={platforms}
-                widthClassName="w-[240px]"
-              />
-
-              <SingleFilterCombobox
-                value={selectedBudget}
-                onChange={setSelectedBudget}
-                options={budgetOptions}
-                placeholder="Budget"
-                searchPlaceholder="Search budget..."
-                widthClassName="w-[210px]"
-              />
-
-              <SingleFilterCombobox
-                value={selectedLocation}
-                onChange={setSelectedLocation}
-                options={locationOptions}
-                placeholder="Location"
-                searchPlaceholder="Search locations..."
-                widthClassName="w-[220px]"
-              />
-
-              <SingleFilterCombobox
-                value={sortBy}
-                onChange={setSortBy}
-                options={sortOptions}
-                placeholder="Sort by"
-                searchPlaceholder="Search sort..."
-                widthClassName="w-[220px]"
-              />
-            </div>
+                <p className="mt-2 text-sm text-gray-500">
+                  Try changing your search or filter selection.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+                {filteredCampaigns.map((campaign) => (
+                  <CampaignCard
+                    key={campaign.id}
+                    title={campaign.title}
+                    description={campaign.description}
+                    imageUrl={campaign.image}
+                    imageUrls={campaign.images}
+                    brandName={campaign.brand}
+                    brandLogoUrl={campaign.brandLogo}
+                    campaignGoal={campaign.goalLabel}
+                    category={campaign.category}
+                    ageLabel={campaign.ageLabel}
+                    gender={campaign.gender}
+                    countries={campaign.countries}
+                    budget={campaign.budgetMax}
+                    viewedCount={campaign.applications}
+                    isApplying={applyingCampaignIds.includes(campaign.id)}
+                    hasApplied={appliedCampaignIds.includes(campaign.id)}
+                    onCardClick={() =>
+                      router.push(
+                        `/influencer/discover-campaigns/${encodeURIComponent(
+                          campaign.id
+                        )}?title=${encodeURIComponent(campaign.title || "Campaign Details")}`
+                      )
+                    }
+                    onApply={() => handleApplyToCampaign(campaign)}
+                    onSave={() => {
+                      // save API here when available
+                    }}
+                    onMore={() => {
+                      // open more menu here when available
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-
-          {loading ? (
-            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div
-                  key={idx}
-                  className="h-[320px] animate-pulse rounded-2xl border bg-gray-100"
-                />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
-              <p className="text-sm font-medium text-red-700">{error}</p>
-              <Button
-                className="mt-4"
-                onClick={() => {
-                  setDebouncedSearch((prev) => prev + " ");
-                  setTimeout(() => setDebouncedSearch(search.trim()), 0);
-                }}
-              >
-                Retry
-              </Button>
-            </div>
-          ) : filteredCampaigns.length === 0 ? (
-            <div className="rounded-2xl border bg-white p-10 text-center">
-              <h3 className="text-lg font-semibold text-gray-900">
-                No campaigns found
-              </h3>
-              <p className="mt-2 text-sm text-gray-500">
-                Try changing your search or filter selection.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {filteredCampaigns.map((campaign) => {
-                const { form, meta } = campaignToPreview(campaign);
-
-                return (
-                  <div key={campaign.id}>
-                    <ManualPreviewCard
-                      key={campaign.id}
-                      form={form}
-                      meta={meta}
-                      onViewClick={() =>
-                        router.push(`/influencer/discover-campaigns/${campaign.id}`)
-                      }
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
       </div>
     </TooltipProvider>

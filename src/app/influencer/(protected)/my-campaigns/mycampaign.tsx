@@ -1,0 +1,901 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import CampaignCard from "@/components/ui/influencer/card";
+import CampaignFilter, {
+  DEFAULT_DATE_FILTER,
+  type DateFilterValue,
+} from "@/components/ui/brand/CampaignFilter";
+import api from "@/lib/api";
+import {
+  apiGetAllCampaigns,
+  apiGetAppliedCampaigns,
+  apiGetContractedCampaigns,
+  apiGetMyCampaigns,
+} from "../../services/influencerApi";
+
+export type MyCampaignVariant =
+  | "all"
+  | "active"
+  | "applied"
+  | "completed"
+  | "rejected";
+
+type CampaignImage = {
+  name?: string;
+  type?: string;
+  size?: number;
+  dataUrl?: string;
+  url?: string;
+  src?: string;
+  path?: string;
+  imageUrl?: string;
+};
+
+type CampaignData = {
+  id: string;
+  title: string;
+  description: string;
+  budgetMin: number;
+  budgetMax: number;
+  daysLeft: number;
+  match: number;
+  category: string;
+  location: string;
+  status: string;
+  campaignStatus: string;
+  brandId: string;
+  brandName: string;
+  brandLogoUrl: string;
+  applications: number;
+  timeline: { startDate: string; endDate: string };
+  isActive: number;
+  isApproved: number;
+  isContracted: number;
+  contractId: string;
+  hasApplied: number;
+  productImages: CampaignImage[];
+  imageUrls: string[];
+  campaignGoalValues: string[];
+  targetAgeGroupValues: string[];
+  targetCountryValues: string[];
+  gender: string;
+  paymentType?: string;
+  campaignType?: string;
+  byAi: boolean;
+};
+
+const PAGE_CONFIG: Record<
+  MyCampaignVariant,
+  { heading: string; subheading: string; empty: string }
+> = {
+  all: {
+    heading: "All Campaigns",
+    subheading: "View all campaigns connected to your creator account.",
+    empty: "No campaigns found.",
+  },
+  active: {
+    heading: "Active Campaigns",
+    subheading: "Track campaigns that are currently active.",
+    empty: "No active campaigns found.",
+  },
+  applied: {
+    heading: "Applied Campaigns",
+    subheading: "View campaigns you have already applied to.",
+    empty: "No applied campaigns found.",
+  },
+  completed: {
+    heading: "Completed Campaigns",
+    subheading: "View contracted and completed campaign collaborations.",
+    empty: "No completed campaigns found.",
+  },
+  rejected: {
+    heading: "Rejected Campaigns",
+    subheading: "View campaigns or contracts that were rejected.",
+    empty: "No rejected campaigns found.",
+  },
+};
+
+const CONTRACT_STATUS = {
+  REJECTED: "REJECTED",
+} as const;
+
+function getStoredValue(keys: string[]) {
+  if (typeof window === "undefined") return "";
+
+  for (const key of keys) {
+    const value = window.localStorage.getItem(key);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getInfluencerId() {
+  return getStoredValue([
+    "influencerId",
+    "currentInfluencerId",
+    "influencer_id",
+    "userId",
+    "user_id",
+    "_id",
+  ]);
+}
+
+function getToken() {
+  return (
+    getStoredValue([
+      "influencerToken",
+      "influencer_token",
+      "token",
+      "authToken",
+      "accessToken",
+    ]) || undefined
+  );
+}
+
+function getFirstString(...values: any[]) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+
+    const text = String(value).trim();
+    if (text) return text;
+  }
+
+  return "";
+}
+
+function normStatus(value?: string) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function computeDaysLeft(endAt?: string) {
+  if (!endAt) return 0;
+
+  const end = new Date(endAt);
+  if (Number.isNaN(end.getTime())) return 0;
+
+  return Math.max(
+    0,
+    Math.ceil((end.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  );
+}
+
+function getImageUrl(image: any) {
+  if (!image) return "";
+  if (typeof image === "string") return image;
+
+  return (
+    image?.dataUrl ||
+    image?.url ||
+    image?.src ||
+    image?.path ||
+    image?.imageUrl ||
+    ""
+  );
+}
+
+function getBrandLogoUrl(campaign: any) {
+  const logo =
+    campaign?.brandprofilepic ||
+    campaign?.brandProfilePic ||
+    campaign?.brand_profile_pic ||
+    campaign?.brandLogo ||
+    campaign?.brandLogoUrl ||
+    campaign?.brand?.brandprofilepic ||
+    campaign?.brand?.brandProfilePic ||
+    campaign?.brand?.logo ||
+    campaign?.brand?.logoUrl ||
+    campaign?.brand?.profileImage ||
+    campaign?.brandImage ||
+    "";
+
+  if (!logo) return "";
+  if (typeof logo === "string") return logo;
+
+  return getImageUrl(logo);
+}
+
+function asArray(value: any): any[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function getCountryNameFromObject(item: any) {
+  if (!item) return "";
+  if (typeof item === "string") return item.trim();
+
+  return getFirstString(
+    item.countryNameEn,
+    item.countryName,
+    item.name,
+    item.countryNameLocal,
+    item.countryCode,
+    item.label,
+    item.value
+  );
+}
+
+function getCountries(value: any) {
+  if (!value) return [];
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return asArray(value)
+    .map((item) => getCountryNameFromObject(item))
+    .filter(Boolean);
+}
+
+function getTagValues(value: any, keys: string[]) {
+  return asArray(value)
+    .map((item) => {
+      if (typeof item === "string" || typeof item === "number") {
+        return String(item).trim();
+      }
+
+      if (item && typeof item === "object") {
+        for (const key of keys) {
+          const next = item?.[key];
+
+          if (typeof next === "string" && next.trim()) {
+            return next.trim();
+          }
+        }
+      }
+
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function compactAgeLabel(ranges: string[]) {
+  const clean = ranges.filter(Boolean);
+
+  if (clean.length === 0) return "";
+
+  const numbers = clean
+    .flatMap((range) => String(range).match(/\d+/g) || [])
+    .map(Number)
+    .filter((num) => Number.isFinite(num));
+
+  if (numbers.length >= 2) {
+    return `${Math.min(...numbers)}-${Math.max(...numbers)}`;
+  }
+
+  return clean[0] || "";
+}
+
+function extractCampaignList(res: any, variant?: MyCampaignVariant): any[] {
+  const data = res?.data ?? res;
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.campaigns)) return data.campaigns;
+  if (Array.isArray(data?.contracts)) return data.contracts;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+
+  if (variant === "rejected" && Array.isArray(data?.data?.data)) {
+    return data.data.data;
+  }
+
+  return [];
+}
+
+function normalizeRejectedItem(item: any) {
+  const campaignDoc = item?.campaignData || item?.campaign || item || {};
+
+  return {
+    ...campaignDoc,
+    _id:
+      campaignDoc?._id ||
+      item?.campaignId ||
+      item?.campaignData?._id ||
+      item?._id,
+    campaignId:
+      campaignDoc?._id ||
+      item?.campaignId ||
+      item?.campaignData?._id ||
+      item?._id,
+    contractId:
+      item?.contractMongoId ||
+      item?.contract?._id ||
+      item?.contractId ||
+      campaignDoc?.contractId ||
+      "",
+    contractMongoId: item?.contractMongoId || item?.contract?._id || "",
+    isContracted: 0,
+    hasApplied: item?.hasApplied ?? campaignDoc?.hasApplied ?? 1,
+    status: item?.status || campaignDoc?.status || CONTRACT_STATUS.REJECTED,
+    campaignStatus:
+      item?.campaignStatus ||
+      item?.status ||
+      campaignDoc?.campaignStatus ||
+      campaignDoc?.status ||
+      CONTRACT_STATUS.REJECTED,
+    contractStatus:
+      item?.contractStatus || item?.status || CONTRACT_STATUS.REJECTED,
+  };
+}
+
+function mapApiCampaign(source: any): CampaignData {
+  const campaignDoc = source?.campaign || source?.campaignData || source || {};
+  const details = campaignDoc?.details || {};
+
+  const startDate = getFirstString(
+    campaignDoc.startAt,
+    campaignDoc.startDate,
+    campaignDoc.timeline?.startDate,
+    details.startAt,
+    details.startDate
+  );
+
+  const endDate = getFirstString(
+    campaignDoc.endAt,
+    campaignDoc.endDate,
+    campaignDoc.timeline?.endDate,
+    details.endAt,
+    details.endDate
+  );
+
+  const productImages: CampaignImage[] = Array.isArray(
+    campaignDoc.productImages
+  )
+    ? campaignDoc.productImages
+    : Array.isArray(campaignDoc.images)
+      ? campaignDoc.images
+      : [];
+
+  const imageUrls = productImages.map(getImageUrl).filter(Boolean);
+
+  const category = getFirstString(
+    campaignDoc.campaignCategory,
+    campaignDoc.categoryName,
+    details?.category?.name,
+    Array.isArray(campaignDoc.categories) && campaignDoc.categories.length > 0
+      ? campaignDoc.categories[0]?.subcategoryName ||
+          campaignDoc.categories[0]?.categoryName
+      : ""
+  );
+
+  const targetCountryValues = [
+    ...getCountries(campaignDoc.targetCountryValues),
+    ...getCountries(campaignDoc.targetCountries),
+    ...getCountries(details.targetCountries),
+    ...getCountries(campaignDoc.targetCountry),
+  ].filter(Boolean);
+
+  const campaignGoalValues = [
+    ...getTagValues(campaignDoc.campaignGoalValues, [
+      "goal",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getTagValues(details.campaignGoals, ["goal", "name", "label", "title"]),
+    ...getTagValues(campaignDoc.campaignGoals, [
+      "goal",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const targetAgeGroupValues = [
+    ...getTagValues(campaignDoc.targetAgeGroupValues, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getTagValues(details.targetAgeRanges, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getTagValues(campaignDoc.targetAgeRanges, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const contractMongoId = getFirstString(
+    source?.contractMongoId,
+    source?.contract?._id,
+    source?.contracts?._id
+  );
+
+  const resolvedContractId = getFirstString(
+    contractMongoId,
+    source?.contractId,
+    source?.contract?.contractId,
+    source?.contracts?.contractId,
+    campaignDoc.contractId
+  );
+
+  const id = getFirstString(
+    campaignDoc._id,
+    campaignDoc.id,
+    campaignDoc.campaignId,
+    source?.campaignId
+  );
+
+  const title = getFirstString(
+    campaignDoc.campaignTitle,
+    campaignDoc.campaignName,
+    campaignDoc.name,
+    campaignDoc.productOrServiceName,
+    source?.content?.campaign?.campaignTitleOrId,
+    "Untitled Campaign"
+  );
+
+  const budget = Number(
+    campaignDoc.campaignBudget ||
+      campaignDoc.budget ||
+      campaignDoc.influencerBudget ||
+      source?.feeAmount ||
+      0
+  );
+
+  return {
+    id,
+    title,
+    description: getFirstString(campaignDoc.description, details.description),
+    budgetMin: Number(campaignDoc.influencerBudget || 0),
+    budgetMax: budget,
+    daysLeft: computeDaysLeft(endDate),
+    match: Number(campaignDoc.match ?? campaignDoc.matchScore ?? 0),
+    category: category || "Uncategorized",
+    location: targetCountryValues[0] || "Remote",
+    status: getFirstString(campaignDoc.status, source?.status),
+    campaignStatus: getFirstString(
+      campaignDoc.campaignStatus,
+      campaignDoc.status,
+      source?.status
+    ),
+    brandId: getFirstString(campaignDoc.brandId, source?.brandId),
+    brandName: getFirstString(
+      campaignDoc.brandName,
+      source?.brandName,
+      campaignDoc.brand?.name,
+      "Brand"
+    ),
+    brandLogoUrl: getBrandLogoUrl(campaignDoc),
+    applications: Number(
+      campaignDoc.applicantCount ||
+        campaignDoc.applicationsCount ||
+        source?.applicantCount ||
+        0
+    ),
+    timeline: { startDate, endDate },
+    isActive: Number(campaignDoc.isActive ?? 1),
+    isApproved: Number(
+      campaignDoc.isApproved ??
+        campaignDoc.hasApproved ??
+        source?.hasApproved ??
+        1
+    ),
+    isContracted: Number(
+      campaignDoc.isContracted ?? (resolvedContractId ? 1 : 0)
+    ),
+    contractId: resolvedContractId,
+    hasApplied: Number(campaignDoc.hasApplied ?? source?.hasApplied ?? 1),
+    productImages,
+    imageUrls,
+    campaignGoalValues: Array.from(new Set(campaignGoalValues)),
+    targetAgeGroupValues: Array.from(new Set(targetAgeGroupValues)),
+    targetCountryValues: Array.from(new Set(targetCountryValues)),
+    gender: getFirstString(
+      campaignDoc.gender,
+      campaignDoc.targetGender,
+      campaignDoc.audienceGender,
+      details.gender,
+      details.targetGender
+    ),
+    paymentType: getFirstString(campaignDoc.paymentType, details.paymentType),
+    campaignType: getFirstString(campaignDoc.campaignType, details.campaignType),
+    byAi: Number(campaignDoc.byAi ?? source?.byAi ?? 0) === 1,
+  };
+}
+
+function matchesVariant(campaign: CampaignData, variant: MyCampaignVariant) {
+  if (variant === "all") return true;
+
+  if (variant === "applied") {
+    return campaign.hasApplied === 1;
+  }
+
+  if (variant === "active") {
+    return (
+      campaign.isActive === 1 &&
+      normStatus(campaign.status) !== CONTRACT_STATUS.REJECTED &&
+      normStatus(campaign.campaignStatus) !== CONTRACT_STATUS.REJECTED
+    );
+  }
+
+  if (variant === "completed") {
+    return campaign.isContracted === 1 || Boolean(campaign.contractId);
+  }
+
+  if (variant === "rejected") {
+    return (
+      normStatus(campaign.status) === CONTRACT_STATUS.REJECTED ||
+      normStatus(campaign.campaignStatus) === CONTRACT_STATUS.REJECTED
+    );
+  }
+
+  return true;
+}
+
+function matchesDateFilter(campaign: CampaignData, dateFilter: DateFilterValue) {
+  if (
+    !dateFilter.quickFilter &&
+    dateFilter.allDatesOption === "all" &&
+    !dateFilter.startDate &&
+    !dateFilter.endDate
+  ) {
+    return true;
+  }
+
+  const start = campaign.timeline?.startDate
+    ? new Date(campaign.timeline.startDate)
+    : null;
+
+  if (!start || Number.isNaN(start.getTime())) return true;
+
+  if (dateFilter.quickFilter === "launching_soon") {
+    const diff = (start.getTime() - Date.now()) / 86_400_000;
+    return diff >= 0 && diff <= 7;
+  }
+
+  if (dateFilter.quickFilter === "today") {
+    return start.toDateString() === new Date().toDateString();
+  }
+
+  if (dateFilter.quickFilter === "this_week") {
+    const diff = (start.getTime() - Date.now()) / 86_400_000;
+    return diff >= 0 && diff <= 7;
+  }
+
+  if (dateFilter.quickFilter === "this_month") {
+    const now = new Date();
+
+    return (
+      start.getMonth() === now.getMonth() &&
+      start.getFullYear() === now.getFullYear()
+    );
+  }
+
+  const rangeMap: Record<string, number> = {
+    last_7: 7,
+    last_15: 15,
+    last_30: 30,
+    last_90: 90,
+    last_month: 30,
+    last_quarter: 90,
+    last_365: 365,
+  };
+
+  const days = rangeMap[dateFilter.allDatesOption];
+
+  if (days) {
+    return (Date.now() - start.getTime()) / 86_400_000 <= days;
+  }
+
+  if (dateFilter.startDate || dateFilter.endDate) {
+    const from = dateFilter.startDate ? new Date(dateFilter.startDate) : null;
+    const to = dateFilter.endDate ? new Date(dateFilter.endDate) : null;
+
+    if (from && start < from) return false;
+    if (to && start > to) return false;
+  }
+
+  return true;
+}
+
+function CampaignCardSkeleton() {
+  return (
+    <div className="h-[34rem] animate-pulse rounded-[1.5rem] border border-[#E6E6E6] bg-[#F7F7F7]" />
+  );
+}
+
+export default function MyCampaignsContent({
+  variant = "all",
+}: {
+  variant?: MyCampaignVariant;
+}) {
+  const router = useRouter();
+  const config = PAGE_CONFIG[variant];
+
+  const [campaigns, setCampaigns] = useState<CampaignData[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [campaignType, setCampaignType] = useState("all");
+  const [creatorStatus, setCreatorStatus] = useState("all");
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
+  const [dateFilter, setDateFilter] =
+    useState<DateFilterValue>(DEFAULT_DATE_FILTER);
+  const [aiCreated, setAiCreated] = useState(false);
+
+  const fetchCampaigns = useCallback(async () => {
+    setIsLoading(true);
+    setFetchError(null);
+
+    try {
+      const influencerId = getInfluencerId();
+      const token = getToken();
+
+      if (!influencerId) {
+        throw new Error("Influencer ID not found. Please sign in again.");
+      }
+
+      let res: any;
+      let rawCampaigns: any[] = [];
+
+      if (variant === "applied") {
+        res = await apiGetAppliedCampaigns(influencerId, token);
+        rawCampaigns = extractCampaignList(res, variant);
+      } else if (variant === "active") {
+        res = await apiGetMyCampaigns(
+          {
+            influencerId,
+            page: 1,
+            limit: 100,
+            search: "",
+          },
+          token
+        );
+        rawCampaigns = extractCampaignList(res, variant);
+      } else if (variant === "completed") {
+        res = await apiGetContractedCampaigns(influencerId, token);
+        rawCampaigns = extractCampaignList(res, variant);
+      } else if (variant === "rejected") {
+        res = await api.get(`/campaign/rejected/${influencerId}`);
+        rawCampaigns = extractCampaignList(res, variant).map(
+          normalizeRejectedItem
+        );
+      } else {
+        res = await apiGetAllCampaigns(influencerId);
+        rawCampaigns = extractCampaignList(res, variant);
+      }
+
+      const mapped = rawCampaigns
+        .map(mapApiCampaign)
+        .filter((campaign) => Boolean(campaign.id));
+
+      setCampaigns(mapped);
+    } catch (error: any) {
+      setFetchError(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Failed to load campaigns."
+      );
+      setCampaigns([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [variant]);
+
+  useEffect(() => {
+    fetchCampaigns();
+  }, [fetchCampaigns]);
+
+  const filteredCampaigns = useMemo(() => {
+    const query = searchInput.trim().toLowerCase();
+
+    const filtered = campaigns.filter((campaign) => {
+      const matchesPageVariant = matchesVariant(campaign, variant);
+
+      const matchesSearch =
+        !query ||
+        [
+          campaign.title,
+          campaign.description,
+          campaign.brandName,
+          campaign.category,
+          campaign.location,
+          campaign.paymentType,
+          campaign.campaignType,
+          ...campaign.campaignGoalValues,
+          ...campaign.targetAgeGroupValues,
+          ...campaign.targetCountryValues,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+
+      const matchesCampaignType =
+        campaignType === "all" ||
+        campaign.campaignStatus === campaignType ||
+        campaign.campaignType === campaignType ||
+        campaign.paymentType === campaignType;
+
+      const matchesCreatorStatus = (() => {
+        if (creatorStatus === "all") return true;
+        if (creatorStatus === "applied") return campaign.hasApplied === 1;
+        if (creatorStatus === "approved") return campaign.isApproved === 1;
+        if (creatorStatus === "invited") {
+          return campaign.hasApplied === 0 && campaign.isApproved === 0;
+        }
+
+        return true;
+      })();
+
+      const matchesCategory =
+        categoryIds.length === 0 || categoryIds.includes(campaign.category);
+
+      const matchesAi = !aiCreated || campaign.byAi;
+
+      return (
+        matchesPageVariant &&
+        matchesSearch &&
+        matchesCampaignType &&
+        matchesCreatorStatus &&
+        matchesCategory &&
+        matchesAi &&
+        matchesDateFilter(campaign, dateFilter)
+      );
+    });
+
+    filtered.sort((a, b) => b.match - a.match);
+
+    return filtered;
+  }, [
+    campaigns,
+    variant,
+    searchInput,
+    campaignType,
+    creatorStatus,
+    categoryIds,
+    dateFilter,
+    aiCreated,
+  ]);
+
+  const hasActiveFilters =
+    Boolean(searchInput) ||
+    campaignType !== "all" ||
+    creatorStatus !== "all" ||
+    categoryIds.length > 0 ||
+    aiCreated ||
+    Boolean(dateFilter.quickFilter) ||
+    dateFilter.allDatesOption !== "all" ||
+    Boolean(dateFilter.startDate) ||
+    Boolean(dateFilter.endDate);
+
+  const getCampaignHref = (campaign: CampaignData) => {
+    return `/influencer/my-campaigns/${encodeURIComponent(
+      campaign.id
+    )}?title=${encodeURIComponent(campaign.title || "Campaign Details")}`;
+  };
+
+  return (
+    <div className="min-h-screen bg-white">
+      <div className="mx-auto max-w-[1400px] px-6 py-10">
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-[2rem] font-bold leading-[2.5rem] text-[#1A1A1A]">
+              {config.heading}
+            </h1>
+
+            <p className="mt-1 text-sm text-[#969696]">{config.subheading}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchCampaigns}
+            disabled={isLoading}
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white px-4 text-sm font-semibold text-[#1A1A1A] transition hover:bg-[#F7F7F7] disabled:opacity-60"
+          >
+            {isLoading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
+
+        {fetchError ? (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="flex items-center gap-3">
+              <span>{fetchError}</span>
+
+              <button
+                type="button"
+                onClick={fetchCampaigns}
+                className="ml-auto font-semibold underline"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <CampaignFilter
+          campaignType={campaignType}
+          setCampaignType={setCampaignType}
+          creatorStatus={creatorStatus}
+          setCreatorStatus={setCreatorStatus}
+          categoryIds={categoryIds}
+          setCategoryIds={setCategoryIds}
+          dateFilter={dateFilter}
+          setDateFilter={setDateFilter}
+          aiCreated={aiCreated}
+          setAiCreated={setAiCreated}
+          searchInput={searchInput}
+          setSearchInput={setSearchInput}
+        />
+
+        <div className="mt-8">
+          {isLoading ? (
+            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <CampaignCardSkeleton key={index} />
+              ))}
+            </div>
+          ) : filteredCampaigns.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-[#E6E6E6] bg-white px-6 py-24 text-center">
+              <h3 className="text-lg font-semibold text-[#1A1A1A]">
+                {config.empty}
+              </h3>
+
+              <p className="mt-2 text-sm text-[#969696]">
+                Try adjusting your filters or search query.
+              </p>
+
+              {hasActiveFilters ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput("");
+                    setCampaignType("all");
+                    setCreatorStatus("all");
+                    setCategoryIds([]);
+                    setDateFilter(DEFAULT_DATE_FILTER);
+                    setAiCreated(false);
+                  }}
+                  className="mt-5 rounded-lg border border-[#E6E6E6] bg-white px-4 py-2 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F7F7]"
+                >
+                  Clear all filters
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+              {filteredCampaigns.map((campaign) => (
+                <CampaignCard
+                  key={campaign.id}
+                  title={campaign.title}
+                  description={campaign.description}
+                  imageUrl={campaign.imageUrls[0]}
+                  imageUrls={campaign.imageUrls}
+                  brandName={campaign.brandName}
+                  brandLogoUrl={campaign.brandLogoUrl}
+                  campaignGoal={campaign.campaignGoalValues[0]}
+                  category={campaign.category}
+                  ageLabel={compactAgeLabel(campaign.targetAgeGroupValues)}
+                  gender={campaign.gender}
+                  countries={campaign.targetCountryValues}
+                  budget={campaign.budgetMax}
+                  viewedCount={campaign.applications}
+                  hasApplied={campaign.hasApplied === 1}
+                  onCardClick={() => router.push(getCampaignHref(campaign))}
+                  onApply={() => undefined}
+                  onSave={() => undefined}
+                  onMore={() => undefined}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

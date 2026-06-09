@@ -154,25 +154,25 @@ const ROW_OPTIONS = [10, 20, 50, 100] as const;
 
 const HEADERS: {
   key:
-    | SortField
-    | "country"
-    | "categories"
-    | "onboarding"
-    | "contact"
-    | "createdBy"
-    | "currentStatus";
+  | SortField
+  | "country"
+  | "categories"
+  | "onboarding"
+  | "contact"
+  | "createdBy"
+  | "currentStatus";
   label: string;
   sortable?: boolean;
   align?: "left" | "center" | "right";
 }[] = [
-  { key: "name", label: "Influencer", sortable: true, align: "left" },
-  { key: "contact", label: "Contact", align: "left" },
-  { key: "primaryPlatform", label: "Platform", sortable: true, align: "center" },
-  { key: "createdAt", label: "Created", sortable: true, align: "center" },
-  { key: "createdBy", label: "Created By", align: "center" },
-  { key: "currentStatus", label: "Current Status", align: "center" },
-  { key: "onboarding", label: "Onboarding", align: "center" },
-];
+    { key: "name", label: "Influencer", sortable: true, align: "left" },
+    { key: "contact", label: "Contact", align: "left" },
+    { key: "primaryPlatform", label: "Platform", sortable: true, align: "center" },
+    { key: "createdAt", label: "Created", sortable: true, align: "center" },
+    { key: "createdBy", label: "Created By", align: "center" },
+    { key: "currentStatus", label: "Current Status", align: "center" },
+    { key: "onboarding", label: "Onboarding", align: "center" },
+  ];
 
 const PLATFORM_META: Record<
   PlatformKey,
@@ -547,8 +547,6 @@ function getCreatedByInfo(inf: Influencer) {
   }
 
   return {
-    label: "Influencer",
-    subLabel: "Self signup",
     badge: "Self",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
@@ -568,7 +566,6 @@ function getInfluencerCurrentStatus(inf: Influencer) {
 
   return {
     label: inf.currentStatusLabel || "Active",
-    subLabel: inf.currentStatusSubLabel || "Signup completed",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   };
 }
@@ -851,7 +848,7 @@ function MetricCard({
   trend?: "up" | "down" | "neutral";
 }) {
   return (
-    <div className="relative flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="relative flex flex-col gap-3 rounded-[0.75rem] border border-slate-200 bg-white p-5 shadow-sm">
       <div
         className="absolute left-0 top-4 bottom-4 w-[3px] rounded-r-full"
         style={{ background: accentColor, opacity: 0.7 }}
@@ -955,8 +952,8 @@ function SectionShell({
   right?: React.ReactNode;
 }) {
   return (
-    <Card className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-5 py-4">
+    <Card className="overflow-hidden border-0 !shadow-none">
+      <div className="px-5 py-4">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-sm font-bold tracking-tight text-slate-900">
@@ -970,451 +967,6 @@ function SectionShell({
 
       <div className="p-5">{children}</div>
     </Card>
-  );
-}
-
-function SignupTrendChart({
-  data,
-  platformFilter,
-}: {
-  data: TrendPoint[];
-  platformFilter: PlatformFilter;
-}) {
-  const [hoveredIdx, setHoveredIdx] = React.useState<number | null>(null);
-
-  const W = 500;
-  const H = 210;
-  const padL = 36;
-  const padR = 14;
-  const padT = 22;
-  const padB = 30;
-  const innerW = W - padL - padR;
-  const innerH = H - padT - padB;
-  const maxValue = Math.max(...data.map((d) => d.value), 1);
-  const yTicks = 4;
-  const yStep = Math.ceil(maxValue / yTicks) || 1;
-  const yMax = yStep * yTicks;
-
-  const toX = (idx: number) =>
-    data.length === 1
-      ? padL + innerW / 2
-      : padL + (idx / (data.length - 1)) * innerW;
-
-  const toY = (val: number) =>
-    padT + (1 - Math.min(val, yMax) / yMax) * innerH;
-
-  const showStacked = platformFilter === "all";
-
-  const stackedData = React.useMemo(
-    () =>
-      data.map((point) => {
-        let cum = 0;
-        const stacks = STACK_ORDER.map((platform) => {
-          const val =
-            point.byPlatform[platform as keyof typeof point.byPlatform] || 0;
-          const bottom = cum;
-          cum += val;
-          return {
-            platform,
-            val,
-            bottom,
-            top: cum,
-          };
-        });
-
-        return {
-          ...point,
-          stacks,
-        };
-      }),
-    [data]
-  );
-
-  const getStackAreaPath = (platform: string): string => {
-    if (data.length < 2) return "";
-
-    const fwd = stackedData
-      .map((d, i) => {
-        const s = d.stacks.find((x) => x.platform === platform)!;
-        return `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(s.top).toFixed(1)}`;
-      })
-      .join(" ");
-
-    const bwd = [...stackedData]
-      .reverse()
-      .map((d, ri) => {
-        const origIdx = stackedData.length - 1 - ri;
-        const s = d.stacks.find((x) => x.platform === platform)!;
-        return `L${toX(origIdx).toFixed(1)},${toY(s.bottom).toFixed(1)}`;
-      })
-      .join(" ");
-
-    return `${fwd} ${bwd} Z`;
-  };
-
-  const getStackTopLine = (platform: string): string => {
-    if (data.length < 2) return "";
-
-    return stackedData
-      .map((d, i) => {
-        const s = d.stacks.find((x) => x.platform === platform)!;
-        return `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(s.top).toFixed(1)}`;
-      })
-      .join(" ");
-  };
-
-  const singleColor =
-    platformFilter !== "all"
-      ? PLATFORM_META[platformFilter as PlatformKey]?.accent || "#0f172a"
-      : "#0f172a";
-
-  const singleLinePath = data
-    .map(
-      (d, i) =>
-        `${i === 0 ? "M" : "L"}${toX(i).toFixed(1)},${toY(d.value).toFixed(1)}`
-    )
-    .join(" ");
-
-  const singleAreaPath =
-    data.length > 0
-      ? `${singleLinePath} L${toX(data.length - 1).toFixed(1)},${toY(0).toFixed(
-          1
-        )} L${padL},${toY(0).toFixed(1)} Z`
-      : "";
-
-  const total = data.reduce((s, d) => s + d.value, 0);
-  const avg = data.length ? total / data.length : 0;
-  const peakIdx = data.reduce(
-    (best, d, i) => (d.value > data[best].value ? i : best),
-    0
-  );
-
-  const tooltipXPct = hoveredIdx !== null ? (toX(hoveredIdx) / W) * 100 : 0;
-  const tooltipShiftX =
-    tooltipXPct > 72 ? "-90%" : tooltipXPct < 28 ? "-10%" : "-50%";
-
-  const hoveredPoint = hoveredIdx !== null ? data[hoveredIdx] : null;
-  const tooltipPlatforms: PlatformKey[] = ["instagram", "youtube", "tiktok"];
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3.5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-            6-Month Total
-          </div>
-          <div className="mt-1.5 text-xl font-black text-slate-900">
-            {total}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3.5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-            Monthly Avg
-          </div>
-          <div className="mt-1.5 text-xl font-black text-slate-900">
-            {avg.toFixed(1)}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3.5 py-3">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-            Peak Month
-          </div>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-xl font-black text-slate-900">
-              {data[peakIdx]?.value ?? 0}
-            </span>
-            <span className="text-xs font-semibold text-slate-400">
-              {data[peakIdx]?.shortLabel}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div
-        className="relative rounded-xl border border-slate-100 bg-slate-50 px-1 pt-1 pb-0"
-        style={{ overflow: "visible" }}
-        onMouseLeave={() => setHoveredIdx(null)}
-      >
-        {hoveredIdx !== null && hoveredPoint ? (
-          <div
-            className="pointer-events-none absolute top-1 z-30 w-52 rounded-xl border border-slate-200 bg-white p-3.5 shadow-2xl"
-            style={{
-              left: `${tooltipXPct}%`,
-              transform: `translateX(${tooltipShiftX}) translateY(-100%) translateY(-12px)`,
-            }}
-          >
-            <div className="mb-2.5 flex items-baseline justify-between">
-              <span className="text-xs font-semibold text-slate-500">
-                {hoveredPoint.label}
-              </span>
-              <span className="text-base font-black text-slate-900">
-                {hoveredPoint.value} total
-              </span>
-            </div>
-
-            <div className="mb-2.5 h-px bg-slate-100" />
-
-            <div className="space-y-2">
-              {tooltipPlatforms.map((platform) => {
-                const count = hoveredPoint.byPlatform[platform] || 0;
-                const meta = PLATFORM_META[platform];
-                const pct =
-                  hoveredPoint.value > 0
-                    ? Math.round((count / hoveredPoint.value) * 100)
-                    : 0;
-
-                return (
-                  <div key={platform} className="flex items-center gap-2">
-                    <div
-                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-                      style={{
-                        background: meta.accentLight,
-                        border: `1px solid ${meta.accent}33`,
-                      }}
-                    >
-                      <img
-                        src={meta.icon}
-                        alt={platform}
-                        className="h-3 w-3 object-contain"
-                      />
-                    </div>
-
-                    <span className="flex-1 text-xs capitalize text-slate-600">
-                      {platform}
-                    </span>
-                    <span className="text-xs font-bold text-slate-900">
-                      {count}
-                    </span>
-                    <span className="w-8 text-right text-[10px] font-medium text-slate-400">
-                      {pct}%
-                    </span>
-                  </div>
-                );
-              })}
-
-              {hoveredPoint.byPlatform.other > 0 ? (
-                <div className="flex items-center gap-2">
-                  <div className="h-5 w-5 shrink-0 rounded-md border border-slate-200 bg-slate-100" />
-                  <span className="flex-1 text-xs text-slate-500">Other</span>
-                  <span className="text-xs font-bold text-slate-900">
-                    {hoveredPoint.byPlatform.other}
-                  </span>
-                  <span className="w-8 text-right text-[10px] text-slate-400">
-                    {hoveredPoint.value > 0
-                      ? Math.round(
-                          (hoveredPoint.byPlatform.other / hoveredPoint.value) * 100
-                        )
-                      : 0}
-                    %
-                  </span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-3 space-y-1.5">
-              {tooltipPlatforms.map((platform) => {
-                const count = hoveredPoint.byPlatform[platform] || 0;
-                const pct =
-                  hoveredPoint.value > 0 ? (count / hoveredPoint.value) * 100 : 0;
-                const meta = PLATFORM_META[platform];
-
-                return (
-                  <div key={platform} className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 rounded-full bg-slate-100">
-                      <div
-                        className="h-1.5 rounded-full transition-all"
-                        style={{
-                          width: `${pct}%`,
-                          background: meta.stackColor,
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="w-full"
-          style={{ height: 230, display: "block" }}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            <linearGradient id="singleFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={singleColor} stopOpacity="0.18" />
-              <stop offset="100%" stopColor={singleColor} stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-
-          {showStacked && data.length >= 2
-            ? STACK_ORDER.map((platform) => (
-                <path
-                  key={`area-${platform}`}
-                  d={getStackAreaPath(platform)}
-                  fill={STACK_COLORS[platform]}
-                  opacity={0.82}
-                />
-              ))
-            : null}
-
-          {!showStacked && data.length >= 2 ? (
-            <path d={singleAreaPath} fill="url(#singleFill)" />
-          ) : null}
-
-          {Array.from({ length: yTicks + 1 }, (_, i) => {
-            const val = yStep * (yTicks - i);
-            const y = toY(val);
-
-            return (
-              <g key={i}>
-                <line
-                  x1={padL}
-                  y1={y}
-                  x2={W - padR}
-                  y2={y}
-                  stroke={i === yTicks ? "#cbd5e1" : "#e2e8f0"}
-                  strokeWidth="0.8"
-                  strokeDasharray={i === yTicks ? "0" : "4 3"}
-                />
-                <text
-                  x={padL - 6}
-                  y={y}
-                  textAnchor="end"
-                  dominantBaseline="central"
-                  fontSize="9"
-                  fill="#94a3b8"
-                  fontFamily="inherit"
-                >
-                  {val}
-                </text>
-              </g>
-            );
-          })}
-
-          {showStacked && data.length >= 2
-            ? STACK_ORDER.filter((p) => p !== "other").map((platform) => (
-                <path
-                  key={`sep-${platform}`}
-                  d={getStackTopLine(platform)}
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="1.5"
-                  opacity="0.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ))
-            : null}
-
-          {!showStacked && data.length >= 2 ? (
-            <path
-              d={singleLinePath}
-              fill="none"
-              stroke={singleColor}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          ) : null}
-
-          {hoveredIdx !== null ? (
-            <>
-              <rect
-                x={toX(hoveredIdx) - innerW / data.length / 2}
-                y={padT}
-                width={innerW / data.length}
-                height={innerH}
-                fill="white"
-                opacity="0.12"
-              />
-              <line
-                x1={toX(hoveredIdx)}
-                y1={padT}
-                x2={toX(hoveredIdx)}
-                y2={padT + innerH}
-                stroke="#64748b"
-                strokeWidth="1"
-                strokeDasharray="3 2"
-                opacity="0.5"
-              />
-            </>
-          ) : null}
-
-          {data.map((pt, i) => {
-            const isHov = hoveredIdx === i;
-
-            return (
-              <g key={`dp-${i}`}>
-                <circle
-                  cx={toX(i)}
-                  cy={toY(pt.value)}
-                  r={isHov ? 4.5 : 3}
-                  fill="white"
-                  stroke={showStacked ? "#475569" : singleColor}
-                  strokeWidth={isHov ? 2 : 1.5}
-                />
-                <rect
-                  x={toX(i) - innerW / data.length / 2}
-                  y={padT}
-                  width={innerW / data.length}
-                  height={innerH}
-                  fill="transparent"
-                  onMouseEnter={() => setHoveredIdx(i)}
-                  style={{ cursor: "crosshair" }}
-                />
-              </g>
-            );
-          })}
-
-          <line
-            x1={padL}
-            y1={padT + innerH}
-            x2={W - padR}
-            y2={padT + innerH}
-            stroke="#cbd5e1"
-            strokeWidth="1"
-          />
-
-          {data.map((pt, i) => (
-            <text
-              key={`xl-${i}`}
-              x={toX(i)}
-              y={padT + innerH + 18}
-              textAnchor="middle"
-              fontSize="9"
-              fill={hoveredIdx === i ? "#334155" : "#94a3b8"}
-              fontFamily="inherit"
-              fontWeight={hoveredIdx === i ? "700" : "400"}
-            >
-              {pt.shortLabel}
-            </text>
-          ))}
-        </svg>
-
-        {showStacked ? (
-          <div className="flex items-center gap-5 px-3 pb-3 pt-1">
-            {(["instagram", "youtube", "tiktok"] as PlatformKey[]).map(
-              (platform) => (
-                <div key={platform} className="flex items-center gap-1.5">
-                  <div
-                    className="h-2 w-4 rounded-sm"
-                    style={{ background: STACK_COLORS[platform] }}
-                  />
-                  <span className="text-[10px] capitalize text-slate-400">
-                    {platform}
-                  </span>
-                </div>
-              )
-            )}
-          </div>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -1500,8 +1052,8 @@ function PlatformMixMonthlyAnalytics({
 
   if (!total) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
+      <div className="rounded-[0.75rem ] border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-[0.75rem] bg-white shadow-sm">
           <CalendarDays className="h-5 w-5 text-slate-400" />
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-700">
@@ -1517,15 +1069,15 @@ function PlatformMixMonthlyAnalytics({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
-        <div className="rounded-xl border border-slate-100 p-4">
+        <div className="rounded-[0.75rem] border border-slate-200  p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+              <div className="text-[15px] font-semibold uppercase tracking-widest text-black">
                 Platform Share
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+            <div className="rounded-[0.75rem] border border-slate-200 bg-white px-2.5 py-1 text-[15px] font-semibold text-black-500">
               {monthLabel}
             </div>
           </div>
@@ -1610,9 +1162,9 @@ function PlatformMixMonthlyAnalytics({
         </div>
 
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-2">
+            <div className="rounded-[0.75rem] border border-slate-100 px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-black">
                 Total Signups
               </div>
               <div className="mt-1.5 text-2xl font-black text-slate-900">
@@ -1620,29 +1172,8 @@ function PlatformMixMonthlyAnalytics({
               </div>
             </div>
 
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                Top Platform
-              </div>
-
-              <div className="mt-1.5 flex items-center gap-2">
-                {topPlatform ? (
-                  <PlatformIconBadge platform={topPlatform.platform} size="sm" />
-                ) : null}
-
-                <div>
-                  <div className="text-base font-black capitalize text-slate-900">
-                    {topPlatform?.platform || "-"}
-                  </div>
-                  <div className="text-[10px] text-slate-400">
-                    {topPlatform ? `${topPlatform.count} creators` : "No data"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+            <div className="rounded-[0.75rem] border border-slate-100 px-4 py-3">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-black">
                 Onboarding Done
               </div>
               <div className="mt-1.5 text-2xl font-black text-slate-900">
@@ -1652,21 +1183,9 @@ function PlatformMixMonthlyAnalytics({
                 {completedCount} fully onboarded
               </div>
             </div>
-
-            <div className="rounded-xl border border-slate-100 bg-slate-50 px-4 py-3">
-              <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                Avg Profiles
-              </div>
-              <div className="mt-1.5 text-2xl font-black text-slate-900">
-                {avgProfiles.toFixed(1)}
-              </div>
-              <div className="mt-1 text-[11px] text-slate-400">
-                social profiles / creator
-              </div>
-            </div>
           </div>
 
-          <div className="rounded-xl border border-slate-100 bg-white">
+          <div className="rounded-[0.75rem] border border-slate-100 bg-white">
             <div className="grid grid-cols-[minmax(0,1.2fr)_90px_120px_110px] gap-3 border-b border-slate-100 px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
               <span>Platform</span>
               <span className="text-right">Signups</span>
@@ -1806,11 +1325,11 @@ const AdminInfluencersPage = () => {
       setAdminRole(
         normalizeAdminRoleForCreateAccess(
           storedAdmin?.role ||
-            storedAdmin?.adminRole ||
-            storedAdmin?.admin?.role ||
-            storedAdmin?.admin?.adminRole ||
-            storedAdmin?.data?.role ||
-            storedAdmin?.data?.adminRole
+          storedAdmin?.adminRole ||
+          storedAdmin?.admin?.role ||
+          storedAdmin?.admin?.adminRole ||
+          storedAdmin?.data?.role ||
+          storedAdmin?.data?.adminRole
         )
       );
     } catch {
@@ -2054,7 +1573,7 @@ const AdminInfluencersPage = () => {
     if (!platformMixMonth) {
       setPlatformMixMonth(
         getLatestAvailableMonthValue(analyticsRows, platformMixYear) ||
-          MONTH_OPTIONS[0].value
+        MONTH_OPTIONS[0].value
       );
     }
   }, [analyticsRows, platformMixYear, platformMixMonth]);
@@ -2062,11 +1581,9 @@ const AdminInfluencersPage = () => {
   const filteredRows = React.useMemo(() => {
     const rows = allRows.filter((inf) => {
       const createdDate = safeDate(inf.createdAt);
-      const searchable = `${getSearchableText(inf)} ${
-        getCreatedByInfo(inf).label
-      } ${getCreatedByInfo(inf).subLabel} ${
-        getInfluencerCurrentStatus(inf).label
-      }`.toLowerCase();
+      const searchable = `${getSearchableText(inf)} ${getCreatedByInfo(inf).label
+        } ${getCreatedByInfo(inf).subLabel} ${getInfluencerCurrentStatus(inf).label
+        }`.toLowerCase();
 
       const pp = getPrimaryPlatform(inf);
       const ms = !debouncedTableSearch || searchable.includes(debouncedTableSearch);
@@ -2090,9 +1607,9 @@ const AdminInfluencersPage = () => {
         typeof av === "number" && typeof bv === "number"
           ? av - bv
           : String(av).localeCompare(String(bv), undefined, {
-              numeric: true,
-              sensitivity: "base",
-            });
+            numeric: true,
+            sensitivity: "base",
+          });
 
       return sortOrder === "asc" ? result : -result;
     });
@@ -2242,21 +1759,24 @@ const AdminInfluencersPage = () => {
     showSuccessToast("Filters reset", "Influencer table filters have been cleared.");
   }, []);
 
+  const hasActiveTableFilters =
+    tableSearch.trim() !== "" ||
+    tablePlatformFilter !== "all" ||
+    tableSignupRange !== "all" ||
+    tableOnboardingFilter !== "all";
+
   return (
     <>
       <ToastStyles />
 
       <TooltipProvider>
         <div className="min-h-screen p-4 md:p-6">
-          <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-5">
-            <div className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+          <div className="mx-auto flex w-full max-w-full flex-col gap-3">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <h1 className="mt-2 text-[36px] font-black tracking-tight text-slate-900">
-                  Admin Influencer Management
+                <h1 className="mt-1 text-[36px] font-black tracking-tight text-slate-900">
+                  Influencer Management
                 </h1>
-                <p className="mt-0.5 text-sm text-slate-400">
-                  Signups, platform mix, onboarding progress, and creator records.
-                </p>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -2277,19 +1797,6 @@ const AdminInfluencersPage = () => {
                     Create Influencer
                   </Button>
                 ) : null}
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchAllData(false, true)}
-                  disabled={refreshing}
-                  className="h-9 rounded-lg border-slate-200 bg-white text-sm font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  <HiOutlineRefresh
-                    className={cn("mr-1.5 h-3.5 w-3.5", refreshing && "animate-spin")}
-                  />
-                  Refresh
-                </Button>
               </div>
             </div>
 
@@ -2333,7 +1840,7 @@ const AdminInfluencersPage = () => {
               />
             </div>
 
-            <div className="grid gap-5">
+            <div className="grid gap-5 ">
               <SectionShell
                 title={<span className="text-xl font-semibold">Platform Mix</span>}
                 description="Month-wise platform analytics with separate month and year dropdowns"
@@ -2368,13 +1875,60 @@ const AdminInfluencersPage = () => {
               </SectionShell>
             </div>
 
-            <SectionShell
-              title={<span className="text-lg font-semibold">Filters</span>}
-              description="Affects the influencer table below only"
-            >
-              <div className="flex flex-col gap-1.5 xl:flex-row xl:items-end xl:justify-between">
-                <div className="grid flex-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="xl:col-span-2">
+            <Card className="overflow-hidden border-0 bg-white !shadow-none">
+              <div className="px-5 py-3 pb-0">
+                <div className="flex w-full flex-nowrap items-end gap-3 overflow-x-auto">
+                  {/* Left side filters */}
+                  <div className="flex shrink-0 flex-nowrap items-end gap-2">
+                    <FilterField
+                      label="Platform"
+                      value={tablePlatformFilter}
+                      onChange={(v) => setTablePlatformFilter(v as PlatformFilter)}
+                      options={[
+                        { label: "All Platforms", value: "all" },
+                        { label: "Instagram", value: "instagram" },
+                        { label: "YouTube", value: "youtube" },
+                        { label: "TikTok", value: "tiktok" },
+                      ]}
+                    />
+
+                    <FilterField
+                      label="Signup Window"
+                      value={tableSignupRange}
+                      onChange={(v) => setTableSignupRange(v as SignupRange)}
+                      options={[
+                        { label: "All Time", value: "all" },
+                        { label: "This Month", value: "thisMonth" },
+                        { label: "Last 30 Days", value: "last30" },
+                        { label: "Last 90 Days", value: "last90" },
+                      ]}
+                    />
+
+                    <FilterField
+                      label="Onboarding"
+                      value={tableOnboardingFilter}
+                      onChange={(v) => setTableOnboardingFilter(v as OnboardingFilter)}
+                      options={[
+                        { label: "All Status", value: "all" },
+                        { label: "Completed", value: "completed" },
+                        { label: "In Progress", value: "inProgress" },
+                      ]}
+                    />
+
+                    {hasActiveTableFilters ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 shrink-0 rounded-lg !border-slate-200 px-3 !text-slate-500 hover:!bg-[#EDEDED] hover:!text-slate-500 hover:!border-slate-200 focus-visible:!ring-0"
+                        onClick={resetFilters}
+                      >
+                        Reset
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {/* Right side search */}
+                  <div className="ml-auto w-[300px] shrink-0">
                     <label className="flex flex-col gap-0.5">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                         Search
@@ -2383,87 +1937,38 @@ const AdminInfluencersPage = () => {
                       <div className="relative">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                         <Input
-                          placeholder="Search by name, email, creator, status, platform..."
+                          placeholder="Search..."
                           value={tableSearch}
                           onChange={(e) => setTableSearch(e.target.value)}
-                          className="h-8 rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
+                          className="h-9 w-full rounded-lg border-slate-200 bg-white pl-9 text-sm shadow-none focus-visible:ring-0"
                         />
                       </div>
                     </label>
                   </div>
-
-                  <FilterField
-                    label="Platform"
-                    value={tablePlatformFilter}
-                    onChange={(v) => setTablePlatformFilter(v as PlatformFilter)}
-                    options={[
-                      { label: "All Platforms", value: "all" },
-                      { label: "Instagram", value: "instagram" },
-                      { label: "YouTube", value: "youtube" },
-                      { label: "TikTok", value: "tiktok" },
-                    ]}
-                  />
-
-                  <FilterField
-                    label="Signup Window"
-                    value={tableSignupRange}
-                    onChange={(v) => setTableSignupRange(v as SignupRange)}
-                    options={[
-                      { label: "All Time", value: "all" },
-                      { label: "This Month", value: "thisMonth" },
-                      { label: "Last 30 Days", value: "last30" },
-                      { label: "Last 90 Days", value: "last90" },
-                    ]}
-                  />
                 </div>
 
-                <div className="flex items-end gap-2">
-                  <FilterField
-                    label="Onboarding"
-                    value={tableOnboardingFilter}
-                    onChange={(v) => setTableOnboardingFilter(v as OnboardingFilter)}
-                    options={[
-                      { label: "All Status", value: "all" },
-                      { label: "Completed", value: "completed" },
-                      { label: "In Progress", value: "inProgress" },
-                    ]}
-                  />
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 shrink-0 rounded-lg !border-slate-200 px-3 !text-slate-500 hover:!bg-[#EDEDED] hover:!text-slate-500 hover:!border-slate-200 focus-visible:!ring-0"
-                    onClick={resetFilters}
-                  >
-                    Reset
-                  </Button>
-                </div>
+                {partialData ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-700">
+                    Large dataset — analytics based on the first{" "}
+                    {MAX_FETCH_PAGES * FETCH_LIMIT} records.
+                  </div>
+                ) : null}
               </div>
+            </Card>
 
-              {partialData ? (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-700">
-                  Large dataset — analytics based on the first{" "}
-                  {MAX_FETCH_PAGES * FETCH_LIMIT} records.
-                </div>
-              ) : null}
-            </SectionShell>
-
-            <Card className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-col gap-2 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+            <Card className="-mt-2 overflow-hidden bg-white border-0 !shadow-none">
+              <div className="flex flex-col px-5 pt-0 pb-1 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-xl font-bold tracking-tight text-slate-900">
-                    Influencer Directory
+                    Influencers
                   </h2>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Searchable creator records with admin actions
-                  </p>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto border rounded-[0.75rem] border-slate-100">
                 <Table>
                   <TableHeader>
-                    <TableRow className="border-slate-100 hover:bg-transparent">
+                    <TableRow className=" border-slate-100 hover:bg-transparent">
                       {HEADERS.map(({ key, label, sortable, align = "left" }) => (
                         <TableHead
                           key={String(key)}
@@ -2551,7 +2056,7 @@ const AdminInfluencersPage = () => {
                             className={cn(
                               "border-slate-100 transition-colors hover:bg-slate-50/80",
                               isFullyOnboarded(inf) &&
-                                "bg-emerald-50/20 hover:bg-emerald-50/40"
+                              "bg-emerald-50/20 hover:bg-emerald-50/40"
                             )}
                           >
                             <TableCell className="py-3.5">
@@ -2622,9 +2127,6 @@ const AdminInfluencersPage = () => {
                                       : "text-slate-400"
                                   )}
                                 >
-                                  {createdDate && isCurrentMonth(createdDate)
-                                    ? "This month"
-                                    : "Earlier"}
                                 </span>
                               </div>
                             </TableCell>
@@ -2673,9 +2175,6 @@ const AdminInfluencersPage = () => {
                             <TableCell className="py-3.5 text-center">
                               <div className="flex flex-col items-center gap-1">
                                 <OnboardingBadge influencer={inf} />
-                                <span className="text-xs text-slate-400">
-                                  {completedPages}/3 steps
-                                </span>
                               </div>
                             </TableCell>
 
@@ -2703,7 +2202,7 @@ const AdminInfluencersPage = () => {
               </div>
 
               {!loading && rows.length > 0 ? (
-                <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-3 px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
                   <span className="text-xs text-slate-400">
                     Showing{" "}
                     <span className="font-semibold text-slate-700">

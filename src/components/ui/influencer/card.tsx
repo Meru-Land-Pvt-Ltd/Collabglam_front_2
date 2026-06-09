@@ -1,132 +1,75 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/buttonComp";
 
-/**
- * ✅ ManualForm (single source of truth for both UI + data shape)
- */
-type IdLabelMap = Record<string, string>;
-
-export type ManualForm = {
-  title?: string;
+export type InfluencerDiscoverCardProps = {
+  title: string;
   description?: string;
-
-  categoryName?: string;
-
-  subcategories?: string[];
-  targetCountry?: string[];
-  targetAgeGroups?: string[];
-  goals?: string[];
-  platforms?: string[];
-  hashtags?: string[];
-
-  campaignType?: string;
-  campaignBudget?: number;
-};
-
-export type PreviewMeta = {
-  subcategoriesMap?: IdLabelMap;
-  countryMap?: IdLabelMap;
-  ageMap?: IdLabelMap;
-  goalsMap?: IdLabelMap;
-  hashtagsMap?: IdLabelMap;
-
-  // optional override
-  campaignBudget?: number;
-};
-
-export type CampaignCardProps = {
-  form: ManualForm;
-  meta?: PreviewMeta;
-
-  imageUrl: string;
-  imageAlt?: string;
-
-  // optional UI-only bits (not from ManualForm)
+  imageUrl?: string;
+  imageUrls?: string[];
+  brandName?: string;
   brandLogoUrl?: string;
-  brandLogoAlt?: string;
-
-  onView?: () => void;
-  onSave?: () => void;
+  campaignGoal?: string;
+  category?: string;
+  ageLabel?: string;
+  gender?: string;
+  countries?: string[];
+  budget?: number;
+  viewedCount?: number;
+  onCardClick?: () => void;
+  onApply?: () => void | Promise<void>;
+  onSave?: () => void | Promise<void>;
   onMore?: () => void;
-  onNext?: () => void;
-  onPlay?: () => void;
-
+  isApplying?: boolean;
+  hasApplied?: boolean;
   className?: string;
 };
 
-type Avatar = { src: string; alt?: string }; // (kept if you later want it)
-
-/* ---------------- helpers ---------------- */
-
-function cn(...classes: Array<string | undefined | false>) {
+function cn(...classes: Array<string | false | undefined | null>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function stripLeadingEmoji(label: string) {
-  return String(label || "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+function formatBudget(value?: number) {
+  const amount = Number(value || 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "—";
+  return `$${Math.round(amount)}`;
 }
 
-function idsToLabels(
-  ids: string[] | undefined,
-  map: IdLabelMap | undefined,
-  clean = (s: string) => s
-) {
-  const m = map ?? {};
-  return (ids ?? []).map((id) => clean(m[id] ?? "")).filter(Boolean);
-}
+function getBrandInitials(name?: string) {
+  const words = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
 
-function firstAndExtra(labels: string[]) {
-  const first = labels[0] ?? "";
-  const extra = Math.max(0, labels.length - 1);
-  return { first, extra };
-}
+  if (words.length === 0) return "AD";
 
-function pillText(first: string, extra: number) {
-  return extra > 0 ? `${first} +${extra}` : first;
-}
+  const first = words[0]?.[0] || "";
+  const second = words[1]?.[0] || "";
 
-function formatBudget(n: number) {
-  if (!Number.isFinite(n) || n <= 0) return "—";
-  return n.toLocaleString();
+  return `${first}${second}`.toUpperCase();
 }
-
-/* ---------------- icons ---------------- */
 
 function IconAge(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 10 10" fill="none" {...props}>
-      <path d="M7.69531 4.6875C8.30234 4.6875 8.84102 5.05586 9.17969 5.625" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" {...props}>
       <path
-        d="M0.625 5.625C0.843124 5.33371 1.12617 5.09731 1.45166 4.93457C1.77714 4.77182 2.1361 4.68723 2.5 4.6875"
+        d="M11.3 7.5c1.1 0 2.1.6 2.7 1.6"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
       <path
-        d="M5 7.1875C5.86294 7.1875 6.5625 6.48794 6.5625 5.625C6.5625 4.76206 5.86294 4.0625 5 4.0625C4.13706 4.0625 3.4375 4.76206 3.4375 5.625C3.4375 6.48794 4.13706 7.1875 5 7.1875Z"
+        d="M2 9.1a3.3 3.3 0 0 1 2.7-1.6"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
       <path
-        d="M2.8125 8.4375C3.03683 8.05682 3.35663 7.74127 3.74027 7.52204C4.12392 7.30281 4.55813 7.1875 5 7.1875C5.44187 7.1875 5.87608 7.30281 6.25973 7.52204C6.64337 7.74127 6.96317 8.05682 7.1875 8.4375"
+        d="M8 10.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8Z"
         stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
       <path
-        d="M6.28906 3.125C6.3475 2.89866 6.46824 2.69324 6.63757 2.53207C6.8069 2.3709 7.01802 2.26045 7.24697 2.21325C7.47592 2.16605 7.71352 2.18399 7.93279 2.26505C8.15205 2.3461 8.34419 2.48701 8.48739 2.67179C8.63059 2.85656 8.7191 3.07778 8.74288 3.31033C8.76667 3.54289 8.72476 3.77745 8.62193 3.98738C8.51909 4.19731 8.35945 4.3742 8.16113 4.49796C7.96281 4.62172 7.73377 4.68738 7.5 4.6875"
+        d="M4.6 13.2A3.9 3.9 0 0 1 8 11.3c1.4 0 2.7.7 3.4 1.9"
         stroke="currentColor"
         strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M2.49986 4.6875C2.26609 4.68738 2.03705 4.62172 1.83873 4.49796C1.64041 4.3742 1.48077 4.19731 1.37793 3.98738C1.2751 3.77745 1.23319 3.54289 1.25697 3.31033C1.28076 3.07778 1.36927 2.85656 1.51247 2.67179C1.65567 2.48701 1.84781 2.3461 2.06707 2.26505C2.28634 2.18399 2.52393 2.16605 2.75289 2.21325C2.98184 2.26045 3.19296 2.3709 3.36229 2.53207C3.53161 2.69324 3.65235 2.89866 3.7108 3.125"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );
@@ -134,249 +77,525 @@ function IconAge(props: React.SVGProps<SVGSVGElement>) {
 
 function IconPin(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path d="M12 22s7-4.438 7-11a7 7 0 1 0-14 0c0 6.562 7 11 7 11Z" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" strokeWidth="1.8" />
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M12 21s7-4.6 7-11a7 7 0 1 0-14 0c0 6.4 7 11 7 11Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M12 12.4a2.4 2.4 0 1 0 0-4.8 2.4 2.4 0 0 0 0 4.8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
     </svg>
   );
 }
 
-function IconPlay(props: React.SVGProps<SVGSVGElement>) {
+function IconMale(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path d="M9.5 8.8v6.4c0 .7.8 1.1 1.4.7l5.2-3.2c.6-.4.6-1.1 0-1.5l-5.2-3.2c-.6-.4-1.4 0-1.4.8Z" fill="currentColor" />
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" {...props}>
+      <path
+        d="M6.2 9.8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M8.4 3.6 12.2 0.8M9.4 0.8h2.8v2.8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
-function IconChevronRight(props: React.SVGProps<SVGSVGElement>) {
+function IconDots(props: React.SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" {...props}>
-      <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
+      <circle cx="5" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+      <circle cx="19" cy="12" r="1.5" fill="currentColor" />
     </svg>
   );
 }
 
-/* ---------------- component ---------------- */
+function IconCaretLeft(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M15 18L9 12L15 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconCaretRight(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M9 6L15 12L9 18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function CountryDot() {
+  return (
+    <span
+      className="mx-[0.375rem] inline-block h-[0.125rem] w-[0.125rem] rounded-full bg-[var(--Light-Icon-Subtle,#969696)] align-middle"
+      aria-hidden="true"
+    />
+  );
+}
+
+function AvatarStack({ count = 0 }: { count?: number }) {
+  const avatars = ["A", "B", "C", "D"];
+  const visibleCount = Math.max(0, Number(count || 0));
+
+  return (
+    <div className="flex items-center">
+      {avatars.map((item, index) => (
+        <div
+          key={item}
+          className={cn(
+            "grid h-[1.75rem] w-[1.75rem] place-items-center rounded-[2rem]",
+            "border-2 border-white bg-[#EDEDED]",
+            "text-[0.625rem] font-semibold text-[#1A1A1A]",
+            index > 0 && "-ml-2"
+          )}
+        >
+          {item}
+        </div>
+      ))}
+
+      <div
+        className={cn(
+          "-ml-2 grid h-[1.75rem] min-w-[1.75rem] place-items-center rounded-[2rem]",
+          "border-2 border-white bg-[#F2F2F2] px-1",
+          "text-[0.75rem] font-semibold text-[#1A1A1A]"
+        )}
+      >
+        {visibleCount > 9 ? "10+" : visibleCount}
+      </div>
+    </div>
+  );
+}
 
 export default function CampaignCard({
-  form,
-  meta,
+  title,
+  description,
   imageUrl,
-  imageAlt = "Campaign image",
+  imageUrls,
+  brandName,
   brandLogoUrl,
-  brandLogoAlt = "Brand logo",
-  onView,
+  campaignGoal,
+  category,
+  ageLabel,
+  gender,
+  countries = [],
+  budget,
+  viewedCount = 0,
+  onCardClick,
+  onApply,
   onSave,
   onMore,
-  onNext,
-  onPlay,
+  isApplying = false,
+  hasApplied = false,
   className,
-}: CampaignCardProps) {
-  // ✅ derive UI labels ONLY from ManualForm + meta maps
-  const badgeLabels = React.useMemo(
-    () => idsToLabels(form.subcategories, meta?.subcategoriesMap),
-    [form.subcategories, meta?.subcategoriesMap]
-  );
-  const badge = React.useMemo(() => firstAndExtra(badgeLabels), [badgeLabels]);
+}: InfluencerDiscoverCardProps) {
+  const [descriptionExpanded, setDescriptionExpanded] = React.useState(false);
 
-  const ageLabels = React.useMemo(
-    () => idsToLabels(form.targetAgeGroups, meta?.ageMap),
-    [form.targetAgeGroups, meta?.ageMap]
-  );
-  const age = React.useMemo(() => firstAndExtra(ageLabels), [ageLabels]);
+  const initials = getBrandInitials(brandName);
+  const cleanCountries = countries.filter(Boolean).slice(0, 3);
+  const cleanDescription = String(description || "").trim();
+  const hasDescription = Boolean(cleanDescription);
 
-  const countryLabels = React.useMemo(
-    () => idsToLabels(form.targetCountry, meta?.countryMap, stripLeadingEmoji),
-    [form.targetCountry, meta?.countryMap]
-  );
-  const country = React.useMemo(() => firstAndExtra(countryLabels), [countryLabels]);
+  const DESCRIPTION_LIMIT = 105;
+  const hasMoreDescription = cleanDescription.length > DESCRIPTION_LIMIT;
+  const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+  const allImages = React.useMemo(() => {
+    const list = Array.isArray(imageUrls) ? imageUrls.filter(Boolean) : [];
 
-  const category = (form.categoryName ?? "").trim();
-  const title = (form.title ?? "").trim();
-  const description = (form.description ?? "").trim();
+    if (list.length > 0) return list;
+    if (imageUrl) return [imageUrl];
 
-  const campaignType = (form.campaignType ?? "").trim();
+    return [];
+  }, [imageUrls, imageUrl]);
 
-  const budget = Number(meta?.campaignBudget ?? form.campaignBudget ?? 0);
-  const priceText = budget > 0 ? `$${formatBudget(budget)}` : "—";
+  const activeImage = allImages[activeImageIndex] || "";
+  const hasMultipleImages = allImages.length > 1;
+
+  React.useEffect(() => {
+    setActiveImageIndex(0);
+  }, [allImages.length]);
+
+  const goToPrevImage = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setActiveImageIndex((prev) =>
+      prev === 0 ? allImages.length - 1 : prev - 1
+    );
+  };
+
+  const goToNextImage = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setActiveImageIndex((prev) =>
+      prev === allImages.length - 1 ? 0 : prev + 1
+    );
+  };
+  const visibleDescription =
+    !descriptionExpanded && hasMoreDescription
+      ? cleanDescription.slice(0, DESCRIPTION_LIMIT).trimEnd()
+      : cleanDescription;
 
   return (
-    <div
+    <article
+      onClick={onCardClick}
+      onKeyDown={(event) => {
+        if (!onCardClick) return;
+
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onCardClick();
+        }
+      }}
+      role={onCardClick ? "button" : undefined}
+      tabIndex={onCardClick ? 0 : undefined}
       className={cn(
-        "w-full rounded-[28px] bg-white overflow-hidden border border-[#1A1A1A]",
-        "flex flex-col h-full",
+        "relative flex h-full w-full flex-col overflow-hidden rounded-[1.5rem]",
+        "border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-white",
+        onCardClick &&
+        "cursor-pointer transition hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
         className
       )}
     >
-      {/* IMAGE HEADER */}
-      <div className="relative h-[190px] bg-gray-100">
-        <img src={imageUrl} alt={imageAlt} className="h-full w-full object-cover" loading="lazy" />
+      <div className="relative h-[13rem] w-full overflow-visible bg-[#F2F2F2]">
+        <div className="h-full w-full overflow-hidden rounded-t-[1.5rem]">
+          {activeImage ? (
+            <img
+              src={activeImage}
+              alt={title || "Campaign image"}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : null}
+        </div>
 
-        {/* ✅ Top badge = campaignType */}
-        {campaignType ? (
-          <div className="absolute right-4 top-4">
-            <span
-              className="rounded-full border border-yellow-300 px-4 py-1 text-sm font-semibold text-gray-900"
-              style={{ backgroundColor: "rgba(255, 249, 230, 1)" }}
-              title={campaignType}
+        {hasMultipleImages ? (
+          <>
+            <button
+              type="button"
+              onClick={goToPrevImage}
+              aria-label="Previous image"
+              className={[
+                "absolute left-[1rem] top-1/2 z-10 -translate-y-1/2",
+                "flex h-[2rem] w-[2rem] items-center justify-center gap-[0.625rem]",
+                "rounded-[2.5rem] bg-[var(--Light-Background-Primary,#FFF)] p-[0.25rem]",
+                "text-[#1A1A1A]",
+                "shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]",
+                "transition hover:scale-105",
+              ].join(" ")}
             >
-              {campaignType}
+              <IconCaretLeft />
+            </button>
+
+            <button
+              type="button"
+              onClick={goToNextImage}
+              aria-label="Next image"
+              className={[
+                "absolute right-[1rem] top-1/2 z-10 -translate-y-1/2",
+                "flex h-[2rem] w-[2rem] items-center justify-center gap-[0.625rem]",
+                "rounded-[2.5rem] bg-[var(--Light-Background-Primary,#FFF)] p-[0.25rem]",
+                "text-[#1A1A1A]",
+                "shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]",
+                "transition hover:scale-105",
+              ].join(" ")}
+            >
+              <IconCaretRight />
+            </button>
+          </>
+        ) : null}
+
+        {campaignGoal ? (
+          <div className="absolute right-[1rem] top-[1rem]">
+            <span
+              className={[
+                "flex items-center justify-center self-stretch",
+                "rounded-[var(--Corner-radius-16,1rem)]",
+                "bg-black/45 px-[0.375rem] py-[0.25rem]",
+                "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
+                "backdrop-blur-[8px]",
+              ].join(" ")}
+            >
+              {campaignGoal}
             </span>
           </div>
         ) : null}
 
-        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-          <Button
-            variant="raised"
-            size="sm"
-            leftIcon={<IconChevronRight />}
-            onClick={onNext}
-            aria-label="Next"
-            className="my-0 rounded-full px-0 h-10 w-10 bg-white/95 hover:bg-white"
-          />
+        <div
+          className={[
+            "absolute left-[1.5rem] bottom-[-2rem] z-10",
+            "flex h-[4rem] w-[4rem] flex-col items-center justify-center",
+            "overflow-hidden rounded-[0.625rem] border-2 border-[#F2F2F2] bg-white",
+            "text-[1.5rem] font-semibold leading-none text-[#1A1A1A]",
+          ].join(" ")}
+        >
+          {brandLogoUrl ? (
+            <img
+              src={brandLogoUrl}
+              alt={brandName || "Brand logo"}
+              className="h-full w-full object-cover"
+              loading="lazy"
+            />
+          ) : (
+            initials
+          )}
         </div>
-
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <Button
-            variant="raised"
-            size="lg"
-            leftIcon={<IconPlay />}
-            onClick={onPlay}
-            aria-label="Play"
-            className="my-0 rounded-full px-0 h-12 w-12 bg-white/95 hover:bg-white"
-          />
-        </div>
-
-        {/* Brand logo container (UI-only) */}
-        {brandLogoUrl ? (
-          <div className="absolute left-4 bottom-[-22px] bg-white p-3" style={{ borderRadius: "16px 16px 0px 0px" }}>
-            <img src={brandLogoUrl} alt={brandLogoAlt} className="h-7 w-14 object-contain" loading="lazy" />
-          </div>
-        ) : null}
       </div>
 
-      {/* BODY */}
-      <div className="px-4 2xl:px-6 pt-7 2xl:pt-8 pb-5 flex flex-col flex-1">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
-            {/* ✅ Category */}
+      <div
+        className={[
+          "flex flex-1 flex-col items-start justify-center self-stretch",
+          "gap-[0.75rem] px-[1.25rem] pb-[1.75rem] pt-[2.5rem]",
+        ].join(" ")}
+      >
+        <div className="flex w-full items-center justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-[0.5rem]">
             {category ? (
-              <span className="rounded-full border border-[#1A1A1A] bg-white px-3 py-1 text-xs font-semibold text-gray-800">
+              <span
+                className={[
+                  "flex items-center justify-center rounded-[1rem]",
+                  "bg-[#F7F7F7] px-[0.375rem] py-[0.25rem]",
+                  "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                  "whitespace-nowrap",
+                ].join(" ")}
+                title={category}
+              >
                 {category}
               </span>
             ) : null}
 
-            {/* ✅ Age groups */}
-            {age.first ? (
+            {ageLabel ? (
               <span
-                className="rounded-full border border-[#1A1A1A] bg-white px-3 py-1 text-xs font-semibold text-gray-800 inline-flex items-center gap-2"
-                title={ageLabels.join(", ")}
+                className={[
+                  "flex items-center justify-center gap-[0.25rem] rounded-[1rem]",
+                  "bg-[#F7F7F7] px-[0.25rem] py-[0.25rem]",
+                  "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                  "whitespace-nowrap",
+                ].join(" ")}
               >
-                <IconAge className="h-[10px] w-[10px] text-gray-900" />
-                {pillText(age.first, age.extra)}
+                <IconAge className="shrink-0" />
+                {ageLabel}
               </span>
             ) : null}
 
-            {/* ✅ Optional: Subcategories */}
-            {badge.first ? (
+            {gender ? (
               <span
-                className="rounded-full border border-[#1A1A1A] bg-white px-3 py-1 text-xs font-semibold text-gray-800"
-                title={badgeLabels.join(", ")}
+                className={[
+                  "flex h-[1.5rem] w-[4.125rem] items-center justify-center gap-[0.25rem]",
+                  "rounded-[1.25rem] bg-white",
+                  "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                ].join(" ")}
               >
-                {pillText(badge.first, badge.extra)}
+                <IconMale className="shrink-0" />
+                {gender}
               </span>
             ) : null}
           </div>
 
-          {/* ✅ More button WITHOUT border outline */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onMore}
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onMore?.();
+            }}
             aria-label="More"
-            className="my-0 rounded-full px-0 h-9 w-9 flex-shrink-0 border-0 shadow-none hover:bg-gray-100"
+            className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#1A1A1A] hover:bg-[#F2F2F2]"
           >
-            …
-          </Button>
+            <IconDots />
+          </button>
         </div>
 
-        <h3 className="mt-4 text-[16px] 2xl:text-lg font-extrabold text-gray-900 leading-snug">
-          {title || "—"}
-        </h3>
-
-        {description ? (
-          <p
-            className="mt-2 text-sm text-gray-400"
-            style={{
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
+        <div className="flex w-full flex-col items-start gap-[0.5rem]">
+          <h3
+            className={[
+              "line-clamp-1 w-full overflow-hidden text-ellipsis",
+              "font-[var(--Font-Family-Inter,Inter)]",
+              "text-[1rem] font-semibold leading-[1.5rem] tracking-[0]",
+              "text-[var(--Text-Primary,#1A1A1A)]",
+            ].join(" ")}
+            title={title}
           >
-            {description}
-          </p>
-        ) : null}
+            {title || "—"}
+          </h3>
 
-        {/* ✅ Countries */}
-        {country.first ? (
-          <div className="mt-4 flex items-center gap-2 text-sm text-gray-700 min-w-0" title={countryLabels.join(", ")}>
-            <IconPin className="h-4 w-4 text-gray-500 flex-shrink-0" />
+          {hasDescription ? (
+            <div className="flex w-full flex-col items-start gap-[0.25rem]">
+              <p
+                className={[
+                  "w-full max-w-[19.5625rem]",
+                  "font-[Inter] text-[0.75rem] font-normal leading-[1rem]",
+                  "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+                  "break-words",
+                  descriptionExpanded
+                    ? "whitespace-normal"
+                    : "line-clamp-2 overflow-hidden",
+                ].join(" ")}
+                title={cleanDescription}
+              >
+                {visibleDescription}
+
+                {!descriptionExpanded && hasMoreDescription ? (
+                  <>
+                    <span>...</span>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDescriptionExpanded(true);
+                      }}
+                      className={[
+                        "ml-1 inline text-right",
+                        "overflow-hidden text-ellipsis",
+                        "font-[Inter] text-[0.75rem] font-medium leading-[1rem]",
+                        "text-[var(--Light-Text-Secondary,#969696)]",
+                      ].join(" ")}
+                    >
+                      view more
+                    </button>
+                  </>
+                ) : null}
+              </p>
+
+              {descriptionExpanded && hasMoreDescription ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDescriptionExpanded(false);
+                  }}
+                  className={[
+                    "self-end text-right",
+                    "font-[Inter] text-[0.75rem] font-medium leading-[1rem]",
+                    "text-[var(--Light-Text-Secondary,#969696)]",
+                  ].join(" ")}
+                >
+                  view less
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+
+
+        </div>
+
+        {cleanCountries.length > 0 ? (
+          <div
+            className={[
+              "flex items-center self-stretch rounded-[1rem]",
+              "px-0 py-[0.5rem] pr-[0.5rem]",
+              "text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]",
+            ].join(" ")}
+            title={cleanCountries.join(" · ")}
+          >
+            <IconPin className="mr-[0.5rem] h-4 w-4 shrink-0 text-[#1A1A1A]" />
+
             <span className="min-w-0 truncate">
-              {country.first}
-              {country.extra > 0 ? ` · +${country.extra}` : ""}
+              {cleanCountries.map((country, index) => (
+                <React.Fragment key={`${country}-${index}`}>
+                  {index > 0 ? <CountryDot /> : null}
+                  <span>{country}</span>
+                </React.Fragment>
+              ))}
             </span>
           </div>
         ) : null}
 
-        {/* FOOTER */}
-        <div className="mt-auto">
-          <div className="mt-5 border-t border-gray-100 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
-              <div className="min-w-0">
-                <div className="font-extrabold text-gray-900 leading-none whitespace-nowrap text-[clamp(16px,1.6vw,24px)]">
-                  {priceText}
-                </div>
-              </div>
+        <div className="flex w-full items-center gap-[1rem]">
+          <AvatarStack count={viewedCount} />
 
-              <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
-                <Button
-                  variant="raised"
-                  size="sm"
-                  onClick={onSave}
-                  className={cn(
-                    "my-0",
-                    "flex-1 min-w-[84px] sm:min-w-[90px]",
-                    "h-[32px] px-3",
-                    "rounded-[8px]",
-                    "text-[clamp(12px,1.1vw,13px)]",
-                    "shadow-[0_2px_4px_-2px_rgba(0,0,0,0.08),0_4px_8px_-2px_rgba(0,0,0,0.04)]"
-                  )}
-                >
-                  Save
-                </Button>
+          <span
+            className={[
+              "flex items-center justify-center rounded-[1.25rem]",
+              "px-[0.25rem] py-[0.25rem]",
+              "text-center font-[Inter] text-[0.625rem] font-medium leading-normal",
+              "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+            ].join(" ")}
+          >
+            Viewed
+          </span>
+        </div>
 
-                <Button
-                  size="sm"
-                  onClick={onView}
-                  className={cn(
-                    "my-0",
-                    "flex-1 min-w-[84px] sm:min-w-[90px]",
-                    "h-[32px] px-3",
-                    "rounded-[8px]",
-                    "bg-[#1A1A1A] text-white hover:bg-black active:bg-black",
-                    "text-[clamp(12px,1.1vw,13px)]",
-                    "shadow-[0_2px_4px_-2px_rgba(0,0,0,0.08),0_4px_8px_-2px_rgba(0,0,0,0.04)]"
-                  )}
-                >
-                  View
-                </Button>
-              </div>
-            </div>
+        <div className="h-[0.0625rem] w-full max-w-[29.5625rem] bg-[#E6E6E6]" />
+
+        <div className="flex w-full items-center">
+          <div
+            className={[
+              "line-clamp-1 overflow-hidden text-ellipsis",
+              "font-[var(--Font-Family-Inter,Inter)]",
+              "text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0]",
+              "text-[var(--Text-Primary,#1A1A1A)]",
+            ].join(" ")}
+          >
+            {formatBudget(budget)}
+          </div>
+
+          <div className="ml-auto flex items-center gap-[0.5rem]">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onSave?.();
+              }}
+              className={[
+                "flex h-[2.5rem] min-w-[4.5rem] items-center justify-center",
+                "rounded-[0.75rem] px-[0.5rem]",
+                "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                "hover:bg-[#F2F2F2]",
+              ].join(" ")}
+            >
+              Save
+            </button>
+
+            <button
+              type="button"
+              disabled={isApplying || hasApplied}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onApply?.();
+              }}
+              className={[
+                "flex h-[2.5rem] min-w-[5.25rem] items-center justify-center",
+                "rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem]",
+                "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
+                "hover:bg-black",
+                "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#1A1A1A]",
+              ].join(" ")}
+            >
+              {isApplying ? "Applying..." : hasApplied ? "Applied" : "Apply"}
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import InfluencerAppLayoutClient from "./InfluencerAppLayoutClient";
 
 export const metadata: Metadata = {
   title: "CollabGlam — Influencer",
@@ -9,5 +10,5 @@ export default function InfluencerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <main className="min-h-screen bg-background">{children}</main>;
+  return <InfluencerAppLayoutClient>{children}</InfluencerAppLayoutClient>;
 }
