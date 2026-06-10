@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { CheckCircle, Trash } from "@phosphor-icons/react";
 
 export type InfluencerDiscoverCardProps = {
   title: string;
@@ -16,12 +17,37 @@ export type InfluencerDiscoverCardProps = {
   countries?: string[];
   budget?: number;
   viewedCount?: number;
+  applicantAvatars?: Array<
+    | string
+    | {
+      profilePic?: string;
+      profilepic?: string;
+      profileImage?: string;
+      profileimage?: string;
+      profilePicture?: string;
+      avatar?: string;
+      image?: string;
+      name?: string;
+      fullName?: string;
+      username?: string;
+      influencerName?: string;
+      displayName?: string;
+    }
+  >;
+
   onCardClick?: () => void;
   onApply?: () => void | Promise<void>;
   onSave?: () => void | Promise<void>;
+  onDeleteApplied?: () => void | Promise<void>;
   onMore?: () => void;
+
   isApplying?: boolean;
   hasApplied?: boolean;
+
+  /** Use true only for Applied campaign listing */
+  isAppliedCard?: boolean;
+  appliedDate?: string;
+
   className?: string;
 };
 
@@ -33,6 +59,18 @@ function formatBudget(value?: number) {
   const amount = Number(value || 0);
   if (!Number.isFinite(amount) || amount <= 0) return "—";
   return `$${Math.round(amount)}`;
+}
+
+function formatAppliedDate(value?: string) {
+  if (!value) return "Applied";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Applied";
+
+  return `Applied on ${new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+  }).format(date)}`;
 }
 
 function getBrandInitials(name?: string) {
@@ -157,35 +195,137 @@ function CountryDot() {
   );
 }
 
-function AvatarStack({ count = 0 }: { count?: number }) {
-  const avatars = ["A", "B", "C", "D"];
-  const visibleCount = Math.max(0, Number(count || 0));
+type ApplicantAvatar =
+  | string
+  | {
+    profilePic?: string;
+    profilepic?: string;
+    profileImage?: string;
+    profileimage?: string;
+    profilePicture?: string;
+    avatar?: string;
+    image?: string;
+    name?: string;
+    fullName?: string;
+    username?: string;
+    influencerName?: string;
+    displayName?: string;
+  };
+
+function getApplicantImage(item: ApplicantAvatar) {
+  if (!item) return "";
+
+  if (typeof item === "string") return item;
+
+  return (
+    item.profileimage ||
+    item.profileImage ||
+    item.profilePic ||
+    item.profilepic ||
+    item.profilePicture ||
+    item.avatar ||
+    item.image ||
+    ""
+  );
+}
+
+function getApplicantInitial(item: ApplicantAvatar, fallbackIndex: number) {
+  if (!item || typeof item === "string") {
+    return String.fromCharCode(65 + fallbackIndex);
+  }
+
+  const name =
+    item.fullName ||
+    item.name ||
+    item.username ||
+    item.influencerName ||
+    item.displayName ||
+    "";
+
+  const firstLetter = name.trim().charAt(0);
+
+  if (!firstLetter) {
+    return String.fromCharCode(65 + fallbackIndex);
+  }
+
+  return firstLetter.toUpperCase();
+}
+
+function AvatarStack({
+  count = 0,
+  avatars = [],
+}: {
+  count?: number;
+  avatars?: ApplicantAvatar[];
+}) {
+  const totalCount = Math.max(0, Number(count || 0));
+  const visibleAvatars = avatars.filter(Boolean).slice(0, 4);
+  const fallbackSlots = Math.max(
+    0,
+    Math.min(4, totalCount) - visibleAvatars.length
+  );
+
+  const displayItems: ApplicantAvatar[] = [
+    ...visibleAvatars,
+    ...Array.from({ length: fallbackSlots }, (_, index) => ({
+      name: String.fromCharCode(65 + visibleAvatars.length + index),
+    })),
+  ];
+
+  const remainingCount = Math.max(totalCount - 4, 0);
+
+  if (totalCount <= 0) return null;
 
   return (
     <div className="flex items-center">
-      {avatars.map((item, index) => (
+      {displayItems.map((item, index) => {
+        const image = getApplicantImage(item);
+        const initial = getApplicantInitial(item, index);
+
+        return (
+          <div
+            key={`${image || initial}-${index}`}
+            className={cn(
+              "grid h-[1.75rem] w-[1.75rem] place-items-center overflow-hidden rounded-[2rem]",
+              "border-2 border-white bg-[#EDEDED]",
+              "text-[0.625rem] font-semibold text-[#1A1A1A]",
+              index > 0 && "-ml-2"
+            )}
+            title={
+              typeof item === "object"
+                ? item.fullName || item.name || item.username
+                : undefined
+            }
+          >
+            {image ? (
+              <img
+                src={image}
+                alt={
+                  typeof item === "object"
+                    ? item.fullName || item.name || item.username || "Influencer"
+                    : "Influencer"
+                }
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              initial
+            )}
+          </div>
+        );
+      })}
+
+      {remainingCount > 0 ? (
         <div
-          key={item}
           className={cn(
-            "grid h-[1.75rem] w-[1.75rem] place-items-center rounded-[2rem]",
-            "border-2 border-white bg-[#EDEDED]",
-            "text-[0.625rem] font-semibold text-[#1A1A1A]",
-            index > 0 && "-ml-2"
+            "-ml-2 grid h-[1.75rem] min-w-[1.75rem] place-items-center rounded-[2rem]",
+            "border-2 border-white bg-[#F2F2F2] px-1",
+            "text-[0.75rem] font-semibold text-[#1A1A1A]"
           )}
         >
-          {item}
+          +{remainingCount}
         </div>
-      ))}
-
-      <div
-        className={cn(
-          "-ml-2 grid h-[1.75rem] min-w-[1.75rem] place-items-center rounded-[2rem]",
-          "border-2 border-white bg-[#F2F2F2] px-1",
-          "text-[0.75rem] font-semibold text-[#1A1A1A]"
-        )}
-      >
-        {visibleCount > 9 ? "10+" : visibleCount}
-      </div>
+      ) : null}
     </div>
   );
 }
@@ -204,15 +344,20 @@ export default function CampaignCard({
   countries = [],
   budget,
   viewedCount = 0,
+  applicantAvatars = [],
   onCardClick,
   onApply,
   onSave,
+  onDeleteApplied,
   onMore,
   isApplying = false,
   hasApplied = false,
+  isAppliedCard = false,
+  appliedDate,
   className,
 }: InfluencerDiscoverCardProps) {
   const [descriptionExpanded, setDescriptionExpanded] = React.useState(false);
+  const [activeImageIndex, setActiveImageIndex] = React.useState(0);
 
   const initials = getBrandInitials(brandName);
   const cleanCountries = countries.filter(Boolean).slice(0, 3);
@@ -221,7 +366,12 @@ export default function CampaignCard({
 
   const DESCRIPTION_LIMIT = 105;
   const hasMoreDescription = cleanDescription.length > DESCRIPTION_LIMIT;
-  const [activeImageIndex, setActiveImageIndex] = React.useState(0);
+
+  const visibleDescription =
+    !descriptionExpanded && hasMoreDescription
+      ? cleanDescription.slice(0, DESCRIPTION_LIMIT).trimEnd()
+      : cleanDescription;
+
   const allImages = React.useMemo(() => {
     const list = Array.isArray(imageUrls) ? imageUrls.filter(Boolean) : [];
 
@@ -255,10 +405,6 @@ export default function CampaignCard({
       prev === allImages.length - 1 ? 0 : prev + 1
     );
   };
-  const visibleDescription =
-    !descriptionExpanded && hasMoreDescription
-      ? cleanDescription.slice(0, DESCRIPTION_LIMIT).trimEnd()
-      : cleanDescription;
 
   return (
     <article
@@ -274,7 +420,7 @@ export default function CampaignCard({
       role={onCardClick ? "button" : undefined}
       tabIndex={onCardClick ? 0 : undefined}
       className={cn(
-        "relative flex h-full w-full flex-col overflow-hidden rounded-[1.5rem]",
+        "relative flex h-full w-[22.0625rem] flex-col overflow-hidden rounded-[1.5rem]",
         "border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-white",
         onCardClick &&
         "cursor-pointer transition hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
@@ -501,9 +647,6 @@ export default function CampaignCard({
               ) : null}
             </div>
           ) : null}
-
-
-
         </div>
 
         {cleanCountries.length > 0 ? (
@@ -528,20 +671,40 @@ export default function CampaignCard({
           </div>
         ) : null}
 
-        <div className="flex w-full items-center gap-[1rem]">
-          <AvatarStack count={viewedCount} />
-
-          <span
+        {isAppliedCard ? (
+          <div
             className={[
-              "flex items-center justify-center rounded-[1.25rem]",
+              "flex w-fit items-center justify-center gap-[0.25rem] self-stretch",
+              "rounded-[var(--Corner-radius-16,1rem)]",
+              "border border-[var(--Light-Border-Subtle,#E6E6E6)]",
               "px-[0.25rem] py-[0.25rem]",
-              "text-center font-[Inter] text-[0.625rem] font-medium leading-normal",
-              "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
             ].join(" ")}
           >
-            Viewed
-          </span>
-        </div>
+            <CheckCircle
+              weight="fill"
+              className="h-[0.875rem] w-[0.875rem] text-[#28A745]"
+            />
+
+            <span className="text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
+              {formatAppliedDate(appliedDate)}
+            </span>
+          </div>
+        ) : (
+          <div className="flex w-full items-center gap-[1rem]">
+            <AvatarStack count={viewedCount} avatars={applicantAvatars} />
+
+            <span
+              className={[
+                "flex items-center justify-center rounded-[1.25rem]",
+                "px-[0.25rem] py-[0.25rem]",
+                "text-center font-[Inter] text-[0.625rem] font-medium leading-normal",
+                "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+              ].join(" ")}
+            >
+              Viewed
+            </span>
+          </div>
+        )}
 
         <div className="h-[0.0625rem] w-full max-w-[29.5625rem] bg-[#E6E6E6]" />
 
@@ -558,41 +721,85 @@ export default function CampaignCard({
           </div>
 
           <div className="ml-auto flex items-center gap-[0.5rem]">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onSave?.();
-              }}
-              className={[
-                "flex h-[2.5rem] min-w-[4.5rem] items-center justify-center",
-                "rounded-[0.75rem] px-[0.5rem]",
-                "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
-                "hover:bg-[#F2F2F2]",
-              ].join(" ")}
-            >
-              Save
-            </button>
+            {isAppliedCard ? (
+              <>
+                <button
+                  type="button"
+                  aria-label="Remove applied campaign"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onDeleteApplied?.();
+                  }}
+                  className={[
+                    "flex h-[2rem] items-center justify-center",
+                    "rounded-[var(--Border-Radius-S,0.5rem)] px-[0.5rem]",
+                    "text-[#1A1A1A]",
+                    "transition hover:bg-[#F7F7F7]",
+                  ].join(" ")}
+                >
+                  <Trash size={16} />
+                </button>
 
-            <button
-              type="button"
-              disabled={isApplying || hasApplied}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onApply?.();
-              }}
-              className={[
-                "flex h-[2.5rem] min-w-[5.25rem] items-center justify-center",
-                "rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem]",
-                "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
-                "hover:bg-black",
-                "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#1A1A1A]",
-              ].join(" ")}
-            >
-              {isApplying ? "Applying..." : hasApplied ? "Applied" : "Apply"}
-            </button>
+                <button
+                  type="button"
+                  disabled
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }}
+                  className={[
+                    "flex h-[2rem] w-[5rem] items-center justify-center",
+                    "rounded-[var(--Border-Radius-S,0.5rem)]",
+                    "bg-[var(--Light-Background-Disabled,#F5F5F5)]",
+                    "px-[0.5rem]",
+                    "text-[0.875rem] font-semibold leading-[1.25rem]",
+                    "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+                    "disabled:cursor-not-allowed",
+                  ].join(" ")}
+                >
+                  Applied
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSave?.();
+                  }}
+                  className={[
+                    "flex h-[2.5rem] min-w-[4.5rem] items-center justify-center",
+                    "rounded-[0.75rem] px-[0.5rem]",
+                    "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                    "hover:bg-[#F2F2F2]",
+                  ].join(" ")}
+                >
+                  Save
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isApplying || hasApplied}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onApply?.();
+                  }}
+                  className={[
+                    "flex h-[2.5rem] min-w-[5.25rem] items-center justify-center",
+                    "rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem]",
+                    "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
+                    "hover:bg-black",
+                    "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#1A1A1A]",
+                  ].join(" ")}
+                >
+                  {isApplying ? "Applying..." : hasApplied ? "Applied" : "Apply"}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
