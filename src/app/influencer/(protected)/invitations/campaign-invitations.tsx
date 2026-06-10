@@ -1,41 +1,20 @@
 "use client";
 
-import React, { useState, useMemo, useEffect, useCallback } from "react";
-import {
-  Search,
-  X,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  Eye,
-  Inbox,
-  ChevronDown,
-  ChevronUp,
-  DollarSign,
-  CalendarDays,
-  MessageCircle,
-  Target,
-  ArrowUpRight,
-  MapPin,
-  BriefcaseBusiness,
-  Sparkles,
-} from "lucide-react";
-import { Input } from "@/components/ui/input";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, Search } from "lucide-react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/buttonComp";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
-import { useRouter } from "next/navigation";
+import CampaignCard, {
+  type InfluencerDiscoverCardProps,
+} from "@/components/ui/influencer/card";
 import {
   apiGetAllInvitationsByInfluencer,
   getApiErrorMessage,
 } from "@/app/influencer/services/influencerApi";
+import SidebarCampaign from "./sidebarCampaign";
+import InvitationFilter, {
+  EMPTY_INVITATION_FILTERS,
+  type InvitationFilterState,
+} from "./invitationFilter";
 
 /* -------------------------------------------------------------------------- */
 /* TYPES                                                                      */
@@ -43,533 +22,635 @@ import {
 
 type ApiInviteStatus = "sent" | "accepted" | "reject";
 
-interface Deliverable {
-  quantity: number;
-  type: string;
-}
+type AppliedStatus =
+  | "New"
+  | "Viewed"
+  | "Accepted"
+  | "Shortlisted"
+  | "Expired"
+  | "Rejected";
 
-interface CampaignInvite {
+type CampaignInvite = {
   id: string;
-  brandId?: string;
   campaignId?: string;
+  brandId?: string;
   brandName: string;
-  brandAvatar?: string;
-  invitedAt: string;
-  respondBy: string;
-  status: ApiInviteStatus;
-
+  brandLogo?: string;
   title: string;
   description: string;
   category: string;
-  location: string;
+  categoryId: string;
+  campaignType: string;
   platform: string;
+  platforms: string[];
+  countries: string[];
+  ageLabel: string;
+  gender: string;
   budgetMin: number;
   budgetMax: number;
-  goals: string[];
-  ageGroups: string[];
-
-  overview: string;
-  deliverables: Deliverable[];
-  paymentMethod: string;
-  paymentSchedule: string;
-  brandMessage: string;
-  contentSubmission: string;
-  publishDate: string;
-  campaignEnd: string;
-}
-
-/* -------------------------------------------------------------------------- */
-/* AVATAR COLORS                                                              */
-/* -------------------------------------------------------------------------- */
-
-const AVATAR_PALETTES = [
-  { bg: "from-rose-400 to-pink-600" },
-  { bg: "from-amber-400 to-orange-500" },
-  { bg: "from-emerald-400 to-teal-600" },
-  { bg: "from-blue-400 to-indigo-600" },
-  { bg: "from-violet-400 to-purple-600" },
-  { bg: "from-cyan-400 to-sky-600" },
-  { bg: "from-fuchsia-400 to-rose-600" },
-  { bg: "from-lime-500 to-emerald-600" },
-];
-
-function getAvatarGradient(name: string) {
-  const code = (name || "B").charCodeAt(0);
-  return AVATAR_PALETTES[code % AVATAR_PALETTES.length].bg;
-}
-
-function formatPlatform(value?: string) {
-  if (!value) return "Unknown Platform";
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-/* -------------------------------------------------------------------------- */
-/* CAMPAIGN DETAILS MODAL                                                     */
-/* -------------------------------------------------------------------------- */
-
-type Section = "overview" | "deliverables" | "payment" | "message" | "timeline";
-
-function AccordionSection({
-  title,
-  icon,
-  open,
-  onToggle,
-  children,
-}: {
-  id: Section;
-  title: string;
-  icon: React.ReactNode;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="border-b border-gray-100/80 last:border-0">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between py-3.5 text-left group transition-all duration-200 px-3 rounded-2xl hover:bg-gray-50/80"
-      >
-        <span className="flex items-center gap-3 font-semibold text-[14px] text-gray-800">
-          <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100/60 flex items-center justify-center shrink-0 shadow-sm">
-            {icon}
-          </span>
-          {title}
-        </span>
-
-        <span className="w-6 h-6 rounded-full bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center transition-all duration-200 shrink-0">
-          {open ? (
-            <ChevronUp className="h-3.5 w-3.5 text-gray-500" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-gray-500" />
-          )}
-        </span>
-      </button>
-
-      {open && (
-        <div className="pb-4 px-3 pl-14 text-sm text-gray-600 leading-relaxed animate-in fade-in-0 slide-in-from-top-1 duration-200">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CampaignDetailsModal({
-  invite,
-  open,
-  onClose,
-  onAccept,
-  onDecline,
-}: {
-  invite: CampaignInvite;
-  open: boolean;
-  onClose: () => void;
-  onAccept: () => void;
-  onDecline: () => void;
-}) {
-  const [openSections, setOpenSections] = useState<Set<Section>>(
-    new Set(["overview", "deliverables", "payment", "message", "timeline"])
-  );
-
-  const toggle = (section: Section) =>
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(section)) {
-        next.delete(section);
-      } else {
-        next.add(section);
-      }
-      return next;
-    });
-
-  const isPending = invite.status === "sent";
-  const isAccepted = invite.status === "accepted";
-  const isDeclined = invite.status === "reject";
-
-  const statusBadge = isAccepted ? (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 px-3 py-1 text-xs font-semibold text-emerald-700 shadow-sm">
-      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-      Accepted
-    </span>
-  ) : isDeclined ? (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 border border-red-200/60 px-3 py-1 text-xs font-semibold text-red-600 shadow-sm">
-      <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-      Declined
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200/60 px-3 py-1 text-xs font-semibold text-amber-700 shadow-sm">
-      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-      Pending
-    </span>
-  );
-
-  return (
-    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="w-full !max-w-[820px] max-h-[90vh] overflow-hidden rounded-[28px] border border-gray-200/70 p-0 shadow-2xl">
-        <div className="h-1.5 w-full bg-gradient-to-r from-amber-400 via-orange-400 to-amber-300" />
-
-        <div className="flex-none px-6 pt-5 pb-5 border-b border-gray-100 bg-gradient-to-br from-white via-amber-50/20 to-orange-50/30">
-          <DialogHeader className="text-left space-y-1">
-            <DialogTitle className="text-[18px] font-bold text-gray-900 leading-snug pr-8">
-              {invite.title}
-            </DialogTitle>
-            <DialogDescription className="text-[13px] text-gray-500">
-              Review the full campaign details and collaboration terms below.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div
-                className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(
-                  invite.brandName
-                )} flex items-center justify-center text-white font-bold text-sm shadow-md`}
-              >
-                {invite.brandName?.[0] ?? "B"}
-              </div>
-
-              <div>
-                <div className="font-semibold text-gray-900 text-sm">{invite.brandName}</div>
-                <div className="text-xs text-gray-400">Invited {invite.invitedAt}</div>
-              </div>
-            </div>
-
-            {statusBadge}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 border border-gray-200 px-3 py-1.5 text-[11px] font-medium text-gray-600 shadow-sm">
-              <BriefcaseBusiness className="h-3.5 w-3.5 text-amber-600" />
-              {invite.category || "General"}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 border border-gray-200 px-3 py-1.5 text-[11px] font-medium text-gray-600 shadow-sm">
-              <MapPin className="h-3.5 w-3.5 text-amber-600" />
-              {invite.location || "Remote"}
-            </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/90 border border-gray-200 px-3 py-1.5 text-[11px] font-medium text-gray-600 shadow-sm">
-              <DollarSign className="h-3.5 w-3.5 text-amber-600" />
-              ₹{invite.budgetMin.toLocaleString()} - ₹{invite.budgetMax.toLocaleString()}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 py-3 max-h-[52vh]">
-          <AccordionSection
-            id="overview"
-            title="Campaign Overview"
-            icon={<Target className="h-3.5 w-3.5 text-amber-600" />}
-            open={openSections.has("overview")}
-            onToggle={() => toggle("overview")}
-          >
-            <p className="leading-relaxed text-gray-600">{invite.overview}</p>
-          </AccordionSection>
-
-          <AccordionSection
-            id="deliverables"
-            title="Deliverables"
-            icon={<CheckCircle2 className="h-3.5 w-3.5 text-amber-600" />}
-            open={openSections.has("deliverables")}
-            onToggle={() => toggle("deliverables")}
-          >
-            <ul className="space-y-2.5 mt-1">
-              {invite.deliverables.length > 0 ? (
-                invite.deliverables.map((d, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-3 bg-gray-50/90 rounded-xl px-3 py-2.5 border border-gray-100"
-                  >
-                    <span className="shrink-0 w-7 h-7 rounded-lg bg-white border border-amber-200/50 flex items-center justify-center text-[12px] font-bold text-amber-700 shadow-sm">
-                      {d.quantity}
-                    </span>
-                    <span className="text-gray-700 text-[13px]">{d.type}</span>
-                  </li>
-                ))
-              ) : (
-                <div className="text-sm text-gray-400">No deliverables shared yet.</div>
-              )}
-            </ul>
-          </AccordionSection>
-
-          <AccordionSection
-            id="payment"
-            title="Payment Details"
-            icon={<DollarSign className="h-3.5 w-3.5 text-amber-600" />}
-            open={openSections.has("payment")}
-            onToggle={() => toggle("payment")}
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between bg-gradient-to-r from-amber-50/90 to-orange-50/60 rounded-xl px-4 py-3 border border-amber-100/50">
-                <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Budget Range
-                </span>
-                <span className="font-bold text-gray-900 text-base">
-                  ₹{invite.budgetMin.toLocaleString()} – ₹{invite.budgetMax.toLocaleString()}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="bg-gray-50/80 rounded-xl px-3 py-3 border border-gray-100">
-                  <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider block mb-1">
-                    Method
-                  </span>
-                  <span className="text-sm text-gray-700 font-medium">
-                    {invite.paymentMethod}
-                  </span>
-                </div>
-
-                <div className="bg-gray-50/80 rounded-xl px-3 py-3 border border-gray-100">
-                  <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider block mb-1">
-                    Schedule
-                  </span>
-                  <span className="text-sm text-gray-700 font-medium">
-                    {invite.paymentSchedule}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </AccordionSection>
-
-          <AccordionSection
-            id="message"
-            title="Brand Message"
-            icon={<MessageCircle className="h-3.5 w-3.5 text-amber-600" />}
-            open={openSections.has("message")}
-            onToggle={() => toggle("message")}
-          >
-            <div className="bg-gradient-to-br from-amber-50/70 to-orange-50/40 rounded-2xl px-4 py-4 border border-amber-100/40">
-              <p className="italic text-gray-600 leading-relaxed text-[13px]">
-                “{invite.brandMessage}”
-              </p>
-            </div>
-          </AccordionSection>
-
-          <AccordionSection
-            id="timeline"
-            title="Timeline & Deadlines"
-            icon={<CalendarDays className="h-3.5 w-3.5 text-amber-600" />}
-            open={openSections.has("timeline")}
-            onToggle={() => toggle("timeline")}
-          >
-            <div className="space-y-2">
-              {[
-                { label: "Response Deadline", value: invite.respondBy, highlight: true },
-                { label: "Content Submission", value: invite.contentSubmission, highlight: false },
-                { label: "Publish Date", value: invite.publishDate, highlight: false },
-                { label: "Campaign End", value: invite.campaignEnd, highlight: false },
-              ].map((item, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between bg-gray-50/80 rounded-xl px-3 py-3 border border-gray-100"
-                >
-                  <span className="text-[12px] font-medium text-gray-400 uppercase tracking-wider">
-                    {item.label}
-                  </span>
-                  <span
-                    className={`text-sm font-semibold ${
-                      item.highlight ? "text-red-500" : "text-gray-700"
-                    }`}
-                  >
-                    {item.value}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </AccordionSection>
-        </div>
-
-        <div className="flex-none px-6 py-4 border-t border-gray-100 bg-white/90 backdrop-blur-sm flex items-center justify-end gap-3">
-          {isPending ? (
-            <>
-              <Button
-                type="button"
-                onClick={() => {
-                  onDecline();
-                  onClose();
-                }}
-                className="px-5 py-2.5 rounded-full border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-red-600 hover:border-red-200 transition-all duration-200"
-              >
-                Decline
-              </Button>
-
-              <Button
-                type="button"
-                onClick={() => {
-                  onAccept();
-                  onClose();
-                }}
-                className="px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-sm font-semibold text-white shadow-md shadow-amber-200/50 hover:shadow-lg hover:shadow-amber-200/60 transition-all duration-200"
-              >
-                Accept Invite
-              </Button>
-            </>
-          ) : (
-            <Button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 rounded-full border border-gray-200 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 transition-all duration-200"
-            >
-              Close
-            </Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
+  invitedAt: string;
+  invitedAtRaw: string;
+  respondBy: string;
+  respondByRaw: string;
+  acceptedAtRaw: string;
+  status: ApiInviteStatus;
+  appliedStatus: AppliedStatus;
+  matchScore: number;
+  brandRating: number;
+  image?: string;
+  images: string[];
+  campaignGoal: string;
+  raw: any;
+};
 
 /* -------------------------------------------------------------------------- */
 /* HELPERS                                                                    */
 /* -------------------------------------------------------------------------- */
 
-function formatDate(value?: string) {
-  if (!value) return "-";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
+function getStoredValue(keys: string[]) {
+  if (typeof window === "undefined") return "";
 
-  return d.toLocaleDateString("en-US", {
+  for (const key of keys) {
+    const value = window.localStorage.getItem(key);
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getInfluencerAuth() {
+  const influencerId = getStoredValue([
+    "influencerId",
+    "currentInfluencerId",
+    "influencer_id",
+    "userId",
+    "user_id",
+    "_id",
+  ]);
+
+  const token = getStoredValue([
+    "influencer_token",
+    "influencerToken",
+    "token",
+    "authToken",
+    "accessToken",
+  ]);
+
+  return { influencerId, token };
+}
+
+function getImageUrl(image: any) {
+  if (!image) return "";
+  if (typeof image === "string") return image;
+
+  return (
+    image?.dataUrl ||
+    image?.url ||
+    image?.path ||
+    image?.src ||
+    image?.imageUrl ||
+    image?.secureUrl ||
+    ""
+  );
+}
+
+function getFirstTextValue(source: any, keys: string[]) {
+  if (!source || typeof source !== "object") return "";
+
+  for (const key of keys) {
+    const value = source?.[key];
+
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function isMongoIdLike(value: string) {
+  return /^[a-f0-9]{24}$/i.test(value.trim());
+}
+
+function getCleanText(value: unknown) {
+  if (typeof value !== "string") return "";
+
+  const text = value.trim();
+
+  if (!text || isMongoIdLike(text)) return "";
+
+  return text;
+}
+
+function getMappedTextList(items: any, keys: string[]) {
+  if (!Array.isArray(items)) return [];
+
+  const values = items
+    .map((item) => {
+      const directValue = getCleanText(item);
+      if (directValue) return directValue;
+
+      if (item && typeof item === "object") {
+        for (const key of keys) {
+          const value = getCleanText(item?.[key]);
+          if (value) return value;
+        }
+      }
+
+      return "";
+    })
+    .filter(Boolean);
+
+  return Array.from(new Set(values));
+}
+
+function compactAgeLabel(ranges: string[]) {
+  const clean = ranges.filter(Boolean);
+
+  if (clean.length === 0) return "";
+
+  const numbers = clean
+    .flatMap((range) => String(range).match(/\d+/g) || [])
+    .map(Number)
+    .filter((num) => Number.isFinite(num));
+
+  if (numbers.length >= 2) {
+    return `${Math.min(...numbers)}-${Math.max(...numbers)}`;
+  }
+
+  return clean[0] || "";
+}
+
+function parseDate(value?: string | null) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date;
+}
+
+function formatDate(value?: string) {
+  const date = parseDate(value);
+  if (!date) return "-";
+
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }).format(date);
+}
+
+function isSameDay(a: Date | null, b: Date) {
+  if (!a) return false;
+
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+function isWithinLastHours(date: Date | null, hours: number) {
+  if (!date) return false;
+
+  const diff = Date.now() - date.getTime();
+  return diff >= 0 && diff <= hours * 60 * 60 * 1000;
+}
+
+function isWithinLastDays(date: Date | null, days: number) {
+  return isWithinLastHours(date, days * 24);
+}
+
+function normalizeForCompare(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizePlatformLabel(value?: string) {
+  const valueText = String(value || "").trim();
+  const v = valueText.toLowerCase();
+
+  if (!v) return "Unknown";
+  if (v.includes("instagram") || v === "insta") return "Instagram";
+  if (v.includes("youtube") || v === "yt") return "YouTube";
+  if (v.includes("tiktok") || v === "tt") return "TikTok";
+
+  return valueText || "Unknown";
 }
 
 function normalizeStatus(value: unknown): ApiInviteStatus {
-  const v = String(value || "").toLowerCase();
-  if (v === "accepted") return "accepted";
-  if (v === "reject") return "reject";
+  const status = normalizeForCompare(value);
+
+  if (status === "accepted") return "accepted";
+
+  if (status === "reject" || status === "rejected" || status === "declined") {
+    return "reject";
+  }
+
   return "sent";
 }
 
-function mapApiInviteToUi(inv: any): CampaignInvite {
+function isExpired(dateValue?: string) {
+  const date = parseDate(dateValue);
+  if (!date) return false;
+
+  return date.getTime() < Date.now();
+}
+
+function getAppliedStatus(
+  inv: any,
+  status: ApiInviteStatus,
+  respondByRaw: string
+): AppliedStatus {
+  if (status === "accepted") return "Accepted";
+  if (status === "reject") return "Rejected";
+
+  if (isExpired(respondByRaw)) return "Expired";
+
+  if (Boolean(inv?.shortlisted ?? inv?.isShortlisted ?? inv?.is_shortlisted)) {
+    return "Shortlisted";
+  }
+
+  if (Boolean(inv?.viewed ?? inv?.isViewed ?? inv?.seen ?? inv?.isSeen)) {
+    return "Viewed";
+  }
+
+  return "New";
+}
+
+function getBrandLogoUrl(invite: any) {
+  const logo =
+    invite?.brandLogo ||
+    invite?.brandLogoUrl ||
+    invite?.brandProfilePic ||
+    invite?.brandprofilepic ||
+    invite?.brand_profile_pic ||
+    invite?.brand?.logo ||
+    invite?.brand?.logoUrl ||
+    invite?.brand?.profilePic ||
+    invite?.brand?.profileImage ||
+    invite?.brand?.brandprofilepic ||
+    invite?.brand?.brandProfilePic ||
+    invite?.campaign?.brandLogo ||
+    invite?.campaign?.brandLogoUrl ||
+    invite?.campaign?.brandprofilepic ||
+    "";
+
+  return getImageUrl(logo);
+}
+
+function getCampaignImages(invite: any) {
+  const campaign = invite?.campaign || invite?.campaignData || invite;
+
+  const possibleLists = [
+    campaign?.productImages,
+    campaign?.images,
+    campaign?.imageUrls,
+    campaign?.campaignImages,
+    invite?.productImages,
+  ];
+
+  const list = possibleLists.find((items) => Array.isArray(items)) || [];
+  const images = list.map(getImageUrl).filter(Boolean);
+
+  const directImage =
+    getImageUrl(campaign?.imageUrl) ||
+    getImageUrl(campaign?.image) ||
+    getImageUrl(campaign?.thumbnail) ||
+    getImageUrl(invite?.imageUrl) ||
+    getImageUrl(invite?.image);
+
+  return Array.from(new Set([directImage, ...images].filter(Boolean)));
+}
+
+function getBudget(invite: any) {
   const singleBudget =
-    Number(inv?.campaignBudget ?? inv?.budget ?? inv?.budgetMax ?? inv?.budgetMin ?? 0) || 0;
+    Number(
+      invite?.campaignBudget ??
+        invite?.budget ??
+        invite?.budgetMax ??
+        invite?.budgetMin ??
+        invite?.campaign?.campaignBudget ??
+        invite?.campaign?.budget ??
+        0
+    ) || 0;
 
   const budgetMin =
-    Number(inv?.budgetMin ?? inv?.campaignBudgetMin ?? inv?.minBudget ?? singleBudget) || 0;
+    Number(
+      invite?.budgetMin ??
+        invite?.campaignBudgetMin ??
+        invite?.minBudget ??
+        invite?.campaign?.budgetMin ??
+        invite?.campaign?.minBudget ??
+        singleBudget
+    ) || 0;
 
   const budgetMax =
-    Number(inv?.budgetMax ?? inv?.campaignBudgetMax ?? inv?.maxBudget ?? singleBudget) || 0;
+    Number(
+      invite?.budgetMax ??
+        invite?.campaignBudgetMax ??
+        invite?.maxBudget ??
+        invite?.campaign?.budgetMax ??
+        invite?.campaign?.maxBudget ??
+        singleBudget
+    ) || 0;
 
-  const deliverables: Deliverable[] = Array.isArray(inv?.deliverables)
-    ? inv.deliverables.map((d: any) => ({
-        quantity: Number(d?.quantity ?? 1) || 1,
-        type: String(d?.type ?? d?.title ?? "Deliverable"),
-      }))
-    : [];
+  return { budgetMin, budgetMax };
+}
+
+function mapApiInviteToUi(inv: any): CampaignInvite {
+  const campaign = inv?.campaign || inv?.campaignData || inv;
+  const brand = inv?.brand || campaign?.brand || {};
+  const { budgetMin, budgetMax } = getBudget(inv);
+
+  const invitationId = String(inv?.invitationId ?? inv?._id ?? inv?.id ?? "");
+
+  const campaignId = String(
+    inv?.campaignId ??
+      campaign?.campaignId ??
+      campaign?._id ??
+      campaign?.id ??
+      ""
+  );
+
+  const status = normalizeStatus(inv?.status);
+
+  const invitedAtRaw = String(
+    inv?.sentAt ?? inv?.createdAt ?? inv?.invitedAt ?? ""
+  );
+
+  const respondByRaw = String(
+    inv?.respondBy ??
+      inv?.responseDeadline ??
+      campaign?.responseDeadline ??
+      campaign?.endAt ??
+      inv?.endAt ??
+      inv?.updatedAt ??
+      ""
+  );
+
+  const acceptedAtRaw = String(
+    inv?.acceptedAt ||
+      inv?.appliedAt ||
+      inv?.respondedAt ||
+      inv?.updatedAt ||
+      inv?.createdAt ||
+      ""
+  );
+
+  const images = getCampaignImages(inv);
+
+  const platforms = Array.isArray(campaign?.platformSelection)
+    ? campaign.platformSelection.map(normalizePlatformLabel).filter(Boolean)
+    : Array.isArray(inv?.platforms)
+      ? inv.platforms.map(normalizePlatformLabel).filter(Boolean)
+      : [normalizePlatformLabel(inv?.platform ?? campaign?.platform)].filter(
+          Boolean
+        );
+
+  const category = String(
+    inv?.category?.name ??
+      inv?.categoryName ??
+      inv?.category ??
+      campaign?.category?.name ??
+      campaign?.campaignCategory ??
+      campaign?.categories?.[0]?.categoryName ??
+      "General"
+  );
+
+  const categoryId = String(
+    inv?.category?._id ??
+      inv?.category?.id ??
+      inv?.categoryId ??
+      campaign?.category?._id ??
+      campaign?.category?.id ??
+      campaign?.categoryId ??
+      ""
+  );
+
+  const countries = [
+    getCleanText(campaign?.targetCountry),
+    getCleanText(inv?.targetCountry),
+    ...getMappedTextList(campaign?.targetCountries, [
+      "countryName",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getMappedTextList(campaign?.targetCountryDetails, [
+      "countryName",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getMappedTextList(campaign?.targetCountryIds, [
+      "countryName",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const ageRanges = [
+    ...getMappedTextList(campaign?.targetAgeRanges, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getMappedTextList(campaign?.targetAgeRangesDetails, [
+      "range",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const campaignGoals = [
+    ...getMappedTextList(campaign?.campaignGoalValues, [
+      "goal",
+      "name",
+      "label",
+      "title",
+    ]),
+    ...getMappedTextList(campaign?.campaignGoals, [
+      "goal",
+      "name",
+      "label",
+      "title",
+    ]),
+  ];
+
+  const campaignType =
+    getFirstTextValue(inv, [
+      "campaignType",
+      "type",
+      "paymentType",
+      "collaborationType",
+    ]) ||
+    getFirstTextValue(campaign, [
+      "campaignType",
+      "type",
+      "paymentType",
+      "collaborationType",
+    ]) ||
+    "Paid";
 
   return {
-    id: String(inv?._id ?? ""),
-    brandId: inv?.brandId ? String(inv.brandId) : undefined,
-    campaignId: inv?.campaignId ? String(inv.campaignId) : undefined,
-    brandName: String(inv?.brandName ?? "Brand"),
-    brandAvatar: String(inv?.brandName?.[0] ?? "B"),
-    invitedAt: formatDate(inv?.createdAt ?? inv?.sentAt),
-    respondBy: formatDate(inv?.respondBy ?? inv?.endAt ?? inv?.updatedAt),
-    status: normalizeStatus(inv?.status),
-
-    title: String(inv?.campaignTitle ?? "Untitled Campaign"),
-    description: String(inv?.description ?? ""),
-    category: String(inv?.category?.name ?? inv?.categoryName ?? inv?.category ?? "General"),
-    location: String(
-      inv?.location ?? inv?.targetCountries?.[0]?.name ?? inv?.targetCountry ?? "Remote"
+    id: invitationId,
+    brandId: brand?.brandId
+      ? String(brand.brandId)
+      : inv?.brandId
+        ? String(inv.brandId)
+        : brand?._id
+          ? String(brand._id)
+          : brand?.id
+            ? String(brand.id)
+            : undefined,
+    campaignId: campaignId || undefined,
+    brandName: String(
+      inv?.brandName ??
+        brand?.brandName ??
+        brand?.name ??
+        campaign?.brandName ??
+        campaign?.brand?.brandName ??
+        campaign?.brand?.name ??
+        "Brand"
     ),
-    platform: formatPlatform(inv?.platform),
+    brandLogo: getBrandLogoUrl(inv),
+    title: String(
+      inv?.campaignTitle ??
+        campaign?.campaignTitle ??
+        campaign?.campaignName ??
+        campaign?.title ??
+        "Untitled Campaign"
+    ),
+    description: String(
+      inv?.description ?? campaign?.description ?? "No description available."
+    ),
+    category,
+    categoryId,
+    campaignType,
+    platform: platforms.length > 1 ? "Multiple" : platforms[0] || "Unknown",
+    platforms: Array.from(new Set(platforms.length ? platforms : ["Unknown"])),
+    countries: Array.from(new Set(countries)).filter(Boolean),
+    ageLabel: compactAgeLabel(ageRanges),
+    gender: String(
+      campaign?.gender ?? campaign?.targetGender ?? campaign?.audienceGender ?? ""
+    ),
     budgetMin,
     budgetMax,
-    goals: Array.isArray(inv?.goals)
-      ? inv.goals.map((g: any) => String(g?.goal ?? g?.name ?? g))
-      : [],
-    ageGroups: Array.isArray(inv?.targetAgeRangesDetails)
-      ? inv.targetAgeRangesDetails.map((a: any) => String(a?.range ?? ""))
-      : Array.isArray(inv?.targetAgeRanges)
-      ? inv.targetAgeRanges.map((a: any) => String(a))
-      : [],
-
-    overview: String(inv?.description ?? ""),
-    deliverables,
-    paymentMethod: String(inv?.paymentType ?? inv?.paymentMethod ?? "To be discussed"),
-    paymentSchedule: String(inv?.paymentSchedule ?? "To be discussed"),
-    brandMessage: String(inv?.brandMessage ?? "No message provided."),
-    contentSubmission: formatDate(inv?.contentSubmission ?? inv?.submissionDate),
-    publishDate: formatDate(inv?.publishDate ?? inv?.startAt),
-    campaignEnd: formatDate(inv?.campaignEnd ?? inv?.endAt),
+    invitedAt: formatDate(invitedAtRaw),
+    invitedAtRaw,
+    respondBy: formatDate(respondByRaw),
+    respondByRaw,
+    acceptedAtRaw,
+    status,
+    appliedStatus: getAppliedStatus(inv, status, respondByRaw),
+    matchScore: Number(inv?.matchScore ?? campaign?.matchScore ?? 0),
+    brandRating: Number(
+      inv?.brandRating ?? inv?.brand?.rating ?? campaign?.brandRating ?? 0
+    ),
+    image: images[0] || "",
+    images,
+    campaignGoal: campaignGoals[0] || platforms[0] || "",
+    raw: inv,
   };
 }
 
-function formatBudget(min: number, max: number) {
-  if (min === max) return `₹${max.toLocaleString()}`;
-  return `₹${min.toLocaleString()} - ₹${max.toLocaleString()}`;
+function matchesSearch(invite: CampaignInvite, query: string) {
+  const q = normalizeForCompare(query);
+  if (!q) return true;
+
+  const searchableText = [
+    invite.title,
+    invite.description,
+    invite.brandName,
+    invite.category,
+    invite.campaignType,
+    invite.appliedStatus,
+    invite.platform,
+    ...invite.platforms,
+    ...invite.countries,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return normalizeForCompare(searchableText).includes(q);
 }
 
-/* -------------------------------------------------------------------------- */
-/* STAT CARD                                                                  */
-/* -------------------------------------------------------------------------- */
+function matchesSingle(value: string, selected: string) {
+  if (!selected || selected === "All") return true;
 
-function StatCard({
-  icon,
-  label,
-  count,
-  colorClass,
-  borderClass,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  colorClass: string;
-  borderClass: string;
-}) {
+  return normalizeForCompare(value).includes(normalizeForCompare(selected));
+}
+
+function matchesCategory(invite: CampaignInvite, selected: string[]) {
+  if (!selected.length || selected.includes("All")) return true;
+
+  const normalized = selected.map(normalizeForCompare);
+
   return (
-    <div
-      className={`bg-white rounded-[24px] border ${borderClass} p-4 flex items-center gap-3.5 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 group cursor-default`}
-    >
-      <div
-        className={`w-11 h-11 rounded-2xl ${colorClass} flex items-center justify-center shrink-0 transition-transform duration-300 group-hover:scale-105`}
-      >
-        {icon}
-      </div>
-
-      <div className="min-w-0">
-        <p className="text-xl font-bold text-gray-900 leading-none">{count}</p>
-        <p className="text-[11px] text-gray-400 font-medium mt-1 uppercase tracking-wider">
-          {label}
-        </p>
-      </div>
-    </div>
+    normalized.includes(normalizeForCompare(invite.categoryId)) ||
+    normalized.includes(normalizeForCompare(invite.category))
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* SKELETON LOADER                                                            */
-/* -------------------------------------------------------------------------- */
+function matchesPlatforms(invite: CampaignInvite, selected: string[]) {
+  if (!selected.length || selected.includes("All")) return true;
 
-function TableSkeleton() {
-  return (
-    <div className="overflow-hidden rounded-[26px] border border-gray-200/60 bg-white shadow-sm">
-      <div className="bg-gray-50/80 border-b border-gray-200/60 px-6 py-4 flex items-center gap-8">
-        {["w-28", "w-40", "w-24", "w-20", "w-32"].map((w, i) => (
-          <div key={i} className={`h-3 bg-gray-200 rounded-full ${w} animate-pulse`} />
-        ))}
-      </div>
+  const selectedPlatforms = selected
+    .map(normalizePlatformLabel)
+    .map(normalizeForCompare);
 
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div
-          key={i}
-          className="flex items-center gap-6 px-6 py-5 border-b border-gray-100/60 last:border-0"
-        >
-          <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse shrink-0" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3.5 bg-gray-200 rounded-full w-32 animate-pulse" />
-            <div className="h-2.5 bg-gray-100 rounded-full w-24 animate-pulse" />
-          </div>
-          <div className="h-3.5 bg-gray-200 rounded-full w-40 animate-pulse hidden md:block" />
-          <div className="h-3.5 bg-gray-200 rounded-full w-20 animate-pulse hidden md:block" />
-          <div className="h-7 bg-gray-200 rounded-full w-24 animate-pulse" />
-          <div className="h-9 bg-gray-200 rounded-full w-32 animate-pulse" />
-        </div>
-      ))}
-    </div>
+  const invitePlatforms = invite.platforms
+    .map(normalizePlatformLabel)
+    .map(normalizeForCompare);
+
+  return selectedPlatforms.some((platform) =>
+    invitePlatforms.includes(platform)
   );
+}
+
+function matchesBudget(invite: CampaignInvite, selected: string) {
+  if (!selected || selected === "All") return true;
+
+  const budget = Number(invite.budgetMax || invite.budgetMin || 0);
+
+  switch (selected) {
+    case "Under $100":
+      return budget < 100;
+    case "$100 - $500":
+      return budget >= 100 && budget <= 500;
+    case "$500 - $1000":
+      return budget > 500 && budget <= 1000;
+    case "$1,000 - $5,000":
+      return budget > 1000 && budget <= 5000;
+    case "$5000+":
+      return budget > 5000;
+    default:
+      return true;
+  }
+}
+
+function matchesDateOption(value: string, selected: string) {
+  if (!selected || selected === "All") return true;
+
+  const date = parseDate(value);
+  const now = new Date();
+
+  switch (selected) {
+    case "Today":
+      return isSameDay(date, now);
+    case "Last 24 Hours":
+      return isWithinLastHours(date, 24);
+    case "Last 7 Days":
+      return isWithinLastDays(date, 7);
+    case "Last 30 Days":
+      return isWithinLastDays(date, 30);
+    default:
+      return true;
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -577,25 +658,33 @@ function TableSkeleton() {
 /* -------------------------------------------------------------------------- */
 
 export default function InvitesPage() {
+  const [filters, setFilters] = useState<InvitationFilterState>(
+    EMPTY_INVITATION_FILTERS
+  );
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortValue, setSortValue] = useState("Newest Invitation");
+
   const [invites, setInvites] = useState<CampaignInvite[]>([]);
-  const [detailsInvite, setDetailsInvite] = useState<CampaignInvite | null>(null);
+  const [selectedInviteId, setSelectedInviteId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const router = useRouter();
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const fetchInvites = useCallback(async () => {
     try {
       setLoading(true);
       setError("");
 
-      const influencerId =
-        typeof window !== "undefined"
-          ? localStorage.getItem("influencerId") || localStorage.getItem("userId") || ""
-          : "";
-
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+      const { influencerId, token } = getInfluencerAuth();
 
       if (!influencerId) {
         setInvites([]);
@@ -611,13 +700,21 @@ export default function InvitesPage() {
         token || undefined
       );
 
-      const mapped = Array.isArray(res?.invitations)
-        ? res.invitations.map(mapApiInviteToUi)
-        : [];
+      const items = Array.isArray((res as any)?.invitations)
+        ? (res as any).invitations
+        : Array.isArray((res as any)?.data?.invitations)
+          ? (res as any).data.invitations
+          : Array.isArray((res as any)?.data)
+            ? (res as any).data
+            : [];
+
+      const mapped = items
+        .map(mapApiInviteToUi)
+        .filter((item: CampaignInvite) => item.id);
 
       setInvites(mapped);
     } catch (err) {
-      setError(getApiErrorMessage(err, "Failed to load campaign invites"));
+      setError(getApiErrorMessage(err, "Failed to load campaign invitations."));
       setInvites([]);
     } finally {
       setLoading(false);
@@ -626,315 +723,247 @@ export default function InvitesPage() {
 
   useEffect(() => {
     fetchInvites();
-  }, [fetchInvites]);
+  }, [fetchInvites, refreshKey]);
 
-  const handleAccept = (id: string) => {
+  const filteredInvites = useMemo(() => {
+    const filtered = invites.filter((invite) => {
+      return (
+        matchesSearch(invite, debouncedSearch) &&
+        matchesSingle(invite.campaignType, filters["Campaign Type"]) &&
+        matchesCategory(invite, filters.Category) &&
+        matchesDateOption(invite.invitedAtRaw, filters["Invitation Date"]) &&
+        matchesBudget(invite, filters.Budget) &&
+        matchesSingle(invite.appliedStatus, filters["Applied Status"]) &&
+        matchesDateOption(
+          invite.respondByRaw || invite.invitedAtRaw,
+          filters.Date
+        ) &&
+        matchesPlatforms(invite, filters.Platform)
+      );
+    });
+
+    switch (sortValue) {
+      case "Highest Budget":
+        filtered.sort((a, b) => b.budgetMax - a.budgetMax);
+        break;
+      case "Highest Match Score":
+        filtered.sort((a, b) => b.matchScore - a.matchScore);
+        break;
+      case "Response Deadline":
+        filtered.sort((a, b) => {
+          const aTime =
+            parseDate(a.respondByRaw)?.getTime() ?? Number.POSITIVE_INFINITY;
+          const bTime =
+            parseDate(b.respondByRaw)?.getTime() ?? Number.POSITIVE_INFINITY;
+
+          return aTime - bTime;
+        });
+        break;
+      case "Highest Brand Rating":
+        filtered.sort((a, b) => b.brandRating - a.brandRating);
+        break;
+      case "Newest Invitation":
+      default:
+        filtered.sort((a, b) => {
+          const aTime = parseDate(a.invitedAtRaw)?.getTime() ?? 0;
+          const bTime = parseDate(b.invitedAtRaw)?.getTime() ?? 0;
+
+          return bTime - aTime;
+        });
+        break;
+    }
+
+    return filtered;
+  }, [invites, debouncedSearch, filters, sortValue]);
+
+  const selectedInvite = useMemo(() => {
+    if (!filteredInvites.length) return null;
+
+    return (
+      filteredInvites.find((invite) => invite.id === selectedInviteId) ||
+      filteredInvites[0]
+    );
+  }, [filteredInvites, selectedInviteId]);
+
+  useEffect(() => {
+    if (!filteredInvites.length) {
+      setSelectedInviteId("");
+      return;
+    }
+
+    if (!selectedInviteId) {
+      setSelectedInviteId(filteredInvites[0].id);
+      return;
+    }
+
+    const stillExists = filteredInvites.some(
+      (invite) => invite.id === selectedInviteId
+    );
+
+    if (!stillExists) {
+      setSelectedInviteId(filteredInvites[0].id);
+    }
+  }, [filteredInvites, selectedInviteId]);
+
+  const openCampaign = (invite: CampaignInvite) => {
+    setSelectedInviteId(invite.id);
+  };
+
+  const markAccepted = (inviteId?: string) => {
+    if (!inviteId) return;
+
+    const now = new Date().toISOString();
+
     setInvites((prev) =>
-      prev.map((inv) => (inv.id === id ? { ...inv, status: "accepted" } : inv))
+      prev.map((invite) =>
+        invite.id === inviteId
+          ? {
+              ...invite,
+              status: "accepted",
+              appliedStatus: "Accepted",
+              acceptedAtRaw: now,
+            }
+          : invite
+      )
     );
   };
 
-  const handleDecline = (id: string) => {
-    setInvites((prev) =>
-      prev.map((inv) => (inv.id === id ? { ...inv, status: "reject" } : inv))
-    );
-  };
-
-  const filtered = useMemo(() => {
-    return invites.filter((inv) => {
-      const term = search.toLowerCase();
-      return inv.title.toLowerCase().includes(term) || inv.brandName.toLowerCase().includes(term);
-    });
-  }, [invites, search]);
-
-  const counts = useMemo(() => {
-    const c = {
-      all: invites.length,
-      sent: 0,
-      accepted: 0,
-      reject: 0,
-    };
-
-    invites.forEach((inv) => {
-      c[inv.status] += 1;
-    });
-
-    return c;
-  }, [invites]);
+  const getCardProps = (
+    invite: CampaignInvite
+  ): InfluencerDiscoverCardProps => ({
+    title: invite.title,
+    description: invite.description,
+    imageUrl: invite.image,
+    imageUrls: invite.images,
+    brandName: invite.brandName,
+    brandLogoUrl: invite.brandLogo,
+    campaignGoal: invite.campaignGoal,
+    category: invite.category,
+    ageLabel: invite.ageLabel,
+    gender: invite.gender,
+    countries: invite.countries,
+    budget: invite.budgetMax || invite.budgetMin,
+    viewedCount: invite.matchScore,
+    applicantAvatars: [],
+    onCardClick: () => openCampaign(invite),
+    onSave: () => {
+      // discard invitation API can be added here
+    },
+    onMore: () => openCampaign(invite),
+    isInvitationCard: true,
+    invitationStatus: invite.status,
+    hasApplied: invite.status === "accepted",
+    receivedDate: invite.invitedAtRaw,
+    brandActiveText: "",
+    className:
+      selectedInvite?.id === invite.id
+        ? "ring-1 ring-[#1A1A1A]/10"
+        : undefined,
+  });
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.08),_transparent_28%),_#F7F8FA]">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-          <div className="relative overflow-hidden rounded-[30px] border border-white/60 bg-white/80 backdrop-blur-sm shadow-sm">
-            <div className="absolute inset-0 bg-gradient-to-r from-amber-50/60 via-transparent to-orange-50/40 pointer-events-none" />
-            <div className="relative px-6 py-6 sm:px-7 sm:py-7 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-              <div>
+      <div className="min-h-screen bg-white">
+        <InvitationFilter
+          filters={filters}
+          setFilters={setFilters}
+          search={search}
+          setSearch={setSearch}
+          sortValue={sortValue}
+          setSortValue={setSortValue}
+        />
 
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 tracking-tight">
-                  Campaign Invites
-                </h1>
-                <p className="text-gray-500 text-sm mt-1.5 font-medium max-w-2xl">
-                  Review, accept, and manage collaboration opportunities from brands in one clean
-                  dashboard.
-                </p>
-              </div>
-
-              {counts.sent > 0 && (
-                <div className="shrink-0 flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 px-4 py-2.5 shadow-sm">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-60" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-                  </span>
-                  <span className="text-sm font-semibold text-amber-700">
-                    {counts.sent} pending {counts.sent === 1 ? "invite" : "invites"}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <StatCard
-              icon={<Inbox className="h-5 w-5 text-white" />}
-              label="Total"
-              count={counts.all}
-              colorClass="bg-gray-900"
-              borderClass="border-gray-200/60"
-            />
-            <StatCard
-              icon={<Clock className="h-5 w-5 text-amber-600" />}
-              label="Pending"
-              count={counts.sent}
-              colorClass="bg-amber-50"
-              borderClass="border-amber-100"
-            />
-            <StatCard
-              icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />}
-              label="Accepted"
-              count={counts.accepted}
-              colorClass="bg-emerald-50"
-              borderClass="border-emerald-100"
-            />
-            <StatCard
-              icon={<XCircle className="h-5 w-5 text-red-500" />}
-              label="Declined"
-              count={counts.reject}
-              colorClass="bg-red-50"
-              borderClass="border-red-100"
-            />
-          </div>
-
-          <div className="bg-white rounded-[24px] border border-gray-200/60 shadow-sm p-3 sm:p-4">
-            <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4">
-              <div className="flex items-center gap-1 bg-gray-50 rounded-full p-1 border border-gray-200/60">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-200 bg-gray-900 text-white shadow-sm"
-                >
-                  <span>All Invites</span>
-                  <span className="inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold bg-white/20 text-white/90">
-                    {counts.all}
-                  </span>
-                </button>
-              </div>
-
-              <div className="relative w-full xl:w-auto xl:min-w-[360px]">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search campaigns or brands..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-11 pr-10 h-11 rounded-full bg-gray-50 border-gray-200/70 shadow-none focus:ring-2 focus:ring-amber-200/50 focus:border-amber-300 transition-all duration-200"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-gray-100 transition"
-                  >
-                    <X className="h-3.5 w-3.5 text-gray-400" />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-
+        <main className="mx-auto max-w-full px-6 pb-0 pt-8">
           {loading ? (
-            <TableSkeleton />
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-[26px] border border-gray-200/60 shadow-sm">
-              <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mb-4">
-                <AlertCircle className="h-6 w-6 text-red-500" />
-              </div>
-              <p className="text-gray-900 font-semibold text-base">Unable to load invites</p>
-              <p className="text-gray-400 text-sm mt-1 max-w-sm">{error}</p>
-              <Button
-                type="button"
-                onClick={fetchInvites}
-                className="mt-5 px-5 py-2.5 rounded-full bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-all duration-200"
-              >
-                Try Again
-              </Button>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-[31.5rem] w-full max-w-[22.0625rem] animate-pulse rounded-[1.5rem] border border-[#E6E6E6] bg-[#F7F7F7]"
+                />
+              ))}
             </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-center bg-white rounded-[26px] border border-gray-200/60 shadow-sm">
-              <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-                <Search className="h-6 w-6 text-gray-400" />
-              </div>
-              <p className="text-gray-900 font-semibold text-base">No invites found</p>
-              <p className="text-gray-400 text-sm mt-1">
-                Try adjusting your filters or search term.
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-red-200 bg-red-50 px-6 py-16 text-center">
+              <AlertCircle className="h-8 w-8 text-red-500" />
+
+              <h2 className="mt-4 text-base font-semibold text-red-700">
+                Unable to load invitations
+              </h2>
+
+              <p className="mt-1 max-w-md text-sm text-red-600/80">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setRefreshKey((value) => value + 1)}
+                className="mt-5 rounded-[0.75rem] bg-[#1A1A1A] px-4 py-2 text-sm font-semibold text-white"
+              >
+                Retry
+              </button>
+            </div>
+          ) : filteredInvites.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white px-6 py-16 text-center">
+              <Search className="h-8 w-8 text-[#969696]" />
+
+              <h2 className="mt-4 text-base font-semibold text-[#1A1A1A]">
+                No invitations found
+              </h2>
+
+              <p className="mt-1 max-w-md text-sm text-[#969696]">
+                Try changing the search, status, budget, date, or platform
+                filters.
               </p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-[26px] border border-gray-200/60 bg-white shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/80 border-b border-gray-200/60">
-                      <th className="px-6 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Brand
-                      </th>
-                      <th className="px-6 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Campaign
-                      </th>
-                      <th className="px-6 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Budget
-                      </th>
-                      <th className="px-6 py-4 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th className="px-6 py-4 text-center text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
+            <div className="flex h-[calc(100dvh-10rem)] min-h-[40rem] w-full items-stretch overflow-hidden">
+              <section className="w-[22.0625rem] shrink-0 overflow-y-auto pr-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                <div className="flex flex-col gap-[1.5rem] pb-8">
+                  {filteredInvites.map((invite) => (
+                    <CampaignCard key={invite.id} {...getCardProps(invite)} />
+                  ))}
+                </div>
+              </section>
 
-                  <tbody className="divide-y divide-gray-100/80">
-                    {filtered.map((inv) => (
-                      <tr
-                        key={inv.id}
-                        className="group hover:bg-gradient-to-r hover:from-amber-50/40 hover:to-transparent transition-all duration-200"
-                      >
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-11 h-11 rounded-full bg-gradient-to-br ${getAvatarGradient(
-                                inv.brandName
-                              )} flex items-center justify-center text-sm font-bold text-white shadow-sm group-hover:shadow-md transition-shadow duration-200`}
-                            >
-                              {inv.brandName?.[0] ?? "B"}
-                            </div>
-
-                            <div className="min-w-0">
-                              <p className="font-semibold text-gray-900 text-[13px] truncate">
-                                {inv.brandName}
-                              </p>
-                              <p className="text-[11px] text-gray-400">{inv.invitedAt}</p>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4 max-w-[320px]">
-                          <div className="min-w-0">
-                            <p className="font-semibold text-gray-900 text-[13px] truncate">
-                              {inv.title}
-                            </p>
-                            <p className="text-[11px] text-gray-400 line-clamp-1 mt-0.5">
-                              {inv.description || "No description available"}
-                            </p>
-
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <span className="inline-flex items-center gap-1 rounded-full bg-red-200 px-2.5 py-1 text-[10px] font-medium text-black">
-                                {inv.platform}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-gray-900 text-[13px] whitespace-nowrap">
-                              {formatBudget(inv.budgetMin, inv.budgetMax)}
-                            </span>
-                            <span className="text-[11px] text-gray-400 mt-0.5">
-                              Response by {inv.respondBy}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className="px-6 py-4">
-                          {inv.status === "accepted" ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200/60 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                              Accepted
-                            </span>
-                          ) : inv.status === "reject" ? (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 border border-red-200/60 px-2.5 py-1 text-[11px] font-semibold text-red-600 shadow-sm">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                              Declined
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 border border-amber-200/60 px-2.5 py-1 text-[11px] font-semibold text-amber-700 shadow-sm">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                              Pending
-                            </span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <Button
-                              type="button"
-                              onClick={() => {
-                                if (inv.campaignId) {
-                                  router.push(
-                                    `/influencer/invitations/${inv.campaignId}?invitationId=${inv.id}`
-                                  );
-                                } else {
-                                  setDetailsInvite(inv);
-                                }
-                              }}
-                              className="inline-flex items-center gap-1.5 rounded-full bg-gray-900 px-3.5 py-2 text-[12px] font-medium text-white hover:bg-gray-800 transition-all duration-200 shadow-sm hover:shadow-md"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                              View Campaign
-                            </Button>
-
-                            {inv.status === "accepted" && (
-                              <Button
-                                type="button"
-                                onClick={() => {
-                                  router.push("/influencer/my-campaigns/view-milestone");
-                                }}
-                                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3.5 py-2 text-[12px] font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all duration-200"
-                              >
-                                <ArrowUpRight className="h-3.5 w-3.5" />
-                                View Milestones
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div
+                className={[
+                  "flex w-[0.625rem] shrink-0 items-start justify-center",
+                  "gap-[0.5rem] self-stretch",
+                  "px-[0.0625rem] pb-[0.0625rem] pt-[2rem]",
+                ].join(" ")}
+              >
+                <div className="h-full w-[0.25rem] rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] bg-[#E6E6E6]" />
               </div>
+
+              <section className="min-w-0 flex-1 overflow-hidden">
+                {selectedInvite?.campaignId ? (
+                  <SidebarCampaign
+                    campaignId={selectedInvite.campaignId}
+                    invitationId={selectedInvite.id}
+                    invitationStatus={selectedInvite.status}
+                    invitationBrandLogo={selectedInvite.brandLogo}
+                    invitationAppliedAt={
+                      selectedInvite.acceptedAtRaw ||
+                      selectedInvite.raw?.acceptedAt ||
+                      selectedInvite.raw?.appliedAt ||
+                      selectedInvite.raw?.respondedAt ||
+                      selectedInvite.raw?.updatedAt ||
+                      selectedInvite.invitedAtRaw
+                    }
+                    onInvitationAccepted={markAccepted}
+                    embedded
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white text-sm text-[#969696]">
+                    Select an invitation to view campaign details.
+                  </div>
+                )}
+              </section>
             </div>
           )}
-        </div>
+        </main>
       </div>
-
-      {detailsInvite && (
-        <CampaignDetailsModal
-          invite={detailsInvite}
-          open={!!detailsInvite}
-          onClose={() => setDetailsInvite(null)}
-          onAccept={() => handleAccept(detailsInvite.id)}
-          onDecline={() => handleDecline(detailsInvite.id)}
-        />
-      )}
     </TooltipProvider>
   );
 }

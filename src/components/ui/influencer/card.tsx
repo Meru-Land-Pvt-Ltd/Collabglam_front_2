@@ -48,6 +48,12 @@ export type InfluencerDiscoverCardProps = {
   isAppliedCard?: boolean;
   appliedDate?: string;
 
+  /** Use true only for Direct Invitation listing */
+  isInvitationCard?: boolean;
+  receivedDate?: string;
+  brandActiveText?: string;
+  invitationStatus?: string;
+
   className?: string;
 };
 
@@ -68,6 +74,18 @@ function formatAppliedDate(value?: string) {
   if (Number.isNaN(date.getTime())) return "Applied";
 
   return `Applied on ${new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+  }).format(date)}`;
+}
+
+function formatReceivedDate(value?: string) {
+  if (!value) return "Received";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Received";
+
+  return `Received on ${new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "long",
   }).format(date)}`;
@@ -354,12 +372,19 @@ export default function CampaignCard({
   hasApplied = false,
   isAppliedCard = false,
   appliedDate,
+  isInvitationCard = false,
+  receivedDate,
+  brandActiveText,
+  invitationStatus,
   className,
 }: InfluencerDiscoverCardProps) {
   const [descriptionExpanded, setDescriptionExpanded] = React.useState(false);
   const [activeImageIndex, setActiveImageIndex] = React.useState(0);
 
   const initials = getBrandInitials(brandName);
+  const isAcceptedInvitation =
+    isInvitationCard &&
+    String(invitationStatus || "").trim().toLowerCase() === "accepted";
   const cleanCountries = countries.filter(Boolean).slice(0, 3);
   const cleanDescription = String(description || "").trim();
   const hasDescription = Boolean(cleanDescription);
@@ -420,14 +445,14 @@ export default function CampaignCard({
       role={onCardClick ? "button" : undefined}
       tabIndex={onCardClick ? 0 : undefined}
       className={cn(
-        "relative flex h-full w-[22.0625rem] flex-col overflow-hidden rounded-[1.5rem]",
+        "relative flex w-full max-w-[22.0625rem] max-h-[31.5rem] flex-col overflow-hidden rounded-[1.5rem]",
         "border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-white",
         onCardClick &&
         "cursor-pointer transition hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
         className
       )}
     >
-      <div className="relative h-[13rem] w-full overflow-visible bg-[#F2F2F2]">
+      <div className="relative h-[11rem] max-h-[11rem] w-full shrink-0 overflow-visible bg-[#F2F2F2]">
         <div className="h-full w-full overflow-hidden rounded-t-[1.5rem]">
           {activeImage ? (
             <img
@@ -514,7 +539,7 @@ export default function CampaignCard({
 
       <div
         className={[
-          "flex flex-1 flex-col items-start justify-center self-stretch",
+          "flex max-h-[20.5rem] flex-1 flex-col items-start justify-center self-stretch overflow-hidden",
           "gap-[0.75rem] px-[1.25rem] pb-[1.75rem] pt-[2.5rem]",
         ].join(" ")}
       >
@@ -671,23 +696,33 @@ export default function CampaignCard({
           </div>
         ) : null}
 
-        {isAppliedCard ? (
-          <div
-            className={[
-              "flex w-fit items-center justify-center gap-[0.25rem] self-stretch",
-              "rounded-[var(--Corner-radius-16,1rem)]",
-              "border border-[var(--Light-Border-Subtle,#E6E6E6)]",
-              "px-[0.25rem] py-[0.25rem]",
-            ].join(" ")}
-          >
-            <CheckCircle
-              weight="fill"
-              className="h-[0.875rem] w-[0.875rem] text-[#28A745]"
-            />
+        {isAppliedCard || isInvitationCard ? (
+          <div className="flex w-full items-center justify-between gap-[0.75rem]">
+            <div
+              className={[
+                "flex w-fit items-center justify-center gap-[0.25rem]",
+                "rounded-[var(--Corner-radius-16,1rem)]",
+                "border border-[var(--Light-Border-Subtle,#E6E6E6)]",
+                "px-[0.25rem] py-[0.25rem]",
+              ].join(" ")}
+            >
+              <CheckCircle
+                weight="fill"
+                className="h-[0.875rem] w-[0.875rem] text-[#28A745]"
+              />
 
-            <span className="text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
-              {formatAppliedDate(appliedDate)}
-            </span>
+              <span className="text-[0.75rem] font-medium leading-[1rem] text-[#1A1A1A]">
+                {isInvitationCard
+                  ? formatReceivedDate(receivedDate)
+                  : formatAppliedDate(appliedDate)}
+              </span>
+            </div>
+
+            {isInvitationCard && brandActiveText ? (
+              <span className="min-w-0 truncate text-right text-[0.75rem] font-normal leading-[1rem] text-[#969696]">
+                {brandActiveText}
+              </span>
+            ) : null}
           </div>
         ) : (
           <div className="flex w-full items-center gap-[1rem]">
@@ -721,14 +756,24 @@ export default function CampaignCard({
           </div>
 
           <div className="ml-auto flex items-center gap-[0.5rem]">
-            {isAppliedCard ? (
+            {isAppliedCard || isInvitationCard ? (
               <>
                 <button
                   type="button"
-                  aria-label="Remove applied campaign"
+                  aria-label={
+                    isInvitationCard
+                      ? "Discard invitation"
+                      : "Remove applied campaign"
+                  }
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
+
+                    if (isInvitationCard) {
+                      onSave?.();
+                      return;
+                    }
+
                     onDeleteApplied?.();
                   }}
                   className={[
@@ -741,25 +786,27 @@ export default function CampaignCard({
                   <Trash size={16} />
                 </button>
 
-                <button
-                  type="button"
-                  disabled
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }}
-                  className={[
-                    "flex h-[2rem] w-[5rem] items-center justify-center",
-                    "rounded-[var(--Border-Radius-S,0.5rem)]",
-                    "bg-[var(--Light-Background-Disabled,#F5F5F5)]",
-                    "px-[0.5rem]",
-                    "text-[0.875rem] font-semibold leading-[1.25rem]",
-                    "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
-                    "disabled:cursor-not-allowed",
-                  ].join(" ")}
-                >
-                  Applied
-                </button>
+                {isAppliedCard || isAcceptedInvitation ? (
+                  <button
+                    type="button"
+                    disabled
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    className={[
+                      "flex h-[2rem] w-[5rem] items-center justify-center",
+                      "rounded-[var(--Border-Radius-S,0.5rem)]",
+                      "bg-[var(--Light-Background-Disabled,#F5F5F5)]",
+                      "px-[0.5rem]",
+                      "text-[0.875rem] font-semibold leading-[1.25rem]",
+                      "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+                      "disabled:cursor-not-allowed",
+                    ].join(" ")}
+                  >
+                    {isAcceptedInvitation ? "Accepted" : "Applied"}
+                  </button>
+                ) : null}
               </>
             ) : (
               <>
