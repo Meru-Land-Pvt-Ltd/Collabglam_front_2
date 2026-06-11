@@ -2,7 +2,9 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import MyCampaignNavbarGate from "./myCampaignNavGate";
 import CampaignCard from "@/components/ui/influencer/card";
+import MyCampaignCard from "@/components/ui/influencer/myCamapignCard";
 import CampaignFilter, {
   DEFAULT_DATE_FILTER,
   type DateFilterValue,
@@ -55,8 +57,13 @@ type CampaignData = {
   isContracted: number;
   contractId: string;
   hasApplied: number;
+  appliedDate: string;
   productImages: CampaignImage[];
   imageUrls: string[];
+  platforms: string[];
+  milestoneCurrent: number;
+  milestoneTotal: number;
+  currentMilestoneName: string;
   campaignGoalValues: string[];
   targetAgeGroupValues: string[];
   targetCountryValues: string[];
@@ -324,6 +331,101 @@ function normalizeRejectedItem(item: any) {
   };
 }
 
+function normalizePlatformLabel(value?: string) {
+  const v = String(value || "").trim().toLowerCase();
+
+  if (!v) return "";
+  if (v.includes("youtube") || v === "yt") return "youtube";
+  if (v.includes("instagram") || v === "insta") return "instagram";
+  if (v.includes("tiktok") || v === "tt") return "tiktok";
+
+  return v;
+}
+
+function getPlatformValues(campaign: any) {
+  const rawPlatforms =
+    campaign?.platformSelection ||
+    campaign?.platforms ||
+    campaign?.selectedPlatforms ||
+    campaign?.details?.platforms ||
+    [];
+
+  return Array.from(
+    new Set(
+      asArray(rawPlatforms)
+        .map((item) =>
+          typeof item === "string"
+            ? normalizePlatformLabel(item)
+            : normalizePlatformLabel(item?.name || item?.label || item?.platform)
+        )
+        .filter(Boolean)
+    )
+  );
+}
+
+function getMilestoneStats(source: any) {
+  const campaignDoc = source?.campaign || source?.campaignData || source || {};
+
+  const milestones = Array.isArray(campaignDoc?.milestones)
+    ? campaignDoc.milestones
+    : Array.isArray(source?.milestones)
+      ? source.milestones
+      : [];
+
+  const total =
+    Number(campaignDoc?.totalMilestones) ||
+    Number(source?.totalMilestones) ||
+    milestones.length ||
+    5;
+
+  const completed =
+    Number(campaignDoc?.completedMilestones) ||
+    Number(source?.completedMilestones) ||
+    milestones.filter((item: any) => {
+      const status = String(item?.status || "").toLowerCase();
+      return status === "completed" || status === "approved";
+    }).length ||
+    0;
+
+  const currentMilestone =
+    milestones.find((item: any) => {
+      const status = String(item?.status || "").toLowerCase();
+      return status !== "completed" && status !== "approved";
+    }) || milestones[0];
+
+  return {
+    milestoneCurrent: completed,
+    milestoneTotal: total,
+    currentMilestoneName:
+      currentMilestone?.name ||
+      currentMilestone?.title ||
+      currentMilestone?.milestoneName ||
+      "Milestone Name",
+  };
+}
+
+function getCardStatus(campaign: CampaignData) {
+  const status = normStatus(campaign.status || campaign.campaignStatus);
+
+  if (status === "REJECTED") {
+    return { statusVariant: "rejected", statusLabel: "Rejected" };
+  }
+
+  if (status === "COMPLETED" || campaign.isContracted === 1) {
+    return { statusVariant: "completed", statusLabel: "Completed" };
+  }
+
+  if (status === "PENDING") {
+    return { statusVariant: "pending", statusLabel: "Pending" };
+  }
+
+  if (campaign.daysLeft <= 0 && campaign.timeline.endDate) {
+    return { statusVariant: "delayed", statusLabel: "Delayed" };
+  }
+
+  return { statusVariant: "on_time", statusLabel: "On time" };
+}
+
 function mapApiCampaign(source: any): CampaignData {
   const campaignDoc = source?.campaign || source?.campaignData || source || {};
   const details = campaignDoc?.details || {};
@@ -360,7 +462,7 @@ function mapApiCampaign(source: any): CampaignData {
     details?.category?.name,
     Array.isArray(campaignDoc.categories) && campaignDoc.categories.length > 0
       ? campaignDoc.categories[0]?.subcategoryName ||
-          campaignDoc.categories[0]?.categoryName
+      campaignDoc.categories[0]?.categoryName
       : ""
   );
 
@@ -440,11 +542,14 @@ function mapApiCampaign(source: any): CampaignData {
 
   const budget = Number(
     campaignDoc.campaignBudget ||
-      campaignDoc.budget ||
-      campaignDoc.influencerBudget ||
-      source?.feeAmount ||
-      0
+    campaignDoc.budget ||
+    campaignDoc.influencerBudget ||
+    source?.feeAmount ||
+    0
   );
+
+  const platforms = getPlatformValues(campaignDoc);
+  const milestoneStats = getMilestoneStats(source);
 
   return {
     id,
@@ -472,25 +577,33 @@ function mapApiCampaign(source: any): CampaignData {
     brandLogoUrl: getBrandLogoUrl(campaignDoc),
     applications: Number(
       campaignDoc.applicantCount ||
-        campaignDoc.applicationsCount ||
-        source?.applicantCount ||
-        0
+      campaignDoc.applicationsCount ||
+      source?.applicantCount ||
+      0
     ),
     timeline: { startDate, endDate },
     isActive: Number(campaignDoc.isActive ?? 1),
     isApproved: Number(
       campaignDoc.isApproved ??
-        campaignDoc.hasApproved ??
-        source?.hasApproved ??
-        1
+      campaignDoc.hasApproved ??
+      source?.hasApproved ??
+      1
     ),
     isContracted: Number(
       campaignDoc.isContracted ?? (resolvedContractId ? 1 : 0)
     ),
     contractId: resolvedContractId,
     hasApplied: Number(campaignDoc.hasApplied ?? source?.hasApplied ?? 1),
+    appliedDate: getFirstString(
+      source?.appliedDate,
+      source?.appliedAt,
+      source?.application?.appliedAt,
+      campaignDoc.appliedDate,
+      campaignDoc.appliedAt
+    ),
     productImages,
     imageUrls,
+    platforms,
     campaignGoalValues: Array.from(new Set(campaignGoalValues)),
     targetAgeGroupValues: Array.from(new Set(targetAgeGroupValues)),
     targetCountryValues: Array.from(new Set(targetCountryValues)),
@@ -504,6 +617,9 @@ function mapApiCampaign(source: any): CampaignData {
     paymentType: getFirstString(campaignDoc.paymentType, details.paymentType),
     campaignType: getFirstString(campaignDoc.campaignType, details.campaignType),
     byAi: Number(campaignDoc.byAi ?? source?.byAi ?? 0) === 1,
+    milestoneCurrent: milestoneStats.milestoneCurrent,
+    milestoneTotal: milestoneStats.milestoneTotal,
+    currentMilestoneName: milestoneStats.currentMilestoneName,
   };
 }
 
@@ -678,8 +794,8 @@ export default function MyCampaignsContent({
     } catch (error: any) {
       setFetchError(
         error?.response?.data?.message ||
-          error?.message ||
-          "Failed to load campaigns."
+        error?.message ||
+        "Failed to load campaigns."
       );
       setCampaigns([]);
     } finally {
@@ -782,25 +898,8 @@ export default function MyCampaignsContent({
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="mx-auto max-w-[1400px] px-6 py-10">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-[2rem] font-bold leading-[2.5rem] text-[#1A1A1A]">
-              {config.heading}
-            </h1>
-
-            <p className="mt-1 text-sm text-[#969696]">{config.subheading}</p>
-          </div>
-
-          <button
-            type="button"
-            onClick={fetchCampaigns}
-            disabled={isLoading}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-[#E6E6E6] bg-white px-4 text-sm font-semibold text-[#1A1A1A] transition hover:bg-[#F7F7F7] disabled:opacity-60"
-          >
-            {isLoading ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
+      <MyCampaignNavbarGate />
+      <div className="mx-auto max-w-full px-6 py-10">
 
         {fetchError ? (
           <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -869,29 +968,70 @@ export default function MyCampaignsContent({
             </div>
           ) : (
             <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {filteredCampaigns.map((campaign) => (
-                <CampaignCard
-                  key={campaign.id}
-                  title={campaign.title}
-                  description={campaign.description}
-                  imageUrl={campaign.imageUrls[0]}
-                  imageUrls={campaign.imageUrls}
-                  brandName={campaign.brandName}
-                  brandLogoUrl={campaign.brandLogoUrl}
-                  campaignGoal={campaign.campaignGoalValues[0]}
-                  category={campaign.category}
-                  ageLabel={compactAgeLabel(campaign.targetAgeGroupValues)}
-                  gender={campaign.gender}
-                  countries={campaign.targetCountryValues}
-                  budget={campaign.budgetMax}
-                  viewedCount={campaign.applications}
-                  hasApplied={campaign.hasApplied === 1}
-                  onCardClick={() => router.push(getCampaignHref(campaign))}
-                  onApply={() => undefined}
-                  onSave={() => undefined}
-                  onMore={() => undefined}
-                />
-              ))}
+              {filteredCampaigns.map((campaign) => {
+                const cardStatus = getCardStatus(campaign);
+
+                if (variant === "all") {
+                  return (
+                    <MyCampaignCard
+                      key={campaign.id}
+                      logoUrl={campaign.imageUrls[0]}
+                      logoAriaLabel={campaign.title || "Campaign image"}
+                      brandName={campaign.brandName}
+                      name={campaign.title}
+                      statusVariant={cardStatus.statusVariant}
+                      statusLabel={cardStatus.statusLabel}
+                      category={campaign.category}
+                      campaignGoal={campaign.campaignGoalValues[0]}
+                      platforms={campaign.platforms}
+                      milestoneCurrent={campaign.milestoneCurrent}
+                      milestoneTotal={campaign.milestoneTotal}
+                      budget={campaign.budgetMax}
+                      timelineStartDate={campaign.timeline.startDate}
+                      timelineEndDate={campaign.timeline.endDate}
+                      footerNote={`${campaign.currentMilestoneName || "Milestone Name"
+                        } submission in ${campaign.daysLeft || 0} days`}
+                      onCardClick={() => router.push(getCampaignHref(campaign))}
+                      onManageCampaign={() => router.push(getCampaignHref(campaign))}
+                      onMessageClick={() => router.push("/influencer/inbox")}
+                      onMoreClick={() => undefined}
+                    />
+                  );
+                }
+
+                return (
+                  <CampaignCard
+                    key={campaign.id}
+                    title={campaign.title}
+                    description={campaign.description}
+                    imageUrl={campaign.imageUrls[0]}
+                    imageUrls={campaign.imageUrls}
+                    brandName={campaign.brandName}
+                    brandLogoUrl={campaign.brandLogoUrl}
+                    campaignGoal={campaign.campaignGoalValues[0]}
+                    category={campaign.category}
+                    ageLabel={compactAgeLabel(campaign.targetAgeGroupValues)}
+                    gender={campaign.gender}
+                    countries={campaign.targetCountryValues}
+                    budget={campaign.budgetMax}
+                    viewedCount={campaign.applications}
+                    hasApplied={campaign.hasApplied === 1}
+                    isAppliedCard={variant === "applied"}
+                    appliedDate={campaign.appliedDate}
+                    onCardClick={
+                      variant === "applied"
+                        ? undefined
+                        : () => router.push(getCampaignHref(campaign))
+                    }
+                    onApply={() => undefined}
+                    onSave={() => undefined}
+                    onDeleteApplied={() => {
+                      // add withdraw/delete applied campaign API here
+                    }}
+                    onMore={() => undefined}
+                  />
+                );
+              })}
             </div>
           )}
         </div>

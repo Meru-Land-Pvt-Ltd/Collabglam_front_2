@@ -3,7 +3,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/buttonComp";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import CampaignCard from "@/components/ui/influencer/card";
+import CampaignCard, {
+  type InfluencerDiscoverCardProps,
+} from "@/components/ui/influencer/card";
 
 import {
   apiGetAllActiveCampaigns,
@@ -29,6 +31,23 @@ import { apiApplyToCampaign } from "@/app/influencer/services/influencerApi";
 /*                                   TYPES                                    */
 /* -------------------------------------------------------------------------- */
 
+type ApplicantAvatar = {
+  profilePic?: string;
+  profilepic?: string;
+  profileImage?: string;
+  profileimage?: string;
+  profilePicture?: string;
+  avatar?: string;
+  image?: string;
+  name?: string;
+  fullName?: string;
+  username?: string;
+  influencerName?: string;
+  displayName?: string;
+};
+
+
+
 type UICampaign = {
   id: string;
   title: string;
@@ -42,6 +61,7 @@ type UICampaign = {
   platformLabel: string;
   location: string;
   applications: number;
+  applicantAvatars: ApplicantAvatar[];
   brand: string;
   brandLogo?: string;
   image?: string;
@@ -61,6 +81,8 @@ type UICampaign = {
   endAt: string;
   raw: ActiveCampaignItem | any;
 };
+
+
 
 /* -------------------------------------------------------------------------- */
 /*                                  HELPERS                                   */
@@ -287,6 +309,101 @@ function findScrollParent(element: HTMLElement | null) {
   return null;
 }
 
+function getApplicantName(source: any) {
+  const name =
+    getFirstTextValue(source, [
+      "fullName",
+      "name",
+      "influencerName",
+      "displayName",
+      "username",
+      "handle",
+    ]) || "";
+
+  if (name) return name;
+
+  const firstName = getFirstTextValue(source, ["firstName", "first_name"]);
+  const lastName = getFirstTextValue(source, ["lastName", "last_name"]);
+
+  return [firstName, lastName].filter(Boolean).join(" ").trim();
+}
+
+function getApplicantProfilePic(source: any) {
+  const profilePic =
+    source?.profileimage ||
+    source?.profileImage ||
+    source?.profilepic ||
+    source?.profilePic ||
+    source?.profilePicture ||
+    source?.avatar ||
+    source?.image ||
+    source?.photo ||
+    source?.user?.profileimage ||
+    source?.user?.profileImage ||
+    source?.user?.profilePic ||
+    source?.influencer?.profileimage ||
+    source?.influencer?.profileImage ||
+    source?.influencer?.profilePic ||
+    source?.profile?.profileimage ||
+    source?.profile?.profileImage ||
+    source?.profile?.profilePic ||
+    "";
+
+  return getImageUrl(profilePic);
+}
+
+function normalizeApplicantAvatar(item: any): ApplicantAvatar {
+  const source =
+    item?.influencer ||
+    item?.influencerData ||
+    item?.creator ||
+    item?.creatorData ||
+    item?.user ||
+    item?.profile ||
+    item;
+
+  const name = getApplicantName(source);
+  const profileimage = getApplicantProfilePic(source);
+
+  return {
+    profileimage,
+    profileImage: profileimage,
+    profilePic: profileimage,
+    name,
+    fullName: name,
+    username: getFirstTextValue(source, ["username", "handle"]),
+  };
+}
+
+function getApplicantAvatars(campaign: any): ApplicantAvatar[] {
+  const possibleLists = [
+    campaign?.appliedInfluencers,
+    campaign?.applicants,
+    campaign?.applicantProfiles,
+    campaign?.applicantInfluencers,
+    campaign?.applications,
+    campaign?.appliedInfluencersData,
+    campaign?.influencers,
+    campaign?.creatorApplicants,
+    campaign?.applicantDetails,
+  ];
+
+  const rawList = possibleLists.find((list) => Array.isArray(list)) || [];
+
+  return rawList
+    .map(normalizeApplicantAvatar)
+    .filter((item: ApplicantAvatar) => {
+      return (
+        item.profileimage ||
+        item.profileImage ||
+        item.profilePic ||
+        item.name ||
+        item.fullName ||
+        item.username
+      );
+    });
+}
+
 function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
   const budget = Number(campaign?.campaignBudget ?? campaign?.budget ?? 0);
 
@@ -306,11 +423,14 @@ function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
     "Brand Campaign";
 
   const applications =
+    Number(campaign?.appliedInfluencerCount) ||
     Number(campaign?.applicationsCount) ||
     Number(campaign?.contractsCount) ||
     Number(campaign?.emailsSent) ||
     Number(campaign?.applicantCount) ||
     0;
+
+  const applicantAvatars = getApplicantAvatars(campaign);
 
   const id = String(campaign?.campaignId || campaign?._id || "");
 
@@ -394,6 +514,7 @@ function mapApiCampaignToUi(campaign: ActiveCampaignItem | any): UICampaign {
         : normalizedPlatforms[0] ?? "Unknown",
     location,
     applications,
+    applicantAvatars,
     brand: brandName,
     brandLogo: getBrandLogoUrl(campaign),
     image: firstImage,
@@ -966,9 +1087,9 @@ export default function DiscoverCampaigns() {
             setSortValue={setSortValue}
           />
 
-          <div className="px-6 pb-8 pt-8">
+          <div className="px-[1.5rem] pb-8 pt-8">
             {loading ? (
-              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
                 {Array.from({ length: 6 }).map((_, index) => (
                   <div
                     key={index}
@@ -998,7 +1119,7 @@ export default function DiscoverCampaigns() {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
                 {filteredCampaigns.map((campaign) => (
                   <CampaignCard
                     key={campaign.id}
@@ -1015,6 +1136,7 @@ export default function DiscoverCampaigns() {
                     countries={campaign.countries}
                     budget={campaign.budgetMax}
                     viewedCount={campaign.applications}
+                    applicantAvatars={campaign.applicantAvatars}
                     isApplying={applyingCampaignIds.includes(campaign.id)}
                     hasApplied={appliedCampaignIds.includes(campaign.id)}
                     onCardClick={() =>
