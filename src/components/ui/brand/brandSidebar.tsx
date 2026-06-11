@@ -49,6 +49,13 @@ import {
   ChartLineUp,
 } from "@phosphor-icons/react";
 import InviteMembersModal from "@/components/ui/brand/inviteMember";
+import {
+  apiGetMyWorkspaces,
+  getWorkspaceBrandId,
+  getWorkspaceId,
+  switchWorkspaceLocalStorage,
+  type WorkspaceItem,
+} from "@/app/brand/services/workspaceApi";
 
 /* -------------------------------- routing -------------------------------- */
 
@@ -90,8 +97,14 @@ type Item = {
 
 type Workspace = {
   key: string;
+  workspaceId: string;
+  brandId: string;
   name: string;
   logoSrc?: string;
+  email?: string;
+  role?: string;
+  accessType?: string;
+  relation?: "you" | "other" | string;
 };
 
 type BrandLiteFeature = {
@@ -468,7 +481,7 @@ export default function BrandSidebar({
   const [campaignOpen, setCampaignOpen] = useState(false);
 
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [workspaceKey, setWorkspaceKey] = useState<string>("nike");
+  const [workspaceKey, setWorkspaceKey] = useState<string>("");
 
   const [collapsed, setCollapsed] = useState(false);
   const [widthCollapsed, setWidthCollapsed] = useState(false);
@@ -514,22 +527,42 @@ export default function BrandSidebar({
     ? `You are currently on the ${planLabel} plan`
     : "Upgrade anytime. No long-term commitment";
 
-  const workspaces = useMemo<Workspace[]>(
-    () => [
-      {
-        key: "nike",
-        name: "Nike Workspace",
-        logoSrc:
-          "https://upload.wikimedia.org/wikipedia/commons/a/a6/Logo_NIKE.svg",
-      },
-      {
-        key: "jordan",
-        name: "Jordan Workspace",
-        logoSrc:
-          "https://upload.wikimedia.org/wikipedia/en/3/37/Jumpman_logo.svg",
-      },
-    ],
-    []
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+
+  const normalizeWorkspaceRows = useCallback(
+    (rows: WorkspaceItem[] = []): Workspace[] => {
+      return rows
+        .map((row) => {
+          const workspaceId = getWorkspaceId(row);
+          const rowBrandId = getWorkspaceBrandId(row);
+
+          if (!workspaceId || !rowBrandId) return null;
+
+          return {
+            key: workspaceId,
+            workspaceId,
+            brandId: rowBrandId,
+            name:
+              String(
+                row.name ||
+                  row.workspaceName ||
+                  "Workspace"
+              ).trim() || "Workspace",
+            logoSrc:
+              String(row.logo || (row as any).logoSrc || "").trim() ||
+              undefined,
+            email: String(row.email || row.ownerEmail || "").trim(),
+            role: String(row.role || "").trim(),
+            accessType: String(row.accessType || "").trim(),
+            relation:
+              row.relation ||
+              (rowBrandId && brandId && rowBrandId === brandId ? "you" : "other"),
+          } as Workspace;
+        })
+        .filter(Boolean) as Workspace[];
+    },
+    [brandId]
   );
 
   const openInviteMemberModal = useCallback(() => {
@@ -537,10 +570,23 @@ export default function BrandSidebar({
     setInviteMemberOpen(true);
   }, []);
 
-  const selectedWorkspace = useMemo(
-    () => workspaces.find((w) => w.key === workspaceKey) ?? workspaces[0],
-    [workspaceKey, workspaces]
-  );
+  const selectedWorkspace = useMemo<Workspace>(() => {
+    const found = workspaces.find((w) => w.key === workspaceKey || w.workspaceId === workspaceKey);
+
+    if (found) return found;
+
+    return {
+      key: workspaceKey || "default-workspace",
+      workspaceId: workspaceKey || "",
+      brandId: brandId || "",
+      name: brandLite?.name ? `${brandLite.name} Workspace` : "Workspace",
+      logoSrc: brandLite?.profilePic || undefined,
+      email: brandLite?.proxyEmail || "",
+      role: "owner",
+      accessType: "full_access",
+      relation: "you",
+    };
+  }, [brandId, brandLite, workspaceKey, workspaces]);
 
   const items = useMemo<Item[]>(
     () => [
@@ -597,6 +643,17 @@ export default function BrandSidebar({
         label: "Wallet",
         icon: Wallet,
         section: "manage",
+      },
+      {
+        key: "invite_user",
+        label: "Invite Members",
+        icon: UserPlus,
+        section: "manage",
+        right: (
+          <span className="rounded-full border border-[#FFB800] px-2 py-0.5 text-[10px] font-semibold text-[#1a1a1a]">
+            New
+          </span>
+        ),
       },
       {
         key: "help",
@@ -725,6 +782,63 @@ export default function BrandSidebar({
       if (cachedPlanName) setPlanName(cachedPlanName.toLowerCase());
     } catch { }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const storedWorkspaceId =
+        window.localStorage.getItem("workspaceId") ||
+        window.localStorage.getItem("currentWorkspaceId");
+
+      if (storedWorkspaceId) setWorkspaceKey(storedWorkspaceId);
+    } catch { }
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+
+    let cancelled = false;
+    setWorkspaceLoading(true);
+
+    (async () => {
+      try {
+        const res = await apiGetMyWorkspaces();
+        const list = normalizeWorkspaceRows(res?.workspaces || []);
+
+        if (cancelled) return;
+
+        setWorkspaces(list);
+
+        const storedWorkspaceId =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem("workspaceId") ||
+              window.localStorage.getItem("currentWorkspaceId")
+            : "";
+
+        const preferred =
+          list.find((item) => item.workspaceId === storedWorkspaceId) ||
+          list.find((item) => item.brandId === brandId) ||
+          list[0];
+
+        if (preferred) {
+          setWorkspaceKey(preferred.workspaceId);
+          try {
+            window.localStorage.setItem("workspaceId", preferred.workspaceId);
+            window.localStorage.setItem("currentWorkspaceId", preferred.workspaceId);
+          } catch { }
+        }
+      } catch {
+        if (!cancelled) setWorkspaces([]);
+      } finally {
+        if (!cancelled) setWorkspaceLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [brandId, normalizeWorkspaceRows, token]);
 
   useEffect(() => {
     if (!brandId) return;
@@ -966,6 +1080,42 @@ export default function BrandSidebar({
     [router]
   );
 
+  const switchWorkspace = useCallback(
+    (workspace: Workspace) => {
+      const nextBrandId = String(workspace.brandId || "");
+      const nextWorkspaceId = String(workspace.workspaceId || workspace.key || "");
+
+      if (!nextBrandId || !nextWorkspaceId) return;
+
+      try {
+        switchWorkspaceLocalStorage({
+          ...workspace,
+          _id: workspace.workspaceId,
+          workspaceId: workspace.workspaceId,
+          brandId: workspace.brandId,
+          name: workspace.name,
+          logo: workspace.logoSrc || "",
+        });
+      } catch { }
+
+      setBrandId(nextBrandId);
+      setWorkspaceKey(nextWorkspaceId);
+      setWorkspaceOpen(false);
+      setProfileMenuOpen(false);
+      setHelpDialogOpen(false);
+
+      router.replace("/brand/dashboard");
+      router.refresh();
+
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 50);
+
+      if (!isDesktop) setDrawerOpen(false);
+    },
+    [isDesktop, router, setDrawerOpen, token]
+  );
+
   const handlePlanClick = useCallback(() => {
     router.push("/brand/subscriptions");
     if (!isDesktop) setDrawerOpen(false);
@@ -1105,6 +1255,21 @@ export default function BrandSidebar({
 
       const isCollapsed = isDesktop && (collapsed || isClosing);
 
+      if (item.key === "invite_user") {
+        return (
+          <RowButton
+            key={item.key}
+            icon={item.icon}
+            label={item.label}
+            active={false}
+            right={item.right}
+            tight={tight}
+            collapsed={isCollapsed}
+            onClick={openInviteMemberModal}
+          />
+        );
+      }
+
       if (item.key === "wallet") {
         return (
           <RowButton
@@ -1165,6 +1330,7 @@ export default function BrandSidebar({
       openHelpDialog,
       tight,
       walletBalanceLabel,
+      openInviteMemberModal,
     ]
   );
 
@@ -1276,6 +1442,106 @@ export default function BrandSidebar({
             </button>
           )}
         </div>
+      </div>
+
+      <div ref={workspaceRef} className={cn("relative", compactUI ? "mt-4 flex justify-center" : "mt-6")}> 
+        {compactUI ? (
+          <SidebarTooltip content={selectedWorkspace.name}>
+            <button
+              type="button"
+              onClick={() => setWorkspaceOpen((prev) => !prev)}
+              className={cn(
+                "grid h-12 w-12 place-items-center rounded-xl border border-neutral-200 bg-white transition hover:bg-neutral-50",
+                FOCUS_RING
+              )}
+            >
+              <WorkspaceLogo ws={selectedWorkspace} />
+            </button>
+          </SidebarTooltip>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setWorkspaceOpen((prev) => !prev)}
+            className={cn(
+              "flex h-11 w-full items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2 text-left transition hover:bg-neutral-50",
+              FOCUS_RING
+            )}
+          >
+            <WorkspaceLogo ws={selectedWorkspace} />
+            <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-[#1a1a1a]">
+              {selectedWorkspace.name}
+            </span>
+            <CaretDown size={16} className="shrink-0 text-[#1a1a1a]" />
+          </button>
+        )}
+
+        <AnimatePresence initial={false}>
+          {workspaceOpen && (
+            <m.div
+              key="workspace-switcher"
+              variants={dropdownY}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              transition={motionTransitions.content}
+              className={cn(
+                "absolute z-[80] rounded-xl border border-neutral-200 bg-white p-2 shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10)]",
+                compactUI ? "left-full top-0 ml-3 w-[260px]" : "left-0 right-0 top-[calc(100%+8px)]"
+              )}
+            >
+              <div className="mb-2 px-2 text-[12px] font-semibold text-neutral-500">
+                Switch workspace
+              </div>
+
+              {workspaceLoading && (
+                <div className="px-2 py-3 text-[13px] text-neutral-500">Loading workspaces...</div>
+              )}
+
+              {!workspaceLoading && workspaces.length === 0 && (
+                <div className="px-2 py-3 text-[13px] text-neutral-500">No workspace found</div>
+              )}
+
+              {!workspaceLoading &&
+                workspaces.map((workspace) => {
+                  const selected = workspace.workspaceId === selectedWorkspace.workspaceId;
+
+                  return (
+                    <button
+                      key={workspace.workspaceId}
+                      type="button"
+                      onClick={() => switchWorkspace(workspace)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition",
+                        selected ? "bg-neutral-100" : "hover:bg-neutral-50"
+                      )}
+                    >
+                      <WorkspaceLogo ws={workspace} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-semibold text-[#1a1a1a]">
+                          {workspace.name}
+                        </span>
+                        <span className="block truncate text-[12px] text-neutral-500">
+                          {workspace.relation === "you" ? "You" : "Other's"}
+                          {workspace.role ? ` · ${workspace.role}` : ""}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceOpen(false);
+                  router.push("/brand/settings/workspace?create=1");
+                }}
+                className="mt-2 flex w-full items-center justify-center rounded-lg border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[#1a1a1a] transition hover:bg-neutral-50"
+              >
+                + Add Workspace
+              </button>
+            </m.div>
+          )}
+        </AnimatePresence>
       </div>
 
       <div className={cn("mt-6 flex min-h-0 flex-1 flex-col", tight ? "mt-4" : "")}>
@@ -1832,7 +2098,9 @@ export default function BrandSidebar({
             <InviteMembersModal
               open={inviteMemberOpen}
               onOpenChange={setInviteMemberOpen}
-              brandId={brandId}
+              brandId={selectedWorkspace.brandId || brandId}
+              workspaceId={selectedWorkspace.workspaceId}
+              workspaceName={selectedWorkspace.name}
             />
           </>
         </MotionConfig>
