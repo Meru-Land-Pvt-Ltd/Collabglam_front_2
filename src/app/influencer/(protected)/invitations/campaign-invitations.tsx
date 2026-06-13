@@ -16,6 +16,11 @@ import InvitationFilter, {
   type InvitationFilterState,
 } from "./invitationFilter";
 
+import SkeletonLoader, {
+  SkeletonProvider,
+  SkeletonCircle,
+} from "@/components/common/SkeletonLoader";
+
 /* -------------------------------------------------------------------------- */
 /* TYPES                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -327,32 +332,32 @@ function getBudget(invite: any) {
   const singleBudget =
     Number(
       invite?.campaignBudget ??
-        invite?.budget ??
-        invite?.budgetMax ??
-        invite?.budgetMin ??
-        invite?.campaign?.campaignBudget ??
-        invite?.campaign?.budget ??
-        0
+      invite?.budget ??
+      invite?.budgetMax ??
+      invite?.budgetMin ??
+      invite?.campaign?.campaignBudget ??
+      invite?.campaign?.budget ??
+      0
     ) || 0;
 
   const budgetMin =
     Number(
       invite?.budgetMin ??
-        invite?.campaignBudgetMin ??
-        invite?.minBudget ??
-        invite?.campaign?.budgetMin ??
-        invite?.campaign?.minBudget ??
-        singleBudget
+      invite?.campaignBudgetMin ??
+      invite?.minBudget ??
+      invite?.campaign?.budgetMin ??
+      invite?.campaign?.minBudget ??
+      singleBudget
     ) || 0;
 
   const budgetMax =
     Number(
       invite?.budgetMax ??
-        invite?.campaignBudgetMax ??
-        invite?.maxBudget ??
-        invite?.campaign?.budgetMax ??
-        invite?.campaign?.maxBudget ??
-        singleBudget
+      invite?.campaignBudgetMax ??
+      invite?.maxBudget ??
+      invite?.campaign?.budgetMax ??
+      invite?.campaign?.maxBudget ??
+      singleBudget
     ) || 0;
 
   return { budgetMin, budgetMax };
@@ -367,10 +372,10 @@ function mapApiInviteToUi(inv: any): CampaignInvite {
 
   const campaignId = String(
     inv?.campaignId ??
-      campaign?.campaignId ??
-      campaign?._id ??
-      campaign?.id ??
-      ""
+    campaign?.campaignId ??
+    campaign?._id ??
+    campaign?.id ??
+    ""
   );
 
   const status = normalizeStatus(inv?.status);
@@ -381,21 +386,21 @@ function mapApiInviteToUi(inv: any): CampaignInvite {
 
   const respondByRaw = String(
     inv?.respondBy ??
-      inv?.responseDeadline ??
-      campaign?.responseDeadline ??
-      campaign?.endAt ??
-      inv?.endAt ??
-      inv?.updatedAt ??
-      ""
+    inv?.responseDeadline ??
+    campaign?.responseDeadline ??
+    campaign?.endAt ??
+    inv?.endAt ??
+    inv?.updatedAt ??
+    ""
   );
 
   const acceptedAtRaw = String(
     inv?.acceptedAt ||
-      inv?.appliedAt ||
-      inv?.respondedAt ||
-      inv?.updatedAt ||
-      inv?.createdAt ||
-      ""
+    inv?.appliedAt ||
+    inv?.respondedAt ||
+    inv?.updatedAt ||
+    inv?.createdAt ||
+    ""
   );
 
   const images = getCampaignImages(inv);
@@ -405,27 +410,27 @@ function mapApiInviteToUi(inv: any): CampaignInvite {
     : Array.isArray(inv?.platforms)
       ? inv.platforms.map(normalizePlatformLabel).filter(Boolean)
       : [normalizePlatformLabel(inv?.platform ?? campaign?.platform)].filter(
-          Boolean
-        );
+        Boolean
+      );
 
   const category = String(
     inv?.category?.name ??
-      inv?.categoryName ??
-      inv?.category ??
-      campaign?.category?.name ??
-      campaign?.campaignCategory ??
-      campaign?.categories?.[0]?.categoryName ??
-      "General"
+    inv?.categoryName ??
+    inv?.category ??
+    campaign?.category?.name ??
+    campaign?.campaignCategory ??
+    campaign?.categories?.[0]?.categoryName ??
+    "General"
   );
 
   const categoryId = String(
     inv?.category?._id ??
-      inv?.category?.id ??
-      inv?.categoryId ??
-      campaign?.category?._id ??
-      campaign?.category?.id ??
-      campaign?.categoryId ??
-      ""
+    inv?.category?.id ??
+    inv?.categoryId ??
+    campaign?.category?._id ??
+    campaign?.category?.id ??
+    campaign?.categoryId ??
+    ""
   );
 
   const countries = [
@@ -510,20 +515,20 @@ function mapApiInviteToUi(inv: any): CampaignInvite {
     campaignId: campaignId || undefined,
     brandName: String(
       inv?.brandName ??
-        brand?.brandName ??
-        brand?.name ??
-        campaign?.brandName ??
-        campaign?.brand?.brandName ??
-        campaign?.brand?.name ??
-        "Brand"
+      brand?.brandName ??
+      brand?.name ??
+      campaign?.brandName ??
+      campaign?.brand?.brandName ??
+      campaign?.brand?.name ??
+      "Brand"
     ),
     brandLogo: getBrandLogoUrl(inv),
     title: String(
       inv?.campaignTitle ??
-        campaign?.campaignTitle ??
-        campaign?.campaignName ??
-        campaign?.title ??
-        "Untitled Campaign"
+      campaign?.campaignTitle ??
+      campaign?.campaignName ??
+      campaign?.title ??
+      "Untitled Campaign"
     ),
     description: String(
       inv?.description ?? campaign?.description ?? "No description available."
@@ -656,6 +661,156 @@ function matchesDateOption(value: string, selected: string) {
 /* -------------------------------------------------------------------------- */
 /* PAGE                                                                       */
 /* -------------------------------------------------------------------------- */
+
+
+function InvitationCardSkeleton() {
+  return (
+    <div className="relative flex h-[31.5rem] w-full min-w-0 max-w-none flex-col overflow-hidden rounded-[1.5rem] bg-white">
+      <div className="relative h-[11rem] max-h-[11rem] w-full shrink-0 overflow-visible bg-[#F2F2F2]">
+        <SkeletonLoader className="h-full w-full rounded-t-[1.5rem]" />
+
+        <SkeletonLoader className="absolute right-[1rem] top-[1rem] h-[1.75rem] w-[5.5rem] rounded-[1rem]" />
+
+        <div className="absolute bottom-[-2rem] left-[1.5rem] z-10">
+          <SkeletonLoader className="h-[4rem] w-[4rem] rounded-[0.625rem]" />
+        </div>
+      </div>
+
+      <div className="flex max-h-[20.5rem] flex-1 flex-col items-start justify-start gap-[0.75rem] self-stretch overflow-hidden px-[1.25rem] pb-[1.75rem] pt-[2.5rem]">
+        <div className="flex w-full items-center justify-between gap-[0.75rem]">
+          <div className="flex min-w-0 flex-wrap items-center gap-[0.5rem]">
+            <SkeletonLoader className="h-[1.75rem] w-[5.25rem] rounded-[1rem]" />
+            <SkeletonLoader className="h-[1.75rem] w-[4.25rem] rounded-[1rem]" />
+            <SkeletonLoader className="h-[1.75rem] w-[4rem] rounded-[1rem]" />
+          </div>
+
+          <SkeletonLoader className="h-8 w-8 shrink-0 rounded-full" />
+        </div>
+
+        <div className="flex w-full flex-col items-start gap-[0.5rem]">
+          <SkeletonLoader className="h-[1.5rem] w-[78%] rounded-md" />
+
+          <div className="flex w-full flex-col gap-[0.375rem]">
+            <SkeletonLoader className="h-[1rem] w-full rounded-md" />
+            <SkeletonLoader className="h-[1rem] w-[72%] rounded-md" />
+          </div>
+        </div>
+
+        <div className="flex w-full items-center py-[0.5rem]">
+          <SkeletonLoader className="h-4 w-4 shrink-0 rounded-full" />
+          <SkeletonLoader className="ml-[0.5rem] h-[1.25rem] w-[70%] rounded-md" />
+        </div>
+
+        <div className="flex w-full items-center justify-between gap-[0.75rem]">
+          <div className="flex items-center gap-[0.25rem] rounded-[1rem] px-[0.25rem] py-[0.25rem]">
+            <SkeletonCircle className="h-[0.875rem] w-[0.875rem]" />
+            <SkeletonLoader className="h-[1rem] w-[7rem] rounded-md" />
+          </div>
+
+          <SkeletonLoader className="h-[1rem] w-[5.5rem] rounded-md" />
+        </div>
+
+        <div className="mt-auto w-full shrink-0">
+          <div className="h-px w-full bg-[#E6E6E6]" />
+
+          <div className="flex w-full items-center pt-[0.75rem]">
+            <SkeletonLoader className="h-[1.75rem] w-[5rem] rounded-md" />
+
+            <div className="ml-auto flex items-center gap-[0.5rem]">
+              <SkeletonLoader className="h-[2rem] w-[2.5rem] rounded-[0.5rem]" />
+              <SkeletonLoader className="h-[2rem] w-[5rem] rounded-[0.5rem]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SidebarCampaignSkeleton() {
+  return (
+    <div className="relative flex h-full w-full flex-col overflow-hidden rounded-t-[1rem] rounded-b-none border border-[#E6E6E6] bg-white">
+      <div className="min-h-0 flex-1 overflow-y-auto px-[1.25rem] pb-[5rem] pt-[1.25rem]">
+        <div className="flex w-full flex-col gap-[1.75rem]">
+          <div className="flex items-center gap-4">
+            <SkeletonCircle className="h-[6.25rem] w-[6.25rem]" />
+
+            <div className="min-w-0 flex-1">
+              <SkeletonLoader className="h-7 w-1/2 rounded-md" />
+              <SkeletonLoader className="mt-3 h-4 w-1/3 rounded-md" />
+            </div>
+
+            <SkeletonLoader className="h-10 w-40 rounded-[0.75rem]" />
+          </div>
+
+          <div className="flex gap-6 border-b border-[#E6E6E6] pb-3">
+            <SkeletonLoader className="h-5 w-20 rounded-md" />
+            <SkeletonLoader className="h-5 w-28 rounded-md" />
+          </div>
+
+          <div>
+            <SkeletonLoader className="h-6 w-44 rounded-md" />
+
+            <div className="mt-5 flex flex-col gap-5">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="flex items-start gap-3">
+                  <SkeletonCircle className="h-6 w-6" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonLoader className="h-4 w-40 rounded-md" />
+                    <SkeletonLoader className="mt-2 h-3 w-32 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <SkeletonLoader className="h-[5.5rem] w-full rounded-[0.75rem]" />
+
+          <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-5">
+            {[1, 2, 3, 4].map((item) => (
+              <SkeletonLoader key={item} className="h-[7.5rem] rounded-[0.75rem]" />
+            ))}
+          </div>
+
+          <div>
+            <SkeletonLoader className="h-6 w-32 rounded-md" />
+            <SkeletonLoader className="mt-5 h-[14.8125rem] w-full rounded-[0.75rem]" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvitationPageSkeleton() {
+  return (
+    <div className="relative flex h-full min-h-0 w-full items-stretch overflow-hidden bg-white">
+      <section className="w-[22.0625rem] shrink-0 overflow-hidden pr-0">
+        <div className="flex flex-col gap-[1.5rem]">
+          {[1, 2].map((item) => (
+            <InvitationCardSkeleton key={item} />
+          ))}
+        </div>
+      </section>
+
+      <div className="flex w-[0.625rem] shrink-0 items-start justify-center px-[0.0625rem] pt-[2rem]">
+        <div className="h-[4.8125rem] flex-1 rounded-[6.25rem] bg-[#E6E6E6]" />
+      </div>
+
+      <section className="relative min-w-0 flex-1 overflow-hidden pb-[4rem]">
+        <SidebarCampaignSkeleton />
+
+        <div className="absolute bottom-0 left-0 right-[0.0625rem] z-30 flex h-[4rem] w-auto items-center justify-between border-y border-l border-[#E6E6E6] bg-white px-[1.25rem] shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
+          <SkeletonLoader className="h-5 w-20 rounded-md" />
+          <div className="flex items-center gap-4">
+            <SkeletonLoader className="h-5 w-20 rounded-md" />
+            <SkeletonLoader className="h-10 w-28 rounded-[0.75rem]" />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 export default function InvitesPage() {
   const [filters, setFilters] = useState<InvitationFilterState>(
@@ -818,11 +973,11 @@ export default function InvitesPage() {
       prev.map((invite) =>
         invite.id === inviteId
           ? {
-              ...invite,
-              status: "accepted",
-              appliedStatus: "Accepted",
-              acceptedAtRaw: now,
-            }
+            ...invite,
+            status: "accepted",
+            appliedStatus: "Accepted",
+            acceptedAtRaw: now,
+          }
           : invite
       )
     );
@@ -862,108 +1017,131 @@ export default function InvitesPage() {
   });
 
   return (
-    <TooltipProvider>
-      <div className="min-h-screen bg-white">
-        <InvitationFilter
-          filters={filters}
-          setFilters={setFilters}
-          search={search}
-          setSearch={setSearch}
-          sortValue={sortValue}
-          setSortValue={setSortValue}
-        />
+    <SkeletonProvider>
 
-        <main className="mx-auto max-w-full px-6 pb-0 pt-8">
-          {loading ? (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-[31.5rem] w-full max-w-[22.0625rem] animate-pulse rounded-[1.5rem] border border-[#E6E6E6] bg-[#F7F7F7]"
-                />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-red-200 bg-red-50 px-6 py-16 text-center">
-              <AlertCircle className="h-8 w-8 text-red-500" />
+      <TooltipProvider>
+        <div className="flex h-dvh flex-col overflow-hidden bg-white">
+          <InvitationFilter
+            filters={filters}
+            setFilters={setFilters}
+            search={search}
+            setSearch={setSearch}
+            sortValue={sortValue}
+            setSortValue={setSortValue}
+          />
 
-              <h2 className="mt-4 text-base font-semibold text-red-700">
-                Unable to load invitations
-              </h2>
+          <main className="mx-auto min-h-0 w-full max-w-full flex-1 overflow-hidden bg-white px-6 pb-0 pt-6">
+            {loading ? (
+              <InvitationPageSkeleton />
+            ) : error ? (
+              <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-red-200 bg-red-50 px-6 py-16 text-center">
+                <AlertCircle className="h-8 w-8 text-red-500" />
 
-              <p className="mt-1 max-w-md text-sm text-red-600/80">
-                {error}
-              </p>
+                <h2 className="mt-4 text-base font-semibold text-red-700">
+                  Unable to load invitations
+                </h2>
 
-              <button
-                type="button"
-                onClick={() => setRefreshKey((value) => value + 1)}
-                className="mt-5 rounded-[0.75rem] bg-[#1A1A1A] px-4 py-2 text-sm font-semibold text-white"
-              >
-                Retry
-              </button>
-            </div>
-          ) : filteredInvites.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white px-6 py-16 text-center">
-              <Search className="h-8 w-8 text-[#969696]" />
+                <p className="mt-1 max-w-md text-sm text-red-600/80">
+                  {error}
+                </p>
 
-              <h2 className="mt-4 text-base font-semibold text-[#1A1A1A]">
-                No invitations found
-              </h2>
-
-              <p className="mt-1 max-w-md text-sm text-[#969696]">
-                Try changing the search, status, budget, date, or platform
-                filters.
-              </p>
-            </div>
-          ) : (
-            <div className="flex h-[calc(100dvh-10rem)] min-h-[40rem] w-full items-stretch overflow-hidden">
-              <section className="w-[22.0625rem] shrink-0 overflow-y-auto pr-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                <div className="flex flex-col gap-[1.5rem] pb-8">
-                  {filteredInvites.map((invite) => (
-                    <CampaignCard key={invite.id} {...getCardProps(invite)} />
-                  ))}
-                </div>
-              </section>
-
-              <div
-                className={[
-                  "flex w-[0.625rem] shrink-0 items-start justify-center",
-                  "gap-[0.5rem] self-stretch",
-                  "px-[0.0625rem] pb-[0.0625rem] pt-[2rem]",
-                ].join(" ")}
-              >
-                <div className="h-full w-[0.25rem] rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] bg-[#E6E6E6]" />
+                <button
+                  type="button"
+                  onClick={() => setRefreshKey((value) => value + 1)}
+                  className="mt-5 rounded-[0.75rem] bg-[#1A1A1A] px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Retry
+                </button>
               </div>
+            ) : filteredInvites.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white px-6 py-16 text-center">
+                <Search className="h-8 w-8 text-[#969696]" />
 
-              <section className="min-w-0 flex-1 overflow-hidden">
-                {selectedInvite?.campaignId ? (
-                  <SidebarCampaign
-                    campaignId={selectedInvite.campaignId}
-                    invitationId={selectedInvite.id}
-                    invitationStatus={selectedInvite.status}
-                    invitationBrandLogo={selectedInvite.brandLogo}
-                    invitationAppliedAt={
-                      selectedInvite.acceptedAtRaw ||
-                      selectedInvite.raw?.acceptedAt ||
-                      selectedInvite.raw?.appliedAt ||
-                      selectedInvite.raw?.respondedAt ||
-                      selectedInvite.raw?.updatedAt ||
-                      selectedInvite.invitedAtRaw
-                    }
-                    onInvitationAccepted={markAccepted}
-                    embedded
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white text-sm text-[#969696]">
-                    Select an invitation to view campaign details.
+                <h2 className="mt-4 text-base font-semibold text-[#1A1A1A]">
+                  No invitations found
+                </h2>
+
+                <p className="mt-1 max-w-md text-sm text-[#969696]">
+                  Try changing the search, status, budget, date, or platform
+                  filters.
+                </p>
+              </div>
+            ) : (
+              <div className="relative flex h-full min-h-0 w-full items-stretch overflow-hidden bg-white">
+                <section className="w-[22.0625rem] shrink-0 overflow-y-auto pr-0 [scrollbar-width:thin] [scrollbar-color:#E6E6E6_transparent] [&::-webkit-scrollbar]:w-[0.375rem] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:min-h-[4.8125rem] [&::-webkit-scrollbar-thumb]:rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] [&::-webkit-scrollbar-thumb]:bg-[#E6E6E6]">
+                  <div className="flex flex-col gap-[1.5rem] pb-8">
+                    {filteredInvites.map((invite) => (
+                      <CampaignCard key={invite.id} {...getCardProps(invite)} />
+                    ))}
                   </div>
-                )}
-              </section>
-            </div>
-          )}
-        </main>
-      </div>
-    </TooltipProvider>
+                </section>
+
+                <div
+                  className={[
+                    "flex w-[0.625rem] shrink-0 items-start justify-center",
+                    "gap-[0.5rem] self-stretch",
+                    "px-[0.0625rem] pb-[0.0625rem] pt-[2rem]",
+                  ].join(" ")}
+                >
+                  <div className="h-[4.8125rem] flex-1 rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] bg-[#E6E6E6]" />
+                </div>
+
+                <section className="relative min-w-0 flex-1 overflow-hidden pb-[4rem]">
+                  {selectedInvite?.campaignId ? (
+                    <SidebarCampaign
+                      campaignId={selectedInvite.campaignId}
+                      invitationId={selectedInvite.id}
+                      invitationStatus={selectedInvite.status}
+                      invitationBrandLogo={selectedInvite.brandLogo}
+                      invitationAppliedAt={
+                        selectedInvite.acceptedAtRaw ||
+                        selectedInvite.raw?.acceptedAt ||
+                        selectedInvite.raw?.appliedAt ||
+                        selectedInvite.raw?.respondedAt ||
+                        selectedInvite.raw?.updatedAt ||
+                        selectedInvite.invitedAtRaw
+                      }
+                      onInvitationAccepted={markAccepted}
+                      embedded
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center rounded-[1.5rem] border border-[#E6E6E6] bg-white text-sm text-[#969696]">
+                      Select an invitation to view campaign details.
+                    </div>
+                  )}
+
+                  <div className="absolute bottom-0 left-0 right-[0.0625rem] z-30 flex h-[4rem] w-auto flex-wrap items-center content-center justify-between border-y border-l border-[#E6E6E6] bg-white px-[1.25rem] shadow-[0_24px_40px_-4px_rgba(0,0,0,0.10),0_0_12px_0_rgba(0,0,0,0.08)]">
+                    <button
+                      type="button"
+                      className="flex h-[2.5rem] items-center justify-center gap-[0.25rem] rounded-[0.75rem] px-[0.5rem] text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]"
+                    >
+                      ♡ Save
+                    </button>
+
+                    <div className="ml-auto flex items-center gap-[1rem]">
+                      <button
+                        type="button"
+                        className="flex h-[2.5rem] w-[7rem] items-center justify-center rounded-[0.75rem] px-[0.5rem] text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]"
+                      >
+                        Discard
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={selectedInvite?.status === "accepted"}
+                        className="flex h-[2.5rem] w-[7rem] items-center justify-center rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem] text-[0.875rem] font-semibold leading-[1.25rem] text-white disabled:cursor-not-allowed disabled:bg-[#F5F5F5] disabled:text-[#B8B8B8] disabled:opacity-60"
+                      >
+                        {selectedInvite?.status === "accepted" ? "Accepted" : "Apply Now"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+              </div>
+            )}
+          </main>
+        </div>
+      </TooltipProvider>
+    </SkeletonProvider>
   );
 }

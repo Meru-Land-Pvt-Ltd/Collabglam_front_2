@@ -445,7 +445,7 @@ export default function CampaignCard({
       role={onCardClick ? "button" : undefined}
       tabIndex={onCardClick ? 0 : undefined}
       className={cn(
-        "relative flex w-full max-w-[22.0625rem] max-h-[31.5rem] flex-col overflow-hidden rounded-[1.5rem]",
+        "relative flex w-full min-w-0 max-w-none max-h-[31.5rem] flex-col overflow-hidden rounded-[1.5rem]",
         "border border-[var(--Light-Border-Subtle,#E6E6E6)] bg-white",
         onCardClick &&
         "cursor-pointer transition hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]",
@@ -539,7 +539,7 @@ export default function CampaignCard({
 
       <div
         className={[
-          "flex max-h-[20.5rem] flex-1 flex-col items-start justify-center self-stretch overflow-hidden",
+          "flex max-h-[20.5rem] flex-1 flex-col items-start justify-start self-stretch overflow-hidden",
           "gap-[0.75rem] px-[1.25rem] pb-[1.75rem] pt-[2.5rem]",
         ].join(" ")}
       >
@@ -618,7 +618,7 @@ export default function CampaignCard({
             <div className="flex w-full flex-col items-start gap-[0.25rem]">
               <p
                 className={[
-                  "w-full max-w-[19.5625rem]",
+                  "w-full",
                   "font-[Inter] text-[0.75rem] font-normal leading-[1rem]",
                   "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
                   "break-words",
@@ -741,112 +741,114 @@ export default function CampaignCard({
           </div>
         )}
 
-        <div className="h-[0.0625rem] w-full max-w-[29.5625rem] bg-[#E6E6E6]" />
+        <div className="mt-auto w-full shrink-0">
+          <div className="h-px w-full bg-[#E6E6E6]" />
 
-        <div className="flex w-full items-center">
-          <div
-            className={[
-              "line-clamp-1 overflow-hidden text-ellipsis",
-              "font-[var(--Font-Family-Inter,Inter)]",
-              "text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0]",
-              "text-[var(--Text-Primary,#1A1A1A)]",
-            ].join(" ")}
-          >
-            {formatBudget(budget)}
-          </div>
+          <div className="flex w-full items-center pt-[0.75rem]">
+            <div
+              className={[
+                "line-clamp-1 overflow-hidden text-ellipsis",
+                "font-[var(--Font-Family-Inter,Inter)]",
+                "text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0]",
+                "text-[var(--Text-Primary,#1A1A1A)]",
+              ].join(" ")}
+            >
+              {formatBudget(budget)}
+            </div>
 
-          <div className="ml-auto flex items-center gap-[0.5rem]">
-            {isAppliedCard || isInvitationCard ? (
-              <>
-                <button
-                  type="button"
-                  aria-label={
-                    isInvitationCard
-                      ? "Discard invitation"
-                      : "Remove applied campaign"
-                  }
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-
-                    if (isInvitationCard) {
-                      onSave?.();
-                      return;
-                    }
-
-                    onDeleteApplied?.();
-                  }}
-                  className={[
-                    "flex h-[2rem] items-center justify-center",
-                    "rounded-[var(--Border-Radius-S,0.5rem)] px-[0.5rem]",
-                    "text-[#1A1A1A]",
-                    "transition hover:bg-[#F7F7F7]",
-                  ].join(" ")}
-                >
-                  <Trash size={16} />
-                </button>
-
-                {isAppliedCard || isAcceptedInvitation ? (
+            <div className="ml-auto flex items-center gap-[0.5rem]">
+              {isAppliedCard || isInvitationCard ? (
+                <>
                   <button
                     type="button"
-                    disabled
+                    aria-label={
+                      isInvitationCard
+                        ? "Discard invitation"
+                        : "Remove applied campaign"
+                    }
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+
+                      if (isInvitationCard) {
+                        onSave?.();
+                        return;
+                      }
+
+                      onDeleteApplied?.();
                     }}
                     className={[
-                      "flex h-[2rem] w-[5rem] items-center justify-center",
-                      "rounded-[var(--Border-Radius-S,0.5rem)]",
-                      "bg-[var(--Light-Background-Disabled,#F5F5F5)]",
-                      "px-[0.5rem]",
-                      "text-[0.875rem] font-semibold leading-[1.25rem]",
-                      "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
-                      "disabled:cursor-not-allowed",
+                      "flex h-[2rem] items-center justify-center",
+                      "rounded-[var(--Border-Radius-S,0.5rem)] px-[0.5rem]",
+                      "text-[#1A1A1A]",
+                      "transition hover:bg-[#F7F7F7]",
                     ].join(" ")}
                   >
-                    {isAcceptedInvitation ? "Accepted" : "Applied"}
+                    <Trash size={16} />
                   </button>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onSave?.();
-                  }}
-                  className={[
-                    "flex h-[2.5rem] min-w-[4.5rem] items-center justify-center",
-                    "rounded-[0.75rem] px-[0.5rem]",
-                    "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
-                    "hover:bg-[#F2F2F2]",
-                  ].join(" ")}
-                >
-                  Save
-                </button>
 
-                <button
-                  type="button"
-                  disabled={isApplying || hasApplied}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onApply?.();
-                  }}
-                  className={[
-                    "flex h-[2.5rem] min-w-[5.25rem] items-center justify-center",
-                    "rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem]",
-                    "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
-                    "hover:bg-black",
-                    "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#1A1A1A]",
-                  ].join(" ")}
-                >
-                  {isApplying ? "Applying..." : hasApplied ? "Applied" : "Apply"}
-                </button>
-              </>
-            )}
+                  {isAppliedCard || isAcceptedInvitation ? (
+                    <button
+                      type="button"
+                      disabled
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                      className={[
+                        "flex h-[2rem] w-[5rem] items-center justify-center",
+                        "rounded-[var(--Border-Radius-S,0.5rem)]",
+                        "bg-[var(--Light-Background-Disabled,#F5F5F5)]",
+                        "px-[0.5rem]",
+                        "text-[0.875rem] font-semibold leading-[1.25rem]",
+                        "text-[var(--Light-Text-Tertiary,#B8B8B8)]",
+                        "disabled:cursor-not-allowed",
+                      ].join(" ")}
+                    >
+                      {isAcceptedInvitation ? "Accepted" : "Applied"}
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onSave?.();
+                    }}
+                    className={[
+                      "flex h-[2.5rem] min-w-[4.5rem] items-center justify-center",
+                      "rounded-[0.75rem] px-[0.5rem]",
+                      "text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]",
+                      "hover:bg-[#F2F2F2]",
+                    ].join(" ")}
+                  >
+                    Save
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={isApplying || hasApplied}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onApply?.();
+                    }}
+                    className={[
+                      "flex h-[2.5rem] min-w-[5.25rem] items-center justify-center",
+                      "rounded-[0.75rem] bg-[#1A1A1A] px-[0.5rem]",
+                      "text-[0.875rem] font-semibold leading-[1.25rem] text-white",
+                      "hover:bg-black",
+                      "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[#1A1A1A]",
+                    ].join(" ")}
+                  >
+                    {isApplying ? "Applying..." : hasApplied ? "Applied" : "Apply"}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

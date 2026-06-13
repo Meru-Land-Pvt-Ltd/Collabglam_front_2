@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import InfluencerScaffold from "@/components/ui/influencer/influencerScaffold";
+import { Loader } from '@/components/ui/loader';
 
 export default function InfluencerAppLayoutClient({
   children,
@@ -83,7 +84,7 @@ export default function InfluencerAppLayoutClient({
   if (checkingAuth) {
     return (
       <div className="flex h-dvh items-center justify-center bg-white">
-        <div className="text-sm text-neutral-500">Loading...</div>
+        <Loader logoSrc={"/logo.png"} />
       </div>
     );
   }

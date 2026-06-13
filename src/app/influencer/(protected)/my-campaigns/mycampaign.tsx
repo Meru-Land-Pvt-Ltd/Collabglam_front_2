@@ -17,6 +17,11 @@ import {
   apiGetMyCampaigns,
 } from "../../services/influencerApi";
 
+import SkeletonLoader, {
+  SkeletonProvider,
+  SkeletonCircle,
+} from "@/components/common/SkeletonLoader";
+
 export type MyCampaignVariant =
   | "all"
   | "active"
@@ -720,7 +725,36 @@ function matchesDateFilter(campaign: CampaignData, dateFilter: DateFilterValue) 
 
 function CampaignCardSkeleton() {
   return (
-    <div className="h-[34rem] animate-pulse rounded-[1.5rem] border border-[#E6E6E6] bg-[#F7F7F7]" />
+    <div className="w-full rounded-[1.5rem] border border-[#E6E6E6] bg-white p-3">
+      <SkeletonLoader className="h-[10rem] w-full rounded-[1rem]" />
+
+      <div className="mt-3 flex items-center gap-3">
+        <SkeletonCircle className="h-[3.25rem] w-[3.25rem] shrink-0" />
+
+        <div className="min-w-0 flex-1">
+          <SkeletonLoader className="h-4 w-28 rounded-md" />
+          <SkeletonLoader className="mt-2 h-3 w-20 rounded-md" />
+        </div>
+
+        <SkeletonLoader className="h-6 w-16 rounded-full" />
+      </div>
+
+      <SkeletonLoader className="mt-4 h-5 w-4/5 rounded-md" />
+      <SkeletonLoader className="mt-3 h-3 w-full rounded-md" />
+      <SkeletonLoader className="mt-2 h-3 w-3/4 rounded-md" />
+
+      <div className="mt-4 flex items-center gap-2">
+        <SkeletonLoader className="h-7 w-24 rounded-full" />
+        <SkeletonLoader className="h-7 w-20 rounded-full" />
+      </div>
+
+      <div className="mt-4 border-t border-[#E6E6E6] pt-4">
+        <div className="flex items-center justify-between gap-4">
+          <SkeletonLoader className="h-7 w-24 rounded-md" />
+          <SkeletonLoader className="h-9 w-28 rounded-[0.75rem]" />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -897,145 +931,147 @@ export default function MyCampaignsContent({
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      <MyCampaignNavbarGate />
-      <div className="mx-auto max-w-full px-6 py-10">
+    <SkeletonProvider>
+      <div className="min-h-screen bg-white">
+        <MyCampaignNavbarGate />
+        <div className="mx-auto max-w-full px-6 py-10">
 
-        {fetchError ? (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            <div className="flex items-center gap-3">
-              <span>{fetchError}</span>
+          {fetchError ? (
+            <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <div className="flex items-center gap-3">
+                <span>{fetchError}</span>
 
-              <button
-                type="button"
-                onClick={fetchCampaigns}
-                className="ml-auto font-semibold underline"
-              >
-                Retry
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        <CampaignFilter
-          campaignType={campaignType}
-          setCampaignType={setCampaignType}
-          creatorStatus={creatorStatus}
-          setCreatorStatus={setCreatorStatus}
-          categoryIds={categoryIds}
-          setCategoryIds={setCategoryIds}
-          dateFilter={dateFilter}
-          setDateFilter={setDateFilter}
-          aiCreated={aiCreated}
-          setAiCreated={setAiCreated}
-          searchInput={searchInput}
-          setSearchInput={setSearchInput}
-        />
-
-        <div className="mt-8">
-          {isLoading ? (
-            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <CampaignCardSkeleton key={index} />
-              ))}
-            </div>
-          ) : filteredCampaigns.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-[#E6E6E6] bg-white px-6 py-24 text-center">
-              <h3 className="text-lg font-semibold text-[#1A1A1A]">
-                {config.empty}
-              </h3>
-
-              <p className="mt-2 text-sm text-[#969696]">
-                Try adjusting your filters or search query.
-              </p>
-
-              {hasActiveFilters ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setSearchInput("");
-                    setCampaignType("all");
-                    setCreatorStatus("all");
-                    setCategoryIds([]);
-                    setDateFilter(DEFAULT_DATE_FILTER);
-                    setAiCreated(false);
-                  }}
-                  className="mt-5 rounded-lg border border-[#E6E6E6] bg-white px-4 py-2 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F7F7]"
+                  onClick={fetchCampaigns}
+                  className="ml-auto font-semibold underline"
                 >
-                  Clear all filters
+                  Retry
                 </button>
-              ) : null}
+              </div>
             </div>
-          ) : (
-            <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
-              {filteredCampaigns.map((campaign) => {
-                const cardStatus = getCardStatus(campaign);
+          ) : null}
 
-                if (variant === "all") {
+          <CampaignFilter
+            campaignType={campaignType}
+            setCampaignType={setCampaignType}
+            creatorStatus={creatorStatus}
+            setCreatorStatus={setCreatorStatus}
+            categoryIds={categoryIds}
+            setCategoryIds={setCategoryIds}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            aiCreated={aiCreated}
+            setAiCreated={setAiCreated}
+            searchInput={searchInput}
+            setSearchInput={setSearchInput}
+          />
+
+          <div className="mt-8">
+            {isLoading ? (
+              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <CampaignCardSkeleton key={index} />
+                ))}
+              </div>
+            ) : filteredCampaigns.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-[#E6E6E6] bg-white px-6 py-24 text-center">
+                <h3 className="text-lg font-semibold text-[#1A1A1A]">
+                  {config.empty}
+                </h3>
+
+                <p className="mt-2 text-sm text-[#969696]">
+                  Try adjusting your filters or search query.
+                </p>
+
+                {hasActiveFilters ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput("");
+                      setCampaignType("all");
+                      setCreatorStatus("all");
+                      setCategoryIds([]);
+                      setDateFilter(DEFAULT_DATE_FILTER);
+                      setAiCreated(false);
+                    }}
+                    className="mt-5 rounded-lg border border-[#E6E6E6] bg-white px-4 py-2 text-sm font-semibold text-[#1A1A1A] hover:bg-[#F7F7F7]"
+                  >
+                    Clear all filters
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <div className="grid gap-8 md:grid-cols-2 xl:grid-cols-3">
+                {filteredCampaigns.map((campaign) => {
+                  const cardStatus = getCardStatus(campaign);
+
+                  if (variant === "all") {
+                    return (
+                      <MyCampaignCard
+                        key={campaign.id}
+                        logoUrl={campaign.imageUrls[0]}
+                        logoAriaLabel={campaign.title || "Campaign image"}
+                        brandName={campaign.brandName}
+                        name={campaign.title}
+                        statusVariant={cardStatus.statusVariant}
+                        statusLabel={cardStatus.statusLabel}
+                        category={campaign.category}
+                        campaignGoal={campaign.campaignGoalValues[0]}
+                        platforms={campaign.platforms}
+                        milestoneCurrent={campaign.milestoneCurrent}
+                        milestoneTotal={campaign.milestoneTotal}
+                        budget={campaign.budgetMax}
+                        timelineStartDate={campaign.timeline.startDate}
+                        timelineEndDate={campaign.timeline.endDate}
+                        footerNote={`${campaign.currentMilestoneName || "Milestone Name"
+                          } submission in ${campaign.daysLeft || 0} days`}
+                        onCardClick={() => router.push(getCampaignHref(campaign))}
+                        onManageCampaign={() => router.push(getCampaignHref(campaign))}
+                        onMessageClick={() => router.push("/influencer/inbox")}
+                        onMoreClick={() => undefined}
+                      />
+                    );
+                  }
+
                   return (
-                    <MyCampaignCard
+                    <CampaignCard
                       key={campaign.id}
-                      logoUrl={campaign.imageUrls[0]}
-                      logoAriaLabel={campaign.title || "Campaign image"}
+                      title={campaign.title}
+                      description={campaign.description}
+                      imageUrl={campaign.imageUrls[0]}
+                      imageUrls={campaign.imageUrls}
                       brandName={campaign.brandName}
-                      name={campaign.title}
-                      statusVariant={cardStatus.statusVariant}
-                      statusLabel={cardStatus.statusLabel}
-                      category={campaign.category}
+                      brandLogoUrl={campaign.brandLogoUrl}
                       campaignGoal={campaign.campaignGoalValues[0]}
-                      platforms={campaign.platforms}
-                      milestoneCurrent={campaign.milestoneCurrent}
-                      milestoneTotal={campaign.milestoneTotal}
+                      category={campaign.category}
+                      ageLabel={compactAgeLabel(campaign.targetAgeGroupValues)}
+                      gender={campaign.gender}
+                      countries={campaign.targetCountryValues}
                       budget={campaign.budgetMax}
-                      timelineStartDate={campaign.timeline.startDate}
-                      timelineEndDate={campaign.timeline.endDate}
-                      footerNote={`${campaign.currentMilestoneName || "Milestone Name"
-                        } submission in ${campaign.daysLeft || 0} days`}
-                      onCardClick={() => router.push(getCampaignHref(campaign))}
-                      onManageCampaign={() => router.push(getCampaignHref(campaign))}
-                      onMessageClick={() => router.push("/influencer/inbox")}
-                      onMoreClick={() => undefined}
+                      viewedCount={campaign.applications}
+                      hasApplied={campaign.hasApplied === 1}
+                      isAppliedCard={variant === "applied"}
+                      appliedDate={campaign.appliedDate}
+                      onCardClick={
+                        variant === "applied"
+                          ? undefined
+                          : () => router.push(getCampaignHref(campaign))
+                      }
+                      onApply={() => undefined}
+                      onSave={() => undefined}
+                      onDeleteApplied={() => {
+                        // add withdraw/delete applied campaign API here
+                      }}
+                      onMore={() => undefined}
                     />
                   );
-                }
-
-                return (
-                  <CampaignCard
-                    key={campaign.id}
-                    title={campaign.title}
-                    description={campaign.description}
-                    imageUrl={campaign.imageUrls[0]}
-                    imageUrls={campaign.imageUrls}
-                    brandName={campaign.brandName}
-                    brandLogoUrl={campaign.brandLogoUrl}
-                    campaignGoal={campaign.campaignGoalValues[0]}
-                    category={campaign.category}
-                    ageLabel={compactAgeLabel(campaign.targetAgeGroupValues)}
-                    gender={campaign.gender}
-                    countries={campaign.targetCountryValues}
-                    budget={campaign.budgetMax}
-                    viewedCount={campaign.applications}
-                    hasApplied={campaign.hasApplied === 1}
-                    isAppliedCard={variant === "applied"}
-                    appliedDate={campaign.appliedDate}
-                    onCardClick={
-                      variant === "applied"
-                        ? undefined
-                        : () => router.push(getCampaignHref(campaign))
-                    }
-                    onApply={() => undefined}
-                    onSave={() => undefined}
-                    onDeleteApplied={() => {
-                      // add withdraw/delete applied campaign API here
-                    }}
-                    onMore={() => undefined}
-                  />
-                );
-              })}
-            </div>
-          )}
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </SkeletonProvider>
   );
 }

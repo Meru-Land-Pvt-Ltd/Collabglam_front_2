@@ -5,8 +5,10 @@ import ViewCampaignInvitation from "./campaign-invitations";
 
 export default function CampaignInvitation() {
   return (
-    <Suspense fallback={<div className="p-6">Loading…</div>}>
-      <ViewCampaignInvitation />
-    </Suspense>
+    <div className="h-dvh overflow-hidden bg-white">
+      <Suspense fallback={<div className="bg-white p-6">Loading…</div>}>
+        <ViewCampaignInvitation />
+      </Suspense>
+    </div>
   );
 }

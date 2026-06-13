@@ -61,7 +61,7 @@ export const SkeletonCard = ({
 }) => {
   return (
     <section
-      className={`flex w-full rounded-lg border border-[#E6E6E6] bg-white px-5 pt-4 pb-3 ${
+      className={`flex w-full rounded-lg border border-[#E6E6E6] bg-white px-5 pb-3 pt-4 ${
         tall ? "min-h-[30rem]" : ""
       }`}
     >
@@ -99,7 +99,7 @@ export const SkeletonInboxList = ({ rows = 5 }: { rows?: number }) => {
       {Array.from({ length: rows }).map((_, index) => (
         <div
           key={index}
-          className="flex w-full min-w-0 items-start gap-2 border-b border-[#E6E6E6] px-2 pt-2 pb-3 last:border-b-0"
+          className="flex w-full min-w-0 items-start gap-2 border-b border-[#E6E6E6] px-2 pb-3 pt-2 last:border-b-0"
         >
           <SkeletonCircle className="h-[1.375rem] w-[1.375rem] shrink-0" />
 

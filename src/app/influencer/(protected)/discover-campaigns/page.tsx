@@ -24,6 +24,10 @@ import DiscoverTopbarFilter, {
   EMPTY_DISCOVER_TOPBAR_FILTERS,
   type DiscoverTopbarFilterState,
 } from "./discovertopbarfilter";
+import SkeletonLoader, {
+  SkeletonProvider,
+  SkeletonCircle,
+} from "@/components/common/SkeletonLoader";
 
 import { apiApplyToCampaign } from "@/app/influencer/services/influencerApi";
 
@@ -840,6 +844,81 @@ function getBrandLogoUrl(campaign: any) {
 /*                                    PAGE                                    */
 /* -------------------------------------------------------------------------- */
 
+function DiscoverCampaignCardSkeleton() {
+  return (
+    <div className="relative flex h-[31.5rem] w-full min-w-0 max-w-none flex-col overflow-hidden rounded-[1.5rem] bg-white">
+      <div className="relative h-[11rem] max-h-[11rem] w-full shrink-0 overflow-visible bg-[#F2F2F2]">
+        <SkeletonLoader className="h-full w-full rounded-t-[1.5rem]" />
+
+        <SkeletonLoader className="absolute right-[1rem] top-[1rem] h-[1.75rem] w-[5.5rem] rounded-[1rem]" />
+
+        <div className="absolute bottom-[-2rem] left-[1.5rem] z-10">
+          <SkeletonLoader className="h-[4rem] w-[4rem] rounded-[0.625rem]" />
+        </div>
+      </div>
+
+      <div className="flex max-h-[20.5rem] flex-1 flex-col items-start justify-start gap-[0.75rem] self-stretch overflow-hidden px-[1.25rem] pb-[1.75rem] pt-[2.5rem]">
+        <div className="flex w-full items-center justify-between gap-[0.75rem]">
+          <div className="flex min-w-0 flex-wrap items-center gap-[0.5rem]">
+            <SkeletonLoader className="h-[1.75rem] w-[5.25rem] rounded-[1rem]" />
+            <SkeletonLoader className="h-[1.75rem] w-[4.25rem] rounded-[1rem]" />
+            <SkeletonLoader className="h-[1.75rem] w-[4rem] rounded-[1rem]" />
+          </div>
+
+          <SkeletonLoader className="h-8 w-8 shrink-0 rounded-full" />
+        </div>
+
+        <div className="flex w-full flex-col items-start gap-[0.5rem]">
+          <SkeletonLoader className="h-[1.5rem] w-[78%] rounded-md" />
+
+          <div className="flex w-full flex-col gap-[0.375rem]">
+            <SkeletonLoader className="h-[1rem] w-full rounded-md" />
+            <SkeletonLoader className="h-[1rem] w-[72%] rounded-md" />
+          </div>
+        </div>
+
+        <div className="flex w-full items-center py-[0.5rem]">
+          <SkeletonLoader className="h-4 w-4 shrink-0 rounded-full" />
+          <SkeletonLoader className="ml-[0.5rem] h-[1.25rem] w-[70%] rounded-md" />
+        </div>
+
+        <div className="flex w-full items-center gap-[1rem]">
+          <div className="flex items-center">
+            <SkeletonCircle className="h-[1.75rem] w-[1.75rem]" />
+            <SkeletonCircle className="-ml-2 h-[1.75rem] w-[1.75rem]" />
+            <SkeletonCircle className="-ml-2 h-[1.75rem] w-[1.75rem]" />
+          </div>
+
+          <SkeletonLoader className="h-[1rem] w-[3rem] rounded-md" />
+        </div>
+
+        <div className="mt-auto w-full shrink-0">
+          <div className="h-px w-full bg-[#E6E6E6]" />
+
+          <div className="flex w-full items-center pt-[0.75rem]">
+            <SkeletonLoader className="h-[1.75rem] w-[5rem] rounded-md" />
+
+            <div className="ml-auto flex items-center gap-[0.5rem]">
+              <SkeletonLoader className="h-[2.5rem] w-[4.5rem] rounded-[0.75rem]" />
+              <SkeletonLoader className="h-[2.5rem] w-[5.25rem] rounded-[0.75rem]" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiscoverCampaignGridSkeleton() {
+  return (
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
+      {Array.from({ length: 8 }).map((_, index) => (
+        <DiscoverCampaignCardSkeleton key={index} />
+      ))}
+    </div>
+  );
+}
+
 export default function DiscoverCampaigns() {
   const router = useRouter();
   const pageRef = useRef<HTMLDivElement | null>(null);
@@ -1068,98 +1147,93 @@ export default function DiscoverCampaigns() {
   };
 
   return (
-    <TooltipProvider>
-      <div ref={pageRef} className="min-h-screen bg-white">
-        <DiscoverTopbarFilter
-          search={search}
-          setSearch={setSearch}
-          collapsed={topFilterCollapsed}
-          value={topbarFilters}
-          onApply={setTopbarFilters}
-          onClear={() => setTopbarFilters(EMPTY_DISCOVER_TOPBAR_FILTERS)}
-        />
-
-        <div className="mx-auto max-w-full bg-white">
-          <DiscoverFilter
-            filters={filters}
-            setFilters={setFilters}
-            sortValue={sortValue}
-            setSortValue={setSortValue}
+    <SkeletonProvider>
+      <TooltipProvider>
+        <div ref={pageRef} className="min-h-screen bg-white">
+          <DiscoverTopbarFilter
+            search={search}
+            setSearch={setSearch}
+            collapsed={topFilterCollapsed}
+            value={topbarFilters}
+            onApply={setTopbarFilters}
+            onClear={() => setTopbarFilters(EMPTY_DISCOVER_TOPBAR_FILTERS)}
           />
 
-          <div className="px-[1.5rem] pb-8 pt-8">
-            {loading ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
-                {Array.from({ length: 6 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="h-[320px] animate-pulse rounded-2xl border bg-gray-100"
-                  />
-                ))}
-              </div>
-            ) : error ? (
-              <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
-                <p className="text-sm font-medium text-red-700">{error}</p>
+          <div className="mx-auto max-w-full bg-white">
+            <DiscoverFilter
+              filters={filters}
+              setFilters={setFilters}
+              sortValue={sortValue}
+              setSortValue={setSortValue}
+            />
 
-                <Button
-                  className="mt-4"
-                  onClick={() => setRefreshKey((value) => value + 1)}
-                >
-                  Retry
-                </Button>
-              </div>
-            ) : filteredCampaigns.length === 0 ? (
-              <div className="rounded-2xl border bg-white p-10 text-center">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  No campaigns found
-                </h3>
+            <div className="px-[1.5rem] pb-8 pt-8">
+              {loading ? (
+                <DiscoverCampaignGridSkeleton />
+              ) : error ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+                  <p className="text-sm font-medium text-red-700">{error}</p>
 
-                <p className="mt-2 text-sm text-gray-500">
-                  Try changing your search or filter selection.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,22.0625rem),22.0625rem))] justify-start gap-[1.5rem]">
-                {filteredCampaigns.map((campaign) => (
-                  <CampaignCard
-                    key={campaign.id}
-                    title={campaign.title}
-                    description={campaign.description}
-                    imageUrl={campaign.image}
-                    imageUrls={campaign.images}
-                    brandName={campaign.brand}
-                    brandLogoUrl={campaign.brandLogo}
-                    campaignGoal={campaign.goalLabel}
-                    category={campaign.category}
-                    ageLabel={campaign.ageLabel}
-                    gender={campaign.gender}
-                    countries={campaign.countries}
-                    budget={campaign.budgetMax}
-                    viewedCount={campaign.applications}
-                    applicantAvatars={campaign.applicantAvatars}
-                    isApplying={applyingCampaignIds.includes(campaign.id)}
-                    hasApplied={appliedCampaignIds.includes(campaign.id)}
-                    onCardClick={() =>
-                      router.push(
-                        `/influencer/discover-campaigns/${encodeURIComponent(
-                          campaign.id
-                        )}?title=${encodeURIComponent(campaign.title || "Campaign Details")}`
-                      )
-                    }
-                    onApply={() => handleApplyToCampaign(campaign)}
-                    onSave={() => {
-                      // save API here when available
-                    }}
-                    onMore={() => {
-                      // open more menu here when available
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+                  <Button
+                    className="mt-4"
+                    onClick={() => setRefreshKey((value) => value + 1)}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : filteredCampaigns.length === 0 ? (
+                <div className="rounded-2xl border bg-white p-10 text-center">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    No campaigns found
+                  </h3>
+
+                  <p className="mt-2 text-sm text-gray-500">
+                    Try changing your search or filter selection.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid w-full justify-items-stretch gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))]">
+                  {filteredCampaigns.map((campaign) => (
+                    <CampaignCard
+                      key={campaign.id}
+                      title={campaign.title}
+                      description={campaign.description}
+                      imageUrl={campaign.image}
+                      imageUrls={campaign.images}
+                      brandName={campaign.brand}
+                      brandLogoUrl={campaign.brandLogo}
+                      campaignGoal={campaign.goalLabel}
+                      category={campaign.category}
+                      ageLabel={campaign.ageLabel}
+                      gender={campaign.gender}
+                      countries={campaign.countries}
+                      budget={campaign.budgetMax}
+                      viewedCount={campaign.applications}
+                      applicantAvatars={campaign.applicantAvatars}
+                      isApplying={applyingCampaignIds.includes(campaign.id)}
+                      hasApplied={appliedCampaignIds.includes(campaign.id)}
+                      onCardClick={() =>
+                        router.push(
+                          `/influencer/discover-campaigns/${encodeURIComponent(
+                            campaign.id
+                          )}?title=${encodeURIComponent(campaign.title || "Campaign Details")}`
+                        )
+                      }
+                      onApply={() => handleApplyToCampaign(campaign)}
+                      onSave={() => {
+                        // save API here when available
+                      }}
+                      onMore={() => {
+                        // open more menu here when available
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    </TooltipProvider>
+      </TooltipProvider>
+    </SkeletonProvider>
   );
 }

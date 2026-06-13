@@ -411,7 +411,7 @@ export default function InvitationFilter({
   );
 
   return (
-    <section className="mt-[2rem] px-[2rem]">
+    <section className="bg-white px-[2rem] pt-[2rem]">
       <div className="flex items-start justify-between gap-x-[2.5rem] gap-y-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center content-center gap-x-[0.75rem] gap-y-[0.5rem]">
           {!hideAdvancedFilters ? (

@@ -36,7 +36,7 @@ export function Loader({
   size = 205,
   logoSize = 72,
   strokeWidth = 2,
-  stroke = "#828282",
+  stroke = "#010101",
   speedMs = 1100,
   className,
   ariaLabel = "Loading",

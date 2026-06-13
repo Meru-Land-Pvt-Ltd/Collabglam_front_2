@@ -24,6 +24,11 @@ import {
 import { Button } from "@/components/ui/buttonComp";
 import Image from "next/image";
 
+import SkeletonLoader, {
+  SkeletonCircle,
+  SkeletonProvider,
+} from "@/components/common/SkeletonLoader";
+
 function asArray<T = any>(v: any): T[] {
   if (!v) return [];
   return Array.isArray(v) ? v : [v];
@@ -281,9 +286,9 @@ function SidebarShell({
 }) {
   if (embedded) {
     return (
-      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[1rem] border border-[#E6E6E6] bg-white">
+      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-t-[1rem] rounded-b-none border border-[#E6E6E6] bg-white">
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-[1.25rem] pb-[7rem] pt-[1.25rem]"
+          className="min-h-0 flex-1 overflow-y-auto px-[1.25rem] pb-[5rem] pt-[1.25rem] [scrollbar-width:thin] [scrollbar-color:#E6E6E6_transparent] [&::-webkit-scrollbar]:w-[0.375rem] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:min-h-[4.8125rem] [&::-webkit-scrollbar-thumb]:rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] [&::-webkit-scrollbar-thumb]:bg-[#E6E6E6]"
           style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
         >
           <div className="flex w-full flex-col items-start gap-[1.75rem]">
@@ -303,10 +308,10 @@ function SidebarShell({
   return (
     <div className="fixed inset-y-0 right-0 z-50 flex w-full justify-end bg-black/20">
       <aside
-        className="relative flex h-screen w-full max-w-[45.75rem] flex-col overflow-hidden rounded-t-[1rem] border-x border-t border-[#E6E6E6] bg-white"
+        className="relative flex h-screen w-full max-w-[45.75rem] flex-col overflow-hidden rounded-t-[1rem] rounded-b-none border-x border-t border-[#E6E6E6] bg-white"
         style={{ fontFamily: "var(--Font-Family-Inter, Inter)" }}
       >
-        <div className="min-h-0 flex-1 overflow-y-auto px-[1.25rem] pb-[7rem] pt-[1.25rem]">
+        <div className="min-h-0 flex-1 overflow-y-auto px-[1.25rem] pb-[7rem] pt-[1.25rem] [scrollbar-width:thin] [scrollbar-color:#E6E6E6_transparent] [&::-webkit-scrollbar]:w-[0.375rem] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:min-h-[4.8125rem] [&::-webkit-scrollbar-thumb]:rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] [&::-webkit-scrollbar-thumb]:bg-[#E6E6E6]">
           <div className="flex w-full flex-col items-start gap-[1.75rem]">
             {children}
           </div>
@@ -324,19 +329,19 @@ function SidebarShell({
 
 function TagCard({ title, values }: { title: string; values: string[] }) {
   return (
-    <div className="flex min-h-[6.25rem] flex-1 flex-col items-start gap-[1.3125rem] self-stretch rounded-[0.75rem] border border-[#E6E6E6] bg-white p-3">
+    <div className="flex min-h-[7.5rem] min-w-0 flex-col items-start gap-[1rem] rounded-[0.75rem] border border-[#E6E6E6] bg-white p-3">
       <div className="self-stretch text-[0.75rem] font-semibold leading-[1.25rem] text-[#1A1A1A]">
         {title}
       </div>
 
-      <div className="flex flex-wrap items-start gap-2 self-stretch">
+      <div className="flex min-w-0 flex-wrap items-start gap-2 self-stretch">
         {values.length ? (
           values.map((value, idx) => (
             <span
               key={`${title}-${value}-${idx}`}
-              className="flex h-7 items-center justify-center rounded-[1.25rem] bg-[#F9F9F9] px-3"
+              className="flex min-h-7 max-w-full items-center justify-center rounded-[1.25rem] bg-[#F9F9F9] px-3 py-1"
             >
-              <span className="text-[0.75rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
+              <span className="break-words text-[0.75rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
                 {value}
               </span>
             </span>
@@ -383,7 +388,7 @@ function InfoMetricCard({
   value: string;
 }) {
   return (
-    <div className="flex min-h-[10rem] flex-1 flex-col items-start rounded-[0.75rem] border border-[#E6E6E6] bg-white p-3">
+    <div className="flex min-h-[9rem] min-w-0 flex-col items-start rounded-[0.75rem] border border-[#E6E6E6] bg-white p-3">
       <div className="flex h-12 w-12 items-center justify-center rounded-[0.5rem] bg-[#F2F2F2] p-3">
         {icon}
       </div>
@@ -393,7 +398,7 @@ function InfoMetricCard({
           {label}
         </div>
 
-        <div className="break-words text-[1rem] font-medium leading-[1.5rem] text-[#1A1A1A]">
+        <div className="max-w-full break-words text-[1rem] font-medium leading-[1.5rem] text-[#1A1A1A]">
           {value}
         </div>
       </div>
@@ -514,39 +519,34 @@ function ApplicationTimeline({
           return (
             <div
               key={`${item.title}-${index}`}
-              className="flex w-full items-start gap-3"
+              className="flex w-full items-start gap-[0.75rem]"
             >
-              <div className="flex flex-col items-center">
-                <div
-                  className={[
-                    "flex h-6 w-6 items-center justify-center rounded-full",
-                    item.done
-                      ? "bg-[#28A745] text-white"
-                      : "border border-[#B8B8B8] bg-white text-[#B8B8B8]",
-                  ].join(" ")}
-                >
-                  <CheckCircle weight="fill" className="h-6 w-6" />
+              <div className="flex shrink-0 flex-col items-center">
+                <div className="flex h-[1.5rem] w-[1.5rem] items-center justify-center">
+                  {item.done ? (
+                    <CheckCircle
+                      weight="fill"
+                      className="h-[1.5rem] w-[1.5rem] text-[#28A745]"
+                    />
+                  ) : (
+                    <CheckCircle
+                      weight="regular"
+                      className="h-[1.5rem] w-[1.5rem] text-[#969696]"
+                    />
+                  )}
                 </div>
 
-                {!isLast ? <div className="h-12 w-px bg-[#E6E6E6]" /> : null}
+                {!isLast ? (
+                  <div className="my-[0.25rem] h-[1.75rem] w-px bg-[var(--Light-Border-Subtle,#E6E6E6)]" />
+                ) : null}
               </div>
 
-              <div className="flex min-w-0 flex-1 flex-col pb-6">
-                <div
-                  className={[
-                    "text-center font-[var(--Font-family-Body,Inter)]",
-                    "text-[var(--Font-size-Small,1rem)] font-semibold",
-                    "leading-[var(--Line-height-Small,1.5rem)]",
-                    "text-[var(--Light-Text-Primary,#1A1A1A)]",
-                  ].join(" ")}
-                  style={{
-                    fontFeatureSettings: "'liga' off, 'clig' off",
-                  }}
-                >
+              <div className="flex min-w-0 flex-1 flex-col items-start pb-[1rem]">
+                <div className="text-left text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]">
                   {item.title}
                 </div>
 
-                <div className="text-[0.75rem] font-normal leading-[1rem] text-[#B8B8B8]">
+                <div className="text-left text-[0.75rem] font-normal leading-[1rem] text-[#B8B8B8]">
                   {item.subtitle}
                 </div>
               </div>
@@ -565,28 +565,23 @@ function StartConversationCard({
 }) {
   return (
     <section
-      className={[
-        "flex h-[5.5rem] flex-shrink-0 items-center justify-center",
-        "gap-[1rem] self-stretch rounded-[0.75rem] p-[1rem]",
-        "overflow-hidden",
-      ].join(" ")}
+      className="flex min-h-[5.5rem] w-full flex-shrink-0 items-center gap-[0.75rem] overflow-hidden rounded-[0.75rem] p-[1rem]"
       style={{
         background:
-          "linear-gradient(109deg,#D96FD2 0%,#F4584F 34%,#FFC726 58%,#FFF4CA 78%,#FFFFFF 100%)",
+          "linear-gradient(100deg, #D96FD2 0%, #F4584F 32%, #FFC726 65%, #FFF4CA 85%, #FFFFFF 100%)",
       }}
     >
       <div className="flex h-[3rem] w-[3rem] flex-shrink-0 items-center justify-center rounded-[0.5rem] border border-[#E6E6E6] bg-white p-[0.75rem]">
         <ChalkboardTeacher weight="bold" className="h-6 w-6 text-[#1A1A1A]" />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col items-start">
-        <div className="text-[1.25rem] font-semibold leading-[1.75rem] tracking-[0] text-white">
+      <div className="flex min-w-0 flex-1 flex-col items-start gap-[0.125rem]">
+        <div className="text-[1.25rem] font-semibold leading-[1.75rem] text-white">
           Start the conversation 👋
         </div>
 
-        <div className="line-clamp-2 max-w-[34rem] text-[0.875rem] font-normal leading-[1.25rem] text-white">
-          Introduce yourself, ask campaign-related questions, or share why you
-          would be a great fit for this collaboration.
+        <div className="text-[0.875rem] font-normal leading-[1.25rem] text-white">
+          Introduce yourself, ask campaign-related questions, or share why you'd be a great fit for this collaboration.
         </div>
       </div>
 
@@ -810,6 +805,61 @@ function CompanyDescriptionPanel({
   );
 }
 
+function CampaignSidebarLoadingSkeleton({ embedded = false }: { embedded?: boolean }) {
+  return (
+    <SkeletonProvider>
+      <SidebarShell embedded={embedded}>
+        <div className="flex w-full flex-col gap-[1.75rem]">
+          <div className="flex items-center gap-4">
+            <SkeletonCircle className="h-[6.25rem] w-[6.25rem]" />
+
+            <div className="min-w-0 flex-1">
+              <SkeletonLoader className="h-7 w-1/2 rounded-md" />
+              <SkeletonLoader className="mt-3 h-4 w-1/3 rounded-md" />
+            </div>
+
+            <SkeletonLoader className="hidden h-10 w-40 rounded-[0.75rem] sm:block" />
+          </div>
+
+          <div className="flex gap-6 border-b border-[#E6E6E6] pb-3">
+            <SkeletonLoader className="h-5 w-20 rounded-md" />
+            <SkeletonLoader className="h-5 w-28 rounded-md" />
+          </div>
+
+          <div>
+            <SkeletonLoader className="h-6 w-44 rounded-md" />
+
+            <div className="mt-5 flex flex-col gap-5">
+              {[1, 2, 3].map((item) => (
+                <div key={item} className="flex items-start gap-3">
+                  <SkeletonCircle className="h-6 w-6" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonLoader className="h-4 w-40 rounded-md" />
+                    <SkeletonLoader className="mt-2 h-3 w-32 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <SkeletonLoader className="h-[5.5rem] w-full rounded-[0.75rem]" />
+
+          <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-5">
+            {[1, 2, 3, 4].map((item) => (
+              <SkeletonLoader key={item} className="h-[7.5rem] rounded-[0.75rem]" />
+            ))}
+          </div>
+
+          <div>
+            <SkeletonLoader className="h-6 w-32 rounded-md" />
+            <SkeletonLoader className="mt-5 h-[14.8125rem] w-full rounded-[0.75rem]" />
+          </div>
+        </div>
+      </SidebarShell>
+    </SkeletonProvider>
+  );
+}
+
 export default function SidebarCampaign({
   campaignId: campaignIdProp,
   invitationId,
@@ -931,18 +981,7 @@ export default function SidebarCampaign({
   }, [influencerId, campaignId, token]);
 
   if (loading) {
-    return (
-      <SidebarShell embedded={embedded}>
-        <div className="w-full rounded-2xl border border-[#E6E6E6] bg-white p-6 shadow-sm">
-          <div className="h-6 w-64 animate-pulse rounded bg-gray-200" />
-          <div className="mt-3 h-4 w-96 max-w-full animate-pulse rounded bg-gray-200" />
-          <div className="mt-6 grid gap-3 md:grid-cols-2">
-            <div className="h-40 animate-pulse rounded-2xl bg-gray-100" />
-            <div className="h-40 animate-pulse rounded-2xl bg-gray-100" />
-          </div>
-        </div>
-      </SidebarShell>
-    );
+    return <CampaignSidebarLoadingSkeleton embedded={embedded} />;
   }
 
   if (err) {
@@ -1572,46 +1611,8 @@ export default function SidebarCampaign({
     onInvitationAccepted?.(invitationId);
   };
 
-  const footer = (
-    <div className="flex h-[3rem] w-full items-center gap-[1rem]">
-      <button
-        type="button"
-        className="flex h-[2.5rem] items-center justify-center gap-[0.25rem] rounded-[0.75rem] px-[0.5rem] text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]"
-      >
-        ♡ Save
-      </button>
-
-      <button
-        type="button"
-        className="ml-auto flex h-[2.5rem] w-[7rem] items-center justify-center rounded-[0.75rem] px-[0.5rem] text-[0.875rem] font-semibold leading-[1.25rem] text-[#1A1A1A]"
-        onClick={() => {
-          if (!embedded) router.back();
-        }}
-      >
-        Discard
-      </button>
-
-      <button
-        type="button"
-        disabled={isAcceptedInvitation || !showApplyButton}
-        onClick={handleApplyNow}
-        className={[
-          "flex h-[2.5rem] w-[7rem] items-center justify-center",
-          "rounded-[0.75rem] px-[0.5rem]",
-          isAcceptedInvitation
-            ? "bg-[var(--Light-Background-Disabled,#F5F5F5)] text-[var(--Light-Text-Tertiary,#B8B8B8)]"
-            : "bg-[#1A1A1A] text-white",
-          "text-[0.875rem] font-semibold leading-[1.25rem]",
-          "disabled:cursor-not-allowed disabled:opacity-60",
-        ].join(" ")}
-      >
-        {isAcceptedInvitation ? "Accepted" : "Apply Now"}
-      </button>
-    </div>
-  );
-
-  return (
-    <SidebarShell embedded={embedded} footer={footer}>
+  const sidebarContent = (
+    <SidebarShell embedded={embedded}>
       <CampaignHeader
         logoUrl={logoUrl}
         title={campaignTitle}
@@ -1631,7 +1632,7 @@ export default function SidebarCampaign({
 
           <StartConversationCard onMailToBrand={onMailToBrand} />
 
-          <section className="grid w-full grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,10rem),1fr))] gap-5">
             <TagCard title="Category" values={categoryTags} />
             <TagCard title="Subcategory" values={subcategoryTags} />
             <TagCard title="Campaign type" values={campaignTypeTags} />
@@ -1641,7 +1642,7 @@ export default function SidebarCampaign({
           <section className="flex w-full flex-col items-start gap-6 rounded-[1.25rem] bg-white">
             <SectionTitle title="Description" />
 
-            <div className="flex h-[14.8125rem] w-full flex-col items-start overflow-auto rounded-[0.75rem] border border-[#E6E6E6] bg-white p-3">
+            <div className="flex h-[14.8125rem] w-full flex-col items-start overflow-auto rounded-[0.75rem] border border-[#E6E6E6] [scrollbar-width:thin] [scrollbar-color:#E6E6E6_transparent] [&::-webkit-scrollbar]:w-[0.375rem] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:min-h-[4.8125rem] [&::-webkit-scrollbar-thumb]:rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] [&::-webkit-scrollbar-thumb]:bg-[#E6E6E6] bg-white p-3">
               <div className="whitespace-pre-wrap text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
                 {descriptionText || "—"}
               </div>
@@ -1881,7 +1882,7 @@ export default function SidebarCampaign({
           <section className="flex w-full flex-col items-start gap-6 rounded-[1.25rem] bg-white">
             <SectionTitle title="Timeline & Payments" />
 
-            <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(min(100%,8.75rem),1fr))] gap-3">
               <InfoMetricCard
                 icon={
                   <CalendarDots
@@ -1943,7 +1944,7 @@ export default function SidebarCampaign({
                   </div>
                 </div>
 
-                <div className="flex w-full flex-1 items-start justify-between self-stretch overflow-auto p-3">
+                <div className="flex w-full flex-1 items-start justify-between self-stretch overflow-auto p-3 [scrollbar-width:thin] [scrollbar-color:#E6E6E6_transparent] [&::-webkit-scrollbar]:w-[0.375rem] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:min-h-[4.8125rem] [&::-webkit-scrollbar-thumb]:rounded-[var(--Sizes-Border-Radius-Pill,6.25rem)] [&::-webkit-scrollbar-thumb]:bg-[#E6E6E6]">
                   <div className="whitespace-pre-wrap text-[0.875rem] font-medium leading-[1.25rem] text-[#1A1A1A]">
                     {additionalNotesText || "—"}
                   </div>
@@ -2020,4 +2021,10 @@ export default function SidebarCampaign({
       )}
     </SidebarShell>
   );
+
+  if (embedded) {
+    return sidebarContent;
+  }
+
+  return sidebarContent;
 }
